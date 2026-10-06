@@ -80,6 +80,8 @@ function toast(msg, isError = false) {
   toastTimer = setTimeout(() => (el.className = ''), 3500);
 }
 
+// Each sign-in starts on the dashboard, not on the page the previous user left open.
+const resetRoute = () => history.replaceState(null, '', location.pathname + location.search);
 const formData = (form) => Object.fromEntries(new FormData(form).entries());
 const go = (hash) => { location.hash = hash; };
 
@@ -102,6 +104,7 @@ function renderLogin() {
     const err = document.getElementById('login-error');
     try {
       await api('/login', { method: 'POST', body: formData(e.target) });
+      resetRoute();
       await boot();
     } catch (ex) {
       err.textContent = ex.message;
@@ -172,6 +175,7 @@ function shell(content) {
   document.getElementById('logout').onclick = async () => {
     await api('/logout', { method: 'POST' }).catch(() => {});
     state.user = null;
+    resetRoute();
     renderLogin();
   };
   document.getElementById('bell').onclick = toggleNotifications;
