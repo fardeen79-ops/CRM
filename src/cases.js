@@ -498,7 +498,7 @@ export function createCase(db, user, input) {
       .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), STATUS.PENDING, user.id, ts, ts);
     const id = Number(lastInsertRowid);
     addEvent(db, id, user.id, 'created', { to: STATUS.PENDING, detail: 'sent_to_check' });
-    if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: 'name, Emirates ID number' });
+    if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
     return getCase(db, user, id);
   });
 }
@@ -531,7 +531,7 @@ export function updateCase(db, user, id, input) {
       id
     );
     addEvent(db, id, user.id, 'edited', { detail: changed.join(', ') });
-    if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: 'name, Emirates ID number' });
+    if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
     return getCase(db, user, id);
   });
 }

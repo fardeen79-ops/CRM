@@ -1,6 +1,5 @@
 // Sourcing CRM — single-page frontend (no build step).
 import { openEidScanner } from './eid-scan.js';
-import { toFormFields } from './mrz.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
 const STATUS_LABEL = {
@@ -832,27 +831,25 @@ async function viewCaseForm(id) {
   // Emirates ID scan: fills the name and ID number for the sales person to check.
   let scanned = false;
   $('#scan-eid').onclick = async () => {
-    const mrz = await openEidScanner(state.meta.ocr);
-    if (!mrz) return;
-    const fields = toFormFields(mrz);
-    for (const [name, value] of Object.entries(fields)) {
+    const result = await openEidScanner(state.meta.ocr);
+    if (!result) return;
+    for (const [name, value] of Object.entries(result.fields)) {
       const input = $(`#f-${name}`);
       if (!input || !value) continue;
       input.value = value;
       input.classList.add('scanned');
       input.addEventListener('input', () => input.classList.remove('scanned'), { once: true });
     }
-    scanned = true;
-    const warnings = [];
-    if (mrz.expiryDate && mrz.expiryDate < todayLocal()) warnings.push(`This Emirates ID expired on ${fmtDay(mrz.expiryDate)}.`);
-    if (mrz.nameTruncated) warnings.push('The name on the back of the card is cut short to fit. Check the full name on the front.');
-    if (!mrz.checks.composite) warnings.push('One of the card’s check digits did not match. Compare the ID number with the card carefully.');
-    $('#scan-result').innerHTML = html`<div class="callout ${warnings.length ? 'warn' : 'success'} scan-callout">
-      <strong>Filled from the Emirates ID: name and Emirates ID number.</strong>
-      Check them against the card before submitting.${mrz.expiryDate ? html` <span class="muted">Card valid until ${fmtDay(mrz.expiryDate)}.</span>` : ''}
+    scanned = result.side;
+    const warnings = [...result.notes];
+    const expired = result.expiryDate && result.expiryDate < todayLocal();
+    if (expired) warnings.unshift(`This Emirates ID expired on ${fmtDay(result.expiryDate)}.`);
+    $('#scan-result').innerHTML = html`<div class="callout ${expired || result.side === 'back' && warnings.length ? 'warn' : 'success'} scan-callout">
+      <strong>Filled from the ${result.side} of the Emirates ID: name and Emirates ID number.</strong>
+      Check them against the card before submitting.${result.expiryDate && !expired ? html` <span class="muted">Card valid until ${fmtDay(result.expiryDate)}.</span>` : ''}
       ${warnings.map((w) => html`<div class="scan-warning">${w}</div>`)}
     </div>`.s;
-    toast('Details filled from the Emirates ID');
+    toast(`Details filled from the ${result.side} of the Emirates ID`);
   };
 
   const save = async (resubmit) => {
@@ -873,7 +870,7 @@ async function viewCaseForm(id) {
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
       delete body.buyout_bank_other;
-      if (scanned) body.eid_scanned = true;
+      if (scanned) body.eid_scanned = scanned;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
       toast(id ? (resubmit ? 'Saved and resubmitted for verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);

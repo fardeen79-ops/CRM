@@ -1,7 +1,9 @@
-// Emirates ID scanner: reads the machine-readable lines on the back of the card with the phone
-// camera (or a photo) and returns the parsed fields. OCR runs on the device with Tesseract.js;
+// Emirates ID scanner: reads either the front of the card (full printed name and ID number) or the
+// machine-readable lines on the back (check digits, but long names cut short), from the phone
+// camera or a photo, and returns form fields. OCR runs on the device with Tesseract.js;
 // no image leaves the phone or is stored.
-import { findMrz } from './mrz.js';
+import { findMrz, toFormFields } from './mrz.js';
+import { parseFront, splitName } from './eid-front.js';
 
 const MRZ_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<';
 const CARD_ASPECT = 85.6 / 54; // ID-1 card
@@ -81,7 +83,6 @@ function getWorker(ocr, onProgress) {
       logger: (m) => { if (m.status === 'loading language traineddata' && m.progress != null) onProgress?.(0.6 + m.progress * 0.4); },
     });
     onProgress?.(1);
-    await worker.setParameters({ tessedit_char_whitelist: MRZ_CHARS, tessedit_pageseg_mode: '6' });
     return worker;
   })();
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('The scanner took too long to load. Check your connection and try again.')), LOAD_TIMEOUT_MS));
@@ -122,34 +123,67 @@ function crop(source, sx, sy, sw, sh, targetWidth = 1200) {
   return prepare(canvas);
 }
 
-async function read(worker, canvas) {
+const FRONT_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-:/.,\' ';
+
+// Reads one image for the chosen side. The back is read with the MRZ alphabet; the front with
+// ordinary letters so the "Name" label and the full name come through.
+async function read(worker, canvas, side, psm = '6') {
+  await worker.setParameters({
+    tessedit_char_whitelist: side === 'back' ? MRZ_CHARS : FRONT_CHARS,
+    tessedit_pageseg_mode: psm,
+  });
   const { data } = await worker.recognize(canvas);
-  return findMrz(data.text);
+  return side === 'back' ? findMrz(data.text) : parseFront(data.text);
 }
 
-// A usable read has passing document, birth and expiry check digits and an Emirates ID number.
-// The ID number itself is only covered by the composite check, so a read that also passes that
-// is preferred; the scanner keeps trying briefly for one before settling.
+// Back: a usable read has passing document, birth and expiry check digits and an Emirates ID
+// number. The ID number itself is only covered by the composite check, so a read that also
+// passes that is preferred; the scanner keeps trying briefly for one before settling.
 const accept = (mrz) => mrz && mrz.valid && mrz.eidNumber;
 const perfect = (mrz) => accept(mrz) && mrz.checks.composite;
 const SETTLE_MS = 4000;
+// Front: no check digits, so a live scan waits for two frames that agree.
+const frontKey = (f) => (f?.found ? `${f.fullName.toLowerCase()}|${f.eidNumber}` : null);
 
-function explain(mrz) {
-  if (!mrz) return 'Hold the back of the card inside the frame, with the three lines of letters and < signs at the bottom.';
-  if (mrz.valid && !mrz.eidNumber) {
-    return mrz.issuingState && mrz.issuingState !== 'ARE'
+function explain(side, r) {
+  if (side === 'front') {
+    if (!r) return 'Hold the front of the card inside the frame, flat and out of direct light.';
+    if (r.fullName && !r.eidNumber) return 'Name found. Keep the ID number in view too.';
+    if (!r.fullName && r.eidNumber) return 'ID number found. Keep the English name in view too.';
+    return 'Hold the front of the card inside the frame, flat and out of direct light.';
+  }
+  if (!r) return 'Hold the back of the card inside the frame, with the three lines of letters and < signs at the bottom.';
+  if (r.valid && !r.eidNumber) {
+    return r.issuingState && r.issuingState !== 'ARE'
       ? 'That card is not an Emirates ID. Scan the back of the customer’s Emirates ID.'
       : 'Card read, but no Emirates ID number was found on it. Try again or type the details.';
   }
   return 'Almost there. Hold the card steady, flat and out of direct light.';
 }
 
+/** Turns a read of either side into form fields plus notes for the person checking them. */
+function toResult(side, r) {
+  if (side === 'front') {
+    return {
+      side,
+      fields: { ...splitName(r.fullName), eid_number: r.eidNumber },
+      expiryDate: r.expiryDate,
+      notes: ['The front of the card has no check digits, so compare the name and ID number with the card.'],
+    };
+  }
+  const notes = [];
+  if (r.nameTruncated) notes.push('The back of the card cuts long names short. Scan the front for the full name, or check it against the card.');
+  if (!r.checks.composite) notes.push('One of the card’s check digits did not match. Compare the ID number with the card carefully.');
+  return { side, fields: toFormFields(r), expiryDate: r.expiryDate, notes };
+}
+
 /**
- * Opens the scanner. Resolves with the parsed MRZ when a read passes its check digits,
+ * Opens the scanner. Resolves with { side, fields, expiryDate, notes } once a side is read,
  * or null if the user cancels.
  */
 export function openEidScanner(ocr) {
   return new Promise((resolve) => {
+    let side = 'front';
     const modal = document.createElement('div');
     modal.className = 'scan-modal';
     modal.setAttribute('role', 'dialog');
@@ -158,13 +192,18 @@ export function openEidScanner(ocr) {
     modal.innerHTML = `
       <div class="scan-sheet">
         <div class="scan-head">
-          <div><h2 id="scan-title">Scan Emirates ID</h2><p class="muted small">Back of the card. The image stays on this device.</p></div>
+          <div><h2 id="scan-title">Scan Emirates ID</h2><p class="muted small">The image stays on this device.</p></div>
           <button type="button" class="btn-link" data-close aria-label="Close scanner">Close</button>
+        </div>
+        <div class="segmented two-up scan-sides" role="radiogroup" aria-label="Side of the card">
+          <label><input type="radio" name="scan-side" value="front" checked><span>Front <small>full name</small></span></label>
+          <label><input type="radio" name="scan-side" value="back"><span>Back <small>check digits</small></span></label>
         </div>
         <div class="scan-view" hidden>
           <video playsinline muted autoplay></video>
           <div class="scan-frame" style="--frame-w:${FRAME_WIDTH * 100}%;--card-aspect:${CARD_ASPECT}">
             <div class="scan-mrz" style="height:${MRZ_SHARE * 100}%"><span>Machine-readable lines</span></div>
+            <div class="scan-front-hint"><span>Front of the card</span></div>
           </div>
         </div>
         <p class="scan-status" role="status" aria-live="polite">Starting the camera…</p>
@@ -178,6 +217,7 @@ export function openEidScanner(ocr) {
     document.body.append(modal);
     const video = modal.querySelector('video');
     const view = modal.querySelector('.scan-view');
+    const frame = modal.querySelector('.scan-frame');
     const status = modal.querySelector('.scan-status');
     const progress = modal.querySelector('.scan-progress');
     const bar = progress.querySelector('span');
@@ -185,6 +225,10 @@ export function openEidScanner(ocr) {
     let stream = null;
     let done = false;
     let timer = null;
+    let ready = false;
+    let candidate = null; // back: best read that passed the main checks but not the composite
+    let candidateAt = 0;
+    let lastFront = null; // front: previous frame's read, to confirm with the next one
 
     const say = (msg) => { status.textContent = msg; };
     const onProgress = (p) => {
@@ -192,6 +236,16 @@ export function openEidScanner(ocr) {
       bar.style.width = `${Math.round(p * 100)}%`;
       if (p < 1) say('Loading the scanner (first time only)…');
     };
+    const setSide = (value) => {
+      side = value;
+      frame.dataset.side = side;
+      candidate = null;
+      lastFront = null;
+      if (ready) say(explain(side, null));
+    };
+    modal.querySelectorAll('input[name="scan-side"]').forEach((r) => (r.onchange = () => setSide(r.value)));
+    setSide('front');
+
     const finish = (result) => {
       if (done) return;
       done = true;
@@ -206,24 +260,43 @@ export function openEidScanner(ocr) {
     modal.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => finish(null)));
 
     // Photo path: works without live camera access (and over plain HTTP on most phones).
+    // Reads the chosen side; if that fails, tries the other side in case the photo shows it.
+    const readPhoto = async (worker, img, photoSide) => {
+      const w = img.width;
+      const h = img.height;
+      if (photoSide === 'front') {
+        // Whole photo as a block of text, then as scattered text if the layout confused it.
+        let r = await read(worker, crop(img, 0, 0, w, h, 1800), 'front', '6');
+        if (!r.found) {
+          const sparse = await read(worker, crop(img, 0, 0, w, h, 1800), 'front', '11');
+          if (sparse.found || (!r.fullName && sparse.fullName)) r = sparse;
+        }
+        return { ok: r.found, r };
+      }
+      // Back: the bottom of the photo first (where the lines usually are), then the whole photo.
+      let mrz = await read(worker, crop(img, 0, Math.round(h * 0.45), w, Math.round(h * 0.55), 1400), 'back');
+      if (!perfect(mrz)) {
+        const whole = await read(worker, crop(img, 0, 0, w, h, 1600), 'back');
+        if (perfect(whole) || (!accept(mrz) && accept(whole))) mrz = whole;
+      }
+      return { ok: Boolean(accept(mrz)), r: mrz };
+    };
     modal.querySelector('#scan-photo').onchange = async (e) => {
       const file = e.target.files?.[0];
+      e.target.value = '';
       if (!file) return;
+      const chosen = side;
+      const other = chosen === 'front' ? 'back' : 'front';
       try {
         say('Reading the photo…');
         const img = await createImageBitmap(file);
         const worker = await getWorker(ocr, onProgress);
         say('Reading the photo…');
-        const w = img.width;
-        const h = img.height;
-        // Try the bottom of the photo first (where the lines usually are), then the whole photo.
-        let mrz = await read(worker, crop(img, 0, Math.round(h * 0.45), w, Math.round(h * 0.55), 1400));
-        if (!perfect(mrz)) {
-          const whole = await read(worker, crop(img, 0, 0, w, h, 1600));
-          if (perfect(whole) || (!accept(mrz) && accept(whole))) mrz = whole;
-        }
-        if (accept(mrz)) return finish(mrz);
-        say(`${explain(mrz)} Try another photo: the whole back of the card, sharp, with no glare.`);
+        const first = await readPhoto(worker, img, chosen);
+        if (first.ok) return finish(toResult(chosen, first.r));
+        const second = await readPhoto(worker, img, other);
+        if (second.ok) return finish(toResult(other, second.r));
+        say(`${explain(chosen, first.r)} Try another photo: the whole ${chosen} of the card, sharp, with no glare.`);
       } catch (err) {
         say(err.message || 'Could not read that photo.');
       }
@@ -232,7 +305,7 @@ export function openEidScanner(ocr) {
     // Live camera path.
     (async () => {
       if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
-        say('Live scanning needs the CRM to be opened over HTTPS. Take or choose a photo of the back of the card instead.');
+        say('Live scanning needs the CRM to be opened over HTTPS. Take or choose a photo of the card instead.');
         photoButton.classList.add('btn-primary');
         return;
       }
@@ -242,7 +315,7 @@ export function openEidScanner(ocr) {
           audio: false,
         });
       } catch {
-        say('The camera can\u2019t be opened here (it may be blocked or in use). Take or choose a photo of the back of the card instead.');
+        say('The camera can’t be opened here (it may be blocked or in use). Take or choose a photo of the card instead.');
         photoButton.classList.add('btn-primary');
         return;
       }
@@ -258,10 +331,9 @@ export function openEidScanner(ocr) {
         say(err.message);
         return;
       }
-      say(explain(null));
+      ready = true;
+      say(explain(side, null));
 
-      let candidate = null; // best read so far that passed the main checks but not the composite
-      let candidateAt = 0;
       const tick = async () => {
         if (done) return;
         if (video.videoWidth) {
@@ -278,19 +350,34 @@ export function openEidScanner(ocr) {
           const cardH = cardW / CARD_ASPECT;
           const cardX = offX + (shownW - cardW) / 2;
           const cardY = offY + (shownH - cardH) / 2;
-          const mrzH = cardH * MRZ_SHARE;
-          // A little margin around the band in case the card sits slightly off the guide.
-          const sy = Math.max(0, cardY + cardH - mrzH - cardH * 0.08);
-          const sh = Math.min(vh - sy, mrzH + cardH * 0.16);
+          const sx = Math.max(0, cardX - cardW * 0.04);
+          const sw = Math.min(vw - sx, cardW * 1.08);
+          const scanning = side;
           try {
-            const mrz = await read(worker, crop(video, Math.max(0, cardX - cardW * 0.04), sy, Math.min(vw, cardW * 1.08), sh));
-            if (perfect(mrz)) return finish(mrz);
-            if (accept(mrz) && !candidate) {
-              candidate = mrz;
-              candidateAt = Date.now();
+            if (scanning === 'front') {
+              const sy = Math.max(0, cardY - cardH * 0.06);
+              const r = await read(worker, crop(video, sx, sy, sw, Math.min(vh - sy, cardH * 1.12), 1600), 'front');
+              if (scanning === side) {
+                const key = frontKey(r);
+                if (key && key === frontKey(lastFront)) return finish(toResult('front', r));
+                lastFront = r;
+                if (!done) say(key ? 'Card found. Hold steady while it is confirmed…' : explain('front', r));
+              }
+            } else {
+              const mrzH = cardH * MRZ_SHARE;
+              // A little margin around the band in case the card sits slightly off the guide.
+              const sy = Math.max(0, cardY + cardH - mrzH - cardH * 0.08);
+              const mrz = await read(worker, crop(video, sx, sy, sw, Math.min(vh - sy, mrzH + cardH * 0.16)), 'back');
+              if (scanning === side) {
+                if (perfect(mrz)) return finish(toResult('back', mrz));
+                if (accept(mrz) && !candidate) {
+                  candidate = mrz;
+                  candidateAt = Date.now();
+                }
+                if (candidate && Date.now() - candidateAt > SETTLE_MS) return finish(toResult('back', candidate));
+                if (!done) say(candidate ? 'Card found. Keep the whole card inside the frame and hold steady…' : explain('back', mrz));
+              }
             }
-            if (candidate && Date.now() - candidateAt > SETTLE_MS) return finish(candidate);
-            if (!done) say(candidate ? 'Card found. Keep the whole card inside the frame and hold steady…' : explain(mrz));
           } catch { /* keep trying */ }
         }
         timer = setTimeout(tick, 400);

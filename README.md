@@ -57,16 +57,23 @@ Run the tests with `npm test`.
 
 ### Scanning the Emirates ID
 
-The **Scan Emirates ID** button on the entry form fills in the customer's **first, middle and last name** and **Emirates ID number** from the machine-readable lines on the **back** of the card.
+The **Scan Emirates ID** button on the entry form fills in the customer's **first, middle and last name** and **Emirates ID number**. Staff choose which side of the card to scan:
 
-- **Live:** on a phone, the rear camera opens with a card-shaped guide. The scan completes as soon as a read passes the card's check digits, usually in a few seconds.
-- **Photo:** **Use a photo instead** reads a picture of the card. Use it when live camera access isn't available.
-- **Review:** filled fields are highlighted for the sales person to check against the card. The form warns if the card has expired, if the name was cut short on the card, or if a check digit didn't match. Every scan is recorded in the file's activity history.
+| | Front (default) | Back |
+|---|---|---|
+| Reads | The printed English name and ID number, plus date of birth and expiry where printed | The machine-readable lines at the bottom |
+| Name | **Full name**, including names that wrap onto a second line | Often **cut short**, because the line fits only 30 characters |
+| Accuracy check | No check digits. A live scan waits for two camera frames that agree | Check digits on the ID number, birth and expiry dates |
+
+- **Live:** on a phone, the rear camera opens with a card-shaped guide and fills the form when a read is confirmed.
+- **Photo:** **Use a photo instead** reads a picture. If the photo shows the other side of the card, that side is read instead.
+- **Names:** the full name is split into first, middle and last name. Family-name prefixes stay with the last name (*Al Mansoori*, *Bint Khalid*, *Abu Bakr*), and patronymics like *Bin Rashid* go into the middle name.
+- **Review:** filled fields are highlighted for the sales person to check against the card. The form warns if the card has expired, if the back cut the name short, or if a check digit didn't match. Every scan is recorded in the file's activity history, including which side was scanned.
 - **Privacy:** text recognition (Tesseract.js) runs entirely on the device. The card image is never uploaded or stored.
 - **Setup:**
   - **HTTPS:** live camera scanning needs the CRM to be served over HTTPS (or `localhost`). Photo scanning works either way.
   - **Scanner files:** by default they load from the jsDelivr CDN (about 7 MB the first time, then cached). To serve them from the CRM instead, which most banks will want, run `npm run setup:ocr` once and restart. It saves them under `public/vendor/tesseract/`.
-  - **Testing:** the scanner was tested with made-up sample cards. Try it on real cards before rolling it out.
+  - **Testing:** the scanner was tested with made-up sample cards drawn to resemble the current Emirates ID. The front reader finds fields by their English labels ("Name", "ID Number", "Date of Birth", "Expiry Date"), so try it on real cards, including older designs, before rolling it out.
 
 ### Sales staff, region and core product
 
