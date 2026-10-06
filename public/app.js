@@ -218,43 +218,103 @@ function updateBadges() {
 }
 
 // ---------- shell ----------
-function navLinks() {
+// Sidebar icons (24px stroke icons, drawn with currentColor).
+const ICON_PATHS = {
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  queue: '<path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h4M8 17h4"/>',
+  urgent: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/>',
+  flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/>',
+  cases: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  mine: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
+  plus: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  card: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2 .6 3.5 2.4 3.5 5.5"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  stamp: '<path d="M9 3h6v6l3 3v3H6v-3l3-3z"/><path d="M5 21h14"/>',
+};
+const icon = (name) => raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`);
+
+/** The sidebar for the signed-in role: groups of [href, label, icon, count attribute, count]. */
+function navGroups() {
   const r = state.user.role;
-  const links = [['#/', 'Dashboard']];
-  if (r === 'sales') links.push(['#/cases', 'My cases'], ['#/cases/new', '+ New case'], ['#/targets', 'My targets']);
-  if (r === 'processing') links.push(['#/queue', 'Verification queue'], ['#/cases?assigned=me', 'My cases'], ['#/cases', 'All cases']);
-  const editRequests = ['#/edit-requests', raw(`Edit requests<span class="count" data-er-count ${state.editRequests ? '' : 'hidden'}>${state.editRequests}</span>`)];
-  if (r === 'team_leader') {
-    links.push(['#/action-required', raw(`Action required<span class="count" data-ar-count ${state.actionRequired ? '' : 'hidden'}>${state.actionRequired}</span>`)]);
-    links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/targets', 'Targets'], ['#/users', 'Users']);
-  }
-  if (r === 'sales_manager') links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/targets', 'Targets']);
-  if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases'], ['#/targets', 'Targets'], ['#/cards', 'Card activation'], ['#/import/cases', 'Bulk upload']);
-  const counted = (href, text, attr, n) => [href, raw(`${text}<span class="count" ${attr} ${n ? '' : 'hidden'}>${n}</span>`)];
+  const urgent = ['#/urgent', 'Urgent', 'urgent', 'data-urgent-count', state.urgent];
+  const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
+  const groups = [];
+  const work = [['#/', 'Dashboard', 'home']];
+  if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], urgent);
+  if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests);
+  if (r === 'sales_manager') work.push(editRequests);
+  if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings]);
   if (r === 'governance') {
-    links.push(counted('#/urgent', 'Urgent', 'data-urgent-count', state.urgent), counted('#/quality-check', 'Quality check', 'data-qc-count', state.qc), counted('#/recordings', 'Recordings', 'data-rec-count', state.recordings), ['#/cases', 'All cases']);
+    work.push(urgent, ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc], ['#/recordings', 'Recordings', 'mic', 'data-rec-count', state.recordings]);
   }
-  if (r === 'processing' || r === 'team_leader') {
-    links.splice(r === 'processing' ? 2 : 1, 0, counted('#/urgent', 'Urgent', 'data-urgent-count', state.urgent));
-  }
-  if (r === 'business_head') links.splice(1, 0, counted('#/recording-approvals', 'Recording approvals', 'data-rec-count', state.recordings));
-  return links;
+  groups.push(['', work]);
+
+  const cases = [];
+  if (r === 'sales') cases.push(['#/cases', 'My cases', 'mine']);
+  if (r === 'processing') cases.push(['#/cases?assigned=me', 'My cases', 'mine']);
+  if (r !== 'sales') cases.push(['#/cases', 'All cases', 'cases']);
+  if (['sales', 'team_leader', 'sales_manager'].includes(r)) cases.push(['#/cases/new', 'New case', 'plus']);
+  groups.push(['Cases', cases]);
+
+  const perf = [];
+  if (['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'].includes(r)) perf.push(['#/targets', r === 'sales' ? 'My targets' : 'Targets', 'target']);
+  if (r === 'mis' || r === 'business_head') perf.push(['#/cards', 'Card activation', 'card']);
+  if (perf.length) groups.push(['Performance', perf]);
+
+  const admin = [];
+  if (r === 'mis' || r === 'business_head') admin.push(['#/import/cases', 'Bulk upload', 'upload']);
+  if (r === 'team_leader') admin.push(['#/users', 'Users', 'users']);
+  if (admin.length) groups.push(['Admin', admin]);
+  return groups;
+}
+
+/** Which sidebar link is current: an exact match, else the one for the same page (e.g. a filtered list). */
+function activeHref(hrefs) {
+  const current = location.hash || '#/';
+  if (hrefs.includes(current)) return current;
+  const path = current.split('?')[0];
+  if (path.startsWith('#/import/')) return hrefs.find((h) => h.startsWith('#/import/'));
+  return hrefs.find((h) => h === path) || (path.startsWith('#/cases/') && !path.endsWith('/new') ? hrefs.find((h) => h === '#/cases') : null);
 }
 
 function shell(content) {
-  const current = location.hash || '#/';
+  const groups = navGroups();
+  const active = activeHref(groups.flatMap(([, links]) => links.map(([h]) => h)));
+  const initials = state.user.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
   app.innerHTML = html`
-    <header class="topbar">
-      <a class="brand" href="#/"><span class="logo">✓</span> Sourcing CRM</a>
-      <nav class="nav">${navLinks().map(([href, text]) => html`<a href="${href}" class="${current === href ? 'active' : ''}">${text}</a>`)}</nav>
-      <div class="user-box">
-        <button class="bell btn-link" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot" ${state.unread ? '' : 'hidden'}>${state.unread}</span></button>
-        <div><div>${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role]}</div></div>
-        <button id="logout">Sign out</button>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+        <a class="brand" href="#/"><span class="logo">✓</span> Sourcing CRM</a>
+        <nav class="nav">
+          ${groups.map(([title, links]) => html`<div class="nav-group">
+            ${title ? html`<div class="nav-title">${title}</div>` : ''}
+            ${links.map(([href, text, ic, attr, n]) => html`<a href="${href}" class="${href === active ? 'active' : ''}" ${href === active ? raw('aria-current="page"') : ''}>
+              ${icon(ic)}<span class="nav-text">${text}</span>${attr ? raw(`<span class="count" ${attr} ${n ? '' : 'hidden'}>${n}</span>`) : ''}</a>`)}
+          </div>`)}
+        </nav>
+        <div class="side-user">
+          <span class="avatar" aria-hidden="true">${initials}</span>
+          <div class="who"><div class="name">${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role]}</div></div>
+          <button id="logout" class="btn-link" title="Sign out">Sign out</button>
+        </div>
+      </aside>
+      <div class="scrim" id="scrim" hidden></div>
+      <div class="content">
+        <header class="topbar">
+          <button class="menu-btn" id="menu-btn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+          <a class="brand mobile-brand" href="#/"><span class="logo">✓</span> Sourcing CRM</a>
+          <div class="topbar-title">${ROLE_LABEL[state.user.role]} workspace</div>
+          <button class="bell" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot" ${state.unread ? '' : 'hidden'}>${state.unread}</span></button>
+        </header>
+        <div id="notif-panel"></div>
+        <main>${content}</main>
       </div>
-    </header>
-    <div id="notif-panel"></div>
-    <main>${content}</main>`.s;
+    </div>`.s;
   document.getElementById('logout').onclick = async () => {
     await api('/logout', { method: 'POST' }).catch(() => {});
     state.user = null;
@@ -262,6 +322,18 @@ function shell(content) {
     renderLogin();
   };
   document.getElementById('bell').onclick = toggleNotifications;
+  // Phones and narrow windows: the sidebar slides in over the page.
+  const sidebar = document.getElementById('sidebar');
+  const scrim = document.getElementById('scrim');
+  const menuBtn = document.getElementById('menu-btn');
+  const setOpen = (open) => {
+    sidebar.classList.toggle('open', open);
+    scrim.hidden = !open;
+    menuBtn.setAttribute('aria-expanded', String(open));
+  };
+  menuBtn.onclick = () => setOpen(!sidebar.classList.contains('open'));
+  scrim.onclick = () => setOpen(false);
+  sidebar.querySelectorAll('.nav a').forEach((a) => a.addEventListener('click', () => setOpen(false)));
 }
 
 async function toggleNotifications() {

@@ -95,36 +95,71 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .small { font-size: 12px; }
 .boot { padding: 48px; text-align: center; color: var(--muted); }
 
-/* Layout */
-.topbar {
-  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10;
-  display: flex; align-items: center; gap: 16px;
-  padding: 0 24px; height: 60px;
-  background: linear-gradient(180deg, var(--chrome-2), var(--chrome)); color: var(--chrome-strong);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, .25);
+/* Layout: a left sidebar (navigation, signed-in user) beside the page. Below 1024px the sidebar
+   slides in from the left over the page, opened from the menu button in the top bar. */
+.app-shell { min-height: 100vh; }
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; z-index: 30; width: 240px;
+  display: flex; flex-direction: column;
+  padding: 18px 12px 12px;
+  background: linear-gradient(180deg, var(--chrome-2), var(--chrome) 70%); color: var(--chrome-strong);
+  overflow-y: auto; overscroll-behavior: contain;
 }
+.content { margin-left: 240px; min-width: 0; }
 .brand { font-weight: 600; font-size: 16px; letter-spacing: .01em; display: flex; align-items: center; gap: 10px; color: var(--chrome-strong); }
 .brand:hover { text-decoration: none; }
-.brand .logo { width: 28px; height: 28px; border-radius: 7px; background: var(--brand-grad); display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700; }
-.nav { display: flex; gap: 2px; flex: 1; overflow-x: auto; align-self: stretch; }
-.nav a { display: flex; align-items: center; padding: 0 12px; color: var(--chrome-text); white-space: nowrap; font-weight: 500; border-bottom: 2px solid transparent; }
-.nav a:hover { color: var(--chrome-strong); text-decoration: none; background: rgba(255, 255, 255, .05); }
-.nav a.active { color: var(--chrome-strong); border-bottom-color: var(--chrome-accent); }
-.nav .count { background: var(--danger); color: #fff; border-radius: 999px; padding: 0 6px; font-size: 11px; margin-left: 6px; line-height: 17px; font-variant-numeric: tabular-nums; }
-.user-box { display: flex; align-items: center; gap: 14px; white-space: nowrap; color: var(--chrome-strong); }
-.user-box .role-tag { color: var(--chrome-text); }
-.user-box #logout { background: transparent; color: var(--chrome-strong); border-color: rgba(255, 255, 255, .25); }
-.user-box #logout:hover { border-color: var(--chrome-accent); }
-.bell { color: var(--chrome-strong) !important; display: grid; place-items: center; }
-.bell svg { width: 20px; height: 20px; }
-@media (max-width: 760px) {
-  .topbar { flex-wrap: wrap; height: auto; padding: 8px 16px 0; gap: 8px 12px; }
-  .nav a { padding: 10px 10px; }
-  .user-box > div { display: none; }
-  .brand { flex: 1; }
-  .nav { order: 3; flex-basis: 100%; }
-  main { padding-inline: 16px; }
+.sidebar .brand { padding: 2px 10px 18px; }
+.brand .logo { width: 28px; height: 28px; border-radius: 7px; background: var(--brand-grad); display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700; flex: none; }
+.nav { display: grid; gap: 14px; flex: 1; align-content: start; }
+.nav-group { display: grid; gap: 2px; }
+.nav-title { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--chrome-text); opacity: .7; padding: 0 10px 4px; }
+.nav a {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+  color: var(--chrome-text); font-weight: 500; line-height: 1.3; position: relative;
 }
+.nav a .ico { width: 18px; height: 18px; flex: none; opacity: .85; }
+.nav-text { flex: 1; min-width: 0; }
+.nav a:hover { color: var(--chrome-strong); text-decoration: none; background: rgba(255, 255, 255, .07); }
+.nav a.active { color: var(--chrome-strong); background: rgba(255, 255, 255, .12); }
+.nav a.active::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--chrome-accent); }
+.nav a.active .ico { opacity: 1; color: var(--chrome-accent); }
+.nav .count { background: var(--danger); color: #fff; border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; line-height: 18px; font-variant-numeric: tabular-nums; }
+.side-user {
+  display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 12px 10px 4px;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+}
+.side-user .who { flex: 1; min-width: 0; }
+.side-user .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-user .role-tag { color: var(--chrome-text); }
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 12px; font-weight: 700; background: rgba(255, 255, 255, .14); color: var(--chrome-strong); }
+.side-user #logout { color: var(--chrome-text); font-size: 13px; white-space: nowrap; }
+.side-user #logout:hover { color: var(--chrome-strong); }
+
+.topbar {
+  position: sticky; top: 0; z-index: 10; height: 56px;
+  display: flex; align-items: center; gap: 12px; padding: 0 24px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-title { flex: 1; font-size: 13px; color: var(--muted); font-weight: 500; }
+.bell { position: relative; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border-radius: 10px; color: var(--text); background: var(--surface); }
+.bell svg { width: 20px; height: 20px; }
+.menu-btn { display: none; width: 38px; height: 38px; padding: 0; place-items: center; border-radius: 10px; background: var(--surface); color: var(--text); }
+.menu-btn svg { width: 20px; height: 20px; }
+.mobile-brand { display: none; color: var(--text); }
+.scrim { position: fixed; inset: 0; z-index: 25; background: rgba(10, 6, 24, .45); }
+@media (max-width: 1023px) {
+  .sidebar { transform: translateX(-100%); transition: transform .2s ease; box-shadow: none; width: min(280px, 85vw); }
+  .sidebar.open { transform: none; box-shadow: 0 10px 40px rgba(0, 0, 0, .35); }
+  .content { margin-left: 0; }
+  .menu-btn { display: grid; }
+  .mobile-brand { display: flex; }
+  .topbar-title { visibility: hidden; }
+  .topbar { padding: 0 16px; }
+}
+@media (min-width: 1024px) { .scrim { display: none; } }
+@media (max-width: 760px) { main { padding-inline: 16px; } }
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 .role-tag { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 main { max-width: 1200px; margin: 0 auto; padding: 28px 24px 72px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
@@ -343,7 +378,7 @@ dl.details dd { margin: 0; word-break: break-word; }
 .bell { position: relative; }
 .bell .dot { position: absolute; top: -4px; right: -6px; background: var(--danger); color: #fff; border-radius: 999px; font-size: 10px; padding: 1px 5px; }
 .dropdown {
-  position: absolute; right: 20px; top: 64px; width: min(380px, calc(100vw - 32px));
+  position: fixed; right: 16px; top: 62px; width: min(380px, calc(100vw - 32px));
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: 0 10px 30px rgba(0,0,0,.15); max-height: 70vh; overflow: auto; z-index: 20;
 }
@@ -474,7 +509,8 @@ a.target-tile:hover { text-decoration: none; border-color: var(--primary); }
 .map-toggle button[data-map=inactive].on { background: var(--danger); color: #fff; }
 .card-pick input[value=active]:checked + span { background: var(--success); }
 .card-pick input[value=inactive]:checked + span { background: var(--danger); }
-@media (max-width: 1000px) { .target-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1279px) { .target-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .target-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 480px) { .target-tiles { grid-template-columns: 1fr; } }
 .grid > * { min-width: 0; }
 #card-cycle { max-width: 100%; min-width: 0; }
