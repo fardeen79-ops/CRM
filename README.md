@@ -73,7 +73,7 @@ Case status is separate from verification:
 - **Verification** is the processing team's calls: pending, in verification, completed, or incomplete, after which the team leader decides.
 - **Case status** is the outcome of the file.
 
-Each file starts as **Sent to check** when the sales person submits it. After that only a team leader, MIS, sales manager, processor or business head can change it. They choose **Applicant review**, **Completed** or **Rejected**, and Applicant review and Rejected need a note. Every change is logged and the sales person is notified. Team leaders are also alerted when a file moves to Applicant review.
+Each file starts as **Sent to checker** when the sales person submits it. After that only a team leader, MIS, sales manager, processor or business head can change it. They choose **Applicant review**, **Completed** or **Rejected**, and Applicant review and Rejected need a note. Every change is logged and the sales person is notified. Team leaders are also alerted when a file moves to Applicant review.
 
 While a file is in **Applicant review**, the sales person who sourced it can't edit it. Instead they send an **edit request** to the **Team Leader** or **Sales Manager** queue, describing the changes. The team leader or sales manager makes the edits and clicks **Mark changes done**, and the sales person is told.
 

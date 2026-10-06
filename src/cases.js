@@ -38,10 +38,10 @@ export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
 export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
 
-// Case status is separate from verification: a sourced file starts as "Sent to check" and only
+// Case status is separate from verification: a sourced file starts as "Sent to checker" and only
 // these roles can move it on. Sales staff can never change it.
 export const CASE_STATUS = {
-  sent_to_check: 'Sent to check',
+  sent_to_check: 'Sent to checker',
   applicant_review: 'Applicant review',
   completed: 'Completed',
   rejected: 'Rejected',

@@ -10,7 +10,7 @@ const STATUS_LABEL = {
   rejected: 'Verification rejected',
 };
 const CASE_STATUS_LABEL = {
-  sent_to_check: 'Sent to check',
+  sent_to_check: 'Sent to checker',
   applicant_review: 'Applicant review',
   completed: 'Completed',
   rejected: 'Rejected',
@@ -287,7 +287,7 @@ async function viewDashboard() {
   verifyTiles.push(['Returned to sales', by.returned_to_sales, '#/cases?status=returned_to_sales']);
 
   const intro = {
-    sales: 'Add the customers you source; each file goes in as Sent to check. If a file moves to Applicant review, send an edit request to your team leader or sales manager.',
+    sales: 'Add the customers you source; each file goes in as Sent to checker. If a file moves to Applicant review, send an edit request to your team leader or sales manager.',
     processing: 'Work through the verification queue: call the customer, log each attempt, and mark the verification completed, pending or rejected. Completing the verification does not complete the case; mark the case completed separately.',
     team_leader: 'Pending verifications and edit requests need you. You can also set any case status.',
     sales_manager: 'Make the changes sales ask for in edit requests, and keep case statuses up to date.',
@@ -470,7 +470,7 @@ async function viewCaseForm(id) {
   shell(html`
     <div class="page-head"><div>
       <h1>${id ? `Edit ${c.ref}` : 'New sourcing case'}</h1>
-      <p class="muted" style="margin:0">${id ? 'Update the customer details, then save.' : 'Enter the customer you sourced. The file is saved with case status Sent to check and goes to the processing team for a verification call.'}</p>
+      <p class="muted" style="margin:0">${id ? 'Update the customer details, then save.' : 'Enter the customer you sourced. The file is saved with case status Sent to checker and goes to the processing team for a verification call.'}</p>
     </div>${id ? html`<div>${caseBadge(c.case_status)}</div>` : ''}</div>
     <form class="card case-form" id="case-form" novalidate>
       ${c.status === 'returned_to_sales' ? html`<div class="callout info"><strong>Returned by team leader</strong>${c.tl_note}</div>` : ''}

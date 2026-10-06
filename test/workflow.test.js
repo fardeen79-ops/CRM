@@ -353,7 +353,7 @@ test('customer identity fields and personal loan amounts are captured and valida
   assert.equal(r.data.case.interest_rate, null);
 });
 
-test('sourcing date and email are captured; files start as Sent to check', async () => {
+test('sourcing date and email are captured; files start as Sent to checker', async () => {
   const sales = await login('sales@t.local');
   let r = await sales('POST', '/cases', { ...newCase, email: 'asha@example.com', sourcing_date: '2026-09-30' });
   assert.equal(r.status, 201);
