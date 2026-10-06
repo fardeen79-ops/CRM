@@ -1,7 +1,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
-import { createServer } from '../src/server.js';
+import { createServer, makeWebhookDispatcher } from '../src/server.js';
+import http from 'node:http';
 import { createUser } from '../src/auth.js';
 
 const PASSWORD = 'password123';
@@ -18,11 +19,12 @@ before(async () => {
     ['Lead', 'lead@t.local', 'team_leader'],
     ['Pam', 'proc@t.local', 'processing'],
     ['Pete', 'proc2@t.local', 'processing'],
+    ['Gina', 'gov@t.local', 'governance'],
   ]) ids[email] = createUser(db, { name, email, role, password: PASSWORD }).id;
   const profile = (code) => ({ sales_code: code, team_leader_id: ids['lead@t.local'], sales_manager_id: ids['sm@t.local'] });
   createUser(db, { name: 'Sally', email: 'sales@t.local', role: 'sales', password: PASSWORD, ...profile('S-001') });
   createUser(db, { name: 'Sid', email: 'sales2@t.local', role: 'sales', password: PASSWORD, ...profile('S-002') });
-  server = createServer(db, { dispatch: (t) => dispatched.push(...t) });
+  server = createServer(db, { dispatch: (t) => dispatched.push(...t), itEmail: 'it-recordings@t.local' });
   await new Promise((r) => server.listen(0, r));
   base = `http://localhost:${server.address().port}`;
 });
@@ -610,4 +612,111 @@ test('registering sales staff requires a sales code, team leader and sales manag
   // Other roles don't need (or get) a profile
   const p = await lead('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', sales_code: 'X-1' });
   assert.equal(p.data.user.sales_code, null);
+});
+
+test('governance marks files for QC, requests recordings after verification, adds complaints and scores calls', async () => {
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const gov = await login('gov@t.local');
+  const lead = await login('lead@t.local');
+  const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  const act = (who, body) => who('POST', `/cases/${id}/actions`, body);
+  const allowed = async (who) => (await who('GET', `/cases/${id}`)).data.case.allowed_actions;
+
+  // Before verification: QC and complaint yes; recording and score not yet
+  assert.deepEqual((await allowed(gov)).sort(), ['mark_qc', 'set_complaint']);
+  assert.equal((await act(gov, { action: 'request_recording' })).status, 403);
+  assert.equal((await act(gov, { action: 'score_quality', score: 80 })).status, 403);
+  // Governance cannot change case status or edit
+  assert.equal((await act(gov, { action: 'set_case_status', case_status: 'completed' })).status, 403);
+  assert.equal((await gov('PUT', `/cases/${id}`, { city: 'x' })).status, 403);
+  // Other roles cannot do governance actions
+  assert.equal((await act(lead, { action: 'mark_qc' })).status, 403);
+
+  let r = await act(gov, { action: 'mark_qc', note: 'Random sample' });
+  assert.equal(r.data.case.qc_flag, 1);
+  assert.equal(r.data.case.qc_by_name, 'Gina');
+  assert.ok((await gov('GET', '/cases?qc=1')).data.cases.some((c) => c.id === id));
+
+  assert.equal((await act(gov, { action: 'set_complaint', complaint_number: '' })).status, 400);
+  assert.equal((await act(gov, { action: 'set_complaint', complaint_number: '<x>' })).status, 400);
+  r = await act(gov, { action: 'set_complaint', complaint_number: 'CMP-2026-0091' });
+  assert.equal(r.data.case.complaint_number, 'CMP-2026-0091');
+  assert.ok((await lead('GET', '/cases?q=CMP-2026')).data.cases.some((c) => c.id === id));
+
+  // Processor verifies; now recording requests and scoring open up
+  await act(proc, { action: 'complete' });
+  assert.ok((await allowed(gov)).includes('request_recording'));
+  assert.equal((await act(gov, { action: 'request_recording' })).status, 400); // reason required
+  r = await act(gov, { action: 'request_recording', note: 'Customer disputes consent' });
+  assert.equal(r.data.case.recording_status, 'pending_approval');
+  assert.equal((await act(gov, { action: 'request_recording', note: 'again' })).status, 403); // already pending
+
+  // The business head approves (only they can); IT is emailed for the file
+  const bh = await login('bh@t.local');
+  assert.ok((await bh('GET', '/notifications')).data.items.some((n) => n.message.startsWith('Recording approval needed')));
+  assert.ok((await bh('GET', '/cases?recording=pending_approval')).data.cases.some((c) => c.id === id));
+  assert.equal((await act(gov, { action: 'approve_recording' })).status, 403);
+  assert.equal((await act(lead, { action: 'approve_recording' })).status, 403);
+  assert.equal((await act(proc, { action: 'receive_recording', recording_ref: 'x' })).status, 403);
+  const before = dispatched.length;
+  r = await act(bh, { action: 'approve_recording', note: 'OK for complaint review' });
+  assert.equal(r.data.case.recording_status, 'approved');
+  assert.equal(r.data.case.recording_decided_by_name, 'Boss');
+  const email = dispatched.slice(before).find((t) => t.event === 'recording.it_request');
+  assert.equal(email.to, 'it-recordings@t.local');
+  assert.match(email.subject, /Call recording request: CRM-/);
+  assert.match(email.body, /Customer disputes consent/);
+  assert.match(email.body, /Verified by: Pam/);
+  assert.equal(r.data.case.recording_email.to, 'it-recordings@t.local');
+  assert.ok((await gov('GET', '/notifications')).data.items.some((n) => /IT has been asked for the file/.test(n.message)));
+
+  // Governance records the file once IT shares it
+  assert.equal((await act(gov, { action: 'receive_recording' })).status, 400);
+  r = await act(gov, { action: 'receive_recording', recording_ref: 'https://share.example/rec/88231.wav' });
+  assert.equal(r.data.case.recording_status, 'received');
+  assert.equal(r.data.case.recording_ref, 'https://share.example/rec/88231.wav');
+  // A new request can be raised later if needed
+  assert.ok((await allowed(gov)).includes('request_recording'));
+
+  // Declining needs a reason
+  const id2 = (await sales('POST', '/cases', newCase)).data.case.id;
+  await proc('POST', `/cases/${id2}/actions`, { action: 'complete' });
+  await gov('POST', `/cases/${id2}/actions`, { action: 'request_recording', note: 'Sample check' });
+  assert.equal((await bh('POST', `/cases/${id2}/actions`, { action: 'decline_recording' })).status, 400);
+  r = await bh('POST', `/cases/${id2}/actions`, { action: 'decline_recording', note: 'Not needed for samples' });
+  assert.equal(r.data.case.recording_status, 'declined');
+
+  // Scores are 0 to 10 with at most one decimal
+  for (const bad of ['', 11, -1, 7.55, 'x', 86]) assert.equal((await act(gov, { action: 'score_quality', score: bad })).status, 400, String(bad));
+  r = await act(gov, { action: 'score_quality', score: 8.5, note: 'Good disclosure, missed DOB check' });
+  assert.equal(r.data.case.qc_score, 8.5);
+  assert.ok((await proc('GET', '/notifications')).data.items.some((n) => /scored 8.5\/10/.test(n.message)));
+  const stats = (await gov('GET', '/stats')).data;
+  assert.equal(stats.governance.scored >= 1, true);
+  assert.equal(stats.processors.find((p) => p.name === 'Pam').qc_avg, 8.5);
+
+  r = await act(gov, { action: 'clear_qc' });
+  assert.equal(r.data.case.qc_flag, 0);
+
+  // Sales staff never see any of it
+  const own = (await sales('GET', `/cases/${id}`)).data.case;
+  for (const f of ['qc_flag', 'qc_score', 'complaint_number', 'recording_ref', 'recording_status', 'recording_email']) assert.equal(f in own, false, f);
+  assert.ok(!(await sales('GET', '/cases?q=CMP-2026')).data.cases.length);
+  assert.equal((await sales('GET', '/stats')).data.governance, undefined);
+});
+
+test('approved recording requests are posted to the IT email relay', async () => {
+  const received = [];
+  const relay = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => { received.push(JSON.parse(body)); res.end('ok'); });
+  });
+  await new Promise((r) => relay.listen(0, r));
+  const dispatch = makeWebhookDispatcher({ emailUrl: `http://localhost:${relay.address().port}/send` });
+  dispatch([{ event: 'recording.it_request', case_id: 7, ref: 'CRM-000007', to: 'it@bank.example', subject: 'Call recording request: CRM-000007', body: 'Hello IT team' }]);
+  for (let i = 0; i < 50 && !received.length; i++) await new Promise((r) => setTimeout(r, 20));
+  relay.close();
+  assert.deepEqual(received[0], { to: 'it@bank.example', subject: 'Call recording request: CRM-000007', text: 'Hello IT team', ref: 'CRM-000007', case_id: 7 });
 });

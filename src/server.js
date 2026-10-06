@@ -25,22 +25,36 @@ class HttpError extends Error {
   }
 }
 
+function post(url, payload, label) {
+  fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(5000),
+  }).catch((err) => console.error(`[webhook] failed to deliver ${label}: ${err.message}`));
+}
+
 /**
- * Sends workflow triggers (e.g. "case.incomplete") to an external webhook such
- * as a Slack/Teams incoming webhook or an automation tool. Fire-and-forget so a
- * slow endpoint never blocks the processing team.
+ * Sends workflow triggers to external services. Fire-and-forget so a slow endpoint never blocks
+ * anyone using the CRM.
+ * - case.incomplete -> TL_WEBHOOK_URL (e.g. a Slack/Teams incoming webhook)
+ * - recording.it_request -> IT_EMAIL_WEBHOOK_URL, an email relay (Power Automate, Zapier, an SMTP
+ *   bridge...) that receives { to, subject, text } and sends the email to IT.
  */
-export function makeWebhookDispatcher(url = process.env.TL_WEBHOOK_URL) {
+export function makeWebhookDispatcher({
+  tlUrl = process.env.TL_WEBHOOK_URL,
+  emailUrl = process.env.IT_EMAIL_WEBHOOK_URL,
+} = {}) {
   return (triggers) => {
-    if (!url) return;
     for (const t of triggers) {
-      const text = `:warning: ${t.ref} (${t.customer_name}) verification PENDING, marked by ${t.marked_by} — ${t.reason.replace(/_/g, ' ')}${t.note ? `: ${t.note}` : ''}. Team leader action required.`;
-      fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text, ...t }),
-        signal: AbortSignal.timeout(5000),
-      }).catch((err) => console.error(`[webhook] failed to deliver ${t.event} for ${t.ref}: ${err.message}`));
+      if (t.event === 'case.incomplete' && tlUrl) {
+        const text = `:warning: ${t.ref} (${t.customer_name}) verification PENDING, marked by ${t.marked_by} — ${t.reason.replace(/_/g, ' ')}${t.note ? `: ${t.note}` : ''}. Team leader action required.`;
+        post(tlUrl, { text, ...t }, `${t.event} for ${t.ref}`);
+      }
+      if (t.event === 'recording.it_request') {
+        if (emailUrl && t.to) post(emailUrl, { to: t.to, subject: t.subject, text: t.body, ref: t.ref, case_id: t.case_id }, `IT email for ${t.ref}`);
+        else console.warn(`[email] IT recording request for ${t.ref} not sent automatically: set IT_EMAIL and IT_EMAIL_WEBHOOK_URL`);
+      }
     }
   };
 }
@@ -119,6 +133,9 @@ function routes(db, dispatch) {
         core_products: cases.CORE_PRODUCTS,
         settable_case_statuses: cases.SETTABLE_CASE_STATUSES,
         edit_queues: cases.EDIT_QUEUES,
+        recording_statuses: cases.RECORDING_STATUS,
+        score_max: cases.SCORE_MAX,
+        it_email: cases.config.itEmail,
       },
     })],
 
@@ -224,7 +241,8 @@ function serveFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createServer(db, { dispatch = makeWebhookDispatcher() } = {}) {
+export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null } = {}) {
+  cases.config.itEmail = itEmail;
   const table = routes(db, dispatch);
 
   return http.createServer(async (req, res) => {

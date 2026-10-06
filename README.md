@@ -52,7 +52,8 @@ Run the tests with `npm test`.
 | **Team leader** | **Action required** queue of incomplete cases: **Return to sales** (note required), **Re-verify**, or **Reject** (note required). Also sees team stats, manages users, and can edit any open case |
 | **Sales manager** | Sees all cases, adds cases, edits case details, works the **Sales Manager** edit-request queue and sets case status |
 | **MIS** | Sees all cases and sets case status |
-| **Business head** | Sees all cases, team stats, and sets case status |
+| **Business head** | Sees all cases, team stats, sets case status, and approves or declines call recording requests |
+| **Governance** | Marks files for quality check, adds complaint numbers, scores verification calls (0–10) and requests call recordings after verification |
 
 ### Sales staff, region and core product
 
@@ -107,6 +108,21 @@ Company name, salary, Emirates ID and passport number are restricted. The server
 | Processor | Until verification is **Completed** or **Rejected**. While it is awaiting, in progress or **Pending**, they are visible for the call. They become visible again if the file is sent back for re-verification |
 | Team leader | Never, on any submitted file. A team leader can still type a replacement value (for example, for an edit request) without seeing the old one |
 
+### Governance: quality checks, recordings, complaints and scores
+
+The **Governance** role sees every file (but cannot edit it or change its status) and can:
+
+- **Mark a file for quality check**, with an optional note, and remove the mark later. Marked files appear in the **Quality check** queue.
+- **Add a complaint number** to any file. It is searchable.
+- **Score the verification call** from **0 to 10**, with one decimal allowed, plus comments. This is only available once the processor has recorded a verification result. The processor is notified, and team dashboards show each processor's average score.
+- **Request the call recording**, also only after verification, and with a reason:
+  1. The request goes to the **business head**, in their **Recording approvals** queue.
+  2. The business head **approves** it, or **declines** it with a reason.
+  3. On approval, the CRM emails **IT** for the file. The email is sent automatically if `IT_EMAIL` and `IT_EMAIL_WEBHOOK_URL` are set. The ready-made email is also shown on the file with **Copy email** and **Open in email** buttons.
+  4. When IT shares the file, governance (or the business head) adds the link or reference and marks it **received**.
+
+Sales staff never see quality checks, recordings, complaint numbers or scores.
+
 ### Products
 
 Each case records one product: **Personal Loan**, **Credit Card**, **Auto Loan**, **Accounts**, or a **Bundle**. Choosing Bundle shows checkboxes for the products in it, and a bundle needs at least two. The API takes `product` as one of `personal_loan`, `credit_card`, `auto_loan`, `accounts` or `bundle`. For a bundle it also takes `bundle_products`, as an array such as `["credit_card", "accounts"]` or a comma-separated string. Cases created before this change keep their original free-text product until someone edits them.
@@ -139,6 +155,8 @@ Set `TL_WEBHOOK_URL` to POST a JSON alert every time a case is marked incomplete
 | `DB_FILE` | `data/crm.db` | SQLite database file |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` | `admin@crm.local` / `changeme123` | First team leader account (created only when there are no users) |
 | `TL_WEBHOOK_URL` | – | Webhook for incomplete-case alerts |
+| `IT_EMAIL` | – | IT department address that approved call recording requests are emailed to |
+| `IT_EMAIL_WEBHOOK_URL` | – | Email relay (Power Automate, Zapier, an SMTP bridge…) that receives `POST {to, subject, text}` and sends it |
 | `COOKIE_SECURE` | – | Set to `1` when serving over HTTPS |
 
 ## Project layout

@@ -200,6 +200,18 @@ td strong { white-space: nowrap; }
 .inline-filter { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 500; white-space: nowrap; }
 .inline-filter select { width: auto; }
 .nowrap { white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); white-space: nowrap; }
+.chip.good { color: var(--s-done); background: var(--s-done-bg); border-color: transparent; }
+.chip.fair { color: var(--s-pending); background: var(--s-pending-bg); border-color: transparent; }
+.chip.bad { color: var(--s-incomplete); background: var(--s-incomplete-bg); border-color: transparent; }
+.chip.warn { color: var(--s-returned); background: var(--s-returned-bg); border-color: transparent; }
+ol.steps { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.email-draft { margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--bg); display: grid; gap: 4px; }
+.email-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.email-draft pre { white-space: pre-wrap; font: inherit; font-size: 13px; margin: 6px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; max-width: 100%; overflow-x: auto; }
+.score-row { display: flex; align-items: center; gap: 8px; }
+.score-row input { width: 110px; }
 .lock { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--border); border-radius: 999px; padding: 1px 8px; }
 .lock::before { content: "\1F512\00a0"; font-size: 10px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

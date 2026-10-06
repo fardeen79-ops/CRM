@@ -61,7 +61,54 @@ export const CASE_STATUS_ROLES = ['team_leader', 'mis', 'sales_manager', 'busine
 // Where a sales person can send a case in Applicant review to have its details corrected.
 export const EDIT_QUEUES = { team_leader: 'Team Leader', sales_manager: 'Sales Manager' };
 const EDITOR_ROLES = ['team_leader', 'sales_manager'];
-const CASE_ACTIONS = ['set_case_status', 'request_edit', 'resolve_edit_request'];
+// Governance: quality checks, call recordings, complaint numbers and call-quality scores.
+const GOVERNANCE_ACTIONS = [
+  'mark_qc', 'clear_qc', 'set_complaint', 'score_quality',
+  'request_recording', 'approve_recording', 'decline_recording', 'receive_recording',
+];
+
+// Call recordings: governance asks, the business head approves, IT is emailed for the file,
+// and governance records it once received.
+export const RECORDING_STATUS = {
+  pending_approval: 'Awaiting business head approval',
+  approved: 'Approved, requested from IT',
+  declined: 'Declined by business head',
+  received: 'Recording received',
+};
+
+// Where approved recording requests are emailed. Set by the server from IT_EMAIL.
+export const config = { itEmail: null };
+
+export function recordingEmail(row) {
+  const lines = [
+    'Hello IT team,',
+    '',
+    `Please share the call recording for the verification call on ${caseRef(row.id)}.`,
+    '',
+    `Customer: ${row.customer_name}`,
+    `Mobile number called: ${row.phone}`,
+    `Verified by: ${row.assigned_to_name || '—'}${row.verified_at ? ` on ${row.verified_at.slice(0, 10)}` : ''}`,
+    `Requested by: ${row.recording_requested_by_name || '—'} (Governance)`,
+    `Reason: ${row.recording_request_note || '—'}`,
+    `Approved by: ${row.recording_decided_by_name || '—'} (Business Head)`,
+    '',
+    'Please reply with the file or a link to it.',
+  ];
+  return { to: config.itEmail, subject: `Call recording request: ${caseRef(row.id)} (${row.customer_name})`, body: lines.join('\n') };
+}
+
+// Call-quality scores are out of 10, with at most one decimal place.
+export const SCORE_MAX = 10;
+const CASE_ACTIONS = ['set_case_status', 'request_edit', 'resolve_edit_request', ...GOVERNANCE_ACTIONS];
+// Internal quality information that sales staff never see.
+const GOVERNANCE_FIELDS = [
+  'qc_flag', 'qc_note', 'qc_by', 'qc_at', 'qc_by_name',
+  'recording_status', 'recording_request_note', 'recording_requested_by', 'recording_requested_at', 'recording_requested_by_name',
+  'recording_ref', 'recording_provided_by', 'recording_provided_at', 'recording_provided_by_name',
+  'recording_decided_by', 'recording_decided_at', 'recording_decision_note', 'recording_decided_by_name', 'recording_it_email_at', 'recording_email',
+  'complaint_number', 'complaint_by', 'complaint_at', 'complaint_by_name',
+  'qc_score', 'qc_score_note', 'qc_scored_by', 'qc_scored_at', 'qc_scored_by_name',
+];
 
 export function productLabel(product, bundleProducts, creditCard, loanType, buyoutBank) {
   const name = (p) => {
@@ -298,14 +345,22 @@ const activeUserIds = (db, role) =>
 const CASE_SELECT = `
   SELECT c.*, cb.name AS created_by_name, at.name AS assigned_to_name,
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
-         sb.name AS case_status_by_name, rb.name AS edit_request_by_name
+         sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
+         qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name,
+         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
   LEFT JOIN users at ON at.id = c.assigned_to
   LEFT JOIN users vb ON vb.id = c.verified_by
   LEFT JOIN users tb ON tb.id = c.tl_actioned_by
   LEFT JOIN users sb ON sb.id = c.case_status_by
-  LEFT JOIN users rb ON rb.id = c.edit_request_by`;
+  LEFT JOIN users rb ON rb.id = c.edit_request_by
+  LEFT JOIN users qb ON qb.id = c.qc_by
+  LEFT JOIN users rqb ON rqb.id = c.recording_requested_by
+  LEFT JOIN users rpb ON rpb.id = c.recording_provided_by
+  LEFT JOIN users rdb ON rdb.id = c.recording_decided_by
+  LEFT JOIN users cpb ON cpb.id = c.complaint_by
+  LEFT JOIN users scb ON scb.id = c.qc_scored_by`;
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
 
@@ -329,6 +384,7 @@ export function canViewSensitive(user, row) {
 // Strips sensitive fields the viewer may not see, before anything leaves the server.
 function present(user, row) {
   const out = withRef(row);
+  if (out && user.role === 'sales') for (const f of GOVERNANCE_FIELDS) delete out[f];
   if (!out || canViewSensitive(user, row)) return out ? { ...out, hidden_fields: [] } : out;
   for (const f of SENSITIVE_FIELDS) out[f] = null;
   out.hidden_fields = SENSITIVE_FIELDS;
@@ -348,10 +404,14 @@ export function getCase(db, user, id) {
        LEFT JOIN users u ON u.id = e.user_id WHERE e.case_id = ? ORDER BY e.id DESC`
     )
     .all(id);
-  return { ...present(user, row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row) };
+  const out = { ...present(user, row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row) };
+  if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
+    out.recording_email = recordingEmail(row);
+  }
+  return out;
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, q, assigned, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, q, assigned, limit = 200 } = {}) {
   const where = [];
   const params = [];
   if (user.role === 'sales') {
@@ -377,6 +437,14 @@ export function listCases(db, user, { status, case_status, edit_requests, q, ass
     where.push('c.edit_request_to = ?');
     params.push(user.role);
   }
+  if (user.role !== 'sales') {
+    if (qc === '1') where.push('c.qc_flag = 1');
+    const rec = String(recording || '').split(',').filter((r) => RECORDING_STATUS[r]);
+    if (rec.length) {
+      where.push(`c.recording_status IN (${rec.map(() => '?').join(',')})`);
+      params.push(...rec);
+    }
+  }
   if (assigned === 'me') {
     where.push('c.assigned_to = ?');
     params.push(user.id);
@@ -394,8 +462,8 @@ export function listCases(db, user, { status, case_status, edit_requests, q, ass
       sensitiveClause = ` OR ${sensitive}`;
     }
     where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?
-      OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(...Array(10).fill(term));
+      OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${user.role === 'sales' ? '' : ' OR c.complaint_number LIKE ?'}${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(...Array(user.role === 'sales' ? 10 : 11).fill(term));
     if (user.role === 'processing') params.push(...PROCESSOR_SENSITIVE_STATUSES);
     if (sensitiveClause) params.push(...Array(4).fill(term));
     if (idMatch) params.push(Number(idMatch[1]));
@@ -462,6 +530,15 @@ function allowedCaseActions(user, row) {
   if (CASE_STATUS_ROLES.includes(user.role)) out.push('set_case_status');
   if (user.role === 'sales' && isOwner(user, row) && row.case_status === 'applicant_review') out.push('request_edit');
   if (row.edit_request_to && (user.role === row.edit_request_to || user.role === 'team_leader')) out.push('resolve_edit_request');
+  // Recordings and scores only make sense once the processor has recorded a verification result.
+  const verified = !OPEN_FOR_PROCESSING.includes(row.status);
+  if (user.role === 'governance') {
+    out.push(row.qc_flag ? 'clear_qc' : 'mark_qc', 'set_complaint');
+    if (verified && !['pending_approval', 'approved'].includes(row.recording_status)) out.push('request_recording');
+    if (verified) out.push('score_quality');
+  }
+  if (user.role === 'business_head' && row.recording_status === 'pending_approval') out.push('approve_recording', 'decline_recording');
+  if (row.recording_status === 'approved' && ['governance', 'business_head'].includes(user.role)) out.push('receive_recording');
   return out;
 }
 
@@ -484,8 +561,8 @@ function verificationActions(user, row) {
  * Applies a workflow action. Returns `{ case, triggers }` where triggers are
  * outbound events (e.g. team-leader alerts) for the caller to dispatch.
  */
-export function applyAction(db, user, id, { action, note, outcome, reason, case_status, to } = {}) {
-  if (CASE_ACTIONS.includes(action)) return applyCaseAction(db, user, id, { action, note, case_status, to });
+export function applyAction(db, user, id, { action, note, outcome, reason, case_status, to, ...extra } = {}) {
+  if (CASE_ACTIONS.includes(action)) return applyCaseAction(db, user, id, { action, note, case_status, to, ...extra });
   const rule = ACTIONS[action];
   if (!rule) throw new WorkflowError(400, `Unknown action: ${action}`);
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
@@ -598,7 +675,8 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   return { case: getCase(db, user, id), triggers };
 }
 
-function applyCaseAction(db, user, id, { action, note, case_status, to }) {
+function applyCaseAction(db, user, id, { action, note, case_status, to, recording_ref, complaint_number, score }) {
+  const triggers = [];
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
   if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
   if (!allowedCaseActions(user, row).includes(action)) throw new WorkflowError(403, 'Your role cannot do that on this case');
@@ -635,9 +713,62 @@ function applyCaseAction(db, user, id, { action, note, case_status, to }) {
         .run(ts, id);
       addEvent(db, id, user.id, 'resolve_edit_request', { detail: row.edit_request_to, note });
       notify(db, [row.edit_request_by], id, `${ref} (${row.customer_name}): your requested changes were made by ${who}${note ? ` — ${note}` : ''}`);
+    } else if (action === 'mark_qc' || action === 'clear_qc') {
+      const on = action === 'mark_qc';
+      db.prepare('UPDATE cases SET qc_flag = ?, qc_note = ?, qc_by = ?, qc_at = ?, updated_at = ? WHERE id = ?')
+        .run(on ? 1 : 0, note, user.id, ts, ts, id);
+      addEvent(db, id, user.id, action, { note });
+    } else if (action === 'request_recording') {
+      if (!note) throw new WorkflowError(400, 'Give the reason for the recording request; the business head sees it when approving');
+      db.prepare(`UPDATE cases SET recording_status = 'pending_approval', recording_request_note = ?, recording_requested_by = ?, recording_requested_at = ?,
+          recording_decided_by = NULL, recording_decided_at = NULL, recording_decision_note = NULL, recording_it_email_at = NULL,
+          recording_ref = NULL, recording_provided_by = NULL, recording_provided_at = NULL, updated_at = ? WHERE id = ?`)
+        .run(note, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'request_recording', { note });
+      notify(db, activeUserIds(db, 'business_head'), id, `Recording approval needed: ${ref} (${row.customer_name}) requested by ${who} — ${note}`);
+    } else if (action === 'approve_recording' || action === 'decline_recording') {
+      const approved = action === 'approve_recording';
+      if (!approved && !note) throw new WorkflowError(400, 'Give a reason for declining');
+      db.prepare(`UPDATE cases SET recording_status = ?, recording_decided_by = ?, recording_decided_at = ?, recording_decision_note = ?,
+          recording_it_email_at = ?, updated_at = ? WHERE id = ?`)
+        .run(approved ? 'approved' : 'declined', user.id, ts, note, approved ? ts : null, ts, id);
+      addEvent(db, id, user.id, action, { note });
+      notify(db, [row.recording_requested_by], id, approved
+        ? `${ref} (${row.customer_name}): recording request approved by ${who}; IT has been asked for the file`
+        : `${ref} (${row.customer_name}): recording request declined by ${who} — ${note}`);
+      if (approved) {
+        // Email IT for the file; the server sends it through the configured relay (see README).
+        const full = db.prepare(`${CASE_SELECT} WHERE c.id = ?`).get(id);
+        triggers.push({ event: 'recording.it_request', case_id: id, ref, ...recordingEmail(full) });
+        addEvent(db, id, null, 'recording_it_email', { detail: config.itEmail || 'IT email not configured' });
+      }
+    } else if (action === 'receive_recording') {
+      const recRef = clean(recording_ref, 500);
+      if (!recRef) throw new WorkflowError(400, 'Add the link or reference for the file IT shared');
+      db.prepare(`UPDATE cases SET recording_status = 'received', recording_ref = ?, recording_provided_by = ?, recording_provided_at = ?, updated_at = ? WHERE id = ?`)
+        .run(recRef, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'receive_recording', { detail: recRef, note });
+      if (row.recording_requested_by !== user.id) notify(db, [row.recording_requested_by], id, `${ref} (${row.customer_name}): call recording received`);
+    } else if (action === 'set_complaint') {
+      const number = clean(complaint_number, 50);
+      if (!number) throw new WorkflowError(400, 'Enter the complaint number');
+      if (!/^[A-Za-z0-9][A-Za-z0-9\-\/_ ]*$/.test(number)) throw new WorkflowError(400, 'Complaint number can contain letters, digits, spaces, - / and _');
+      if (number === row.complaint_number) throw new WorkflowError(409, 'That complaint number is already on the file');
+      db.prepare('UPDATE cases SET complaint_number = ?, complaint_by = ?, complaint_at = ?, updated_at = ? WHERE id = ?')
+        .run(number, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'set_complaint', { detail: number, note });
+    } else if (action === 'score_quality') {
+      const n = Number(score);
+      if (score === '' || score == null || !Number.isFinite(n) || n < 0 || n > SCORE_MAX || Math.round(n * 10) !== n * 10) {
+        throw new WorkflowError(400, `Score must be from 0 to ${SCORE_MAX}, with at most one decimal place`);
+      }
+      db.prepare('UPDATE cases SET qc_score = ?, qc_score_note = ?, qc_scored_by = ?, qc_scored_at = ?, updated_at = ? WHERE id = ?')
+        .run(n, note, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'score_quality', { detail: String(n), note });
+      if (row.assigned_to) notify(db, [row.assigned_to], id, `${ref} (${row.customer_name}): verification call scored ${n}/${SCORE_MAX} by ${who}`);
     }
   });
-  return { case: getCase(db, user, id), triggers: [] };
+  return { case: getCase(db, user, id), triggers };
 }
 
 export function stats(db, user) {
@@ -660,14 +791,25 @@ export function stats(db, user) {
       .prepare('SELECT COUNT(*) AS n FROM cases WHERE assigned_to = ? AND status = ?')
       .get(user.id, STATUS.IN_VERIFICATION).n;
   }
-  if (['team_leader', 'sales_manager', 'mis', 'business_head'].includes(user.role)) {
+  if (user.role !== 'sales') {
+    result.governance = db.prepare(
+      `SELECT SUM(qc_flag = 1) AS qc, SUM(recording_status = 'pending_approval') AS recordings_pending,
+         SUM(recording_status = 'approved') AS recordings_with_it, SUM(recording_status = 'received') AS recordings_received,
+         COUNT(qc_score) AS scored,
+         ROUND(AVG(qc_score), 1) AS avg_score, COUNT(complaint_number) AS complaints FROM cases`
+    ).get();
+    for (const k of Object.keys(result.governance)) result.governance[k] ??= 0;
+  }
+  if (['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(user.role)) {
     result.processors = db
       .prepare(
         `SELECT u.name,
            SUM(CASE WHEN e.type = 'complete' THEN 1 ELSE 0 END) AS completed,
            SUM(CASE WHEN e.type = 'mark_incomplete' THEN 1 ELSE 0 END) AS incomplete,
            SUM(CASE WHEN e.type = 'reject_verification' THEN 1 ELSE 0 END) AS rejected,
-           SUM(CASE WHEN e.type = 'log_call' THEN 1 ELSE 0 END) AS calls
+           SUM(CASE WHEN e.type = 'log_call' THEN 1 ELSE 0 END) AS calls,
+           (SELECT ROUND(AVG(qc_score), 1) FROM cases WHERE assigned_to = u.id) AS qc_avg,
+           (SELECT COUNT(qc_score) FROM cases WHERE assigned_to = u.id) AS qc_scored
          FROM users u LEFT JOIN case_events e ON e.user_id = u.id
          WHERE u.role = 'processing' GROUP BY u.id ORDER BY u.name`
       )

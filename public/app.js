@@ -18,7 +18,7 @@ const CASE_STATUS_LABEL = {
 const OTHER_BANK = '__other';
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
-  sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head',
+  sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
 };
 const ACTION_LABEL = {
   created: 'Case created',
@@ -37,9 +37,18 @@ const ACTION_LABEL = {
   set_case_status: 'Case status updated',
   request_edit: 'Edit request sent',
   resolve_edit_request: 'Requested changes made',
+  mark_qc: 'Marked for quality check',
+  clear_qc: 'Removed from quality check',
+  request_recording: 'Call recording requested',
+  approve_recording: 'Recording request approved',
+  decline_recording: 'Recording request declined',
+  recording_it_email: 'IT emailed for the recording',
+  receive_recording: 'Call recording received',
+  set_complaint: 'Complaint number added',
+  score_quality: 'Verification call scored',
 };
 
-const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0 };
+const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0 };
 const app = document.getElementById('app');
 
 // ---------- helpers ----------
@@ -58,6 +67,10 @@ const html = (strings, ...vals) =>
 
 const label = (s) => String(s || '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const badge = (status) => html`<span class="badge st-${status}">${STATUS_LABEL[status] || status}</span>`;
+// Call-quality score bands (out of 10): 8.5+ good, 7–8.4 fair, below 7 needs attention.
+const scoreClass = (n) => (n >= 8.5 ? 'good' : n >= 7 ? 'fair' : 'bad');
+const RECORDING_CHIP = { pending_approval: ['Recording: awaiting approval', 'warn'], approved: ['Recording: with IT', ''], declined: ['Recording declined', 'bad'], received: ['Recording received', 'good'] };
+const recordingChip = (st) => (RECORDING_CHIP[st] ? html`<span class="chip ${RECORDING_CHIP[st][1]}">${RECORDING_CHIP[st][0]}</span>` : '');
 const caseBadge = (status) => html`<span class="badge cs-${status}">${CASE_STATUS_LABEL[status] || status}</span>`;
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
@@ -149,10 +162,13 @@ async function refreshCounters() {
   try {
     const n = await api('/notifications');
     state.unread = n.unread;
-    if (['team_leader', 'sales_manager'].includes(state.user.role)) {
+    if (['team_leader', 'sales_manager', 'governance', 'business_head'].includes(state.user.role)) {
       const s = await api('/stats');
       state.actionRequired = s.by_status.incomplete;
       state.editRequests = s.edit_requests;
+      state.qc = s.governance?.qc ?? 0;
+      // Business heads see requests awaiting approval; governance sees ones waiting on IT.
+      state.recordings = state.user.role === 'business_head' ? s.governance?.recordings_pending ?? 0 : s.governance?.recordings_with_it ?? 0;
     }
     updateBadges();
   } catch { /* ignore polling errors */ }
@@ -165,6 +181,10 @@ function updateBadges() {
   if (ar) { ar.textContent = state.actionRequired; ar.hidden = !state.actionRequired; }
   const er = document.querySelector('[data-er-count]');
   if (er) { er.textContent = state.editRequests; er.hidden = !state.editRequests; }
+  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings]]) {
+    const el = document.querySelector(sel);
+    if (el) { el.textContent = n; el.hidden = !n; }
+  }
 }
 
 // ---------- shell ----------
@@ -180,6 +200,11 @@ function navLinks() {
   }
   if (r === 'sales_manager') links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case']);
   if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases']);
+  const counted = (href, text, attr, n) => [href, raw(`${text}<span class="count" ${attr} ${n ? '' : 'hidden'}>${n}</span>`)];
+  if (r === 'governance') {
+    links.push(counted('#/quality-check', 'Quality check', 'data-qc-count', state.qc), counted('#/recordings', 'Recordings', 'data-rec-count', state.recordings), ['#/cases', 'All cases']);
+  }
+  if (r === 'business_head') links.splice(1, 0, counted('#/recording-approvals', 'Recording approvals', 'data-rec-count', state.recordings));
   return links;
 }
 
@@ -256,6 +281,24 @@ async function route() {
         empty: 'No edit requests waiting for you',
       });
     }
+    if (path === '/quality-check') {
+      return await viewCases({
+        title: 'Quality check', subtitle: 'Files you marked for a quality check. Request the call recording, score the verification call and add complaint numbers from each file.',
+        params, fixed: { qc: '1' }, cols: ['ref', 'customer', 'status', 'quality', 'assigned', 'updated'], empty: 'No files are marked for a quality check',
+      });
+    }
+    if (path === '/recordings') {
+      return await viewCases({
+        title: 'Call recordings', subtitle: 'Recording requests you raised after verification: awaiting business head approval, requested from IT, received or declined.',
+        params, fixed: { recording: Object.keys(state.meta.recording_statuses).join(',') }, cols: ['ref', 'customer', 'recording', 'assigned', 'updated'], empty: 'No recordings requested yet',
+      });
+    }
+    if (path === '/recording-approvals') {
+      return await viewCases({
+        title: 'Recording approvals', subtitle: 'Governance asked for these verification call recordings. Approve to email IT for the file, or decline with a reason.',
+        params, fixed: { recording: 'pending_approval' }, cols: ['ref', 'customer', 'recording', 'assigned', 'updated'], empty: 'No recording requests waiting for approval',
+      });
+    }
     if (path === '/users') return await viewUsers();
     shell(html`<div class="card empty">Page not found</div>`);
   } catch (err) {
@@ -269,7 +312,7 @@ async function viewDashboard() {
   const r = state.user.role;
   const by = s.by_status;
   const cs = s.by_case_status;
-  const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head'].includes(r);
+  const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
 
   const caseTiles = Object.entries(CASE_STATUS_LABEL).map(([k, l]) => [l, cs[k], `#/cases?case_status=${k}`, k === 'applicant_review' && cs[k] > 0]);
   caseTiles.push(['Total files', s.total, '#/cases']);
@@ -293,11 +336,12 @@ async function viewDashboard() {
     sales_manager: 'Make the changes sales ask for in edit requests, and keep case statuses up to date.',
     mis: 'Track every sourced file and update its case status: Applicant review, Completed or Rejected.',
     business_head: 'Sourcing, verification and case outcomes across the team. You can update any case status.',
+    governance: 'Mark files for a quality check, request call recordings after verification, add complaint numbers and score verification calls.',
   }[r];
 
   const teamTables = oversight ? html`
     <div class="card"><h2>Processing team</h2>
-      ${miniTable(['Name', 'Calls', 'Verified', 'Pending', 'Rejected'], s.processors.map((p) => [p.name, p.calls, p.completed, p.incomplete, p.rejected]))}
+      ${miniTable(['Name', 'Calls', 'Verified', 'Pending', 'Rejected', 'QC avg'], s.processors.map((p) => [p.name, p.calls, p.completed, p.incomplete, p.rejected, p.qc_avg != null ? raw(`<span class="chip ${scoreClass(p.qc_avg)}">${p.qc_avg}</span>`) : '—']))}
     </div>
     <div class="card"><h2>Sales team</h2>
       ${miniTable(['Name', 'Sourced', 'Verified'], s.sales.map((p) => [p.name, p.sourced, p.completed]))}
@@ -314,7 +358,17 @@ async function viewDashboard() {
   } else if (r === 'sales_manager') {
     const { cases } = await api('/cases?edit_requests=mine&limit=10');
     main = html`<div class="card"><h2>Edit requests waiting on you</h2>${caseTable(cases, { cols: ['ref', 'customer', 'request', 'req_waiting'], empty: 'No edit requests right now' })}</div>`;
-  } else if (r === 'mis' || r === 'business_head') {
+  } else if (r === 'governance') {
+    const [{ cases: qc }, { cases: recs }] = await Promise.all([api('/cases?qc=1&limit=10'), api('/cases?recording=received&limit=5')]);
+    main = html`
+      <div class="card"><h2>Marked for quality check</h2>${caseTable(qc, { cols: ['ref', 'customer', 'status', 'quality', 'assigned'], empty: 'Nothing marked for a quality check' })}</div>
+      ${recs.length ? html`<div class="card"><h2>Recordings ready to review</h2>${caseTable(recs, { cols: ['ref', 'customer', 'quality', 'assigned', 'updated'] })}</div>` : ''}`;
+  } else if (r === 'business_head') {
+    const [{ cases: approvals }, { cases: review }] = await Promise.all([api('/cases?recording=pending_approval&limit=10'), api('/cases?case_status=applicant_review&limit=10')]);
+    main = html`
+      <div class="card"><h2>Recording requests to approve</h2>${caseTable(approvals, { cols: ['ref', 'customer', 'recording', 'assigned'], empty: 'Nothing waiting for your approval' })}</div>
+      <div class="card"><h2>In applicant review</h2>${caseTable(review, { cols: ['ref', 'customer', 'cs_note', 'source_by', 'updated'], empty: 'No files in applicant review' })}</div>`;
+  } else if (r === 'mis') {
     const { cases } = await api('/cases?case_status=applicant_review&limit=10');
     main = html`<div class="card"><h2>In applicant review</h2>${caseTable(cases, { cols: ['ref', 'customer', 'cs_note', 'source_by', 'updated'], empty: 'No files in applicant review' })}</div>`;
   } else if (r === 'sales') {
@@ -336,7 +390,17 @@ async function viewDashboard() {
       <div><h1>Hello, ${state.user.name.split(' ')[0]}</h1><p class="muted" style="margin:0">${intro}</p></div>
       ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
       ${r === 'processing' ? html`<a class="btn btn-primary" href="#/queue">Open verification queue</a>` : ''}
+      ${r === 'governance' ? html`<a class="btn btn-primary" href="#/quality-check">Open quality check</a>` : ''}
     </div>
+    ${r === 'governance' ? html`<h2 class="tiles-head">Quality</h2>${tileGrid([
+      ['Marked for QC', s.governance.qc, '#/quality-check', s.governance.qc > 0],
+      ['Awaiting approval', s.governance.recordings_pending, '#/recordings'],
+      ['Requested from IT', s.governance.recordings_with_it, '#/recordings'],
+      ['Recordings received', s.governance.recordings_received, '#/recordings'],
+      ['Calls scored', s.governance.scored, '#/cases'],
+      ['Average score', s.governance.avg_score ?? '—', '#/cases'],
+      ['Complaints', s.governance.complaints, '#/cases'],
+    ])}` : ''}
     <h2 class="tiles-head">Case status</h2>
     ${tileGrid(caseTiles)}
     <h2 class="tiles-head">Verification</h2>
@@ -364,6 +428,15 @@ const COLS = {
     ? html`${c.edit_request_note}<div class="muted small">${c.edit_request_by_name} → ${state.meta.edit_queues[c.edit_request_to]} queue</div>`
     : html`<span class="muted">—</span>`)],
   req_waiting: ['Waiting', (c) => ago(c.edit_request_at)],
+  recording: ['Recording', (c) => html`${recordingChip(c.recording_status)}<div class="muted small">${c.recording_request_note || ''}</div>
+    <div class="muted small">${c.recording_requested_by_name ? `Requested by ${c.recording_requested_by_name} ${ago(c.recording_requested_at)}` : ''}</div>`],
+  quality: ['Quality', (c) => html`<div class="chips">
+    ${c.qc_flag ? html`<span class="chip warn">QC</span>` : ''}
+    ${c.qc_score != null ? html`<span class="chip ${scoreClass(c.qc_score)}">${c.qc_score}/10</span>` : ''}
+    ${c.recording_status ? recordingChip(c.recording_status) : ''}
+    ${c.complaint_number ? html`<span class="chip bad">Complaint ${c.complaint_number}</span>` : ''}
+    ${!c.qc_flag && c.qc_score == null && !c.recording_status && !c.complaint_number ? html`<span class="muted">—</span>` : ''}
+  </div>`],
   source_by: ['Sourced by', (c) => html`${c.sales_staff_name || c.created_by_name}${c.sales_code ? html`<div class="muted small mono">${c.sales_code}</div>` : ''}`],
   region: ['Region', (c) => c.region || html`<span class="muted">—</span>`],
   assigned: ['Processor', (c) => c.assigned_to_name || html`<span class="muted">—</span>`],
@@ -733,6 +806,8 @@ function eventDetail(e) {
   if (e.type === 'edited') return `fields: ${e.detail}`;
   if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);
   if (e.type === 'request_edit' || e.type === 'resolve_edit_request') return `${state.meta.edit_queues[e.detail] || label(e.detail)} queue`;
+  if (e.type === 'score_quality') return `${e.detail}/10`;
+  if (e.type === 'set_complaint' || e.type === 'receive_recording' || e.type === 'recording_it_email') return e.detail;
   return label(e.detail);
 }
 
@@ -844,6 +919,62 @@ async function viewCase(id) {
         <button class="btn-primary">Send edit request</button>
       </form>`);
   }
+  const sep = () => (panel.length ? raw('<hr>') : '');
+  if (a.has('approve_recording')) {
+    panel.push(html`${sep()}<h3>Call recording request</h3>
+      <div class="note-box">${c.recording_request_note}</div>
+      <p class="muted small">Requested by ${c.recording_requested_by_name} ${ago(c.recording_requested_at)}. Approving emails IT to share the file.</p>
+      <form data-form="recording_decision">
+        <div class="field-row"><textarea name="note" placeholder="Note (required to decline)"></textarea></div>
+        <div class="actions">
+          <button class="btn-success" data-decision="approve_recording">Approve and email IT</button>
+          <button class="btn-danger" data-decision="decline_recording">Decline</button>
+        </div>
+      </form>`);
+  }
+  if (a.has('receive_recording')) {
+    panel.push(html`${sep()}<h3>Recording from IT</h3>
+      <p class="muted small">IT was emailed for this recording. When they share it, add the link or file reference here.</p>
+      <form data-form="receive_recording">
+        <div class="field-row"><input name="recording_ref" required placeholder="Link or file reference, e.g. \\\\share\\rec\\88231.wav"></div>
+        <button class="btn-primary">Mark recording received</button>
+      </form>`);
+  }
+  if (a.has('score_quality')) {
+    panel.push(html`${sep()}<h3>Score the verification call</h3>
+      <form data-form="score_quality">
+        <div class="field-row score-row">
+          <input name="score" type="number" min="0" max="${state.meta.score_max}" step="0.1" required inputmode="decimal" aria-label="Score out of 10" value="${c.qc_score ?? ''}">
+          <span class="muted">/ ${state.meta.score_max}</span>
+        </div>
+        <div class="field-row"><textarea name="note" placeholder="What went well, what was missed">${c.qc_score_note || ''}</textarea></div>
+        <button class="btn-primary">${c.qc_score != null ? 'Update score' : 'Save score'}</button>
+      </form>`);
+  }
+  if (a.has('request_recording')) {
+    panel.push(html`${sep()}<h3>Request the call recording</h3>
+      <p class="muted small">Goes to the business head for approval. Once approved, IT is emailed for the file.</p>
+      <form data-form="request_recording">
+        <div class="field-row"><textarea name="note" required placeholder="Why the recording is needed"></textarea></div>
+        <button class="btn-primary">Send for approval</button>
+      </form>`);
+  }
+  if (a.has('mark_qc') || a.has('clear_qc')) {
+    const on = a.has('clear_qc');
+    panel.push(html`${sep()}<h3>Quality check</h3>
+      <form data-form="${on ? 'clear_qc' : 'mark_qc'}">
+        ${on ? html`<p class="small">Marked for QC by ${c.qc_by_name}${c.qc_note ? `: ${c.qc_note}` : ''}</p>` : ''}
+        <div class="field-row"><textarea name="note" placeholder="${on ? 'Note (optional)' : 'Why this file is being checked (optional)'}"></textarea></div>
+        <button class="${on ? '' : 'btn-primary'}">${on ? 'Remove from quality check' : 'Mark for quality check'}</button>
+      </form>`);
+  }
+  if (a.has('set_complaint')) {
+    panel.push(html`${sep()}<h3>Complaint number</h3>
+      <form data-form="set_complaint">
+        <div class="field-row"><input name="complaint_number" required maxlength="50" placeholder="e.g. CMP-2026-0091" value="${c.complaint_number || ''}" aria-label="Complaint number"></div>
+        <button class="btn-primary">${c.complaint_number ? 'Update complaint number' : 'Add complaint number'}</button>
+      </form>`);
+  }
   if (a.has('set_case_status')) {
     const choices = state.meta.settable_case_statuses.filter((k) => k !== c.case_status);
     panel.push(html`${panel.length ? raw('<hr>') : ''}<h3>Case status</h3>
@@ -923,6 +1054,34 @@ async function viewCase(id) {
             <dt>Call attempts</dt><dd>${c.call_attempts}</dd>
           </dl>
         </div>
+        ${'qc_flag' in c ? html`<div class="card">
+          <h2>Quality &amp; governance</h2>
+          <dl class="details">
+            <dt>Quality check</dt><dd>${c.qc_flag ? html`<span class="chip warn">Marked for QC</span><div class="muted small">${c.qc_by_name} · ${fmtDate(c.qc_at)}</div>${c.qc_note ? html`<div>${c.qc_note}</div>` : ''}` : html`<span class="muted">Not marked</span>`}</dd>
+            <dt>Complaint number</dt><dd>${c.complaint_number ? html`<strong class="mono">${c.complaint_number}</strong><div class="muted small">${c.complaint_by_name} · ${fmtDate(c.complaint_at)}</div>` : '—'}</dd>
+            <dt>Call score</dt><dd>${c.qc_score != null ? html`<span class="chip ${scoreClass(c.qc_score)}">${c.qc_score} / 10</span><div class="muted small">${c.qc_scored_by_name} · ${fmtDate(c.qc_scored_at)}</div>${c.qc_score_note ? html`<div>${c.qc_score_note}</div>` : ''}` : html`<span class="muted">Not scored</span>`}</dd>
+            <dt>Call recording</dt><dd>${c.recording_status ? html`
+              ${recordingChip(c.recording_status)}
+              <ol class="steps">
+                <li>Requested by ${c.recording_requested_by_name} · ${fmtDate(c.recording_requested_at)}${c.recording_request_note ? html`<div class="muted small">${c.recording_request_note}</div>` : ''}</li>
+                ${c.recording_decided_by_name ? html`<li>${c.recording_status === 'declined' ? 'Declined' : 'Approved'} by ${c.recording_decided_by_name} · ${fmtDate(c.recording_decided_at)}${c.recording_decision_note ? html`<div class="muted small">${c.recording_decision_note}</div>` : ''}</li>` : ''}
+                ${c.recording_it_email_at ? html`<li>IT emailed for the file · ${fmtDate(c.recording_it_email_at)}</li>` : ''}
+                ${c.recording_ref ? html`<li>Received · ${fmtDate(c.recording_provided_at)}<div>${/^https?:\/\//.test(c.recording_ref) ? html`<a href="${c.recording_ref}" target="_blank" rel="noopener">${c.recording_ref}</a>` : html`<span class="mono">${c.recording_ref}</span>`}</div></li>` : ''}
+              </ol>` : html`<span class="muted">Not requested</span>`}</dd>
+          </dl>
+          ${c.recording_email ? html`<div class="email-draft">
+            <div class="email-head"><strong>Email to IT</strong>
+              <span class="actions">
+                <button type="button" class="btn-link" id="copy-email">Copy email</button>
+                ${c.recording_email.to ? html`<a href="mailto:${c.recording_email.to}?subject=${encodeURIComponent(c.recording_email.subject)}&body=${encodeURIComponent(c.recording_email.body)}">Open in email</a>` : ''}
+              </span>
+            </div>
+            <div class="small"><span class="muted">To:</span> ${c.recording_email.to || html`<span class="error">IT email address not set up. Ask an administrator to set IT_EMAIL.</span>`}</div>
+            <div class="small"><span class="muted">Subject:</span> ${c.recording_email.subject}</div>
+            <pre id="email-body">${c.recording_email.body}</pre>
+            <p class="muted small">Sent automatically when the email relay is set up; otherwise copy it into your email.</p>
+          </div>` : ''}
+        </div>` : ''}
         <div class="card">
           <h2>Activity</h2>
           <ul class="timeline">
@@ -955,10 +1114,31 @@ async function viewCase(id) {
     if (history.length > 1) { e.preventDefault(); history.back(); }
   };
   app.querySelectorAll('[data-action]').forEach((b) => (b.onclick = () => run({ action: b.dataset.action }, b)));
+  document.getElementById('copy-email')?.addEventListener('click', async () => {
+    const em = c.recording_email;
+    const text = `To: ${em.to || ''}\nSubject: ${em.subject}\n\n${em.body}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Email copied');
+    } catch {
+      // Clipboard blocked: select the body so it can be copied by hand.
+      const range = document.createRange();
+      range.selectNodeContents(document.getElementById('email-body'));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      toast('Press Ctrl+C (or ⌘C) to copy the selected email');
+    }
+  });
   app.querySelectorAll('[data-case-complete]').forEach((b) => (b.onclick = () => run({ action: 'set_case_status', case_status: 'completed' }, b)));
   app.querySelectorAll('form[data-form]').forEach((f) => {
     const kind = f.dataset.form;
-    if (kind === 'verification') {
+    if (kind === 'recording_decision') {
+      f.onsubmit = (e) => e.preventDefault();
+      f.querySelectorAll('[data-decision]').forEach((b) => (b.onclick = (e) => {
+        e.preventDefault();
+        run({ action: b.dataset.decision, note: formData(f).note }, b);
+      }));
+    } else if (kind === 'verification') {
       const reasonRow = f.querySelector('#vr-reason');
       const reason = reasonRow.querySelector('select');
       const note = f.querySelector('textarea');
