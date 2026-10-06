@@ -943,6 +943,16 @@ test('card activation is mapped on completed card cases, one by one or from a ba
   assert.match(done.rows[2].error, /not a completed credit card case/);
   assert.match(done.rows[3].error, /No case found/);
   assert.equal((await sally('GET', `/cases/${b}`)).data.case.card_activation_date, '2026-02-03');
+  // Every status carries a date: inactive since the given date, or today when none is given.
+  const { uaeDay } = await import('../src/cycles.js');
+  assert.equal((await sally('GET', `/cases/${a}`)).data.case.card_activation_date, uaeDay());
+  r = await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: 'inactive', activation_date: '2026-03-01' });
+  assert.deepEqual([r.data.case.card_status, r.data.case.card_activation_date], ['inactive', '2026-03-01']);
+  assert.match(r.data.case.events[0].detail, /Inactive since 2026-03-01/);
+  // Clearing the mapping clears the date too.
+  r = await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: '' });
+  assert.deepEqual([r.data.case.card_status, r.data.case.card_activation_date], [null, null]);
+  await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: 'inactive', activation_date: '2026-03-01' });
 
   // Tracking lists, scoped for sales staff to their own cases.
   const ids = async (who, q) => (await who('GET', `/cases?card=${q}`)).data.cases.map((x) => x.id);

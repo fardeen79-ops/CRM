@@ -753,7 +753,8 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
 
 /**
  * Records whether a completed (temp end) credit card was activated: 'active', 'inactive', or ''
- * to clear. Used by the case page and the card activation bulk upload; runs in the caller's transaction.
+ * to clear, with the date of that status (activated on / inactive since; today when not given).
+ * Used by the case page, the card activation list and bulk upload; runs in the caller's transaction.
  */
 const disbursalText = (amounts) => Object.entries(DISBURSAL_FIELDS)
   .filter(([, f]) => amounts[f] != null)
@@ -766,17 +767,17 @@ export function setCardStatus(db, user, row, { card_status, activation_date } = 
   }
   const status = String(card_status ?? '').trim().toLowerCase() || null;
   if (status && !CARD_STATUS[status]) throw new WorkflowError(400, 'Card status must be Active or Inactive');
-  let date = clean(activation_date, 10);
-  if (status !== 'active') date = null;
+  const label = status === 'inactive' ? 'Inactive since date' : 'Activation date';
+  let date = status ? clean(activation_date, 10) || uaeDay() : null;
   if (date) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new WorkflowError(400, 'Activation date must be a valid date');
-    if (date > uaeDay(Date.now() + 864e5)) throw new WorkflowError(400, 'Activation date cannot be in the future');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new WorkflowError(400, `${label} must be a valid date`);
+    if (date > uaeDay(Date.now() + 864e5)) throw new WorkflowError(400, `${label} cannot be in the future`);
   }
   const ts = now();
   db.prepare('UPDATE cases SET card_status = ?, card_activation_date = ?, card_status_by = ?, card_status_at = ?, updated_at = ? WHERE id = ?')
     .run(status, date, status ? user.id : null, status ? ts : null, ts, row.id);
   addEvent(db, row.id, user.id, 'card_status', {
-    from: row.card_status, to: status, detail: `${CARD_STATUS[status] || 'Mapping cleared'}${date ? `, activated ${date}` : ''}`,
+    from: row.card_status, to: status, detail: `${CARD_STATUS[status] || 'Mapping cleared'}${date ? `${status === 'active' ? ', activated on' : ' since'} ${date}` : ''}`,
   });
 }
 

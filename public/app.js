@@ -100,6 +100,8 @@ const fmtAed = (n) => `AED ${Number(n).toLocaleString(undefined, { maximumFracti
 // Compact for meters and tables: AED 1.25M, AED 480K.
 const fmtAedShort = (n) => `AED ${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(n)}`;
 const disbursedText = (c) => loansIn(c).filter((p) => c[LOAN_DISBURSAL[p][0]] != null).map((p) => `${LOAN_DISBURSAL[p][1]} ${fmtAed(c[LOAN_DISBURSAL[p][0]])}`).join(' · ');
+// The date that goes with a card status: when it was activated, or since when it is inactive.
+const cardDateText = (c) => (c.card_activation_date ? `${c.card_status === 'inactive' ? 'Inactive since' : 'Activated on'} ${fmtDay(c.card_activation_date)}` : '');
 const fmtIsoDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
@@ -601,7 +603,7 @@ const COLS = {
   tl_note: ['Team leader note', (c) => c.tl_note],
   updated: ['Updated', (c) => html`<span class="small">${fmtDate(c.updated_at)}</span>`],
   completed_on: ['Completed', (c) => html`<span class="small nowrap">${fmtIsoDay(c.case_status_at)}</span><div class="muted small">${completionLabel(c)}</div>${disbursedText(c) ? html`<div class="small">${disbursedText(c)}</div>` : ''}`],
-  card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${fmtDay(c.card_activation_date)}</div>` : ''}`],
+  card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${cardDateText(c)}</div>` : ''}`],
 };
 
 function caseTable(cases, { cols, empty = 'No cases found' }) {
@@ -1226,8 +1228,8 @@ async function viewCase(id) {
           <label><input type="radio" name="card_status" value="active" required ${c.card_status === 'active' ? raw('checked') : ''}><span>Active</span></label>
           <label><input type="radio" name="card_status" value="inactive" ${c.card_status === 'inactive' ? raw('checked') : ''}><span>Inactive</span></label>
         </div>
-        <div class="field-row" id="card-date" ${c.card_status === 'active' ? '' : raw('hidden')}><label for="card-date-input">Activation date</label>
-          <input id="card-date-input" type="date" name="activation_date" value="${c.card_activation_date || ''}" max="${todayLocal()}"></div>
+        <div class="field-row" id="card-date"><label for="card-date-input" id="card-date-label">${c.card_status === 'inactive' ? 'Inactive since' : 'Activated on'}</label>
+          <input id="card-date-input" type="date" name="activation_date" value="${c.card_activation_date || todayLocal()}" max="${todayLocal()}" required></div>
         <div class="actions"><button class="btn-primary">Save card status</button>${c.card_status ? html`<button type="button" data-card-clear>Clear mapping</button>` : ''}</div>
       </form>`);
   }
@@ -1286,7 +1288,7 @@ async function viewCase(id) {
           <dl class="details">
             <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
             ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong>${disbursedText(c) ? html`<div>${disbursedText(c)}</div>` : ''}<div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
-            ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="muted small">${c.card_activation_date ? `Activated ${fmtDay(c.card_activation_date)} · ` : ''}mapped by ${c.card_status_by_name} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
+            ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="small">${cardDateText(c)}</div><div class="muted small">Mapped by ${c.card_status_by_name} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
             ${row('Region', state.meta.regions[c.region])}
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
@@ -1374,8 +1376,8 @@ async function viewCase(id) {
   app.querySelectorAll('[data-case-complete]').forEach((b) => (b.onclick = () => run({ action: 'set_case_status', case_status: 'completed', ...disbursalInputs() }, b)));
   const cardForm = document.getElementById('card-form');
   if (cardForm) {
-    const dateRow = cardForm.querySelector('#card-date');
-    cardForm.querySelectorAll('input[name=card_status]').forEach((r) => (r.onchange = () => { dateRow.hidden = r.value !== 'active'; }));
+    const dateLabel = cardForm.querySelector('#card-date-label');
+    cardForm.querySelectorAll('input[name=card_status]').forEach((r) => (r.onchange = () => { dateLabel.textContent = r.value === 'inactive' ? 'Inactive since' : 'Activated on'; }));
     cardForm.querySelector('[data-card-clear]')?.addEventListener('click', (e) => run({ action: 'set_card_status', card_status: '' }, e.target));
   }
   app.querySelectorAll('form[data-form]').forEach((f) => {
@@ -1660,7 +1662,7 @@ async function viewCards(params) {
   shell(html`
     <div class="page-head">
       <div><h1>Card activation</h1>
-        <p class="muted lede">Every completed credit card case (temp end), mapped to the sales person who sourced it. ${canMap ? 'Mark each card Active or Inactive here, or upload the bank\'s activation report.' : 'MIS records whether each card was activated.'}</p></div>
+        <p class="muted lede">Every completed credit card case (temp end), mapped to the sales person who sourced it. ${canMap ? 'To change a card, set the date in its row, then choose Active or Inactive. Or upload the bank\'s activation report.' : 'MIS records whether each card was activated, and when.'}</p></div>
       ${canMap ? html`<a class="btn" href="#/import/cards">Upload activation report</a>` : ''}
     </div>
     <div class="kpis card-kpis">
@@ -1678,30 +1680,33 @@ async function viewCards(params) {
         <div class="tabs" aria-label="Card status">${CARD_FILTERS.map(([k, l]) => html`<a class="${k === card ? 'active' : ''}" href="${href({ card: k })}">${l} <span class="muted">${counts[k]}</span></a>`)}</div>
       </div>
       ${shown.length ? html`<div class="table-wrap"><table>
-        <thead><tr><th>Ref</th><th>Customer</th><th>Sales staff</th><th>Temp end</th><th>Card status</th>${canMap ? html`<th>Map</th>` : ''}</tr></thead>
+        <thead><tr><th>Ref</th><th>Customer</th><th>Sales staff</th><th>Temp end</th><th>Card status</th>${canMap ? html`<th>Change status (date, then status)</th>` : ''}</tr></thead>
         <tbody>${shown.map((c) => html`<tr data-href="#/cases/${c.id}" data-case="${c.id}">
           <td><strong>${c.ref}</strong>${c.app_id ? html`<div class="muted small mono">${c.app_id}</div>` : ''}</td>
           <td>${c.customer_name}<div class="muted small">${c.credit_card || ''}</div></td>
           <td>${c.sales_staff_name || '—'}<div class="muted small"><span class="mono">${c.sales_code || ''}</span>${c.team_leader_name ? ` · TL ${c.team_leader_name}` : ''}</div></td>
           <td class="small nowrap">${fmtIsoDay(c.case_status_at)}<div class="muted">${cycleName(cycleOfIso(c.case_status_at))} cycle</div></td>
-          <td>${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${fmtDay(c.card_activation_date)}</div>` : ''}</td>
-          ${canMap ? html`<td><div class="segmented map-toggle" role="group" aria-label="Card status for ${c.ref}">
-            <button type="button" data-map="active" class="${c.card_status === 'active' ? 'on' : ''}">Active</button><button type="button" data-map="inactive" class="${c.card_status === 'inactive' ? 'on' : ''}">Inactive</button>
-          </div></td>` : ''}
+          <td>${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${cardDateText(c)}</div>` : ''}</td>
+          ${canMap ? html`<td class="map-cell"><div class="map-row">
+            <input type="date" class="map-date" value="${c.card_activation_date || todayLocal()}" max="${todayLocal()}" aria-label="Status date for ${c.ref}">
+            <div class="segmented map-toggle" role="group" aria-label="Card status for ${c.ref}">
+              <button type="button" data-map="active" class="${c.card_status === 'active' ? 'on' : ''}">Active</button><button type="button" data-map="inactive" class="${c.card_status === 'inactive' ? 'on' : ''}">Inactive</button>
+            </div></div></td>` : ''}
         </tr>`)}</tbody>
       </table></div>` : html`<div class="empty">${counts.all ? 'No cards in this view' : 'No completed credit card cases yet'}</div>`}
     </div>`);
   bindRows();
   document.getElementById('card-cycle').onchange = (e) => go(href({ cycle: e.target.value }));
-  app.querySelectorAll('[data-map]').forEach((b) => (b.onclick = async (e) => {
-    e.stopPropagation();
-    const id = Number(b.closest('tr').dataset.case);
-    const current = cases.find((c) => c.id === id).card_status;
+  // Pick the date, then Active or Inactive. Choosing the same status again saves the new date.
+  app.querySelectorAll('.map-cell').forEach((cell) => cell.addEventListener('click', (e) => e.stopPropagation()));
+  app.querySelectorAll('[data-map]').forEach((b) => (b.onclick = async () => {
+    const tr = b.closest('tr');
+    const date = tr.querySelector('.map-date').value;
+    if (!date) { toast('Choose the date first', true); return; }
     b.disabled = true;
     try {
-      // Clicking the status that is already set clears it.
-      await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'set_card_status', card_status: current === b.dataset.map ? '' : b.dataset.map } });
-      toast(current === b.dataset.map ? 'Mapping cleared' : `Card marked ${b.dataset.map}`);
+      await api(`/cases/${Number(tr.dataset.case)}/actions`, { method: 'POST', body: { action: 'set_card_status', card_status: b.dataset.map, activation_date: date } });
+      toast(`Card marked ${b.dataset.map} ${b.dataset.map === 'active' ? 'on' : 'since'} ${fmtDay(date)}`);
       viewCards(params);
     } catch (ex) { toast(ex.message, true); b.disabled = false; }
   }));

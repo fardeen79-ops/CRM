@@ -118,10 +118,11 @@ Once a credit card case is completed (temp end), MIS records whether the custome
 
 - **Card activation** (MIS and business heads) lists every temp end with its sales staff, team leader and cycle.
   - Filter by status (Not mapped, Active, Inactive) and by the cycle the case was completed in.
-  - Mark each card **Active** or **Inactive** right in the list. Clicking the current status again clears it.
-- The case page has the same choice, plus an optional activation date.
+  - To change a card, set the **date** in its row (it starts as today, or the card's current date), then choose **Active** or **Inactive**. Choosing the same status again saves the new date.
+- On the case page, **Card activation** has the same choice with a date: *Activated on* for Active, *Inactive since* for Inactive. **Clear mapping** puts the card back to Not mapped.
+- Every status has a date. If none is given it is today, and it can't be in the future. Each change is recorded in the case timeline, e.g. "Inactive since 2026-10-05".
 - **Bulk upload → Card activation** maps a whole bank report.
-  - Each row names a completed card case by **CRM reference, App ID or Emirates ID**.
+  - Each row names a completed card case by **CRM reference, App ID or Emirates ID**, with its card status and a **Status date** (activated on / inactive since; blank means today).
   - A reference that matches several cards, or a case that isn't a completed card case, is reported rather than guessed.
 - Everyone with targets sees active, inactive and not-mapped counts and the activation rate on their Targets page and dashboard.
 
@@ -301,5 +302,5 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `GET /targets?cycle=2026-06`, `PUT /targets` | Targets and achievement for a cycle (default: current). `PUT {cycle, targets: [{user_id, credit_card, personal_loan, auto_loan, accounts}]}`, MIS and business head only |
 | `GET /cases?cycle=2026-06&staff=:id&card=active\|inactive\|unmapped\|all` | Cases completed in a cycle, for one sales person, or by card activation |
 | `POST /cases/:id/actions` with `set_case_status` / `set_disbursal` | Completing a loan takes `pl_disbursed_amount` / `al_disbursed_amount` (AED; defaults to the file's amount). `set_disbursal` corrects them on a completed case |
-| `POST /cases/:id/actions` with `set_card_status` | `{card_status: 'active'\|'inactive'\|'', activation_date?}` on a completed card case (MIS and business head) |
+| `POST /cases/:id/actions` with `set_card_status` | `{card_status: 'active'\|'inactive'\|'', activation_date?}` (the status date; defaults to today) on a completed card case (MIS and business head) |
 | `POST /import/users`, `/import/cases`, `/import/cards`, `/import/targets` | Bulk upload (MIS and business head only): `{csv, dry_run}`. Returns `{total, ok, failed, rows: [{line, ok, error?, ref?, temp_password?}]}`; `dry_run: true` checks without saving |

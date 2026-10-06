@@ -70,7 +70,7 @@ export const CASE_IMPORT_COLUMNS = [
 export const CARD_IMPORT_COLUMNS = [
   { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference, App ID or Emirates ID of a completed credit card case' },
   { key: 'card_status', header: 'Card status', required: true, example: 'Active', allowed: Object.values(CARD_STATUS) },
-  { key: 'activation_date', header: 'Activation date', example: '15/06/2026', help: 'Active cards only. DD/MM/YYYY or YYYY-MM-DD' },
+  { key: 'activation_date', header: 'Status date', example: '15/06/2026', help: 'Date activated (Active) or inactive since (Inactive). DD/MM/YYYY or YYYY-MM-DD; blank means today' },
 ];
 
 export const TARGET_IMPORT_COLUMNS = [
@@ -345,7 +345,7 @@ export function importCards(db, user, csv, { dryRun = false } = {}) {
     seen.set(row.id, record.line);
     const status = choose(v.card_status, CARD_STATUS, 'Card status');
     if (!status) throw new Error('Card status is required');
-    setCardStatus(db, user, row, { card_status: status, activation_date: v.activation_date ? parseDate(v.activation_date, 'Activation date') : null });
+    setCardStatus(db, user, row, { card_status: status, activation_date: v.activation_date ? parseDate(v.activation_date, 'Status date') : null });
     return {
       id: row.id, ref: caseRef(row.id),
       label: `${row.customer_name} · ${CARD_STATUS[status]}`,

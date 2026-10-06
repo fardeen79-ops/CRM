@@ -522,3 +522,5 @@ a.target-tile:hover { text-decoration: none; border-color: var(--primary); }
 .target-input.aed { width: 130px; }
 fieldset.disbursal-fields { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 4px; margin: 0 0 12px; background: var(--surface-2); }
 fieldset.disbursal-fields legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+.map-row { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
+.map-date { width: 140px; padding: 4px 8px; font-size: 13px; }
