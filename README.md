@@ -115,7 +115,8 @@ The **Governance** role sees every file (but cannot edit it or change its status
 - **Mark a file for quality check**, with an optional note, and remove the mark later. Marked files appear in the **Quality check** queue.
 - **Add a complaint number** to any file. It is searchable.
 - **Score the verification call** from **0 to 10**, with one decimal allowed, plus comments. This is only available once the processor has recorded a verification result. The processor is notified, and team dashboards show each processor's average score.
-- **Request the call recording**, also only after verification, and with a reason:
+- **Flag a file for urgent verification**, with a reason, while verification is still awaiting, in progress, Pending or returned to sales. The processor on the file (or all processors if nobody has picked it up) and team leaders are alerted. Urgent files go to the top of the queues with an **Urgent** tag and an **Urgent** menu item. The flag clears automatically when the verification is completed or rejected.
+- **Request the call recording**, only once verification is **Completed** or **Rejected**, and with a reason. While it is still pending, the recording can't be retrieved; flag the file for urgent verification instead. The business head can't approve a request either until verification has a final result.
   1. The request goes to the **business head**, in their **Recording approvals** queue.
   2. The business head **approves** it, or **declines** it with a reason.
   3. On approval, the CRM emails **IT** for the file. The email is sent automatically if `IT_EMAIL` and `IT_EMAIL_WEBHOOK_URL` are set. The ready-made email is also shown on the file with **Copy email** and **Open in email** buttons.

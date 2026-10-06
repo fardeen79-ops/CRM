@@ -63,7 +63,7 @@ export const EDIT_QUEUES = { team_leader: 'Team Leader', sales_manager: 'Sales M
 const EDITOR_ROLES = ['team_leader', 'sales_manager'];
 // Governance: quality checks, call recordings, complaint numbers and call-quality scores.
 const GOVERNANCE_ACTIONS = [
-  'mark_qc', 'clear_qc', 'set_complaint', 'score_quality',
+  'mark_qc', 'clear_qc', 'set_complaint', 'score_quality', 'flag_urgent', 'clear_urgent',
   'request_recording', 'approve_recording', 'decline_recording', 'receive_recording',
 ];
 
@@ -107,6 +107,7 @@ const GOVERNANCE_FIELDS = [
   'recording_ref', 'recording_provided_by', 'recording_provided_at', 'recording_provided_by_name',
   'recording_decided_by', 'recording_decided_at', 'recording_decision_note', 'recording_decided_by_name', 'recording_it_email_at', 'recording_email',
   'complaint_number', 'complaint_by', 'complaint_at', 'complaint_by_name',
+  'urgent_flag', 'urgent_note', 'urgent_by', 'urgent_at', 'urgent_by_name',
   'qc_score', 'qc_score_note', 'qc_scored_by', 'qc_scored_at', 'qc_scored_by_name',
 ];
 
@@ -125,6 +126,9 @@ export function productLabel(product, bundleProducts, creditCard, loanType, buyo
 }
 
 const OPEN_FOR_PROCESSING = [STATUS.PENDING, STATUS.IN_VERIFICATION];
+// Verification has a final result only when Completed or Rejected; anything else is still being verified.
+const VERIFICATION_FINAL = [STATUS.COMPLETED, STATUS.REJECTED];
+const STILL_VERIFYING = [STATUS.PENDING, STATUS.IN_VERIFICATION, STATUS.INCOMPLETE, STATUS.RETURNED];
 
 /**
  * Every state change goes through this table. `to: null` means the action is
@@ -346,7 +350,7 @@ const CASE_SELECT = `
   SELECT c.*, cb.name AS created_by_name, at.name AS assigned_to_name,
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
          sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
-         qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name,
+         qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name, ub.name AS urgent_by_name,
          cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
@@ -359,6 +363,7 @@ const CASE_SELECT = `
   LEFT JOIN users rqb ON rqb.id = c.recording_requested_by
   LEFT JOIN users rpb ON rpb.id = c.recording_provided_by
   LEFT JOIN users rdb ON rdb.id = c.recording_decided_by
+  LEFT JOIN users ub ON ub.id = c.urgent_by
   LEFT JOIN users cpb ON cpb.id = c.complaint_by
   LEFT JOIN users scb ON scb.id = c.qc_scored_by`;
 
@@ -411,7 +416,7 @@ export function getCase(db, user, id) {
   return out;
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, qc, recording, q, assigned, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, limit = 200 } = {}) {
   const where = [];
   const params = [];
   if (user.role === 'sales') {
@@ -439,6 +444,10 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
   }
   if (user.role !== 'sales') {
     if (qc === '1') where.push('c.qc_flag = 1');
+    if (urgent === '1') {
+      where.push(`c.urgent_flag = 1 AND c.status IN (${STILL_VERIFYING.map(() => '?').join(',')})`);
+      params.push(...STILL_VERIFYING);
+    }
     const rec = String(recording || '').split(',').filter((r) => RECORDING_STATUS[r]);
     if (rec.length) {
       where.push(`c.recording_status IN (${rec.map(() => '?').join(',')})`);
@@ -469,7 +478,7 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
     if (idMatch) params.push(Number(idMatch[1]));
   }
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY c.updated_at DESC LIMIT ?`;
+    ORDER BY ${user.role === 'sales' ? '' : `(c.urgent_flag = 1 AND c.status IN (${STILL_VERIFYING.map((st) => `'${st}'`).join(',')})) DESC, `}c.updated_at DESC LIMIT ?`;
   params.push(Math.min(Number(limit) || 200, 1000));
   return db.prepare(sql).all(...params).map((row) => present(user, row));
 }
@@ -532,10 +541,14 @@ function allowedCaseActions(user, row) {
   if (row.edit_request_to && (user.role === row.edit_request_to || user.role === 'team_leader')) out.push('resolve_edit_request');
   // Recordings and scores only make sense once the processor has recorded a verification result.
   const verified = !OPEN_FOR_PROCESSING.includes(row.status);
+  // A recording can only be retrieved once verification has a final result. While it is still
+  // awaiting, in progress or Pending, governance flags the file for urgent verification instead.
+  const finalResult = VERIFICATION_FINAL.includes(row.status);
   if (user.role === 'governance') {
     out.push(row.qc_flag ? 'clear_qc' : 'mark_qc', 'set_complaint');
-    if (verified && !['pending_approval', 'approved'].includes(row.recording_status)) out.push('request_recording');
+    if (finalResult && !['pending_approval', 'approved'].includes(row.recording_status)) out.push('request_recording');
     if (verified) out.push('score_quality');
+    if (STILL_VERIFYING.includes(row.status)) out.push(row.urgent_flag ? 'clear_urgent' : 'flag_urgent');
   }
   if (user.role === 'business_head' && row.recording_status === 'pending_approval') out.push('approve_recording', 'decline_recording');
   if (row.recording_status === 'approved' && ['governance', 'business_head'].includes(user.role)) out.push('receive_recording');
@@ -607,12 +620,12 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         detail = outcome;
         break;
       case 'complete':
-        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts });
+        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts, urgent_flag: 0 });
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) verification completed by ${user.name}`);
         break;
       case 'reject_verification':
         // Verification failing does not change the case status; that stays a separate decision.
-        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, incomplete_reason: reason || null, incomplete_note: note, incomplete_at: ts });
+        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, incomplete_reason: reason || null, incomplete_note: note, incomplete_at: ts, urgent_flag: 0 });
         detail = reason || null;
         notify(db, [ownerId(row), ...activeUserIds(db, 'team_leader')], id,
           `${ref} (${row.customer_name}) verification rejected by ${user.name}: ${note}`);
@@ -713,6 +726,18 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
         .run(ts, id);
       addEvent(db, id, user.id, 'resolve_edit_request', { detail: row.edit_request_to, note });
       notify(db, [row.edit_request_by], id, `${ref} (${row.customer_name}): your requested changes were made by ${who}${note ? ` — ${note}` : ''}`);
+    } else if (action === 'flag_urgent') {
+      if (!note) throw new WorkflowError(400, 'Say why verification is urgent');
+      db.prepare('UPDATE cases SET urgent_flag = 1, urgent_note = ?, urgent_by = ?, urgent_at = ?, updated_at = ? WHERE id = ?')
+        .run(note, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'flag_urgent', { note });
+      // The processor on the file (or every processor if nobody has it), plus team leaders who own Pending files.
+      const processors = row.assigned_to ? [row.assigned_to] : activeUserIds(db, 'processing');
+      notify(db, [...processors, ...activeUserIds(db, 'team_leader')], id,
+        `URGENT verification: ${ref} (${row.customer_name}) flagged by ${who} — ${note}`);
+    } else if (action === 'clear_urgent') {
+      db.prepare('UPDATE cases SET urgent_flag = 0, updated_at = ? WHERE id = ?').run(ts, id);
+      addEvent(db, id, user.id, 'clear_urgent', { note });
     } else if (action === 'mark_qc' || action === 'clear_qc') {
       const on = action === 'mark_qc';
       db.prepare('UPDATE cases SET qc_flag = ?, qc_note = ?, qc_by = ?, qc_at = ?, updated_at = ? WHERE id = ?')
@@ -728,6 +753,9 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       notify(db, activeUserIds(db, 'business_head'), id, `Recording approval needed: ${ref} (${row.customer_name}) requested by ${who} — ${note}`);
     } else if (action === 'approve_recording' || action === 'decline_recording') {
       const approved = action === 'approve_recording';
+      if (approved && !VERIFICATION_FINAL.includes(row.status)) {
+        throw new WorkflowError(409, 'Verification is not complete, so the recording cannot be retrieved yet. Governance can flag the file for urgent verification.');
+      }
       if (!approved && !note) throw new WorkflowError(400, 'Give a reason for declining');
       db.prepare(`UPDATE cases SET recording_status = ?, recording_decided_by = ?, recording_decided_at = ?, recording_decision_note = ?,
           recording_it_email_at = ?, updated_at = ? WHERE id = ?`)
@@ -793,7 +821,7 @@ export function stats(db, user) {
   }
   if (user.role !== 'sales') {
     result.governance = db.prepare(
-      `SELECT SUM(qc_flag = 1) AS qc, SUM(recording_status = 'pending_approval') AS recordings_pending,
+      `SELECT SUM(qc_flag = 1) AS qc, SUM(urgent_flag = 1 AND status IN (${STILL_VERIFYING.map((st) => `'${st}'`).join(',')})) AS urgent, SUM(recording_status = 'pending_approval') AS recordings_pending,
          SUM(recording_status = 'approved') AS recordings_with_it, SUM(recording_status = 'received') AS recordings_received,
          COUNT(qc_score) AS scored,
          ROUND(AVG(qc_score), 1) AS avg_score, COUNT(complaint_number) AS complaints FROM cases`

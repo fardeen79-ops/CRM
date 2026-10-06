@@ -624,7 +624,7 @@ test('governance marks files for QC, requests recordings after verification, add
   const allowed = async (who) => (await who('GET', `/cases/${id}`)).data.case.allowed_actions;
 
   // Before verification: QC and complaint yes; recording and score not yet
-  assert.deepEqual((await allowed(gov)).sort(), ['mark_qc', 'set_complaint']);
+  assert.deepEqual((await allowed(gov)).sort(), ['flag_urgent', 'mark_qc', 'set_complaint']);
   assert.equal((await act(gov, { action: 'request_recording' })).status, 403);
   assert.equal((await act(gov, { action: 'score_quality', score: 80 })).status, 403);
   // Governance cannot change case status or edit
@@ -719,4 +719,40 @@ test('approved recording requests are posted to the IT email relay', async () =>
   for (let i = 0; i < 50 && !received.length; i++) await new Promise((r) => setTimeout(r, 20));
   relay.close();
   assert.deepEqual(received[0], { to: 'it@bank.example', subject: 'Call recording request: CRM-000007', text: 'Hello IT team', ref: 'CRM-000007', case_id: 7 });
+});
+
+test('while verification is pending, recordings cannot be retrieved; governance flags it for urgent verification instead', async () => {
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const gov = await login('gov@t.local');
+  const lead = await login('lead@t.local');
+  const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  const act = (who, body) => who('POST', `/cases/${id}/actions`, body);
+  const allowed = async (who) => (await who('GET', `/cases/${id}`)).data.case.allowed_actions;
+
+  await act(proc, { action: 'mark_incomplete', reason: 'customer_unreachable', note: 'No answer' });
+  assert.ok(!(await allowed(gov)).includes('request_recording'));
+  assert.equal((await act(gov, { action: 'request_recording', note: 'Complaint' })).status, 403);
+  assert.ok((await allowed(gov)).includes('score_quality')); // the call still happened and can be scored
+
+  assert.equal((await act(gov, { action: 'flag_urgent' })).status, 400); // reason required
+  let r = await act(gov, { action: 'flag_urgent', note: 'Customer complaint escalated' });
+  assert.equal(r.data.case.urgent_flag, 1);
+  assert.equal(r.data.case.urgent_by_name, 'Gina');
+  assert.ok((await proc('GET', '/notifications')).data.items.some((n) => n.message.startsWith('URGENT verification')));
+  assert.ok((await lead('GET', '/notifications')).data.items.some((n) => n.message.startsWith('URGENT verification')));
+  assert.equal((await gov('GET', '/stats')).data.governance.urgent, 1);
+  // Urgent files lead the queues
+  assert.equal((await lead('GET', '/cases')).data.cases[0].id, id);
+  // Not visible to sales
+  assert.equal('urgent_flag' in (await sales('GET', `/cases/${id}`)).data.case, false);
+
+  // Sent back to the queue, still urgent; once verified the flag clears and the recording can be requested
+  await act(lead, { action: 'reverify' });
+  assert.equal((await gov('GET', `/cases/${id}`)).data.case.urgent_flag, 1);
+  r = await act(proc, { action: 'complete' });
+  assert.equal((await gov('GET', `/cases/${id}`)).data.case.urgent_flag, 0);
+  assert.ok(!(await allowed(gov)).includes('flag_urgent'));
+  assert.ok((await allowed(gov)).includes('request_recording'));
+  assert.equal((await gov('GET', '/stats')).data.governance.urgent, 0);
 });

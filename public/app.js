@@ -37,6 +37,8 @@ const ACTION_LABEL = {
   set_case_status: 'Case status updated',
   request_edit: 'Edit request sent',
   resolve_edit_request: 'Requested changes made',
+  flag_urgent: 'Flagged for urgent verification',
+  clear_urgent: 'Urgent flag removed',
   mark_qc: 'Marked for quality check',
   clear_qc: 'Removed from quality check',
   request_recording: 'Call recording requested',
@@ -48,7 +50,7 @@ const ACTION_LABEL = {
   score_quality: 'Verification call scored',
 };
 
-const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0 };
+const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0 };
 const app = document.getElementById('app');
 
 // ---------- helpers ----------
@@ -71,6 +73,8 @@ const badge = (status) => html`<span class="badge st-${status}">${STATUS_LABEL[s
 const scoreClass = (n) => (n >= 8.5 ? 'good' : n >= 7 ? 'fair' : 'bad');
 const RECORDING_CHIP = { pending_approval: ['Recording: awaiting approval', 'warn'], approved: ['Recording: with IT', ''], declined: ['Recording declined', 'bad'], received: ['Recording received', 'good'] };
 const recordingChip = (st) => (RECORDING_CHIP[st] ? html`<span class="chip ${RECORDING_CHIP[st][1]}">${RECORDING_CHIP[st][0]}</span>` : '');
+const STILL_VERIFYING = ['pending_verification', 'in_verification', 'incomplete', 'returned_to_sales'];
+const isUrgent = (c) => c.urgent_flag === 1 && STILL_VERIFYING.includes(c.status);
 const caseBadge = (status) => html`<span class="badge cs-${status}">${CASE_STATUS_LABEL[status] || status}</span>`;
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
@@ -162,11 +166,12 @@ async function refreshCounters() {
   try {
     const n = await api('/notifications');
     state.unread = n.unread;
-    if (['team_leader', 'sales_manager', 'governance', 'business_head'].includes(state.user.role)) {
+    if (['team_leader', 'sales_manager', 'governance', 'business_head', 'processing'].includes(state.user.role)) {
       const s = await api('/stats');
       state.actionRequired = s.by_status.incomplete;
       state.editRequests = s.edit_requests;
       state.qc = s.governance?.qc ?? 0;
+      state.urgent = s.governance?.urgent ?? 0;
       // Business heads see requests awaiting approval; governance sees ones waiting on IT.
       state.recordings = state.user.role === 'business_head' ? s.governance?.recordings_pending ?? 0 : s.governance?.recordings_with_it ?? 0;
     }
@@ -181,7 +186,7 @@ function updateBadges() {
   if (ar) { ar.textContent = state.actionRequired; ar.hidden = !state.actionRequired; }
   const er = document.querySelector('[data-er-count]');
   if (er) { er.textContent = state.editRequests; er.hidden = !state.editRequests; }
-  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings]]) {
+  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings], ['[data-urgent-count]', state.urgent]]) {
     const el = document.querySelector(sel);
     if (el) { el.textContent = n; el.hidden = !n; }
   }
@@ -202,7 +207,10 @@ function navLinks() {
   if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases']);
   const counted = (href, text, attr, n) => [href, raw(`${text}<span class="count" ${attr} ${n ? '' : 'hidden'}>${n}</span>`)];
   if (r === 'governance') {
-    links.push(counted('#/quality-check', 'Quality check', 'data-qc-count', state.qc), counted('#/recordings', 'Recordings', 'data-rec-count', state.recordings), ['#/cases', 'All cases']);
+    links.push(counted('#/urgent', 'Urgent', 'data-urgent-count', state.urgent), counted('#/quality-check', 'Quality check', 'data-qc-count', state.qc), counted('#/recordings', 'Recordings', 'data-rec-count', state.recordings), ['#/cases', 'All cases']);
+  }
+  if (r === 'processing' || r === 'team_leader') {
+    links.splice(r === 'processing' ? 2 : 1, 0, counted('#/urgent', 'Urgent', 'data-urgent-count', state.urgent));
   }
   if (r === 'business_head') links.splice(1, 0, counted('#/recording-approvals', 'Recording approvals', 'data-rec-count', state.recordings));
   return links;
@@ -281,6 +289,12 @@ async function route() {
         empty: 'No edit requests waiting for you',
       });
     }
+    if (path === '/urgent') {
+      return await viewCases({
+        title: 'Urgent verification', subtitle: 'Files governance flagged for urgent verification. They stay here until the verification is completed or rejected.',
+        params, fixed: { urgent: '1' }, cols: ['ref', 'customer', 'status', 'urgent', 'assigned', 'updated'], empty: 'No files flagged as urgent',
+      });
+    }
     if (path === '/quality-check') {
       return await viewCases({
         title: 'Quality check', subtitle: 'Files you marked for a quality check. Request the call recording, score the verification call and add complaint numbers from each file.',
@@ -319,6 +333,7 @@ async function viewDashboard() {
   const verifyTiles = [];
   if (r === 'team_leader') verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
   if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0]);
+  if (['processing', 'team_leader'].includes(r)) verifyTiles.unshift(['Urgent verification', s.governance.urgent, '#/urgent', s.governance.urgent > 0]);
   if (r === 'processing') verifyTiles.push(['My open cases', s.my_queue, '#/cases?assigned=me']);
   verifyTiles.push(
     ['Awaiting verification', by.pending_verification, '#/cases?status=pending_verification'],
@@ -393,6 +408,7 @@ async function viewDashboard() {
       ${r === 'governance' ? html`<a class="btn btn-primary" href="#/quality-check">Open quality check</a>` : ''}
     </div>
     ${r === 'governance' ? html`<h2 class="tiles-head">Quality</h2>${tileGrid([
+      ['Urgent verification', s.governance.urgent, '#/urgent', s.governance.urgent > 0],
       ['Marked for QC', s.governance.qc, '#/quality-check', s.governance.qc > 0],
       ['Awaiting approval', s.governance.recordings_pending, '#/recordings'],
       ['Requested from IT', s.governance.recordings_with_it, '#/recordings'],
@@ -420,7 +436,7 @@ const COLS = {
   ref: ['Ref', (c) => html`<strong>${c.ref}</strong>`],
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => c.phone],
-  status: ['Verification', (c) => badge(c.status)],
+  status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}`],
   case_status: ['Case status', (c) => caseBadge(c.case_status)],
   sourced: ['Sourced', (c) => html`<span class="small nowrap">${fmtDay(c.sourcing_date)}</span>`],
   cs_note: ['Status note', (c) => html`${c.case_status_note || ''}<div class="muted small">${c.case_status_by_name || ''}</div>`],
@@ -428,6 +444,7 @@ const COLS = {
     ? html`${c.edit_request_note}<div class="muted small">${c.edit_request_by_name} → ${state.meta.edit_queues[c.edit_request_to]} queue</div>`
     : html`<span class="muted">—</span>`)],
   req_waiting: ['Waiting', (c) => ago(c.edit_request_at)],
+  urgent: ['Why urgent', (c) => html`${c.urgent_note || ''}<div class="muted small">${c.urgent_by_name || ''} · ${ago(c.urgent_at)}</div>`],
   recording: ['Recording', (c) => html`${recordingChip(c.recording_status)}<div class="muted small">${c.recording_request_note || ''}</div>
     <div class="muted small">${c.recording_requested_by_name ? `Requested by ${c.recording_requested_by_name} ${ago(c.recording_requested_at)}` : ''}</div>`],
   quality: ['Quality', (c) => html`<div class="chips">
@@ -921,13 +938,15 @@ async function viewCase(id) {
   }
   const sep = () => (panel.length ? raw('<hr>') : '');
   if (a.has('approve_recording')) {
+    const canRetrieve = ['completed', 'rejected'].includes(c.status);
     panel.push(html`${sep()}<h3>Call recording request</h3>
       <div class="note-box">${c.recording_request_note}</div>
       <p class="muted small">Requested by ${c.recording_requested_by_name} ${ago(c.recording_requested_at)}. Approving emails IT to share the file.</p>
+      ${canRetrieve ? '' : html`<p class="small error">Verification is not complete, so the recording can't be retrieved yet. Decline the request; governance can flag the file for urgent verification.</p>`}
       <form data-form="recording_decision">
         <div class="field-row"><textarea name="note" placeholder="Note (required to decline)"></textarea></div>
         <div class="actions">
-          <button class="btn-success" data-decision="approve_recording">Approve and email IT</button>
+          ${canRetrieve ? html`<button class="btn-success" data-decision="approve_recording">Approve and email IT</button>` : ''}
           <button class="btn-danger" data-decision="decline_recording">Decline</button>
         </div>
       </form>`);
@@ -949,6 +968,15 @@ async function viewCase(id) {
         </div>
         <div class="field-row"><textarea name="note" placeholder="What went well, what was missed">${c.qc_score_note || ''}</textarea></div>
         <button class="btn-primary">${c.qc_score != null ? 'Update score' : 'Save score'}</button>
+      </form>`);
+  }
+  if (a.has('flag_urgent') || a.has('clear_urgent')) {
+    const on = a.has('clear_urgent');
+    panel.push(html`${sep()}<h3>Urgent verification</h3>
+      <p class="muted small">Verification is not complete, so the call recording can't be requested yet. ${on ? 'This file is flagged as urgent.' : 'Flag it so the processor and team leaders prioritise it.'}</p>
+      <form data-form="${on ? 'clear_urgent' : 'flag_urgent'}">
+        ${on ? '' : html`<div class="field-row"><textarea name="note" required placeholder="Why verification is urgent"></textarea></div>`}
+        <button class="${on ? '' : 'btn-danger'}">${on ? 'Remove urgent flag' : 'Flag for urgent verification'}</button>
       </form>`);
   }
   if (a.has('request_recording')) {
@@ -1001,6 +1029,7 @@ async function viewCase(id) {
         <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
+    ${isUrgent(c) ? html`<div class="callout danger"><strong>Urgent verification — flagged by ${c.urgent_by_name} ${ago(c.urgent_at)}</strong>${c.urgent_note}</div>` : ''}
     ${c.case_status === 'applicant_review' ? html`<div class="callout warn"><strong>Applicant review${c.case_status_by_name ? ` — set by ${c.case_status_by_name} ${ago(c.case_status_at)}` : ''}</strong>${c.case_status_note || ''}</div>` : ''}
     ${c.edit_request_to ? html`<div class="callout info"><strong>Edit request in the ${state.meta.edit_queues[c.edit_request_to]} queue — from ${c.edit_request_by_name} ${ago(c.edit_request_at)}</strong>${c.edit_request_note}</div>` : ''}
     ${banner}
