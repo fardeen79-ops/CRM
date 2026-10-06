@@ -444,3 +444,36 @@ test('in Applicant review sales cannot edit, but can send an edit request to the
   await sm('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
   assert.equal((await sm('PUT', `/cases/${id}`, { city: 'x' })).status, 403);
 });
+
+test('processors can mark verification completed, pending or rejected, separately from case status', async () => {
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const lead = await login('lead@t.local');
+
+  // Rejected: needs a note, closes verification, alerts sales and team leaders, leaves case status alone
+  let id = (await sales('POST', '/cases', newCase)).data.case.id;
+  assert.equal((await proc('POST', `/cases/${id}/actions`, { action: 'reject_verification' })).status, 400);
+  let r = await proc('POST', `/cases/${id}/actions`, { action: 'reject_verification', reason: 'customer_denied', note: 'Customer says they never applied' });
+  assert.equal(r.data.case.status, 'rejected');
+  assert.equal(r.data.case.case_status, 'sent_to_check');
+  assert.ok((await sales('GET', '/notifications')).data.items.some((n) => /verification rejected/.test(n.message)));
+  assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /verification rejected/.test(n.message)));
+  // The processor can still mark the case itself
+  r = await proc('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'rejected', note: 'Fraud suspected' });
+  assert.equal(r.data.case.case_status, 'rejected');
+
+  // Completed verification does not complete the case; marking the case completed is a separate step
+  id = (await sales('POST', '/cases', newCase)).data.case.id;
+  r = await proc('POST', `/cases/${id}/actions`, { action: 'complete' });
+  assert.equal(r.data.case.status, 'completed');
+  assert.equal(r.data.case.case_status, 'sent_to_check');
+  r = await proc('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  assert.equal(r.data.case.case_status, 'completed');
+  assert.equal(r.data.case.status, 'completed');
+
+  // Pending still goes to the team leader
+  id = (await sales('POST', '/cases', newCase)).data.case.id;
+  r = await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'documents_pending', note: 'Salary slips missing' });
+  assert.equal(r.data.case.status, 'incomplete');
+  assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /verification pending/.test(n.message)));
+});

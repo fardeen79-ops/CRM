@@ -33,7 +33,7 @@ export function makeWebhookDispatcher(url = process.env.TL_WEBHOOK_URL) {
   return (triggers) => {
     if (!url) return;
     for (const t of triggers) {
-      const text = `:warning: ${t.ref} (${t.customer_name}) marked INCOMPLETE by ${t.marked_by} — ${t.reason.replace(/_/g, ' ')}${t.note ? `: ${t.note}` : ''}. Team leader action required.`;
+      const text = `:warning: ${t.ref} (${t.customer_name}) verification PENDING, marked by ${t.marked_by} — ${t.reason.replace(/_/g, ' ')}${t.note ? `: ${t.note}` : ''}. Team leader action required.`;
       fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

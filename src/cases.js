@@ -78,7 +78,9 @@ export const ACTIONS = {
   release:         { roles: ['processing'],  from: [STATUS.IN_VERIFICATION], to: STATUS.PENDING },
   log_call:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: null },
   complete:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.COMPLETED },
+  // "Verification pending" in the UI: the processor could not finish and a team leader must decide.
   mark_incomplete: { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.INCOMPLETE, noteRequired: true },
+  reject_verification: { roles: ['processing'], from: OPEN_FOR_PROCESSING, to: STATUS.REJECTED, noteRequired: true },
   return_to_sales: { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.RETURNED, noteRequired: true },
   reverify:        { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.PENDING },
   reject:          { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.REJECTED, noteRequired: true },
@@ -407,6 +409,9 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   if (action === 'log_call' && !CALL_OUTCOMES.includes(outcome)) {
     throw new WorkflowError(400, `Call outcome must be one of: ${CALL_OUTCOMES.join(', ')}`);
   }
+  if (action === 'reject_verification' && reason && !INCOMPLETE_REASONS.includes(reason)) {
+    throw new WorkflowError(400, `Reason must be one of: ${INCOMPLETE_REASONS.join(', ')}`);
+  }
   if (action === 'mark_incomplete' && !INCOMPLETE_REASONS.includes(reason)) {
     throw new WorkflowError(400, `Reason must be one of: ${INCOMPLETE_REASONS.join(', ')}`);
   }
@@ -435,7 +440,14 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         break;
       case 'complete':
         Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts });
-        notify(db, [row.created_by], id, `${ref} (${row.customer_name}) was verified by ${user.name}`);
+        notify(db, [row.created_by], id, `${ref} (${row.customer_name}) verification completed by ${user.name}`);
+        break;
+      case 'reject_verification':
+        // Verification failing does not change the case status; that stays a separate decision.
+        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, incomplete_reason: reason || null, incomplete_note: note, incomplete_at: ts });
+        detail = reason || null;
+        notify(db, [row.created_by, ...activeUserIds(db, 'team_leader')], id,
+          `${ref} (${row.customer_name}) verification rejected by ${user.name}: ${note}`);
         break;
       case 'mark_incomplete':
         Object.assign(set, {
@@ -453,7 +465,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
           db,
           activeUserIds(db, 'team_leader'),
           id,
-          `Action required: ${ref} (${row.customer_name}) marked incomplete by ${user.name} — ${reason.replace(/_/g, ' ')}`
+          `Action required: ${ref} (${row.customer_name}) verification pending, marked by ${user.name} — ${reason.replace(/_/g, ' ')}`
         );
         triggers.push({
           event: 'case.incomplete',
@@ -563,6 +575,7 @@ export function stats(db, user) {
         `SELECT u.name,
            SUM(CASE WHEN e.type = 'complete' THEN 1 ELSE 0 END) AS completed,
            SUM(CASE WHEN e.type = 'mark_incomplete' THEN 1 ELSE 0 END) AS incomplete,
+           SUM(CASE WHEN e.type = 'reject_verification' THEN 1 ELSE 0 END) AS rejected,
            SUM(CASE WHEN e.type = 'log_call' THEN 1 ELSE 0 END) AS calls
          FROM users u LEFT JOIN case_events e ON e.user_id = u.id
          WHERE u.role = 'processing' GROUP BY u.id ORDER BY u.name`

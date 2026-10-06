@@ -135,6 +135,10 @@ fieldset.product-detail legend { font-weight: 600; font-size: 13px; padding: 0 4
 .product-detail .segmented { justify-self: start; }
 .segmented.two-up { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
 .segmented.two-up span { text-align: center; padding-inline: 8px; }
+.segmented.three-up { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; margin-bottom: 8px; }
+.segmented.three-up span { text-align: center; padding-inline: 6px; }
+.segmented.three-up input[value=complete]:checked + span { background: var(--success); }
+.segmented.three-up input[value=reject_verification]:checked + span { background: var(--danger); }
 .sub-label { font-weight: 600; font-size: 13px; margin-bottom: -8px; }
 .case-form details.more summary { cursor: pointer; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
 .case-form details.more[open] summary { margin-bottom: 14px; }

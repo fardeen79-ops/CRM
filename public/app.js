@@ -2,12 +2,12 @@
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
 const STATUS_LABEL = {
-  pending_verification: 'Pending verification',
+  pending_verification: 'Awaiting verification',
   in_verification: 'In verification',
   completed: 'Verification completed',
-  incomplete: 'Verification incomplete — TL action',
+  incomplete: 'Verification pending — TL action',
   returned_to_sales: 'Returned to sales',
-  rejected: 'Rejected at verification',
+  rejected: 'Verification rejected',
 };
 const CASE_STATUS_LABEL = {
   sent_to_check: 'Sent to check',
@@ -27,10 +27,11 @@ const ACTION_LABEL = {
   release: 'Released back to queue',
   log_call: 'Call logged',
   complete: 'Verification completed',
-  mark_incomplete: 'Verification marked incomplete',
+  mark_incomplete: 'Verification pending',
+  reject_verification: 'Verification rejected',
   return_to_sales: 'Returned to sales',
   reverify: 'Sent back for re-verification',
-  reject: 'Rejected at verification',
+  reject: 'Verification rejected by team leader',
   resubmit: 'Resubmitted for verification',
   case_status: 'Case status changed',
   set_case_status: 'Case status updated',
@@ -242,10 +243,10 @@ async function route() {
     if ((m = path.match(/^\/cases\/(\d+)$/))) return await viewCase(Number(m[1]));
     if (path === '/cases') return await viewCases({ title: state.user.role === 'sales' ? 'My cases' : params.get('assigned') === 'me' ? 'My cases' : 'All cases', params });
     if (path === '/queue') {
-      return await viewCases({ title: 'Verification queue', subtitle: 'Call each customer to verify the sourced details, then mark the case completed or incomplete.', params, fixedStatus: 'pending_verification,in_verification' });
+      return await viewCases({ title: 'Verification queue', subtitle: 'Call each customer to verify the sourced details, then mark the verification completed, pending or rejected.', params, fixedStatus: 'pending_verification,in_verification' });
     }
     if (path === '/action-required') {
-      return await viewCases({ title: 'Action required', subtitle: 'Cases the processing team marked incomplete. Decide whether to return to sales, re-verify, or reject.', params, fixedStatus: 'incomplete' });
+      return await viewCases({ title: 'Action required', subtitle: 'Files the processing team marked Verification pending. Decide whether to return to sales, re-verify, or reject.', params, fixedStatus: 'incomplete' });
     }
     if (path === '/edit-requests') {
       return await viewCases({
@@ -277,17 +278,18 @@ async function viewDashboard() {
   if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0]);
   if (r === 'processing') verifyTiles.push(['My open cases', s.my_queue, '#/cases?assigned=me']);
   verifyTiles.push(
-    ['Pending verification', by.pending_verification, '#/cases?status=pending_verification'],
+    ['Awaiting verification', by.pending_verification, '#/cases?status=pending_verification'],
     ['In verification', by.in_verification, '#/cases?status=in_verification'],
     ['Verification completed', by.completed, '#/cases?status=completed']
   );
-  if (r !== 'team_leader') verifyTiles.push(['Verification incomplete', by.incomplete, '#/cases?status=incomplete']);
+  if (r !== 'team_leader') verifyTiles.push(['Verification pending', by.incomplete, '#/cases?status=incomplete']);
+  verifyTiles.push(['Verification rejected', by.rejected, '#/cases?status=rejected']);
   verifyTiles.push(['Returned to sales', by.returned_to_sales, '#/cases?status=returned_to_sales']);
 
   const intro = {
     sales: 'Add the customers you source; each file goes in as Sent to check. If a file moves to Applicant review, send an edit request to your team leader or sales manager.',
-    processing: 'Work through the verification queue: call the customer, log each attempt, mark the verification completed or incomplete, and set the case status.',
-    team_leader: 'Incomplete verifications and edit requests need you. You can also set any case status.',
+    processing: 'Work through the verification queue: call the customer, log each attempt, and mark the verification completed, pending or rejected. Completing the verification does not complete the case; mark the case completed separately.',
+    team_leader: 'Pending verifications and edit requests need you. You can also set any case status.',
     sales_manager: 'Make the changes sales ask for in edit requests, and keep case statuses up to date.',
     mis: 'Track every sourced file and update its case status: Applicant review, Completed or Rejected.',
     business_head: 'Sourcing, verification and case outcomes across the team. You can update any case status.',
@@ -295,7 +297,7 @@ async function viewDashboard() {
 
   const teamTables = oversight ? html`
     <div class="card"><h2>Processing team</h2>
-      ${miniTable(['Name', 'Calls', 'Verified', 'Incompl.'], s.processors.map((p) => [p.name, p.calls, p.completed, p.incomplete]))}
+      ${miniTable(['Name', 'Calls', 'Verified', 'Pending', 'Rejected'], s.processors.map((p) => [p.name, p.calls, p.completed, p.incomplete, p.rejected]))}
     </div>
     <div class="card"><h2>Sales team</h2>
       ${miniTable(['Name', 'Sourced', 'Verified'], s.sales.map((p) => [p.name, p.sourced, p.completed]))}
@@ -307,7 +309,7 @@ async function viewDashboard() {
       api('/cases?status=incomplete&limit=10'), api('/cases?edit_requests=mine&limit=10'),
     ]);
     main = html`
-      <div class="card"><h2>Verification incomplete — waiting on you</h2>${caseTable(incomplete, { cols: ['ref', 'customer', 'reason', 'by', 'waiting'], empty: 'Nothing waiting' })}</div>
+      <div class="card"><h2>Verification pending — waiting on you</h2>${caseTable(incomplete, { cols: ['ref', 'customer', 'reason', 'by', 'waiting'], empty: 'Nothing waiting' })}</div>
       ${requests.length ? html`<div class="card"><h2>Edit requests</h2>${caseTable(requests, { cols: ['ref', 'customer', 'request', 'req_waiting'] })}</div>` : ''}`;
   } else if (r === 'sales_manager') {
     const { cases } = await api('/cases?edit_requests=mine&limit=10');
@@ -675,15 +677,19 @@ async function viewCase(id) {
 
   let banner = '';
   if (c.status === 'incomplete') {
-    banner = html`<div class="callout danger"><strong>Incomplete — waiting for team leader action (${ago(c.incomplete_at)})</strong>
+    banner = html`<div class="callout danger"><strong>Verification pending — waiting for team leader action (${ago(c.incomplete_at)})</strong>
       ${label(c.incomplete_reason)}${c.incomplete_note ? `: ${c.incomplete_note}` : ''} <span class="muted">— ${c.assigned_to_name}</span></div>`;
   } else if (c.status === 'returned_to_sales') {
     banner = html`<div class="callout info"><strong>Returned to sales by ${c.tl_actioned_by_name}</strong>${c.tl_note}
       ${c.incomplete_reason ? html`<div class="muted small">Original issue: ${label(c.incomplete_reason)}${c.incomplete_note ? ` — ${c.incomplete_note}` : ''}</div>` : ''}</div>`;
   } else if (c.status === 'completed') {
-    banner = html`<div class="callout success"><strong>Verified by ${c.verified_by_name} on ${fmtDate(c.verified_at)}</strong></div>`;
+    banner = html`<div class="callout success"><strong>Verification completed by ${c.verified_by_name} on ${fmtDate(c.verified_at)}</strong>
+      ${c.case_status !== 'completed' ? html`<span class="small">The case itself is still ${CASE_STATUS_LABEL[c.case_status]}.</span>` : ''}</div>`;
   } else if (c.status === 'rejected') {
-    banner = html`<div class="callout danger"><strong>Rejected by ${c.tl_actioned_by_name}</strong>${c.tl_note}</div>`;
+    banner = c.tl_action === 'reject'
+      ? html`<div class="callout danger"><strong>Verification rejected by team leader ${c.tl_actioned_by_name}</strong>${c.tl_note}</div>`
+      : html`<div class="callout danger"><strong>Verification rejected by ${c.assigned_to_name} (${ago(c.incomplete_at)})</strong>
+          ${c.incomplete_reason ? `${label(c.incomplete_reason)}: ` : ''}${c.incomplete_note || ''}</div>`;
   }
 
   const panel = [];
@@ -702,20 +708,21 @@ async function viewCase(id) {
         <button>Log call</button>
       </form>`);
   }
-  if (a.has('complete') || a.has('mark_incomplete')) {
+  if (a.has('complete') || a.has('mark_incomplete') || a.has('reject_verification')) {
     panel.push(html`<hr><h3>Verification result</h3>
-      <form data-form="complete">
-        <div class="field-row"><textarea name="note" placeholder="Verification notes (optional)"></textarea></div>
-        <button class="btn-success">✓ Mark completed</button>
-      </form>
-      <h3>Can't verify?</h3>
-      <form data-form="mark_incomplete">
-        <div class="field-row"><select name="reason" required>
+      <form data-form="verification" id="verification-form">
+        <div class="segmented three-up" role="radiogroup" aria-label="Verification result">
+          <label><input type="radio" name="result" value="complete" required><span>Completed</span></label>
+          <label><input type="radio" name="result" value="mark_incomplete"><span>Pending</span></label>
+          <label><input type="radio" name="result" value="reject_verification"><span>Rejected</span></label>
+        </div>
+        <p class="muted small" id="vr-hint">Choose the outcome of your verification call.</p>
+        <div class="field-row" id="vr-reason" hidden><select name="reason" disabled>
           <option value="">Reason…</option>
           ${meta.incomplete_reasons.map((o) => html`<option value="${o}">${label(o)}</option>`)}
         </select></div>
-        <div class="field-row"><textarea name="note" required placeholder="Explain what's missing — your team leader will be alerted"></textarea></div>
-        <button class="btn-danger">✕ Mark incomplete</button>
+        <div class="field-row"><textarea name="note" placeholder="Verification notes"></textarea></div>
+        <button class="btn-primary">Save verification result</button>
       </form>`);
   }
   if (a.has('release')) panel.push(html`<hr><button data-action="release">Release back to queue</button>`);
@@ -776,8 +783,12 @@ async function viewCase(id) {
             ${choices.map((k) => html`<option value="${k}">${CASE_STATUS_LABEL[k]}</option>`)}
           </select></div>
         <div class="field-row"><textarea name="note" id="cs-note" placeholder="Note (required for Applicant review and Rejected)"></textarea></div>
-        <button class="btn-primary">Update status</button>
-      </form>`);
+        <div class="actions">
+          <button class="btn-primary">Update status</button>
+          ${c.case_status !== 'completed' ? html`<button type="button" class="btn-success" data-case-complete>✓ Mark case completed</button>` : ''}
+        </div>
+      </form>
+      ${c.status === 'completed' && c.case_status !== 'completed' ? html`<p class="muted small">Verification is completed, but the case is not. Mark the case completed when it is done.</p>` : ''}`);
   }
 
   shell(html`
@@ -862,9 +873,32 @@ async function viewCase(id) {
     if (history.length > 1) { e.preventDefault(); history.back(); }
   };
   app.querySelectorAll('[data-action]').forEach((b) => (b.onclick = () => run({ action: b.dataset.action }, b)));
+  app.querySelectorAll('[data-case-complete]').forEach((b) => (b.onclick = () => run({ action: 'set_case_status', case_status: 'completed' }, b)));
   app.querySelectorAll('form[data-form]').forEach((f) => {
     const kind = f.dataset.form;
-    if (kind === 'tl') {
+    if (kind === 'verification') {
+      const reasonRow = f.querySelector('#vr-reason');
+      const reason = reasonRow.querySelector('select');
+      const note = f.querySelector('textarea');
+      const hint = f.querySelector('#vr-hint');
+      const hints = {
+        complete: 'Details confirmed with the customer. This does not complete the case; set the case status below.',
+        mark_incomplete: 'You could not finish. Your team leader is alerted to return it to sales, re-verify or reject.',
+        reject_verification: 'The customer or details failed verification. Sales and team leaders are told.',
+      };
+      f.querySelectorAll('input[name=result]').forEach((r) => (r.onchange = () => {
+        reasonRow.hidden = reason.disabled = r.value === 'complete';
+        reason.required = r.value === 'mark_incomplete';
+        note.required = r.value !== 'complete';
+        note.placeholder = r.value === 'complete' ? 'Verification notes (optional)' : 'Explain why (required)';
+        hint.textContent = hints[r.value];
+      }));
+      f.onsubmit = (e) => {
+        e.preventDefault();
+        const { result, ...rest } = formData(f);
+        run({ action: result, ...rest }, f.querySelector('button.btn-primary'));
+      };
+    } else if (kind === 'tl') {
       f.onsubmit = (e) => e.preventDefault();
       f.querySelectorAll('[data-tl]').forEach((b) => (b.onclick = (e) => {
         e.preventDefault();

@@ -48,7 +48,7 @@ Run the tests with `npm test`.
 | Role | Can do |
 |------|--------|
 | **Sales** | Add cases, see **only their own** cases, edit while pending, fix and **resubmit** cases the team leader returns |
-| **Processing** | See the verification queue, **pick up** a case (locks it to them), **log calls** with an outcome, mark **Completed**, or mark **Incomplete** (a reason and a note are required) |
+| **Processing** | See the verification queue, **pick up** a case (locks it to them), **log calls** with an outcome, then set the verification result: **Completed**, **Pending** (reason and note required; goes to the team leader) or **Rejected** (note required). Separately, set the **case status**, including **Mark case completed** |
 | **Team leader** | **Action required** queue of incomplete cases: **Return to sales** (note required), **Re-verify**, or **Reject** (note required). Also sees team stats, manages users, and can edit any open case |
 | **Sales manager** | Sees all cases, adds cases, edits case details, works the **Sales Manager** edit-request queue and sets case status |
 | **MIS** | Sees all cases and sets case status |
@@ -67,6 +67,8 @@ First name, last name and mobile are required. An Emirates ID must be 15 digits 
 ### Case status
 
 Case status is separate from verification:
+
+> Completing the verification never completes the case. Processors mark the case completed separately.
 
 - **Verification** is the processing team's calls: pending, in verification, completed, or incomplete, after which the team leader decides.
 - **Case status** is the outcome of the file.
