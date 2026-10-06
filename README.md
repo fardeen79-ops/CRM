@@ -50,6 +50,9 @@ Run the tests with `npm test`.
 | **Sales** | Add cases, see **only their own** cases, edit while pending, fix and **resubmit** cases the team leader returns |
 | **Processing** | See the verification queue, **pick up** a case (locks it to them), **log calls** with an outcome, mark **Completed**, or mark **Incomplete** (a reason and a note are required) |
 | **Team leader** | **Action required** queue of incomplete cases: **Return to sales** (note required), **Re-verify**, or **Reject** (note required). Also sees team stats, manages users, and can edit any open case |
+| **Sales manager** | Sees all cases, adds cases, edits case details, works the **Sales Manager** edit-request queue and sets case status |
+| **MIS** | Sees all cases and sets case status |
+| **Business head** | Sees all cases, team stats, and sets case status |
 
 ### Customer details
 
@@ -60,6 +63,19 @@ The case form groups the customer's details:
 - **Application:** Bidaya ID and App ID.
 
 First name, last name and mobile are required. An Emirates ID must be 15 digits starting with 784, and it is stored as `784-YYYY-NNNNNNN-C`. Passport numbers are stored in upper case. Search matches names, mobile, company, Emirates ID (with or without dashes), passport number, Bidaya ID, App ID, credit card and buy-out bank.
+
+### Case status
+
+Case status is separate from verification:
+
+- **Verification** is the processing team's calls: pending, in verification, completed, or incomplete, after which the team leader decides.
+- **Case status** is the outcome of the file.
+
+Each file starts as **Sent to check** when the sales person submits it. After that only a team leader, MIS, sales manager, processor or business head can change it. They choose **Applicant review**, **Completed** or **Rejected**, and Applicant review and Rejected need a note. Every change is logged and the sales person is notified. Team leaders are also alerted when a file moves to Applicant review.
+
+While a file is in **Applicant review**, the sales person who sourced it can't edit it. Instead they send an **edit request** to the **Team Leader** or **Sales Manager** queue, describing the changes. The team leader or sales manager makes the edits and clicks **Mark changes done**, and the sales person is told.
+
+Each file also has a **sourcing date**, which defaults to today and can't be in the future.
 
 ### Products
 

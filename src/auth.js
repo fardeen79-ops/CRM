@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 const SESSION_DAYS = 7;
-export const ROLES = ['sales', 'processing', 'team_leader'];
+export const ROLES = ['sales', 'processing', 'team_leader', 'sales_manager', 'mis', 'business_head'];
 
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16);

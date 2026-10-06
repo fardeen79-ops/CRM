@@ -11,6 +11,9 @@ const dispatched = [];
 before(async () => {
   const db = openDb(':memory:');
   for (const [name, email, role] of [
+    ['Manager', 'sm@t.local', 'sales_manager'],
+    ['Mira', 'mis@t.local', 'mis'],
+    ['Boss', 'bh@t.local', 'business_head'],
     ['Lead', 'lead@t.local', 'team_leader'],
     ['Sally', 'sales@t.local', 'sales'],
     ['Sid', 'sales2@t.local', 'sales'],
@@ -147,7 +150,7 @@ test('team leader can send back for re-verification or reject', async () => {
   await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'customer_denied', note: 'Says never applied' });
   r = await lead('POST', `/cases/${id}/actions`, { action: 'reject', note: 'Fake lead' });
   assert.equal(r.data.case.status, 'rejected');
-  assert.deepEqual(r.data.case.allowed_actions, []);
+  assert.deepEqual(r.data.case.allowed_actions, ['set_case_status']); // verification is over; case status can still change
 });
 
 test('sales staff only see their own cases and input is validated', async () => {
@@ -348,4 +351,96 @@ test('customer identity fields and personal loan amounts are captured and valida
   r = await sales('PUT', `/cases/${c.id}`, { product: 'accounts' });
   assert.equal(r.data.case.loan_amount, null);
   assert.equal(r.data.case.interest_rate, null);
+});
+
+test('sourcing date and email are captured; files start as Sent to check', async () => {
+  const sales = await login('sales@t.local');
+  let r = await sales('POST', '/cases', { ...newCase, email: 'asha@example.com', sourcing_date: '2026-09-30' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.case_status, 'sent_to_check');
+  assert.equal(r.data.case.sourcing_date, '2026-09-30');
+  assert.equal(r.data.case.email, 'asha@example.com');
+
+  // Defaults to today when not given; rejects bad and future dates
+  r = await sales('POST', '/cases', newCase);
+  assert.equal(r.data.case.sourcing_date, new Date().toISOString().slice(0, 10));
+  assert.equal((await sales('POST', '/cases', { ...newCase, sourcing_date: '30/09/2026' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...newCase, sourcing_date: '2099-01-01' })).status, 400);
+});
+
+test('only team leader, MIS, sales manager, processor and business head can change case status', async () => {
+  const sales = await login('sales@t.local');
+  const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  const set = (who, case_status, note) => who('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status, note });
+
+  assert.equal((await set(sales, 'completed')).status, 403);
+  for (const email of ['lead@t.local', 'mis@t.local', 'sm@t.local', 'proc@t.local', 'bh@t.local']) {
+    const who = await login(email);
+    assert.ok((await who('GET', `/cases/${id}`)).data.case.allowed_actions.includes('set_case_status'), email);
+  }
+
+  const mis = await login('mis@t.local');
+  assert.equal((await set(mis, 'sent_to_check', 'x')).status, 400); // not a choice in the dropdown
+  assert.equal((await set(mis, 'applicant_review')).status, 400); // note required
+  let r = await set(mis, 'applicant_review', 'Salary certificate missing');
+  assert.equal(r.data.case.case_status, 'applicant_review');
+  assert.equal(r.data.case.case_status_by_name, 'Mira');
+
+  // Sales is told, team leaders are alerted
+  assert.ok((await sales('GET', '/notifications')).data.items.some((n) => /Applicant review/.test(n.message)));
+  const lead = await login('lead@t.local');
+  assert.ok((await lead('GET', '/notifications')).data.items.some((n) => n.message.startsWith('Applicant review:')));
+
+  const proc = await login('proc@t.local');
+  r = await set(proc, 'completed');
+  assert.equal(r.data.case.case_status, 'completed');
+  assert.equal((await set(proc, 'completed')).status, 409); // already completed
+  const bh = await login('bh@t.local');
+  r = await set(bh, 'rejected', 'Policy decline');
+  assert.equal(r.data.case.case_status, 'rejected');
+
+  const types = (await lead('GET', `/cases/${id}`)).data.case.events.map((e) => e.detail).filter(Boolean);
+  assert.deepEqual(types.slice(0, 3), ['rejected', 'completed', 'applicant_review']);
+});
+
+test('in Applicant review sales cannot edit, but can send an edit request to the TL or SM queue', async () => {
+  const sales = await login('sales@t.local');
+  const sm = await login('sm@t.local');
+  const lead = await login('lead@t.local');
+  const id = (await sales('POST', '/cases', newCase)).data.case.id;
+
+  // Before review, sales can edit and cannot request edits
+  assert.equal((await sales('PUT', `/cases/${id}`, { city: 'Dubai' })).status, 200);
+  assert.equal((await sales('POST', `/cases/${id}/actions`, { action: 'request_edit', to: 'sales_manager', note: 'x' })).status, 403);
+
+  await sm('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'applicant_review', note: 'Wrong EID' });
+  assert.equal((await sales('PUT', `/cases/${id}`, { city: 'Abu Dhabi' })).status, 403);
+  let r = await sales('GET', `/cases/${id}`);
+  assert.equal(r.data.case.can_edit, false);
+  assert.ok(r.data.case.allowed_actions.includes('request_edit'));
+
+  assert.equal((await sales('POST', `/cases/${id}/actions`, { action: 'request_edit', to: 'mis', note: 'x' })).status, 400);
+  assert.equal((await sales('POST', `/cases/${id}/actions`, { action: 'request_edit', to: 'sales_manager' })).status, 400);
+  r = await sales('POST', `/cases/${id}/actions`, { action: 'request_edit', to: 'sales_manager', note: 'Correct EID is 784-1990-1234567-1' });
+  assert.equal(r.data.case.edit_request_to, 'sales_manager');
+
+  // It lands in the sales manager's queue, not the team leader's
+  assert.ok((await sm('GET', '/cases?edit_requests=mine')).data.cases.some((c) => c.id === id));
+  assert.ok(!(await lead('GET', '/cases?edit_requests=mine')).data.cases.some((c) => c.id === id));
+  assert.equal((await sm('GET', '/stats')).data.edit_requests, 1);
+  assert.ok((await sm('GET', '/notifications')).data.items.some((n) => n.message.startsWith('Edit request:')));
+
+  // The sales manager edits the details and marks the request done; sales is told
+  r = await sm('PUT', `/cases/${id}`, { eid_number: '784-1990-1234567-1' });
+  assert.equal(r.status, 200);
+  const mis = await login('mis@t.local');
+  assert.equal((await mis('PUT', `/cases/${id}`, { city: 'x' })).status, 403); // MIS can set status but not edit
+  assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'resolve_edit_request' })).status, 403);
+  r = await sm('POST', `/cases/${id}/actions`, { action: 'resolve_edit_request', note: 'EID updated' });
+  assert.equal(r.data.case.edit_request_to, null);
+  assert.ok((await sales('GET', '/notifications')).data.items.some((n) => /requested changes were made/.test(n.message)));
+
+  // Closed cases cannot be edited by anyone
+  await sm('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  assert.equal((await sm('PUT', `/cases/${id}`, { city: 'x' })).status, 403);
 });

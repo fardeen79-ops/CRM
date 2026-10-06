@@ -113,6 +113,9 @@ function routes(db, dispatch) {
         credit_cards: CREDIT_CARDS,
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         banks: BANKS,
+        case_statuses: cases.CASE_STATUS,
+        settable_case_statuses: cases.SETTABLE_CASE_STATUSES,
+        edit_queues: cases.EDIT_QUEUES,
       },
     })],
 

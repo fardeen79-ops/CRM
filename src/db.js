@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT NOT NULL,
   email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  role          TEXT NOT NULL CHECK (role IN ('sales', 'processing', 'team_leader')),
+  role          TEXT NOT NULL, -- validated against ROLES in auth.js
   password_hash TEXT NOT NULL,
   active        INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS cases (
   source             TEXT,
   sales_notes        TEXT,
   status             TEXT NOT NULL,
+  case_status        TEXT NOT NULL DEFAULT 'sent_to_check',
+  case_status_note   TEXT,
+  case_status_by     INTEGER REFERENCES users(id),
+  case_status_at     TEXT,
+  sourcing_date      TEXT,
+  edit_request_to    TEXT,
+  edit_request_note  TEXT,
+  edit_request_by    INTEGER REFERENCES users(id),
+  edit_request_at    TEXT,
   created_by         INTEGER NOT NULL REFERENCES users(id),
   assigned_to        INTEGER REFERENCES users(id),
   call_attempts      INTEGER NOT NULL DEFAULT 0,
@@ -107,12 +116,42 @@ const ADDED_COLUMNS = {
   first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL',
   eid_number: 'TEXT', passport_number: 'TEXT', bidaya_id: 'TEXT', app_id: 'TEXT',
   loan_amount: 'REAL', interest_rate: 'REAL', full_loan_amount: 'REAL', incremental_amount: 'REAL',
+  case_status: "TEXT NOT NULL DEFAULT 'sent_to_check'", case_status_note: 'TEXT',
+  case_status_by: 'INTEGER REFERENCES users(id)', case_status_at: 'TEXT', sourcing_date: 'TEXT',
+  edit_request_to: 'TEXT', edit_request_note: 'TEXT', edit_request_by: 'INTEGER REFERENCES users(id)', edit_request_at: 'TEXT',
 };
 
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
   for (const [name, type] of Object.entries(ADDED_COLUMNS)) {
     if (!cols.includes(name)) db.exec(`ALTER TABLE cases ADD COLUMN ${name} ${type}`);
+  }
+  // Cases created before the sourcing date existed were sourced on the day they were entered.
+  db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
+
+  // The first release limited users.role to three roles with a CHECK constraint; rebuild the
+  // table without it so the newer roles (MIS, sales manager, business head) can be stored.
+  const usersSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()?.sql || '';
+  if (/CHECK\s*\(\s*role IN/i.test(usersSql)) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      transaction(db, () => {
+        db.exec(`CREATE TABLE users_new (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          name          TEXT NOT NULL,
+          email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+          role          TEXT NOT NULL,
+          password_hash TEXT NOT NULL,
+          active        INTEGER NOT NULL DEFAULT 1,
+          created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        )`);
+        db.exec('INSERT INTO users_new SELECT id, name, email, role, password_hash, active, created_at FROM users');
+        db.exec('DROP TABLE users');
+        db.exec('ALTER TABLE users_new RENAME TO users');
+      });
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
   }
 }
 

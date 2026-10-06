@@ -38,6 +38,21 @@ export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
 export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
 
+// Case status is separate from verification: a sourced file starts as "Sent to check" and only
+// these roles can move it on. Sales staff can never change it.
+export const CASE_STATUS = {
+  sent_to_check: 'Sent to check',
+  applicant_review: 'Applicant review',
+  completed: 'Completed',
+  rejected: 'Rejected',
+};
+export const SETTABLE_CASE_STATUSES = ['applicant_review', 'completed', 'rejected'];
+export const CASE_STATUS_ROLES = ['team_leader', 'mis', 'sales_manager', 'processing', 'business_head'];
+// Where a sales person can send a case in Applicant review to have its details corrected.
+export const EDIT_QUEUES = { team_leader: 'Team Leader', sales_manager: 'Sales Manager' };
+const EDITOR_ROLES = ['team_leader', 'sales_manager'];
+const CASE_ACTIONS = ['set_case_status', 'request_edit', 'resolve_edit_request'];
+
 export function productLabel(product, bundleProducts, creditCard, loanType, buyoutBank) {
   const name = (p) => {
     if (p === 'credit_card' && creditCard) return `Credit Card (${creditCard})`;
@@ -80,7 +95,7 @@ const PRODUCT_FIELDS = [
   'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank',
   'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount',
 ];
-const EDITABLE_FIELDS = [...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', ...PRODUCT_FIELDS];
+const EDITABLE_FIELDS = [...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', ...PRODUCT_FIELDS];
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -202,6 +217,14 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
   }
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
   if (has('salary')) out.salary = parseNumber(input.salary, 'Salary');
+  if (has('sourcing_date')) {
+    const date = clean(input.sourcing_date) ?? (partial ? null : now().slice(0, 10));
+    if (!date) throw new WorkflowError(400, 'Sourcing date is required');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new WorkflowError(400, 'Sourcing date must be a valid date');
+    // One day of slack so a file sourced late in the evening in the UAE is not "in the future" in UTC.
+    if (Date.parse(date) > Date.now() + 864e5) throw new WorkflowError(400, 'Sourcing date cannot be in the future');
+    out.sourcing_date = date;
+  }
   if (partial ? 'amount' in input : input.amount !== undefined) out.amount = parseNumber(input.amount, 'Amount');
 
   if (!partial || PRODUCT_FIELDS.some((f) => f in input)) validateProduct(input, current, out);
@@ -224,12 +247,15 @@ const activeUserIds = (db, role) =>
 
 const CASE_SELECT = `
   SELECT c.*, cb.name AS created_by_name, at.name AS assigned_to_name,
-         vb.name AS verified_by_name, tb.name AS tl_actioned_by_name
+         vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
+         sb.name AS case_status_by_name, rb.name AS edit_request_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
   LEFT JOIN users at ON at.id = c.assigned_to
   LEFT JOIN users vb ON vb.id = c.verified_by
-  LEFT JOIN users tb ON tb.id = c.tl_actioned_by`;
+  LEFT JOIN users tb ON tb.id = c.tl_actioned_by
+  LEFT JOIN users sb ON sb.id = c.case_status_by
+  LEFT JOIN users rb ON rb.id = c.edit_request_by`;
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
 
@@ -249,7 +275,7 @@ export function getCase(db, user, id) {
   return { ...withRef(row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row) };
 }
 
-export function listCases(db, user, { status, q, assigned, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, q, assigned, limit = 200 } = {}) {
   const where = [];
   const params = [];
   if (user.role === 'sales') {
@@ -262,6 +288,18 @@ export function listCases(db, user, { status, q, assigned, limit = 200 } = {}) {
       where.push(`c.status IN (${statuses.map(() => '?').join(',')})`);
       params.push(...statuses);
     }
+  }
+  if (case_status) {
+    const statuses = String(case_status).split(',').filter((s) => CASE_STATUS[s]);
+    if (statuses.length) {
+      where.push(`c.case_status IN (${statuses.map(() => '?').join(',')})`);
+      params.push(...statuses);
+    }
+  }
+  if (edit_requests === 'mine') {
+    // Team leaders and sales managers each work the edit requests addressed to their queue.
+    where.push('c.edit_request_to = ?');
+    params.push(user.role);
   }
   if (assigned === 'me') {
     where.push('c.assigned_to = ?');
@@ -282,7 +320,7 @@ export function listCases(db, user, { status, q, assigned, limit = 200 } = {}) {
 }
 
 export function createCase(db, user, input) {
-  if (user.role !== 'sales' && user.role !== 'team_leader') {
+  if (!['sales', 'team_leader', 'sales_manager'].includes(user.role)) {
     throw new WorkflowError(403, 'Only sales staff can add sourcing data');
   }
   const data = validateCaseInput(input);
@@ -293,14 +331,18 @@ export function createCase(db, user, input) {
       .prepare(`INSERT INTO cases (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
       .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), STATUS.PENDING, user.id, ts, ts);
     const id = Number(lastInsertRowid);
-    addEvent(db, id, user.id, 'created', { to: STATUS.PENDING });
+    addEvent(db, id, user.id, 'created', { to: STATUS.PENDING, detail: 'sent_to_check' });
     return getCase(db, user, id);
   });
 }
 
 function canEdit(user, row) {
-  if (user.role === 'team_leader') return ![STATUS.COMPLETED, STATUS.REJECTED].includes(row.status);
-  if (user.role === 'sales') return row.created_by === user.id && [STATUS.PENDING, STATUS.RETURNED].includes(row.status);
+  const closed = ['completed', 'rejected'].includes(row.case_status) || row.status === STATUS.REJECTED;
+  if (EDITOR_ROLES.includes(user.role)) return !closed;
+  if (user.role === 'sales') {
+    // Once the file is under review, sales must ask a team leader or sales manager to make changes.
+    return row.created_by === user.id && row.case_status === 'sent_to_check' && [STATUS.PENDING, STATUS.RETURNED].includes(row.status);
+  }
   return false;
 }
 
@@ -322,7 +364,19 @@ export function updateCase(db, user, id, input) {
   });
 }
 
+function allowedCaseActions(user, row) {
+  const out = [];
+  if (CASE_STATUS_ROLES.includes(user.role)) out.push('set_case_status');
+  if (user.role === 'sales' && row.created_by === user.id && row.case_status === 'applicant_review') out.push('request_edit');
+  if (row.edit_request_to && (user.role === row.edit_request_to || user.role === 'team_leader')) out.push('resolve_edit_request');
+  return out;
+}
+
 export function allowedActions(user, row) {
+  return [...verificationActions(user, row), ...allowedCaseActions(user, row)];
+}
+
+function verificationActions(user, row) {
   return Object.entries(ACTIONS)
     .filter(([name, rule]) => {
       if (!rule.roles.includes(user.role) || !rule.from.includes(row.status)) return false;
@@ -337,7 +391,8 @@ export function allowedActions(user, row) {
  * Applies a workflow action. Returns `{ case, triggers }` where triggers are
  * outbound events (e.g. team-leader alerts) for the caller to dispatch.
  */
-export function applyAction(db, user, id, { action, note, outcome, reason } = {}) {
+export function applyAction(db, user, id, { action, note, outcome, reason, case_status, to } = {}) {
+  if (CASE_ACTIONS.includes(action)) return applyCaseAction(db, user, id, { action, note, case_status, to });
   const rule = ACTIONS[action];
   if (!rule) throw new WorkflowError(400, `Unknown action: ${action}`);
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
@@ -440,6 +495,48 @@ export function applyAction(db, user, id, { action, note, outcome, reason } = {}
   return { case: getCase(db, user, id), triggers };
 }
 
+function applyCaseAction(db, user, id, { action, note, case_status, to }) {
+  const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
+  if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
+  if (!allowedCaseActions(user, row).includes(action)) throw new WorkflowError(403, 'Your role cannot do that on this case');
+  note = clean(note, 2000);
+  const ref = caseRef(id);
+  const ts = now();
+  const who = `${user.name}`;
+
+  transaction(db, () => {
+    if (action === 'set_case_status') {
+      if (!SETTABLE_CASE_STATUSES.includes(case_status)) {
+        throw new WorkflowError(400, 'Choose a case status: Applicant review, Completed or Rejected');
+      }
+      if (case_status === row.case_status) throw new WorkflowError(409, `The case is already ${CASE_STATUS[case_status]}`);
+      if (case_status !== 'completed' && !note) throw new WorkflowError(400, `Add a note explaining why the case is ${CASE_STATUS[case_status]}`);
+      db.prepare('UPDATE cases SET case_status = ?, case_status_note = ?, case_status_by = ?, case_status_at = ?, updated_at = ? WHERE id = ?')
+        .run(case_status, note, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'case_status', { detail: case_status, note });
+      const label = CASE_STATUS[case_status];
+      notify(db, [row.created_by], id, `${ref} (${row.customer_name}) case status changed to ${label} by ${who}${note ? `: ${note}` : ''}`);
+      if (case_status === 'applicant_review') {
+        notify(db, activeUserIds(db, 'team_leader').filter((u) => u !== user.id), id,
+          `Applicant review: ${ref} (${row.customer_name}) set by ${who}${note ? ` — ${note}` : ''}`);
+      }
+    } else if (action === 'request_edit') {
+      if (!EDIT_QUEUES[to]) throw new WorkflowError(400, 'Send the request to the Team Leader or Sales Manager queue');
+      if (!note) throw new WorkflowError(400, 'Describe the changes that are needed');
+      db.prepare('UPDATE cases SET edit_request_to = ?, edit_request_note = ?, edit_request_by = ?, edit_request_at = ?, updated_at = ? WHERE id = ?')
+        .run(to, note, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'request_edit', { detail: to, note });
+      notify(db, activeUserIds(db, to), id, `Edit request: ${ref} (${row.customer_name}) from ${who} — ${note}`);
+    } else if (action === 'resolve_edit_request') {
+      db.prepare('UPDATE cases SET edit_request_to = NULL, edit_request_note = NULL, edit_request_by = NULL, edit_request_at = NULL, updated_at = ? WHERE id = ?')
+        .run(ts, id);
+      addEvent(db, id, user.id, 'resolve_edit_request', { detail: row.edit_request_to, note });
+      notify(db, [row.edit_request_by], id, `${ref} (${row.customer_name}): your requested changes were made by ${who}${note ? ` — ${note}` : ''}`);
+    }
+  });
+  return { case: getCase(db, user, id), triggers: [] };
+}
+
 export function stats(db, user) {
   const scope = user.role === 'sales' ? 'WHERE created_by = ?' : '';
   const params = user.role === 'sales' ? [user.id] : [];
@@ -447,13 +544,20 @@ export function stats(db, user) {
   for (const r of db.prepare(`SELECT status, COUNT(*) AS n FROM cases ${scope} GROUP BY status`).all(...params)) {
     byStatus[r.status] = r.n;
   }
-  const result = { by_status: byStatus, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+  const byCaseStatus = Object.fromEntries(Object.keys(CASE_STATUS).map((s) => [s, 0]));
+  for (const r of db.prepare(`SELECT case_status, COUNT(*) AS n FROM cases ${scope} GROUP BY case_status`).all(...params)) {
+    byCaseStatus[r.case_status] = r.n;
+  }
+  const result = { by_status: byStatus, by_case_status: byCaseStatus, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+  if (EDITOR_ROLES.includes(user.role)) {
+    result.edit_requests = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE edit_request_to = ?').get(user.role).n;
+  }
   if (user.role === 'processing') {
     result.my_queue = db
       .prepare('SELECT COUNT(*) AS n FROM cases WHERE assigned_to = ? AND status = ?')
       .get(user.id, STATUS.IN_VERIFICATION).n;
   }
-  if (user.role === 'team_leader') {
+  if (['team_leader', 'sales_manager', 'mis', 'business_head'].includes(user.role)) {
     result.processors = db
       .prepare(
         `SELECT u.name,

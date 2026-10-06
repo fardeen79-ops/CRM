@@ -133,6 +133,8 @@ textarea { min-height: 80px; resize: vertical; }
 fieldset.product-detail { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px 14px; margin: 0; min-width: 0; display: grid; gap: 14px; }
 fieldset.product-detail legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
 .product-detail .segmented { justify-self: start; }
+.segmented.two-up { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+.segmented.two-up span { text-align: center; padding-inline: 8px; }
 .sub-label { font-weight: 600; font-size: 13px; margin-bottom: -8px; }
 .case-form details.more summary { cursor: pointer; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
 .case-form details.more[open] summary { margin-bottom: 14px; }
@@ -178,6 +180,18 @@ td strong { white-space: nowrap; }
 .st-incomplete { color: var(--s-incomplete); background: var(--s-incomplete-bg); }
 .st-returned_to_sales { color: var(--s-returned); background: var(--s-returned-bg); }
 .st-rejected { color: var(--s-rejected); background: var(--s-rejected-bg); }
+.cs-sent_to_check { color: var(--s-inver); background: var(--s-inver-bg); border: 1px solid currentColor; }
+.cs-applicant_review { color: var(--s-pending); background: var(--s-pending-bg); border: 1px solid currentColor; }
+.cs-completed { color: var(--s-done); background: var(--s-done-bg); border: 1px solid currentColor; }
+.cs-rejected { color: var(--s-incomplete); background: var(--s-incomplete-bg); border: 1px solid currentColor; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.callout.warn { background: var(--s-pending-bg); border-color: var(--s-pending); }
+.note-box { background: var(--bg); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; margin-bottom: 8px; }
+.tiles-head { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+.inline-filter { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 500; white-space: nowrap; }
+.inline-filter select { width: auto; }
+.nowrap { white-space: nowrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Case detail */
 dl.details { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; margin: 0; }

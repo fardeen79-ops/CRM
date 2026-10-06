@@ -1,30 +1,44 @@
 // Sourcing CRM — single-page frontend (no build step).
 
+// Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
 const STATUS_LABEL = {
   pending_verification: 'Pending verification',
   in_verification: 'In verification',
-  completed: 'Completed',
-  incomplete: 'Incomplete — TL action',
+  completed: 'Verification completed',
+  incomplete: 'Verification incomplete — TL action',
   returned_to_sales: 'Returned to sales',
+  rejected: 'Rejected at verification',
+};
+const CASE_STATUS_LABEL = {
+  sent_to_check: 'Sent to check',
+  applicant_review: 'Applicant review',
+  completed: 'Completed',
   rejected: 'Rejected',
 };
 const OTHER_BANK = '__other';
-const ROLE_LABEL = { sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader' };
+const ROLE_LABEL = {
+  sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
+  sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head',
+};
 const ACTION_LABEL = {
   created: 'Case created',
   edited: 'Details edited',
   claim: 'Picked up for verification',
   release: 'Released back to queue',
   log_call: 'Call logged',
-  complete: 'Marked completed (verified)',
-  mark_incomplete: 'Marked incomplete',
+  complete: 'Verification completed',
+  mark_incomplete: 'Verification marked incomplete',
   return_to_sales: 'Returned to sales',
   reverify: 'Sent back for re-verification',
-  reject: 'Rejected',
+  reject: 'Rejected at verification',
   resubmit: 'Resubmitted for verification',
+  case_status: 'Case status changed',
+  set_case_status: 'Case status updated',
+  request_edit: 'Edit request sent',
+  resolve_edit_request: 'Requested changes made',
 };
 
-const state = { user: null, meta: null, unread: 0, actionRequired: 0 };
+const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0 };
 const app = document.getElementById('app');
 
 // ---------- helpers ----------
@@ -43,7 +57,10 @@ const html = (strings, ...vals) =>
 
 const label = (s) => String(s || '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const badge = (status) => html`<span class="badge st-${status}">${STATUS_LABEL[status] || status}</span>`;
+const caseBadge = (status) => html`<span class="badge cs-${status}">${CASE_STATUS_LABEL[status] || status}</span>`;
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
+const todayLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 const fmtAmount = (n) => (n == null ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
 function ago(iso) {
   if (!iso) return '';
@@ -131,9 +148,10 @@ async function refreshCounters() {
   try {
     const n = await api('/notifications');
     state.unread = n.unread;
-    if (state.user.role === 'team_leader') {
+    if (['team_leader', 'sales_manager'].includes(state.user.role)) {
       const s = await api('/stats');
       state.actionRequired = s.by_status.incomplete;
+      state.editRequests = s.edit_requests;
     }
     updateBadges();
   } catch { /* ignore polling errors */ }
@@ -144,6 +162,8 @@ function updateBadges() {
   if (dot) { dot.textContent = state.unread; dot.hidden = !state.unread; }
   const ar = document.querySelector('[data-ar-count]');
   if (ar) { ar.textContent = state.actionRequired; ar.hidden = !state.actionRequired; }
+  const er = document.querySelector('[data-er-count]');
+  if (er) { er.textContent = state.editRequests; er.hidden = !state.editRequests; }
 }
 
 // ---------- shell ----------
@@ -152,10 +172,13 @@ function navLinks() {
   const links = [['#/', 'Dashboard']];
   if (r === 'sales') links.push(['#/cases', 'My cases'], ['#/cases/new', '+ New case']);
   if (r === 'processing') links.push(['#/queue', 'Verification queue'], ['#/cases?assigned=me', 'My cases'], ['#/cases', 'All cases']);
+  const editRequests = ['#/edit-requests', raw(`Edit requests<span class="count" data-er-count ${state.editRequests ? '' : 'hidden'}>${state.editRequests}</span>`)];
   if (r === 'team_leader') {
     links.push(['#/action-required', raw(`Action required<span class="count" data-ar-count ${state.actionRequired ? '' : 'hidden'}>${state.actionRequired}</span>`)]);
-    links.push(['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/users', 'Users']);
+    links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/users', 'Users']);
   }
+  if (r === 'sales_manager') links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case']);
+  if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases']);
   return links;
 }
 
@@ -224,6 +247,14 @@ async function route() {
     if (path === '/action-required') {
       return await viewCases({ title: 'Action required', subtitle: 'Cases the processing team marked incomplete. Decide whether to return to sales, re-verify, or reject.', params, fixedStatus: 'incomplete' });
     }
+    if (path === '/edit-requests') {
+      return await viewCases({
+        title: 'Edit requests',
+        subtitle: 'Sales asked for these cases in Applicant review to be corrected. Edit the details, then mark the request done.',
+        params, fixed: { edit_requests: 'mine' }, cols: ['ref', 'customer', 'request', 'source_by', 'req_waiting'],
+        empty: 'No edit requests waiting for you',
+      });
+    }
     if (path === '/users') return await viewUsers();
     shell(html`<div class="card empty">Page not found</div>`);
   } catch (err) {
@@ -236,59 +267,79 @@ async function viewDashboard() {
   const s = await api('/stats');
   const r = state.user.role;
   const by = s.by_status;
-  const tiles = [];
-  if (r === 'team_leader') tiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
-  if (r === 'processing') tiles.push(['My open cases', s.my_queue, '#/cases?assigned=me']);
-  tiles.push(
-    ['Pending verification', by.pending_verification, `#/cases?status=pending_verification`],
-    ['In verification', by.in_verification, `#/cases?status=in_verification`],
-    ['Completed', by.completed, `#/cases?status=completed`]
+  const cs = s.by_case_status;
+  const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head'].includes(r);
+
+  const caseTiles = Object.entries(CASE_STATUS_LABEL).map(([k, l]) => [l, cs[k], `#/cases?case_status=${k}`, k === 'applicant_review' && cs[k] > 0]);
+  caseTiles.push(['Total files', s.total, '#/cases']);
+  const verifyTiles = [];
+  if (r === 'team_leader') verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
+  if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0]);
+  if (r === 'processing') verifyTiles.push(['My open cases', s.my_queue, '#/cases?assigned=me']);
+  verifyTiles.push(
+    ['Pending verification', by.pending_verification, '#/cases?status=pending_verification'],
+    ['In verification', by.in_verification, '#/cases?status=in_verification'],
+    ['Verification completed', by.completed, '#/cases?status=completed']
   );
-  if (r !== 'team_leader') tiles.push(['Incomplete', by.incomplete, `#/cases?status=incomplete`]);
-  tiles.push(['Returned to sales', by.returned_to_sales, `#/cases?status=returned_to_sales`], ['Total', s.total, '#/cases']);
+  if (r !== 'team_leader') verifyTiles.push(['Verification incomplete', by.incomplete, '#/cases?status=incomplete']);
+  verifyTiles.push(['Returned to sales', by.returned_to_sales, '#/cases?status=returned_to_sales']);
 
   const intro = {
-    sales: 'Add the customers you source. The processing team calls each one to verify. Cases returned to you need corrections before resubmitting.',
-    processing: 'Work through the verification queue: call the customer, log each attempt, then mark the case completed or incomplete.',
-    team_leader: 'Incomplete cases need your decision. Return them to sales, send them back for re-verification, or reject them.',
+    sales: 'Add the customers you source; each file goes in as Sent to check. If a file moves to Applicant review, send an edit request to your team leader or sales manager.',
+    processing: 'Work through the verification queue: call the customer, log each attempt, mark the verification completed or incomplete, and set the case status.',
+    team_leader: 'Incomplete verifications and edit requests need you. You can also set any case status.',
+    sales_manager: 'Make the changes sales ask for in edit requests, and keep case statuses up to date.',
+    mis: 'Track every sourced file and update its case status: Applicant review, Completed or Rejected.',
+    business_head: 'Sourcing, verification and case outcomes across the team. You can update any case status.',
   }[r];
 
-  let extra = '';
+  const teamTables = oversight ? html`
+    <div class="card"><h2>Processing team</h2>
+      ${miniTable(['Name', 'Calls', 'Verified', 'Incompl.'], s.processors.map((p) => [p.name, p.calls, p.completed, p.incomplete]))}
+    </div>
+    <div class="card"><h2>Sales team</h2>
+      ${miniTable(['Name', 'Sourced', 'Verified'], s.sales.map((p) => [p.name, p.sourced, p.completed]))}
+    </div>` : '';
+
+  let main = '';
   if (r === 'team_leader') {
-    const { cases } = await api('/cases?status=incomplete&limit=10');
-    extra = html`
-      <div class="grid two-col">
-        <div class="card">
-          <h2>Waiting on you</h2>
-          ${caseTable(cases, { cols: ['ref', 'customer', 'reason', 'by', 'waiting'] })}
-        </div>
-        <div>
-          <div class="card"><h2>Processing team</h2>
-            ${miniTable(['Name', 'Calls', 'Done', 'Incompl.'], s.processors.map((p) => [p.name, p.calls, p.completed, p.incomplete]))}
-          </div>
-          <div class="card"><h2>Sales team</h2>
-            ${miniTable(['Name', 'Sourced', 'Verified'], s.sales.map((p) => [p.name, p.sourced, p.completed]))}
-          </div>
-        </div>
-      </div>`;
+    const [{ cases: incomplete }, { cases: requests }] = await Promise.all([
+      api('/cases?status=incomplete&limit=10'), api('/cases?edit_requests=mine&limit=10'),
+    ]);
+    main = html`
+      <div class="card"><h2>Verification incomplete — waiting on you</h2>${caseTable(incomplete, { cols: ['ref', 'customer', 'reason', 'by', 'waiting'], empty: 'Nothing waiting' })}</div>
+      ${requests.length ? html`<div class="card"><h2>Edit requests</h2>${caseTable(requests, { cols: ['ref', 'customer', 'request', 'req_waiting'] })}</div>` : ''}`;
+  } else if (r === 'sales_manager') {
+    const { cases } = await api('/cases?edit_requests=mine&limit=10');
+    main = html`<div class="card"><h2>Edit requests waiting on you</h2>${caseTable(cases, { cols: ['ref', 'customer', 'request', 'req_waiting'], empty: 'No edit requests right now' })}</div>`;
+  } else if (r === 'mis' || r === 'business_head') {
+    const { cases } = await api('/cases?case_status=applicant_review&limit=10');
+    main = html`<div class="card"><h2>In applicant review</h2>${caseTable(cases, { cols: ['ref', 'customer', 'cs_note', 'source_by', 'updated'], empty: 'No files in applicant review' })}</div>`;
   } else if (r === 'sales') {
-    const { cases } = await api('/cases?status=returned_to_sales');
-    if (cases.length) extra = html`<div class="card"><h2>Returned to you — needs correction</h2>${caseTable(cases, { cols: ['ref', 'customer', 'phone', 'tl_note', 'updated'] })}</div>`;
+    const [{ cases: returned }, { cases: review }] = await Promise.all([api('/cases?status=returned_to_sales'), api('/cases?case_status=applicant_review')]);
+    main = html`
+      ${returned.length ? html`<div class="card"><h2>Returned to you — needs correction</h2>${caseTable(returned, { cols: ['ref', 'customer', 'phone', 'tl_note', 'updated'] })}</div>` : ''}
+      ${review.length ? html`<div class="card"><h2>In applicant review</h2><p class="muted small">Open a file to send an edit request to your team leader or sales manager.</p>${caseTable(review, { cols: ['ref', 'customer', 'cs_note', 'request', 'updated'] })}</div>` : ''}`;
   } else {
     const { cases } = await api('/cases?assigned=me&status=in_verification');
-    extra = html`<div class="card"><h2>My cases in progress</h2>${caseTable(cases, { cols: ['ref', 'customer', 'phone', 'calls', 'updated'], empty: 'Nothing in progress. Pick a case from the verification queue.' })}</div>`;
+    main = html`<div class="card"><h2>My cases in progress</h2>${caseTable(cases, { cols: ['ref', 'customer', 'phone', 'calls', 'updated'], empty: 'Nothing in progress. Pick a case from the verification queue.' })}</div>`;
   }
+
+  const tileGrid = (tiles) => html`<div class="grid stats">
+    ${tiles.map(([l, v, href, alert]) => html`<a class="card stat ${alert ? 'alert' : ''}" href="${href}"><div class="label">${l}</div><div class="value">${v ?? 0}</div></a>`)}
+  </div>`;
 
   shell(html`
     <div class="page-head">
       <div><h1>Hello, ${state.user.name.split(' ')[0]}</h1><p class="muted" style="margin:0">${intro}</p></div>
-      ${r === 'sales' || r === 'team_leader' ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
+      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
       ${r === 'processing' ? html`<a class="btn btn-primary" href="#/queue">Open verification queue</a>` : ''}
     </div>
-    <div class="grid stats">
-      ${tiles.map(([l, v, href, alert]) => html`<a class="card stat ${alert ? 'alert' : ''}" href="${href}"><div class="label">${l}</div><div class="value">${v ?? 0}</div></a>`)}
-    </div>
-    ${extra}`);
+    <h2 class="tiles-head">Case status</h2>
+    ${tileGrid(caseTiles)}
+    <h2 class="tiles-head">Verification</h2>
+    ${tileGrid(verifyTiles)}
+    ${oversight ? html`<div class="grid two-col"><div>${main}</div><div>${teamTables}</div></div>` : main}`);
   bindRows();
 }
 
@@ -303,7 +354,14 @@ const COLS = {
   ref: ['Ref', (c) => html`<strong>${c.ref}</strong>`],
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => c.phone],
-  status: ['Status', (c) => badge(c.status)],
+  status: ['Verification', (c) => badge(c.status)],
+  case_status: ['Case status', (c) => caseBadge(c.case_status)],
+  sourced: ['Sourced', (c) => html`<span class="small nowrap">${fmtDay(c.sourcing_date)}</span>`],
+  cs_note: ['Status note', (c) => html`${c.case_status_note || ''}<div class="muted small">${c.case_status_by_name || ''}</div>`],
+  request: ['Edit request', (c) => (c.edit_request_to
+    ? html`${c.edit_request_note}<div class="muted small">${c.edit_request_by_name} → ${state.meta.edit_queues[c.edit_request_to]} queue</div>`
+    : html`<span class="muted">—</span>`)],
+  req_waiting: ['Waiting', (c) => ago(c.edit_request_at)],
   source_by: ['Sourced by', (c) => c.created_by_name],
   assigned: ['Processor', (c) => c.assigned_to_name || html`<span class="muted">—</span>`],
   calls: ['Calls', (c) => c.call_attempts],
@@ -326,36 +384,48 @@ function bindRows() {
   app.querySelectorAll('tr[data-href]').forEach((tr) => (tr.onclick = () => go(tr.dataset.href)));
 }
 
-async function viewCases({ title, subtitle = '', params, fixedStatus }) {
+async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}, cols: fixedCols, empty }) {
   const status = fixedStatus || params.get('status') || '';
+  const caseStatus = params.get('case_status') || '';
   const q = params.get('q') || '';
-  const query = new URLSearchParams({ ...(status && { status }), ...(q && { q }), ...(params.get('assigned') && { assigned: params.get('assigned') }) });
+  const query = new URLSearchParams({
+    ...fixed,
+    ...(status && { status }), ...(caseStatus && { case_status: caseStatus }), ...(q && { q }),
+    ...(params.get('assigned') && { assigned: params.get('assigned') }),
+  });
   const { cases } = await api(`/cases?${query}`);
 
   const r = state.user.role;
-  let cols = ['ref', 'customer', 'phone', 'status', 'source_by', 'assigned', 'calls', 'updated'];
-  if (r === 'sales') cols = ['ref', 'customer', 'phone', 'status', 'assigned', 'updated'];
+  let cols = fixedCols || ['ref', 'customer', 'sourced', 'case_status', 'status', 'source_by', 'assigned', 'updated'];
+  if (!fixedCols && r === 'sales') cols = ['ref', 'customer', 'sourced', 'case_status', 'status', 'updated'];
   if (fixedStatus === 'incomplete') cols = ['ref', 'customer', 'phone', 'reason', 'by', 'source_by', 'waiting'];
 
   const base = location.hash.split('?')[0];
-  const tabs = fixedStatus ? '' : html`<div class="tabs">
-      ${[['', 'All'], ...Object.entries(STATUS_LABEL)].map(([s, l]) => html`<button data-status="${s}" class="${s === status ? 'active' : ''}">${l}</button>`)}
+  const filters = fixedStatus || fixedCols ? '' : html`
+    <label class="inline-filter" for="case-status-filter">Case status
+      <select id="case-status-filter">
+        <option value="">All</option>
+        ${Object.entries(CASE_STATUS_LABEL).map(([k, l]) => html`<option value="${k}" ${k === caseStatus ? raw('selected') : ''}>${l}</option>`)}
+      </select>
+    </label>
+    <div class="tabs" aria-label="Verification status">
+      ${[['', 'All verification'], ...Object.entries(STATUS_LABEL)].map(([s, l]) => html`<button data-status="${s}" class="${s === status ? 'active' : ''}">${l}</button>`)}
     </div>`;
 
   shell(html`
     <div class="page-head">
       <div><h1>${title}</h1>${subtitle ? html`<p class="muted" style="margin:0">${subtitle}</p>` : ''}</div>
-      ${r !== 'processing' ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
+      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
     </div>
     <div class="card">
       <div class="toolbar">
         <form id="search-form" style="display:flex;gap:8px;flex:1;min-width:240px">
-          <input type="search" name="q" placeholder="Search name, phone, email, city or ref…" value="${q}">
+          <input type="search" name="q" placeholder="Search name, mobile, Emirates ID, passport, Bidaya / App ID or ref…" value="${q}">
           <button>Search</button>
         </form>
-        ${tabs}
+        ${filters}
       </div>
-      ${caseTable(cases, { cols, empty: fixedStatus === 'incomplete' ? 'Nothing needs your attention right now 🎉' : 'No cases found' })}
+      ${caseTable(cases, { cols, empty: empty || (fixedStatus === 'incomplete' ? 'Nothing needs your attention right now 🎉' : 'No cases found') })}
     </div>`);
   bindRows();
 
@@ -367,11 +437,13 @@ async function viewCases({ title, subtitle = '', params, fixedStatus }) {
   };
   document.getElementById('search-form').onsubmit = (e) => { e.preventDefault(); setParam('q', formData(e.target).q.trim()); };
   app.querySelectorAll('.tabs button').forEach((b) => (b.onclick = () => setParam('status', b.dataset.status)));
+  const csFilter = document.getElementById('case-status-filter');
+  if (csFilter) csFilter.onchange = () => setParam('case_status', csFilter.value);
 }
 
 // ---------- case form ----------
 async function viewCaseForm(id) {
-  const c = id ? { ...(await api(`/cases/${id}`)).case } : {};
+  const c = id ? { ...(await api(`/cases/${id}`)).case } : { sourcing_date: todayLocal() };
   if (id && !c.first_name && c.customer_name) {
     // Cases created before names were split: prefill first / middle / last from the full name.
     const parts = c.customer_name.split(/\s+/);
@@ -396,8 +468,8 @@ async function viewCaseForm(id) {
   shell(html`
     <div class="page-head"><div>
       <h1>${id ? `Edit ${c.ref}` : 'New sourcing case'}</h1>
-      <p class="muted" style="margin:0">${id ? 'Update the customer details, then save.' : 'Enter the customer you sourced. It goes straight to the processing team for a verification call.'}</p>
-    </div></div>
+      <p class="muted" style="margin:0">${id ? 'Update the customer details, then save.' : 'Enter the customer you sourced. The file is saved with case status Sent to check and goes to the processing team for a verification call.'}</p>
+    </div>${id ? html`<div>${caseBadge(c.case_status)}</div>` : ''}</div>
     <form class="card case-form" id="case-form" novalidate>
       ${c.status === 'returned_to_sales' ? html`<div class="callout info"><strong>Returned by team leader</strong>${c.tl_note}</div>` : ''}
 
@@ -410,6 +482,7 @@ async function viewCaseForm(id) {
           ${field('phone', 'Mobile number', { type: 'tel', required: true, placeholder: '+971 50 123 4567' })}
           ${field('eid_number', 'Emirates ID number', { placeholder: '784-YYYY-NNNNNNN-C', attrs: 'inputmode="numeric" pattern="784-?\\d{4}-?\\d{7}-?\\d" title="15 digits starting with 784, e.g. 784-1990-1234567-1"' })}
           ${field('passport_number', 'Passport number', { attrs: 'pattern="[A-Za-z0-9 ]{5,20}" title="5–20 letters and digits"' })}
+          ${field('email', 'Email address', { type: 'email', placeholder: 'name@example.com', attrs: 'autocomplete="off"' })}
         </div>
       </section>
 
@@ -423,7 +496,8 @@ async function viewCaseForm(id) {
 
       <section>
         <h2>Application</h2>
-        <div class="form-grid">
+        <div class="form-grid three">
+          ${field('sourcing_date', 'Sourcing date', { type: 'date', required: true, attrs: `max="${todayLocal()}"` })}
           ${field('bidaya_id', 'Bidaya ID')}
           ${field('app_id', 'App ID')}
         </div>
@@ -483,11 +557,10 @@ async function viewCaseForm(id) {
         </div>
       </section>
 
-      <details class="more" ${[c.alt_phone, c.email, c.address, c.city, c.source, c.sales_notes].some(Boolean) ? raw('open') : ''}>
+      <details class="more" ${[c.alt_phone, c.address, c.city, c.source, c.sales_notes].some(Boolean) ? raw('open') : ''}>
         <summary>More details (optional)</summary>
         <div class="form-grid">
           ${field('alt_phone', 'Alternate phone', { type: 'tel' })}
-          ${field('email', 'Email', { type: 'email' })}
           ${field('address', 'Address', { full: true })}
           ${field('city', 'City')}
           ${field('source', 'Lead source', { placeholder: 'e.g. Referral, Walk-in, Field visit' })}
@@ -586,6 +659,13 @@ async function viewCaseForm(id) {
 }
 
 // ---------- case detail ----------
+function eventDetail(e) {
+  if (e.type === 'edited') return `fields: ${e.detail}`;
+  if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);
+  if (e.type === 'request_edit' || e.type === 'resolve_edit_request') return `${state.meta.edit_queues[e.detail] || label(e.detail)} queue`;
+  return label(e.detail);
+}
+
 async function viewCase(id) {
   const { case: c } = await api(`/cases/${id}`);
   // A detail row; ID-style values use a monospace face so digits are easy to read back on a call.
@@ -652,7 +732,7 @@ async function viewCase(id) {
         <p class="muted small" style="margin-top:8px">
           <b>Return to sales</b>: the sales person fixes the details and resubmits.<br>
           <b>Re-verify</b>: back to the processing queue for another call.<br>
-          <b>Reject</b>: close the case permanently.
+          <b>Reject</b>: verification fails and the file is closed for editing.
         </p>
       </form>`);
   }
@@ -660,17 +740,55 @@ async function viewCase(id) {
     panel.push(html`<h3>Fix &amp; resubmit</h3><p class="muted small">Correct the details the team leader flagged, then resubmit for verification.</p>
       <div class="actions"><a class="btn" href="#/cases/${c.id}/edit">Edit details</a><button class="btn-primary" data-action="resubmit">Resubmit</button></div>`);
   }
-  if (c.can_edit && !a.has('resubmit')) {
+  if (a.has('resolve_edit_request')) {
+    panel.push(html`${panel.length ? raw('<hr>') : ''}<h3>Edit request from ${c.edit_request_by_name}</h3>
+      <div class="note-box">${c.edit_request_note}</div>
+      <p class="muted small">Make the changes with <b>Edit details</b>, then mark the request done so ${c.edit_request_by_name} is told.</p>
+      <form data-form="resolve_edit_request">
+        <div class="field-row"><textarea name="note" placeholder="What you changed (optional)"></textarea></div>
+        <div class="actions">${c.can_edit ? html`<a class="btn" href="#/cases/${c.id}/edit">Edit details</a>` : ''}<button class="btn-primary">Mark changes done</button></div>
+      </form>`);
+  } else if (c.can_edit && !a.has('resubmit')) {
     panel.push(html`${panel.length ? raw('<hr>') : ''}<a class="btn" href="#/cases/${c.id}/edit">Edit details</a>`);
+  }
+  if (a.has('request_edit')) {
+    panel.push(html`${panel.length ? raw('<hr>') : ''}<h3>Need changes to this file?</h3>
+      <p class="muted small">The file is in applicant review, so you can't edit it yourself. Tell your team leader or sales manager what to change.</p>
+      ${c.edit_request_to ? html`<p class="small"><b>Already sent to the ${state.meta.edit_queues[c.edit_request_to]} queue.</b> Sending again replaces that request.</p>` : ''}
+      <form data-form="request_edit">
+        <div class="field-row"><div class="sub-label" style="margin-bottom:6px">Send to which queue? <span class="req">*</span></div>
+          <div class="segmented two-up">
+            ${Object.entries(state.meta.edit_queues).map(([k, l]) => html`<label><input type="radio" name="to" value="${k}" required><span>${l}</span></label>`)}
+          </div>
+        </div>
+        <div class="field-row"><textarea name="note" required placeholder="What needs to change? e.g. correct Emirates ID is 784-…"></textarea></div>
+        <button class="btn-primary">Send edit request</button>
+      </form>`);
+  }
+  if (a.has('set_case_status')) {
+    const choices = state.meta.settable_case_statuses.filter((k) => k !== c.case_status);
+    panel.push(html`${panel.length ? raw('<hr>') : ''}<h3>Case status</h3>
+      <p class="small">Now: ${caseBadge(c.case_status)}</p>
+      <form data-form="set_case_status">
+        <div class="field-row"><label for="cs-select" class="sr-only">New case status</label>
+          <select id="cs-select" name="case_status" required>
+            <option value="">Change status to…</option>
+            ${choices.map((k) => html`<option value="${k}">${CASE_STATUS_LABEL[k]}</option>`)}
+          </select></div>
+        <div class="field-row"><textarea name="note" id="cs-note" placeholder="Note (required for Applicant review and Rejected)"></textarea></div>
+        <button class="btn-primary">Update status</button>
+      </form>`);
   }
 
   shell(html`
     <div class="page-head">
       <div><a href="#/" class="small" id="back-link">← Back</a>
         <h1>${c.customer_name} <span class="muted" style="font-weight:400">${c.ref}</span></h1>
-        <div>${badge(c.status)} <span class="muted small">Sourced by ${c.created_by_name} · ${fmtDate(c.created_at)}</span></div>
+        <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} <span class="muted small">Sourced by ${c.created_by_name} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
+    ${c.case_status === 'applicant_review' ? html`<div class="callout warn"><strong>Applicant review${c.case_status_by_name ? ` — set by ${c.case_status_by_name} ${ago(c.case_status_at)}` : ''}</strong>${c.case_status_note || ''}</div>` : ''}
+    ${c.edit_request_to ? html`<div class="callout info"><strong>Edit request in the ${state.meta.edit_queues[c.edit_request_to]} queue — from ${c.edit_request_by_name} ${ago(c.edit_request_at)}</strong>${c.edit_request_note}</div>` : ''}
     ${banner}
     <div class="grid two-col">
       <div>
@@ -704,6 +822,8 @@ async function viewCase(id) {
           </dl>
           <h2 class="sub">Case</h2>
           <dl class="details">
+            <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
+            <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
             <dt>Sales notes</dt><dd style="white-space:pre-wrap">${c.sales_notes || '—'}</dd>
             <dt>Processor</dt><dd>${c.assigned_to_name || '—'}</dd>
@@ -714,7 +834,7 @@ async function viewCase(id) {
           <h2>Activity</h2>
           <ul class="timeline">
             ${c.events.map((e) => html`<li>
-              <div><strong>${ACTION_LABEL[e.type] || label(e.type)}</strong>${e.detail ? html` · ${e.type === 'edited' ? `fields: ${e.detail}` : label(e.detail)}` : ''}</div>
+              <div><strong>${ACTION_LABEL[e.type] || label(e.type)}</strong>${e.detail ? html` · ${eventDetail(e)}` : ''}</div>
               <div class="muted small">${e.user_name || 'System'}${e.user_role ? ` (${ROLE_LABEL[e.user_role]})` : ''} · ${fmtDate(e.created_at)}</div>
               ${e.note ? html`<div class="note">${e.note}</div>` : ''}
             </li>`)}
@@ -785,7 +905,7 @@ async function viewUsers() {
         <div class="field-row"><label>Name</label><input name="name" required></div>
         <div class="field-row"><label>Email</label><input name="email" type="email" required></div>
         <div class="field-row"><label>Role</label><select name="role" required>
-          <option value="sales">Sales</option><option value="processing">Processing</option><option value="team_leader">Team Leader</option>
+          ${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}
         </select></div>
         <div class="field-row"><label>Temporary password</label><input name="password" type="text" minlength="8" required></div>
         <button class="btn-primary">Add user</button>
