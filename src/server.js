@@ -110,6 +110,7 @@ function routes(db, dispatch) {
         incomplete_reasons: cases.INCOMPLETE_REASONS,
         products: cases.PRODUCTS,
         credit_cards: CREDIT_CARDS,
+        personal_loan_types: cases.PERSONAL_LOAN_TYPES,
       },
     })],
 

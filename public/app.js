@@ -410,6 +410,12 @@ async function viewCaseForm(id) {
             ${Object.entries(products).map(([k, l]) => html`<label class="check"><input type="checkbox" name="bundle_products" value="${k}" ${bundled.has(k) ? raw('checked') : ''}> ${l}</label>`)}
           </div>
         </fieldset>
+        <fieldset class="full loan-type" id="loan-type-field" hidden>
+          <legend>Personal loan type <span class="req">*</span></legend>
+          <div class="segmented">
+            ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" required disabled ${c.personal_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+          </div>
+        </fieldset>
         <div class="full" id="card-field" hidden>
           <label for="f-credit_card">Credit card <span class="req">*</span></label>
           <select id="f-credit_card" name="credit_card" required disabled>
@@ -433,16 +439,20 @@ async function viewCaseForm(id) {
   const productSelect = document.getElementById('f-product');
   const picker = document.getElementById('bundle-picker');
   const boxes = [...picker.querySelectorAll('input[type=checkbox]')];
+  const loanField = document.getElementById('loan-type-field');
+  const loanRadios = [...loanField.querySelectorAll('input')];
   const cardField = document.getElementById('card-field');
   const cardSelect = document.getElementById('f-credit_card');
   const checkBundle = () => {
     const isBundle = productSelect.value === 'bundle';
     const count = boxes.filter((b) => b.checked).length;
     boxes[0].setCustomValidity(isBundle && count < 2 ? 'Pick at least two products for a bundle' : '');
-    // Ask for the card only when Credit Card is the product or part of the bundle.
-    const needsCard = productSelect.value === 'credit_card' || (isBundle && boxes.some((b) => b.value === 'credit_card' && b.checked));
-    cardField.hidden = !needsCard;
-    cardSelect.disabled = !needsCard;
+    // Ask for product details only when that product is chosen or part of the bundle.
+    const includes = (p) => productSelect.value === p || (isBundle && boxes.some((b) => b.value === p && b.checked));
+    loanField.hidden = !includes('personal_loan');
+    loanRadios.forEach((r) => (r.disabled = loanField.hidden));
+    cardField.hidden = !includes('credit_card');
+    cardSelect.disabled = cardField.hidden;
   };
   productSelect.onchange = () => { picker.hidden = productSelect.value !== 'bundle'; checkBundle(); };
   boxes.forEach((b) => (b.onchange = checkBundle));
@@ -456,6 +466,7 @@ async function viewCaseForm(id) {
       const body = formData(form);
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
       body.credit_card ??= null;
+      body.personal_loan_type ??= null;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
       toast(id ? (resubmit ? 'Saved and resubmitted for verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);
@@ -566,6 +577,7 @@ async function viewCase(id) {
             <dt>Product</dt><dd>${c.product === 'bundle'
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
+            ${c.personal_loan_type ? html`<dt>Personal loan type</dt><dd><strong>${state.meta.personal_loan_types[c.personal_loan_type]}</strong></dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             <dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>

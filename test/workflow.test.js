@@ -41,7 +41,7 @@ async function login(email) {
   };
 }
 
-const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', amount: '1,50,000' };
+const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', amount: '1,50,000' };
 
 test('rejects unauthenticated access and bad credentials', async () => {
   assert.equal((await fetch(`${base}/api/cases`)).status, 401);
@@ -194,10 +194,10 @@ test('product must be one of the fixed options, and a bundle needs two or more p
   assert.equal(r.data.case.product_label, 'Auto Loan');
   assert.equal(r.data.case.bundle_products, null);
 
-  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'] });
+  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'], personal_loan_type: 'buy_out' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.bundle_products, 'personal_loan,accounts');
-  assert.equal(r.data.case.product_label, 'Bundle: Personal Loan + Accounts');
+  assert.equal(r.data.case.product_label, 'Bundle: Personal Loan (Buy Out) + Accounts');
   const id = r.data.case.id;
 
   // Editing only the bundle contents keeps the product; switching away from bundle clears them.
@@ -232,7 +232,7 @@ test('credit card cases must name a card from the list', async () => {
   // Only the card can change; dropping the Credit Card product clears it.
   r = await sales('PUT', `/cases/${id}`, { credit_card: 'LuLu Platinum Mastercard Credit Card' });
   assert.equal(r.data.case.credit_card, 'LuLu Platinum Mastercard Credit Card');
-  r = await sales('PUT', `/cases/${id}`, { product: 'personal_loan' });
+  r = await sales('PUT', `/cases/${id}`, { product: 'personal_loan', personal_loan_type: 'top_up' });
   assert.equal(r.data.case.credit_card, null);
 
   // A card is ignored for products that are not credit cards
@@ -243,4 +243,32 @@ test('credit card cases must name a card from the list', async () => {
   const cards = me.data.meta.credit_cards.flatMap((f) => f.cards);
   assert.equal(cards.length, 29);
   assert.ok(!cards.some((c) => /Family Total|All Cards/.test(c)));
+});
+
+test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
+  const sales = await login('sales@t.local');
+  const base = { customer_name: 'Loan Test', phone: '9876543210' };
+
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'personal_loan' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'personal_loan', personal_loan_type: 'refinance' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'] })).status, 400);
+
+  let r = await sales('POST', '/cases', { ...base, product: 'personal_loan', personal_loan_type: 'top_up' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.product_label, 'Personal Loan (Top Up)');
+  const id = r.data.case.id;
+
+  r = await sales('PUT', `/cases/${id}`, { personal_loan_type: 'fresh' });
+  assert.equal(r.data.case.personal_loan_type, 'fresh');
+
+  // Bundle with both a personal loan and a credit card needs both details
+  assert.equal((await sales('PUT', `/cases/${id}`, { product: 'bundle', bundle_products: ['personal_loan', 'credit_card'] })).status, 400);
+  r = await sales('PUT', `/cases/${id}`, { product: 'bundle', bundle_products: ['personal_loan', 'credit_card'], credit_card: 'Share Visa Signature Credit Card' });
+  assert.equal(r.data.case.product_label, 'Bundle: Personal Loan (Fresh) + Credit Card (Share Visa Signature Credit Card)');
+
+  // Dropping the personal loan clears the type; a type is ignored for other products
+  r = await sales('PUT', `/cases/${id}`, { product: 'auto_loan' });
+  assert.equal(r.data.case.personal_loan_type, null);
+  r = await sales('POST', '/cases', { ...base, product: 'accounts', personal_loan_type: 'buy_out' });
+  assert.equal(r.data.case.personal_loan_type, null);
 });

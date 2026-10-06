@@ -36,8 +36,14 @@ export const PRODUCTS = {
 };
 export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
-export function productLabel(product, bundleProducts, creditCard) {
-  const name = (p) => (p === 'credit_card' && creditCard ? `Credit Card (${creditCard})` : PRODUCTS[p] || p);
+export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
+
+export function productLabel(product, bundleProducts, creditCard, loanType) {
+  const name = (p) => {
+    if (p === 'credit_card' && creditCard) return `Credit Card (${creditCard})`;
+    if (p === 'personal_loan' && PERSONAL_LOAN_TYPES[loanType]) return `Personal Loan (${PERSONAL_LOAN_TYPES[loanType]})`;
+    return PRODUCTS[p] || p;
+  };
   if (product === 'bundle') {
     const items = String(bundleProducts || '').split(',').filter(Boolean).map(name);
     return items.length ? `Bundle: ${items.join(' + ')}` : 'Bundle';
@@ -63,7 +69,7 @@ export const ACTIONS = {
   resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.PENDING },
 };
 
-const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'credit_card', 'amount', 'source', 'sales_notes'];
+const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'amount', 'source', 'sales_notes'];
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -91,7 +97,16 @@ function validateProduct(input, current, out) {
     out.bundle_products = Object.keys(PRODUCTS).filter((p) => picked.has(p)).join(',');
   }
 
-  const needsCard = product === 'credit_card' || String(out.bundle_products).split(',').includes('credit_card');
+  const includes = (p) => product === p || String(out.bundle_products).split(',').includes(p);
+
+  out.personal_loan_type = null;
+  if (includes('personal_loan')) {
+    const type = 'personal_loan_type' in input ? clean(input.personal_loan_type) : current?.personal_loan_type;
+    if (!PERSONAL_LOAN_TYPES[type]) throw new WorkflowError(400, 'Choose the personal loan type: Top Up, Buy Out or Fresh');
+    out.personal_loan_type = type;
+  }
+
+  const needsCard = includes('credit_card');
   out.credit_card = null;
   if (needsCard) {
     const card = 'credit_card' in input ? clean(input.credit_card) : current?.credit_card;
@@ -104,7 +119,7 @@ function validateProduct(input, current, out) {
 function validateCaseInput(input, { partial = false, current = null } = {}) {
   const out = {};
   for (const field of EDITABLE_FIELDS) {
-    if (field === 'product' || field === 'bundle_products' || field === 'credit_card') continue;
+    if (['product', 'bundle_products', 'credit_card', 'personal_loan_type'].includes(field)) continue;
     if (partial && !(field in input)) continue;
     out[field] = clean(input[field], field === 'sales_notes' || field === 'address' ? 2000 : 200);
   }
@@ -122,7 +137,7 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
       }
     }
   }
-  if (!partial || ['product', 'bundle_products', 'credit_card'].some((f) => f in input)) validateProduct(input, current, out);
+  if (!partial || ['product', 'bundle_products', 'credit_card', 'personal_loan_type'].some((f) => f in input)) validateProduct(input, current, out);
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
   if ('amount' in out && out.amount !== null) {
     const amount = Number(out.amount.replace(/,/g, ''));
@@ -155,7 +170,7 @@ const CASE_SELECT = `
   LEFT JOIN users vb ON vb.id = c.verified_by
   LEFT JOIN users tb ON tb.id = c.tl_actioned_by`;
 
-const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card) };
+const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type) };
 
 function canView(user, row) {
   return user.role !== 'sales' || row.created_by === user.id;
