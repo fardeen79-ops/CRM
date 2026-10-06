@@ -1,6 +1,7 @@
 import { transaction } from './db.js';
 import { CREDIT_CARD_NAMES } from './credit-cards.js';
 import { findUser } from './users.js';
+import { cycleRange, isCycle, uaeDay } from './cycles.js';
 
 export class WorkflowError extends Error {
   constructor(status, message) {
@@ -38,6 +39,17 @@ export const PRODUCTS = {
 export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
 export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
+
+// A completed case is a temp end for credit cards and a disbursal for loans. After a card's temp
+// end, MIS maps whether the card was activated.
+export const CARD_STATUS = { active: 'Active', inactive: 'Inactive' };
+export const CARD_MAPPERS = ['mis', 'business_head'];
+/** The products a case counts for: a bundle counts once for each product in it. */
+export const caseProducts = (row) => (row.product === 'bundle' ? String(row.bundle_products || '').split(',').filter(Boolean) : [row.product]);
+export const includesCard = (row) => caseProducts(row).includes('credit_card');
+// SQL for "this case includes a credit card" and "completed between UAE dates ? and ?".
+export const CARD_SQL = "(c.product = 'credit_card' OR (c.product = 'bundle' AND ',' || c.bundle_products || ',' LIKE '%,credit_card,%'))";
+export const COMPLETED_IN_SQL = "c.case_status = 'completed' AND date(c.case_status_at, '+4 hours') BETWEEN ? AND ?";
 
 export const REGIONS = { DXB: 'DXB (Dubai)', AUH: 'AUH (Abu Dhabi)' };
 export const CORE_PRODUCTS = {
@@ -99,7 +111,7 @@ export function recordingEmail(row) {
 
 // Call-quality scores are out of 10, with at most one decimal place.
 export const SCORE_MAX = 10;
-const CASE_ACTIONS = ['set_case_status', 'request_edit', 'resolve_edit_request', ...GOVERNANCE_ACTIONS];
+const CASE_ACTIONS = ['set_case_status', 'request_edit', 'resolve_edit_request', 'set_card_status', ...GOVERNANCE_ACTIONS];
 // Internal quality information that sales staff never see.
 const GOVERNANCE_FIELDS = [
   'qc_flag', 'qc_note', 'qc_by', 'qc_at', 'qc_by_name',
@@ -351,7 +363,7 @@ const CASE_SELECT = `
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
          sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
          qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name, ub.name AS urgent_by_name,
-         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name
+         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
   LEFT JOIN users at ON at.id = c.assigned_to
@@ -365,7 +377,8 @@ const CASE_SELECT = `
   LEFT JOIN users rdb ON rdb.id = c.recording_decided_by
   LEFT JOIN users ub ON ub.id = c.urgent_by
   LEFT JOIN users cpb ON cpb.id = c.complaint_by
-  LEFT JOIN users scb ON scb.id = c.qc_scored_by`;
+  LEFT JOIN users scb ON scb.id = c.qc_scored_by
+  LEFT JOIN users csb ON csb.id = c.card_status_by`;
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
 
@@ -416,9 +429,27 @@ export function getCase(db, user, id) {
   return out;
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, limit = 200 } = {}) {
   const where = [];
   const params = [];
+  // Completed in a sales cycle (21st to 20th), e.g. a target's achievement.
+  if (isCycle(cycle)) {
+    const { start, end } = cycleRange(cycle);
+    where.push(COMPLETED_IN_SQL);
+    params.push(start, end);
+  }
+  // Card activation: completed credit card cases, optionally by mapping.
+  if (card) {
+    where.push(`c.case_status = 'completed' AND ${CARD_SQL}`);
+    if (CARD_STATUS[card]) {
+      where.push('c.card_status = ?');
+      params.push(card);
+    } else if (card === 'unmapped') where.push('c.card_status IS NULL');
+  }
+  if (staff && Number(staff)) {
+    where.push('c.sales_staff_id = ?');
+    params.push(Number(staff));
+  }
   if (user.role === 'sales') {
     where.push('(c.created_by = ? OR c.sales_staff_id = ?)');
     params.push(user.id, user.id);
@@ -556,6 +587,7 @@ function allowedCaseActions(user, row) {
     if (verified) out.push('score_quality');
     if (STILL_VERIFYING.includes(row.status)) out.push(row.urgent_flag ? 'clear_urgent' : 'flag_urgent');
   }
+  if (CARD_MAPPERS.includes(user.role) && row.case_status === 'completed' && includesCard(row)) out.push('set_card_status');
   if (user.role === 'business_head' && row.recording_status === 'pending_approval') out.push('approve_recording', 'decline_recording');
   if (row.recording_status === 'approved' && ['governance', 'business_head'].includes(user.role)) out.push('receive_recording');
   return out;
@@ -694,7 +726,31 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   return { case: getCase(db, user, id), triggers };
 }
 
-function applyCaseAction(db, user, id, { action, note, case_status, to, recording_ref, complaint_number, score }) {
+/**
+ * Records whether a completed (temp end) credit card was activated: 'active', 'inactive', or ''
+ * to clear. Used by the case page and the card activation bulk upload; runs in the caller's transaction.
+ */
+export function setCardStatus(db, user, row, { card_status, activation_date } = {}) {
+  if (row.case_status !== 'completed' || !includesCard(row)) {
+    throw new WorkflowError(409, 'Card activation can only be mapped on a completed credit card case');
+  }
+  const status = String(card_status ?? '').trim().toLowerCase() || null;
+  if (status && !CARD_STATUS[status]) throw new WorkflowError(400, 'Card status must be Active or Inactive');
+  let date = clean(activation_date, 10);
+  if (status !== 'active') date = null;
+  if (date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new WorkflowError(400, 'Activation date must be a valid date');
+    if (date > uaeDay(Date.now() + 864e5)) throw new WorkflowError(400, 'Activation date cannot be in the future');
+  }
+  const ts = now();
+  db.prepare('UPDATE cases SET card_status = ?, card_activation_date = ?, card_status_by = ?, card_status_at = ?, updated_at = ? WHERE id = ?')
+    .run(status, date, status ? user.id : null, status ? ts : null, ts, row.id);
+  addEvent(db, row.id, user.id, 'card_status', {
+    from: row.card_status, to: status, detail: `${CARD_STATUS[status] || 'Mapping cleared'}${date ? `, activated ${date}` : ''}`,
+  });
+}
+
+function applyCaseAction(db, user, id, { action, note, case_status, to, recording_ref, complaint_number, score, card_status, activation_date }) {
   const triggers = [];
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
   if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
@@ -705,7 +761,9 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
   const who = `${user.name}`;
 
   transaction(db, () => {
-    if (action === 'set_case_status') {
+    if (action === 'set_card_status') {
+      setCardStatus(db, user, row, { card_status, activation_date });
+    } else if (action === 'set_case_status') {
       if (!SETTABLE_CASE_STATUSES.includes(case_status)) {
         throw new WorkflowError(400, 'Choose a case status: Applicant review, Completed or Rejected');
       }

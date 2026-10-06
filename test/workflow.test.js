@@ -843,3 +843,115 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   // MIS and business heads still can't add single files from the New case form.
   assert.equal((await head('POST', '/cases', newCase)).status, 403);
 });
+
+test('targets per sales cycle: MIS sets them, completed cases count, TL and SM see their team', async () => {
+  const { cycleOf, uaeDay } = await import('../src/cycles.js');
+  const cycle = cycleOf(uaeDay());
+  const mis = await login('mis@t.local');
+  const lead = await login('lead@t.local');
+  const sm = await login('sm@t.local');
+  const sally = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const users = (await lead('GET', '/users')).data.users;
+  const sallyId = users.find((u) => u.email === 'sales@t.local').id;
+
+  // Only MIS and business heads set targets.
+  assert.equal((await lead('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, credit_card: 5 }] })).status, 403);
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, credit_card: 1.5 }] })).status, 400);
+  const set = await mis('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, credit_card: 5, personal_loan: 3, auto_loan: '' }] });
+  assert.equal(set.status, 200);
+
+  const before = (await sally('GET', `/targets?cycle=${cycle}`)).data;
+  assert.equal(before.staff.length, 1);
+  const start = before.staff[0].achieved;
+
+  // A bundle with a card and a loan, completed now: counts once for each product.
+  const id = (await sally('POST', '/cases', { ...newCase, product: 'bundle', bundle_products: ['personal_loan', 'credit_card'], credit_card: 'Infinite Credit Card' })).data.case.id;
+  assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_card_status', card_status: 'active' })).status, 403); // not completed yet
+  await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+
+  const mine = (await sally('GET', `/targets?cycle=${cycle}`)).data;
+  assert.equal(mine.is_current, true);
+  assert.ok(mine.days_left >= 1 && mine.days_left <= 31);
+  assert.deepEqual(mine.staff[0].target, { credit_card: 5, personal_loan: 3 });
+  assert.equal(mine.staff[0].achieved.credit_card, start.credit_card + 1);
+  assert.equal(mine.staff[0].achieved.personal_loan, start.personal_loan + 1);
+  assert.equal(mine.staff[0].cards.unmapped >= 1, true);
+  assert.equal(mine.can_set, false);
+
+  // Team leader and sales manager see their team with a rolled-up target.
+  const team = (await lead('GET', `/targets?cycle=${cycle}`)).data;
+  assert.ok(team.staff.length >= 2);
+  assert.equal(team.total.target.credit_card, 5);
+  assert.ok((await sm('GET', `/targets?cycle=${cycle}`)).data.by_team_leader.length >= 1);
+  assert.equal((await proc('GET', '/targets')).status, 403);
+  // Another cycle has no targets.
+  const next = (await mis('GET', `/targets?cycle=${cycle.slice(0, 4)}-${cycle.slice(5) === '12' ? '11' : '12'}`)).data;
+  assert.equal(next.is_current, false);
+
+  // Cases list drill-down: completed in this cycle, for one sales person.
+  const list = (await lead('GET', `/cases?cycle=${cycle}&staff=${sallyId}`)).data.cases;
+  assert.ok(list.some((c) => c.id === id));
+});
+
+test('card activation is mapped on completed card cases, one by one or from a bank report', async () => {
+  const mis = await login('mis@t.local');
+  const head = await login('bh@t.local');
+  const sally = await login('sales@t.local');
+  const lead = await login('lead@t.local');
+  const make = async (extra) => (await sally('POST', '/cases', { ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card', ...extra })).data.case.id;
+  const a = await make({ app_id: 'CARD-APP-1' });
+  const b = await make({ eid_number: '784-1991-7654321-5' });
+  const c = await make({});
+  const loan = (await sally('POST', '/cases', newCase)).data.case.id;
+  for (const id of [a, b, c, loan]) await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+
+  // One at a time from the case page.
+  assert.ok((await mis('GET', `/cases/${a}`)).data.case.allowed_actions.includes('set_card_status'));
+  assert.ok(!(await lead('GET', `/cases/${a}`)).data.case.allowed_actions.includes('set_card_status'));
+  assert.ok(!(await mis('GET', `/cases/${loan}`)).data.case.allowed_actions.includes('set_card_status'));
+  let r = await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: 'active', activation_date: '2099-01-01' });
+  assert.equal(r.status, 400);
+  r = await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: 'active', activation_date: '2026-01-05' });
+  assert.deepEqual([r.data.case.card_status, r.data.case.card_activation_date, r.data.case.card_status_by_name], ['active', '2026-01-05', 'Mira']);
+
+  // From a bank report, matched by CRM reference, App ID or Emirates ID.
+  const ref = (id) => `CRM-${String(id).padStart(6, '0')}`;
+  const csv = ['Reference,Card status,Activation date',
+    `CARD-APP-1,Inactive,`,
+    `784199176543215,active,03/02/2026`,
+    `${ref(loan)},Active,`,
+    `NOPE-1,Active,`,
+  ].join('\n');
+  assert.equal((await lead('POST', '/import/cards', { csv })).status, 403);
+  const done = (await head('POST', '/import/cards', { csv })).data;
+  assert.deepEqual(done.rows.map((x) => x.ok), [true, true, false, false]);
+  assert.match(done.rows[0].email, /Sally \(S-001\)/);
+  assert.match(done.rows[2].error, /not a completed credit card case/);
+  assert.match(done.rows[3].error, /No case found/);
+  assert.equal((await sally('GET', `/cases/${b}`)).data.case.card_activation_date, '2026-02-03');
+
+  // Tracking lists, scoped for sales staff to their own cases.
+  const ids = async (who, q) => (await who('GET', `/cases?card=${q}`)).data.cases.map((x) => x.id);
+  assert.ok((await ids(lead, 'inactive')).includes(a));
+  assert.ok((await ids(lead, 'active')).includes(b));
+  assert.ok((await ids(sally, 'unmapped')).includes(c));
+  assert.ok(!(await ids(lead, 'all')).includes(loan));
+});
+
+test('targets bulk upload by sales code and cycle', async () => {
+  const mis = await login('mis@t.local');
+  const sally = await login('sales@t.local');
+  const csv = ['Sales code,Cycle,Credit Card,Personal Loan,Auto Loan,Accounts',
+    'S-001,Jan 2030,12,4,,',
+    'S-002,01/2030,,,,',
+    'S-001,2030-01,1,,,',
+    'X-9,Jan 2030,1,,,',
+  ].join('\n');
+  const done = (await mis('POST', '/import/targets', { csv })).data;
+  assert.deepEqual(done.rows.map((x) => x.ok), [true, false, false, false]);
+  assert.match(done.rows[1].error, /at least one product/);
+  assert.match(done.rows[2].error, /already has a row/);
+  const t = (await sally('GET', '/targets?cycle=2030-01')).data.staff[0].target;
+  assert.deepEqual(t, { credit_card: 12, personal_loan: 4 });
+});

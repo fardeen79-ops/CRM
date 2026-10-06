@@ -4,7 +4,9 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, REGIONS, CORE_PRODUCTS, caseRef, insertCase, WorkflowError } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
+import { setTargetsFor } from './performance.js';
+import { parseCycle } from './cycles.js';
 import { CREDIT_CARD_NAMES } from './credit-cards.js';
 import { BANKS } from './banks.js';
 
@@ -63,6 +65,18 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'city', header: 'City', example: 'Dubai' },
   { key: 'source', header: 'Lead source', example: '' },
   { key: 'sales_notes', header: 'Notes', example: '' },
+];
+
+export const CARD_IMPORT_COLUMNS = [
+  { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference, App ID or Emirates ID of a completed credit card case' },
+  { key: 'card_status', header: 'Card status', required: true, example: 'Active', allowed: Object.values(CARD_STATUS) },
+  { key: 'activation_date', header: 'Activation date', example: '15/06/2026', help: 'Active cards only. DD/MM/YYYY or YYYY-MM-DD' },
+];
+
+export const TARGET_IMPORT_COLUMNS = [
+  { key: 'sales_code', header: 'Sales code', required: true, example: 'DXB-S-014' },
+  { key: 'cycle', header: 'Cycle', required: true, example: 'Jun 2026', help: 'The month the cycle ends in: Jun 2026 is 21 May to 20 June' },
+  ...['credit_card', 'personal_loan', 'auto_loan', 'accounts'].map((key) => ({ key, header: PRODUCTS[key], example: { credit_card: '20', personal_loan: '8', auto_loan: '2', accounts: '10' }[key], help: 'Completed cases. Blank leaves the target unchanged; 0 sets a zero target' })),
 ];
 
 // ---------- CSV ----------
@@ -146,19 +160,19 @@ const REGION_ALIASES = { dubai: 'DXB', abudhabi: 'AUH' };
 const CARD_BY_NORM = new Map([...CREDIT_CARD_NAMES].map((c) => [norm(c), c]));
 const BANK_BY_NORM = new Map(BANKS.flatMap((g) => g.banks).map((b) => [norm(b), b]));
 
-/** Sourcing date as YYYY-MM-DD from YYYY-MM-DD, DD/MM/YYYY (UAE order) or an Excel date serial. */
-export function parseDate(value) {
+/** A date as YYYY-MM-DD from YYYY-MM-DD, DD/MM/YYYY (UAE order) or an Excel date serial. */
+export function parseDate(value, label = 'Sourcing date') {
   const v = String(value ?? '').trim();
   if (!v) return '';
   let m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
   m = v.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
   if (m) {
-    if (Number(m[2]) > 12) throw new Error(`Sourcing date "${v}" is not a valid date. Use day first: DD/MM/YYYY`);
+    if (Number(m[2]) > 12) throw new Error(`${label} "${v}" is not a valid date. Use day first: DD/MM/YYYY`);
     return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   }
   if (/^\d{5}$/.test(v)) return new Date(Date.UTC(1899, 11, 30) + Number(v) * 864e5).toISOString().slice(0, 10);
-  throw new Error(`Sourcing date "${v}" should be DD/MM/YYYY or YYYY-MM-DD`);
+  throw new Error(`${label} "${v}" should be DD/MM/YYYY or YYYY-MM-DD`);
 }
 
 function noScientific(values) {
@@ -295,6 +309,72 @@ export function importCases(db, user, csv, { dryRun = false } = {}) {
     const id = insertCase(db, user, { ...input, sales_staff_id: staffId }, { bulk: true });
     const row = db.prepare('SELECT customer_name FROM cases WHERE id = ?').get(id);
     return { id, ref: caseRef(id), label: row.customer_name };
+  }))));
+  return summarize(header, unknown, results, dryRun);
+}
+
+/**
+ * Maps card activation from a bank report. Each row names a completed credit card case by CRM
+ * reference, App ID or Emirates ID; the case already belongs to its sales person.
+ */
+export function importCards(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user);
+  const { header, records, unknown } = readFile(csv, CARD_IMPORT_COLUMNS);
+  const seen = new Map();
+  const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
+    const v = record.values;
+    noScientific(v);
+    const ref = v.reference.trim();
+    if (!ref) throw new Error('Reference is required');
+    const idMatch = ref.match(/^crm-?0*(\d+)$/i);
+    const eid = ref.replace(/[\s-]/g, '');
+    const matches = idMatch
+      ? db.prepare('SELECT * FROM cases WHERE id = ?').all(Number(idMatch[1]))
+      : /^784\d{12}$/.test(eid)
+        ? db.prepare("SELECT * FROM cases WHERE REPLACE(eid_number, '-', '') = ?").all(eid)
+        : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE').all(ref);
+    const cards = matches.filter((c) => c.case_status === 'completed' && includesCard(c));
+    if (!matches.length) throw new Error(`No case found for ${ref}`);
+    if (!cards.length) throw new Error(`${ref} is not a completed credit card case (${matches.map((c) => caseRef(c.id)).join(', ')})`);
+    if (cards.length > 1) throw new Error(`${ref} matches more than one card case: ${cards.map((c) => caseRef(c.id)).join(', ')}. Use the CRM reference`);
+    const row = cards[0];
+    if (seen.has(row.id)) throw new Error(`${caseRef(row.id)} is also on line ${seen.get(row.id)} of this file`);
+    seen.set(row.id, record.line);
+    const status = choose(v.card_status, CARD_STATUS, 'Card status');
+    if (!status) throw new Error('Card status is required');
+    setCardStatus(db, user, row, { card_status: status, activation_date: v.activation_date ? parseDate(v.activation_date, 'Activation date') : null });
+    return {
+      id: row.id, ref: caseRef(row.id),
+      label: `${row.customer_name} · ${CARD_STATUS[status]}`,
+      email: row.sales_staff_name ? `Sales: ${row.sales_staff_name} (${row.sales_code})` : '',
+    };
+  }))));
+  return summarize(header, unknown, results, dryRun);
+}
+
+/** Sets targets for many sales staff and cycles. Blank product cells leave that target as it is. */
+export function importTargets(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user);
+  const { header, records, unknown } = readFile(csv, TARGET_IMPORT_COLUMNS);
+  const seen = new Map();
+  const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
+    const v = record.values;
+    if (!v.sales_code) throw new Error('Sales code is required');
+    const staff = db.prepare("SELECT id, name FROM users WHERE sales_code = ? COLLATE NOCASE AND role = 'sales'").get(v.sales_code.trim());
+    if (!staff) throw new Error(`No sales staff member has the sales code ${v.sales_code}`);
+    if (!v.cycle) throw new Error('Cycle is required');
+    const cycle = parseCycle(v.cycle);
+    const key = `${staff.id}:${cycle}`;
+    if (seen.has(key)) throw new Error(`${v.sales_code} already has a row for this cycle on line ${seen.get(key)}`);
+    seen.set(key, record.line);
+    const values = Object.fromEntries(Object.keys(PRODUCTS).filter((p) => String(v[p] ?? '').trim() !== '').map((p) => [p, v[p]]));
+    if (!Object.keys(values).length) throw new Error('Enter a target for at least one product');
+    setTargetsFor(db, user, staff.id, cycle, values);
+    const [y, m] = cycle.split('-');
+    return {
+      label: `${staff.name} · ${new Date(Date.UTC(+y, +m - 1, 1)).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })} cycle`,
+      email: Object.entries(values).map(([p, n]) => `${PRODUCTS[p]} ${n}`).join(' · '),
+    };
   }))));
   return summarize(header, unknown, results, dryRun);
 }

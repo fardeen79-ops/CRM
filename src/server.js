@@ -8,6 +8,8 @@ import { CREDIT_CARDS } from './credit-cards.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile } from './users.js';
 import * as imports from './imports.js';
+import * as performance from './performance.js';
+import { cycleOf, uaeDay } from './cycles.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -156,7 +158,10 @@ function routes(db, dispatch) {
         score_max: cases.SCORE_MAX,
         it_email: cases.config.itEmail,
         ocr: ocrAssets(),
-        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS },
+        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS },
+        card_statuses: cases.CARD_STATUS,
+        card_mappers: cases.CARD_MAPPERS,
+        current_cycle: cycleOf(uaeDay()),
         import_max_rows: imports.MAX_ROWS,
       },
     })],
@@ -217,6 +222,13 @@ function routes(db, dispatch) {
     // Bulk upload: { csv, dry_run }. A dry run checks every row and saves nothing.
     // Bulk upload is for MIS and business heads only (checked in imports.js).
     ['POST', /^\/api\/import\/users$/, async ({ user, body }) => imports.importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+
+    ['POST', /^\/api\/import\/cards$/, async ({ user, body }) => imports.importCards(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+    ['POST', /^\/api\/import\/targets$/, async ({ user, body }) => imports.importTargets(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+
+    // Targets and achievement for a sales cycle (?cycle=2026-06, default the current one).
+    ['GET', /^\/api\/targets$/, async ({ user, query }) => performance.targetReport(db, user, query.get('cycle'))],
+    ['PUT', /^\/api\/targets$/, async ({ user, body }) => performance.saveTargets(db, user, body)],
 
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 

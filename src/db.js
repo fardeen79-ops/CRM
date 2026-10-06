@@ -86,6 +86,11 @@ CREATE TABLE IF NOT EXISTS cases (
   qc_score_note      TEXT,
   qc_scored_by       INTEGER REFERENCES users(id),
   qc_scored_at       TEXT,
+  -- Credit card activation after the case is completed (temp end): active / inactive, set by MIS.
+  card_status          TEXT,
+  card_activation_date TEXT,
+  card_status_by       INTEGER REFERENCES users(id),
+  card_status_at       TEXT,
   core_product       TEXT,
   sales_staff_id     INTEGER REFERENCES users(id),
   sales_staff_name   TEXT,
@@ -136,6 +141,18 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read);
+
+-- Monthly targets per sales person and product. A cycle runs from the 21st to the 20th and is
+-- named after the month it ends in ('2026-06' = 21 May to 20 June).
+CREATE TABLE IF NOT EXISTS targets (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  cycle   TEXT NOT NULL,
+  product TEXT NOT NULL,
+  target  INTEGER NOT NULL,
+  set_by  INTEGER REFERENCES users(id),
+  set_at  TEXT NOT NULL,
+  PRIMARY KEY (user_id, cycle, product)
+);
 `;
 
 export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
@@ -166,6 +183,7 @@ const ADDED_COLUMNS = {
   recording_provided_at: 'TEXT', complaint_number: 'TEXT', complaint_by: 'INTEGER REFERENCES users(id)', complaint_at: 'TEXT',
   qc_score: 'REAL', recording_decided_by: 'INTEGER REFERENCES users(id)', recording_decided_at: 'TEXT',
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
+  card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',

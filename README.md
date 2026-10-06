@@ -75,6 +75,45 @@ The **Scan Emirates ID** button on the entry form fills in the customer's **firs
   - **Scanner files:** by default they load from the jsDelivr CDN (about 7 MB the first time, then cached). To serve them from the CRM instead, which most banks will want, run `npm run setup:ocr` once and restart. It saves them under `public/vendor/tesseract/`.
   - **Testing:** the scanner was tested with made-up sample cards drawn to resemble the current Emirates ID. The front reader finds fields by their English labels ("Name", "ID Number", "Date of Birth", "Expiry Date"), so try it on real cards, including older designs, before rolling it out.
 
+### Targets and sales cycles
+
+**Sales cycle.** A cycle runs from the **21st of one month to the 20th of the next** and is named after the month it ends in, so 21 May – 20 June is the **June cycle**. Dates are UAE dates.
+
+**What counts.** A case counts towards a cycle when its **case status is set to Completed** during that cycle:
+- for credit cards, a completed case is a **temp end**;
+- for personal and auto loans, a completed case is **disbursed**;
+- a bundle counts once for each product in it.
+
+The case page shows how each completed case counted ("Completed as Temp end", and its cycle).
+
+**Who sees what** on **Targets** (and the cycle summary at the top of the dashboard):
+
+| Role | Sees |
+|---|---|
+| Sales staff | their own targets and achievement per product, with their card activation |
+| Team leaders | their team: everyone whose team leader they are, one row each, with totals |
+| Sales managers | their team, plus a breakdown by team leader |
+| MIS and business heads | all sales staff, by team leader and by sales manager |
+
+Team and manager targets are the sum of their sales staff's targets. Selecting a row lists the cases completed in that cycle. Use **‹ / ›** to move between cycles.
+
+**Setting targets.** Only **MIS and business heads** set targets, per sales person, cycle and product (number of completed cases). There are two ways:
+- **Set targets** on the Targets page turns the staff table into an editable grid. **Copy *last month's* targets** fills empty boxes from the previous cycle.
+- **Bulk upload → Targets** takes a CSV of sales code, cycle (`Jun 2026` or `2026-06`) and one column per product. Blank cells leave a target unchanged.
+
+### Card activation
+
+Once a credit card case is completed (temp end), MIS records whether the customer **activated** the card. The result counts for the sales person who sourced the case.
+
+- **Card activation** (MIS and business heads) lists every temp end with its sales staff, team leader and cycle.
+  - Filter by status (Not mapped, Active, Inactive) and by the cycle the case was completed in.
+  - Mark each card **Active** or **Inactive** right in the list. Clicking the current status again clears it.
+- The case page has the same choice, plus an optional activation date.
+- **Bulk upload → Card activation** maps a whole bank report.
+  - Each row names a completed card case by **CRM reference, App ID or Emirates ID**.
+  - A reference that matches several cards, or a case that isn't a completed card case, is reported rather than guessed.
+- Everyone with targets sees active, inactive and not-mapped counts and the activation rate on their Targets page and dashboard.
+
 ### Users and contact details
 
 Every user added on the **Users** page needs a full name, an **email address** and a **local mobile** number; a **WhatsApp number** is optional.
@@ -223,7 +262,9 @@ src/
   index.js     entry point (first-run admin, starts server)
   server.js    HTTP routing, auth cookies, JSON API, static files, webhook dispatch
   cases.js     case workflow / state machine, notifications, stats
-  imports.js   bulk upload of users and cases (CSV parsing, row checks, column guide)
+  imports.js   bulk upload of users, cases, card activation and targets (CSV parsing, row checks, column guide)
+  cycles.js    sales cycles (21st to 20th, UAE time)
+  performance.js  targets, achievement per cycle and card activation counts
   users.js     user profiles, contact details and phone number rules
   credit-cards.js  the credit card list shown when Credit Card is selected
   auth.js      users, scrypt password hashing, sessions
@@ -246,4 +287,7 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
 | `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |
-| `POST /import/users`, `POST /import/cases` | Bulk upload (MIS and business head only): `{csv, dry_run}`. Returns `{total, ok, failed, rows: [{line, ok, error?, ref?, temp_password?}]}`; `dry_run: true` checks without saving |
+| `GET /targets?cycle=2026-06`, `PUT /targets` | Targets and achievement for a cycle (default: current). `PUT {cycle, targets: [{user_id, credit_card, personal_loan, auto_loan, accounts}]}`, MIS and business head only |
+| `GET /cases?cycle=2026-06&staff=:id&card=active\|inactive\|unmapped\|all` | Cases completed in a cycle, for one sales person, or by card activation |
+| `POST /cases/:id/actions` with `set_card_status` | `{card_status: 'active'\|'inactive'\|'', activation_date?}` on a completed card case (MIS and business head) |
+| `POST /import/users`, `/import/cases`, `/import/cards`, `/import/targets` | Bulk upload (MIS and business head only): `{csv, dry_run}`. Returns `{total, ok, failed, rows: [{line, ok, error?, ref?, temp_password?}]}`; `dry_run: true` checks without saving |

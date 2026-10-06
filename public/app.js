@@ -50,6 +50,9 @@ const ACTION_LABEL = {
   receive_recording: 'Call recording received',
   set_complaint: 'Complaint number added',
   score_quality: 'Verification call scored',
+  set_card_status: 'Card activation saved',
+  card_status: 'Card activation mapped',
+  bulk_upload: 'Added by bulk upload',
 };
 
 const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0 };
@@ -78,6 +81,16 @@ const recordingChip = (st) => (RECORDING_CHIP[st] ? html`<span class="chip ${REC
 const STILL_VERIFYING = ['pending_verification', 'in_verification', 'incomplete', 'returned_to_sales'];
 const isUrgent = (c) => c.urgent_flag === 1 && STILL_VERIFYING.includes(c.status);
 const caseBadge = (status) => html`<span class="badge cs-${status}">${CASE_STATUS_LABEL[status] || status}</span>`;
+// A completed case is a temp end for credit cards and a disbursal for loans; both count towards targets.
+const caseProducts = (c) => (c.product === 'bundle' ? String(c.bundle_products || '').split(',').filter(Boolean) : [c.product]);
+const hasCard = (c) => caseProducts(c).includes('credit_card');
+const completionLabel = (c) => [
+  hasCard(c) && 'Temp end',
+  caseProducts(c).some((p) => p === 'personal_loan' || p === 'auto_loan') && 'Disbursed',
+].filter(Boolean).join(' / ');
+const cardChip = (st) => (st === 'active' ? html`<span class="chip good">Card active</span>`
+  : st === 'inactive' ? html`<span class="chip bad">Card inactive</span>` : html`<span class="chip">Not mapped</span>`);
+const fmtIsoDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
 const todayLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -198,15 +211,15 @@ function updateBadges() {
 function navLinks() {
   const r = state.user.role;
   const links = [['#/', 'Dashboard']];
-  if (r === 'sales') links.push(['#/cases', 'My cases'], ['#/cases/new', '+ New case']);
+  if (r === 'sales') links.push(['#/cases', 'My cases'], ['#/cases/new', '+ New case'], ['#/targets', 'My targets']);
   if (r === 'processing') links.push(['#/queue', 'Verification queue'], ['#/cases?assigned=me', 'My cases'], ['#/cases', 'All cases']);
   const editRequests = ['#/edit-requests', raw(`Edit requests<span class="count" data-er-count ${state.editRequests ? '' : 'hidden'}>${state.editRequests}</span>`)];
   if (r === 'team_leader') {
     links.push(['#/action-required', raw(`Action required<span class="count" data-ar-count ${state.actionRequired ? '' : 'hidden'}>${state.actionRequired}</span>`)]);
-    links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/users', 'Users']);
+    links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/targets', 'Targets'], ['#/users', 'Users']);
   }
-  if (r === 'sales_manager') links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case']);
-  if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases'], ['#/import/cases', 'Bulk upload']);
+  if (r === 'sales_manager') links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/targets', 'Targets']);
+  if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases'], ['#/targets', 'Targets'], ['#/cards', 'Card activation'], ['#/import/cases', 'Bulk upload']);
   const counted = (href, text, attr, n) => [href, raw(`${text}<span class="count" ${attr} ${n ? '' : 'hidden'}>${n}</span>`)];
   if (r === 'governance') {
     links.push(counted('#/urgent', 'Urgent', 'data-urgent-count', state.urgent), counted('#/quality-check', 'Quality check', 'data-qc-count', state.qc), counted('#/recordings', 'Recordings', 'data-rec-count', state.recordings), ['#/cases', 'All cases']);
@@ -316,7 +329,9 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if ((m = path.match(/^\/import\/(users|cases)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|cards|targets)$/))) return viewBulkUpload(m[1]);
+    if (path === '/targets') return await viewTargets(params.get('cycle'));
+    if (path === '/cards') return await viewCards(params);
     shell(html`<div class="card empty">Page not found</div>`);
   } catch (err) {
     if (state.user) shell(html`<div class="card"><p class="error">${err.message}</p></div>`);
@@ -325,8 +340,10 @@ async function route() {
 
 // ---------- dashboard ----------
 async function viewDashboard() {
-  const s = await api('/stats');
   const r = state.user.role;
+  // Targets for the current sales cycle, for the people who have them.
+  const hasTargets = ['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'].includes(r);
+  const [s, cyc] = await Promise.all([api('/stats'), hasTargets ? api('/targets') : null]);
   const by = s.by_status;
   const cs = s.by_case_status;
   const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
@@ -428,6 +445,8 @@ async function viewDashboard() {
       ['Average score', s.governance.avg_score ?? '—', '#/cases', false, 'out of 10'],
       ['Complaints', s.governance.complaints, '#/cases'],
     ])}` : ''}
+    ${cyc ? html`<h2 class="tiles-head">${cycleName(cyc.cycle)} cycle · ${cycleSpan(cyc.cycle)} · ${cyc.days_left} ${cyc.days_left === 1 ? 'day' : 'days'} left <a class="tiles-link" href="#/targets">${r === 'sales' ? 'My targets' : 'Targets'} →</a></h2>
+      ${targetTiles(cyc, cyc.total)}` : ''}
     ${statusOverview(cs, s.total)}
     <h2 class="tiles-head">Verification</h2>
     ${tileGrid(verifyTiles)}
@@ -473,7 +492,7 @@ const COLS = {
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => c.phone],
   status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}`],
-  case_status: ['Case status', (c) => caseBadge(c.case_status)],
+  case_status: ['Case status', (c) => html`${caseBadge(c.case_status)}${c.case_status === 'completed' && completionLabel(c) ? html`<div class="muted small">${completionLabel(c)}</div>` : ''}`],
   sourced: ['Sourced', (c) => html`<span class="small nowrap">${fmtDay(c.sourcing_date)}</span>`],
   cs_note: ['Status note', (c) => html`${c.case_status_note || ''}<div class="muted small">${c.case_status_by_name || ''}</div>`],
   request: ['Edit request', (c) => (c.edit_request_to
@@ -499,6 +518,8 @@ const COLS = {
   waiting: ['Waiting', (c) => ago(c.incomplete_at)],
   tl_note: ['Team leader note', (c) => c.tl_note],
   updated: ['Updated', (c) => html`<span class="small">${fmtDate(c.updated_at)}</span>`],
+  completed_on: ['Completed', (c) => html`<span class="small nowrap">${fmtIsoDay(c.case_status_at)}</span><div class="muted small">${completionLabel(c)}</div>`],
+  card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${fmtDay(c.card_activation_date)}</div>` : ''}`],
 };
 
 function caseTable(cases, { cols, empty = 'No cases found' }) {
@@ -521,8 +542,17 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     ...fixed,
     ...(status && { status }), ...(caseStatus && { case_status: caseStatus }), ...(q && { q }),
     ...(params.get('assigned') && { assigned: params.get('assigned') }),
+    ...(params.get('cycle') && { cycle: params.get('cycle') }),
+    ...(params.get('staff') && { staff: params.get('staff') }),
   });
   const { cases } = await api(`/cases?${query}`);
+  // Drill-down from the Targets page: cases completed in one cycle, optionally for one sales person.
+  const cycleFilter = params.get('cycle');
+  if (cycleFilter) {
+    const who = params.get('staff') && cases[0] ? ` by ${cases[0].sales_staff_name}` : '';
+    subtitle = html`Completed in the ${cycleName(cycleFilter)} cycle (${cycleSpan(cycleFilter)})${who}. <a href="#/targets?cycle=${cycleFilter}">Back to targets</a>`;
+    fixedCols ||= ['ref', 'customer', 'source_by', 'completed_on', 'card'];
+  }
 
   const r = state.user.role;
   let cols = fixedCols || ['ref', 'customer', 'sourced', 'region', 'case_status', 'status', 'source_by', 'assigned', 'updated'];
@@ -893,7 +923,7 @@ function eventDetail(e) {
   if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);
   if (e.type === 'request_edit' || e.type === 'resolve_edit_request') return `${state.meta.edit_queues[e.detail] || label(e.detail)} queue`;
   if (e.type === 'score_quality') return `${e.detail}/10`;
-  if (e.type === 'set_complaint' || e.type === 'receive_recording' || e.type === 'recording_it_email') return e.detail;
+  if (['set_complaint', 'receive_recording', 'recording_it_email', 'card_status', 'bulk_upload'].includes(e.type)) return e.detail;
   return label(e.detail);
 }
 
@@ -1080,15 +1110,29 @@ async function viewCase(id) {
         <div class="field-row"><label for="cs-select" class="sr-only">New case status</label>
           <select id="cs-select" name="case_status" required>
             <option value="">Change status to…</option>
-            ${choices.map((k) => html`<option value="${k}">${CASE_STATUS_LABEL[k]}</option>`)}
+            ${choices.map((k) => html`<option value="${k}">${k === 'completed' && completionLabel(c) ? `Completed (${completionLabel(c)})` : CASE_STATUS_LABEL[k]}</option>`)}
           </select></div>
         <div class="field-row"><textarea name="note" id="cs-note" placeholder="Note (required for Applicant review and Rejected)"></textarea></div>
         <div class="actions">
           <button class="btn-primary">Update status</button>
-          ${c.case_status !== 'completed' ? html`<button type="button" class="btn-success" data-case-complete>✓ Mark case completed</button>` : ''}
+          ${c.case_status !== 'completed' ? html`<button type="button" class="btn-success" data-case-complete>✓ Mark completed${completionLabel(c) ? ` · ${completionLabel(c)}` : ''}</button>` : ''}
         </div>
       </form>
-      ${c.status === 'completed' && c.case_status !== 'completed' ? html`<p class="muted small">Verification is completed, but the case is not. Mark the case completed when it is done.</p>` : ''}`);
+      ${c.status === 'completed' && c.case_status !== 'completed' ? html`<p class="muted small">Verification is completed, but the case is not. Mark the case completed when it is done.</p>` : ''}
+      <p class="muted small">A completed case counts towards the sales person's target in the cycle it is completed in.</p>`);
+  }
+  if (a.has('set_card_status')) {
+    panel.push(html`${sep()}<h3>Card activation</h3>
+      <p class="muted small">After the temp end, record whether the customer activated the card. It counts for ${c.sales_staff_name || 'the sales person'}.</p>
+      <form data-form="set_card_status" id="card-form">
+        <div class="segmented two-up card-pick" role="radiogroup" aria-label="Card status">
+          <label><input type="radio" name="card_status" value="active" required ${c.card_status === 'active' ? raw('checked') : ''}><span>Active</span></label>
+          <label><input type="radio" name="card_status" value="inactive" ${c.card_status === 'inactive' ? raw('checked') : ''}><span>Inactive</span></label>
+        </div>
+        <div class="field-row" id="card-date" ${c.card_status === 'active' ? '' : raw('hidden')}><label for="card-date-input">Activation date</label>
+          <input id="card-date-input" type="date" name="activation_date" value="${c.card_activation_date || ''}" max="${todayLocal()}"></div>
+        <div class="actions"><button class="btn-primary">Save card status</button>${c.card_status ? html`<button type="button" data-card-clear>Clear mapping</button>` : ''}</div>
+      </form>`);
   }
 
   shell(html`
@@ -1144,6 +1188,8 @@ async function viewCase(id) {
           <h2 class="sub">Case</h2>
           <dl class="details">
             <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
+            ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong><div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
+            ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="muted small">${c.card_activation_date ? `Activated ${fmtDay(c.card_activation_date)} · ` : ''}mapped by ${c.card_status_by_name} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
             ${row('Region', state.meta.regions[c.region])}
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
@@ -1228,6 +1274,12 @@ async function viewCase(id) {
     }
   });
   app.querySelectorAll('[data-case-complete]').forEach((b) => (b.onclick = () => run({ action: 'set_case_status', case_status: 'completed' }, b)));
+  const cardForm = document.getElementById('card-form');
+  if (cardForm) {
+    const dateRow = cardForm.querySelector('#card-date');
+    cardForm.querySelectorAll('input[name=card_status]').forEach((r) => (r.onchange = () => { dateRow.hidden = r.value !== 'active'; }));
+    cardForm.querySelector('[data-card-clear]')?.addEventListener('click', (e) => run({ action: 'set_card_status', card_status: '' }, e.target));
+  }
   app.querySelectorAll('form[data-form]').forEach((f) => {
     const kind = f.dataset.form;
     if (kind === 'recording_decision') {
@@ -1322,6 +1374,239 @@ async function readCsvFile(file) {
   }
 }
 
+// ---------- sales cycles ----------
+// A cycle runs from the 21st to the 20th and is named after the month it ends in, in UAE time:
+// 21 May – 20 June is the June cycle ('2026-06').
+const shiftCycle = (cycle, by) => {
+  const [y, m] = cycle.split('-').map(Number);
+  const i = y * 12 + (m - 1) + by;
+  return `${Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`;
+};
+const cycleName = (cycle) => {
+  const [y, m] = cycle.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+};
+const cycleSpan = (cycle) => {
+  const day = (ymd) => new Date(`${ymd}T00:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  return `${day(`${shiftCycle(cycle, -1)}-21`)} – ${day(`${cycle}-20`)}`;
+};
+const cycleOfIso = (iso) => {
+  const [y, m, d] = new Date(Date.parse(iso) + 4 * 3600e3).toISOString().slice(0, 10).split('-').map(Number);
+  return d >= 21 ? shiftCycle(`${y}-${String(m).padStart(2, '0')}`, 1) : `${y}-${String(m).padStart(2, '0')}`;
+};
+
+const pct = (a, t) => (t ? Math.round((a / t) * 100) : null);
+/** Achieved against target: a thin meter plus "7 / 20". Over target turns green. */
+function meter(achieved, target, { compact = false } = {}) {
+  if (target == null) {
+    return html`<div class="meter-text${compact ? ' compact' : ''}"><strong>${achieved}</strong> <span class="muted small">no target</span></div>`;
+  }
+  const p = pct(achieved, target) ?? (achieved ? 100 : 0);
+  return html`<div class="meter-text${compact ? ' compact' : ''}"><strong>${achieved}</strong><span class="muted"> / ${target}</span>${compact ? '' : html` <span class="muted small">${target ? `${p}%` : ''}</span>`}</div>
+    <div class="meter ${p >= 100 ? 'done' : ''}" role="meter" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${achieved}" aria-label="${achieved} of ${target}"><span style="width:${Math.min(p, 100)}%"></span></div>`;
+}
+
+const sumTargets = (t) => {
+  const vals = Object.values(t).filter((v) => v != null);
+  return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
+};
+const sumAchieved = (a) => Object.values(a).reduce((x, y) => x + y, 0);
+const activationRate = (cards) => (cards.temp_end ? Math.round((cards.active / cards.temp_end) * 100) : null);
+
+/** Product tiles and the card activation tile for one person or a whole team. */
+function targetTiles(rep, block) {
+  const products = Object.entries(rep.products);
+  const cards = block.cards;
+  return html`<div class="target-tiles">
+    ${products.map(([k, name]) => html`<div class="target-tile">
+      <div class="kpi-label">${name}</div>
+      ${meter(block.achieved[k], block.target[k] ?? null)}
+      <div class="muted small">${block.target[k] == null ? (k === 'credit_card' ? 'Temp ends' : 'Completed') : block.target[k] > block.achieved[k] ? `${block.target[k] - block.achieved[k]} to go` : 'Target met'}</div>
+    </div>`)}
+    <a class="target-tile card-tile" href="#/cards?cycle=${rep.cycle}">
+      <div class="kpi-label">Card activation</div>
+      <div class="meter-text"><strong>${cards.active}</strong><span class="muted"> active of ${cards.temp_end} temp ends</span></div>
+      <div class="meter"><span style="width:${activationRate(cards) ?? 0}%"></span></div>
+      <div class="muted small">${cards.temp_end ? `${activationRate(cards)}% activated · ${cards.inactive} inactive · ${cards.unmapped} not mapped` : 'No temp ends yet'}</div>
+    </a>
+  </div>`;
+}
+
+async function viewTargets(cycleParam) {
+  const cycle = cycleParam || state.meta.current_cycle;
+  const rep = await api(`/targets?cycle=${encodeURIComponent(cycle)}`);
+  const r = state.user.role;
+  const products = Object.entries(rep.products);
+  const scopeTitle = { sales: 'My targets', team_leader: 'My team', sales_manager: 'My team' }[r] || 'All sales staff';
+  const casesLink = (staffId) => `#/cases?cycle=${rep.cycle}${staffId ? `&staff=${staffId}` : ''}`;
+
+  const groupTable = (title, groups) => (groups?.length > 1 || (groups?.length && r !== 'sales_manager') ? html`
+    <div class="card">
+      <h2>${title}</h2>
+      <div class="table-wrap"><table class="target-table">
+        <thead><tr><th>${title.replace('By ', '')}</th><th>Staff</th>${products.map(([, n]) => html`<th>${n}</th>`)}<th>Total</th><th>Cards active</th></tr></thead>
+        <tbody>${groups.map((g) => html`<tr>
+          <td><strong>${g.name}</strong></td><td>${g.staff_count}</td>
+          ${products.map(([k]) => html`<td>${meter(g.achieved[k], g.target[k] ?? null, { compact: true })}</td>`)}
+          <td>${meter(sumAchieved(g.achieved), sumTargets(g.target), { compact: true })}</td>
+          <td class="small">${g.cards.active}/${g.cards.temp_end}${g.cards.temp_end ? html` <span class="muted">(${activationRate(g.cards)}%)</span>` : ''}</td>
+        </tr>`)}</tbody>
+      </table></div>
+    </div>` : '');
+
+  // Staff table; MIS and business heads can switch it to an editable grid of targets.
+  const staffTable = (editing) => html`
+    <div class="table-wrap"><table class="target-table${editing ? ' editing' : ''}">
+      <thead><tr><th>Sales staff</th>${products.map(([, n]) => html`<th>${n}</th>`)}${editing ? '' : html`<th>Total</th><th>Cards active</th>`}</tr></thead>
+      <tbody>${rep.staff.map((p) => html`<tr ${editing ? '' : raw(`data-href="${casesLink(p.id)}"`)} data-staff="${p.id}">
+        <td><strong>${p.name}</strong>${p.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><span class="mono">${p.sales_code || '—'}</span>${r !== 'team_leader' && p.team_leader_name ? ` · TL ${p.team_leader_name}` : ''}</div></td>
+        ${products.map(([k, n]) => (editing
+          ? html`<td><input class="target-input" type="number" min="0" step="1" inputmode="numeric" name="${k}" value="${p.target[k] ?? ''}" aria-label="${n} target for ${p.name}" placeholder="—"></td>`
+          : html`<td>${meter(p.achieved[k], p.target[k] ?? null, { compact: true })}</td>`))}
+        ${editing ? '' : html`<td>${meter(sumAchieved(p.achieved), sumTargets(p.target), { compact: true })}</td>
+          <td class="small">${p.cards.active}/${p.cards.temp_end}${p.cards.unmapped ? html`<div class="muted">${p.cards.unmapped} not mapped</div>` : ''}</td>`}
+      </tr>`)}</tbody>
+    </table></div>`;
+
+  shell(html`
+    <div class="page-head">
+      <div>
+        <div class="eyebrow">Sales cycle · ${cycleSpan(rep.cycle)}${rep.is_current ? ` · ${rep.days_left} ${rep.days_left === 1 ? 'day' : 'days'} left` : ''}</div>
+        <h1>${scopeTitle} — ${cycleName(rep.cycle)}</h1>
+        <p class="muted lede">The ${cycleName(rep.cycle).split(' ')[0]} cycle runs from ${cycleSpan(rep.cycle).replace(' – ', ' to ')}. Cases count when their case status is set to Completed in the cycle: a temp end for credit cards, disbursed for loans. A bundle counts for each product in it.</p>
+      </div>
+      <div class="cycle-nav">
+        <a class="btn" href="#/targets?cycle=${shiftCycle(rep.cycle, -1)}" aria-label="Previous cycle">‹ ${cycleName(shiftCycle(rep.cycle, -1)).split(' ')[0]}</a>
+        ${rep.is_current ? '' : html`<a class="btn" href="#/targets">Current cycle</a>`}
+        <a class="btn" href="#/targets?cycle=${shiftCycle(rep.cycle, 1)}" aria-label="Next cycle">${cycleName(shiftCycle(rep.cycle, 1)).split(' ')[0]} ›</a>
+      </div>
+    </div>
+    ${r === 'sales' && !rep.staff.length ? html`<div class="callout warn"><strong>No sales profile.</strong>Ask a team leader to complete your profile.</div>` : ''}
+    <h2 class="tiles-head">${r === 'sales' ? 'Achieved against target' : `${scopeTitle} · ${rep.staff.length} sales staff`}</h2>
+    ${targetTiles(rep, rep.total)}
+    ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
+    ${groupTable('By team leader', rep.by_team_leader)}
+    ${groupTable('By sales manager', rep.by_sales_manager)}
+    ${r !== 'sales' ? html`<div class="card" id="staff-card">
+      <div class="card-head">
+        <h2>Sales staff</h2>
+        ${rep.can_set ? html`<div class="actions" id="target-actions">
+          <a class="btn" href="#/import/targets">Upload targets</a>
+          <button class="btn-primary" id="edit-targets">Set targets</button>
+        </div>` : ''}
+      </div>
+      <p class="muted small" id="staff-hint">${rep.can_set ? 'Select a row to see the cases completed in this cycle. Team leaders and sales managers see their team with these targets added up.' : 'Select a row to see the cases completed in this cycle.'}</p>
+      <div id="staff-table">${rep.staff.length ? staffTable(false) : html`<div class="empty">No sales staff ${r === 'sales_manager' || r === 'team_leader' ? 'report to you yet' : 'yet'}</div>`}</div>
+    </div>` : ''}`);
+  bindRows();
+
+  const edit = document.getElementById('edit-targets');
+  if (!edit || !rep.staff.length) return;
+  edit.onclick = () => {
+    const actions = document.getElementById('target-actions');
+    document.getElementById('staff-table').innerHTML = staffTable(true).s;
+    document.getElementById('staff-hint').textContent = `Targets for the ${cycleName(rep.cycle)} cycle, in completed cases. Leave a box empty for no target.`;
+    actions.innerHTML = html`<button id="copy-prev">Copy ${cycleName(shiftCycle(rep.cycle, -1)).split(' ')[0]} targets</button>
+      <button id="cancel-targets">Cancel</button><button class="btn-primary" id="save-targets">Save targets</button>`.s;
+    document.getElementById('cancel-targets').onclick = () => viewTargets(rep.cycle);
+    document.getElementById('copy-prev').onclick = async (e) => {
+      e.target.disabled = true;
+      try {
+        const prev = await api(`/targets?cycle=${shiftCycle(rep.cycle, -1)}`);
+        let filled = 0;
+        for (const p of prev.staff) {
+          for (const [k, v] of Object.entries(p.target)) {
+            const input = app.querySelector(`tr[data-staff="${p.id}"] input[name="${k}"]`);
+            if (input && input.value === '') { input.value = v; filled++; }
+          }
+        }
+        toast(filled ? `Copied ${filled} targets into empty boxes. Save to keep them.` : 'Nothing to copy: last cycle had no targets for these staff');
+      } catch (ex) { toast(ex.message, true); }
+      e.target.disabled = false;
+    };
+    document.getElementById('save-targets').onclick = async (e) => {
+      e.target.disabled = true;
+      const targets = [...app.querySelectorAll('tr[data-staff]')].map((tr) => ({
+        user_id: Number(tr.dataset.staff),
+        ...Object.fromEntries([...tr.querySelectorAll('input')].map((i) => [i.name, i.value])),
+      }));
+      try {
+        await api('/targets', { method: 'PUT', body: { cycle: rep.cycle, targets } });
+        toast(`Targets saved for the ${cycleName(rep.cycle)} cycle`);
+        viewTargets(rep.cycle);
+      } catch (ex) { toast(ex.message, true); e.target.disabled = false; }
+    };
+  };
+}
+
+// ---------- card activation ----------
+const CARD_FILTERS = [['all', 'All temp ends'], ['unmapped', 'Not mapped'], ['active', 'Active'], ['inactive', 'Inactive']];
+
+async function viewCards(params) {
+  const card = CARD_FILTERS.some(([k]) => k === params.get('card')) ? params.get('card') : 'all';
+  const cycle = params.get('cycle') || '';
+  const { cases } = await api(`/cases?${new URLSearchParams({ card: 'all', limit: '1000', ...(cycle && { cycle }) })}`);
+  const counts = { all: cases.length, unmapped: 0, active: 0, inactive: 0 };
+  for (const c of cases) counts[c.card_status || 'unmapped']++;
+  const shown = card === 'all' ? cases : cases.filter((c) => (c.card_status || 'unmapped') === card);
+  const canMap = state.meta.card_mappers.includes(state.user.role);
+  const cycles = Array.from({ length: 12 }, (_, i) => shiftCycle(state.meta.current_cycle, -i));
+  const href = (changes) => {
+    const p = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(changes)) (v && v !== 'all' ? p.set(k, v) : p.delete(k));
+    return `#/cards${p.toString() ? `?${p}` : ''}`;
+  };
+
+  shell(html`
+    <div class="page-head">
+      <div><h1>Card activation</h1>
+        <p class="muted lede">Every completed credit card case (temp end), mapped to the sales person who sourced it. ${canMap ? 'Mark each card Active or Inactive here, or upload the bank\'s activation report.' : 'MIS records whether each card was activated.'}</p></div>
+      ${canMap ? html`<a class="btn" href="#/import/cards">Upload activation report</a>` : ''}
+    </div>
+    <div class="kpis card-kpis">
+      ${[['all', 'Temp ends'], ['active', 'Active'], ['inactive', 'Inactive'], ['unmapped', 'Not mapped']].map(([k, l]) => html`<a class="kpi ${k === card ? 'kpi-on' : ''}" href="${href({ card: k })}">
+        <span class="kpi-label">${l}</span><span class="kpi-value">${counts[k]}</span>
+        <span class="kpi-sub">${k === 'all' ? (cycle ? `${cycleName(cycle)} cycle` : 'All cycles') : counts.all ? `${Math.round((counts[k] / counts.all) * 100)}% of temp ends` : ' '}</span>
+      </a>`)}
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <label class="inline-filter" for="card-cycle">Completed in
+          <select id="card-cycle"><option value="">All cycles</option>
+            ${cycles.map((c) => html`<option value="${c}" ${c === cycle ? raw('selected') : ''}>${cycleName(c)} cycle (${cycleSpan(c)})</option>`)}
+          </select></label>
+        <div class="tabs" aria-label="Card status">${CARD_FILTERS.map(([k, l]) => html`<a class="${k === card ? 'active' : ''}" href="${href({ card: k })}">${l} <span class="muted">${counts[k]}</span></a>`)}</div>
+      </div>
+      ${shown.length ? html`<div class="table-wrap"><table>
+        <thead><tr><th>Ref</th><th>Customer</th><th>Sales staff</th><th>Temp end</th><th>Card status</th>${canMap ? html`<th>Map</th>` : ''}</tr></thead>
+        <tbody>${shown.map((c) => html`<tr data-href="#/cases/${c.id}" data-case="${c.id}">
+          <td><strong>${c.ref}</strong>${c.app_id ? html`<div class="muted small mono">${c.app_id}</div>` : ''}</td>
+          <td>${c.customer_name}<div class="muted small">${c.credit_card || ''}</div></td>
+          <td>${c.sales_staff_name || '—'}<div class="muted small"><span class="mono">${c.sales_code || ''}</span>${c.team_leader_name ? ` · TL ${c.team_leader_name}` : ''}</div></td>
+          <td class="small nowrap">${fmtIsoDay(c.case_status_at)}<div class="muted">${cycleName(cycleOfIso(c.case_status_at))} cycle</div></td>
+          <td>${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${fmtDay(c.card_activation_date)}</div>` : ''}</td>
+          ${canMap ? html`<td><div class="segmented map-toggle" role="group" aria-label="Card status for ${c.ref}">
+            <button type="button" data-map="active" class="${c.card_status === 'active' ? 'on' : ''}">Active</button><button type="button" data-map="inactive" class="${c.card_status === 'inactive' ? 'on' : ''}">Inactive</button>
+          </div></td>` : ''}
+        </tr>`)}</tbody>
+      </table></div>` : html`<div class="empty">${counts.all ? 'No cards in this view' : 'No completed credit card cases yet'}</div>`}
+    </div>`);
+  bindRows();
+  document.getElementById('card-cycle').onchange = (e) => go(href({ cycle: e.target.value }));
+  app.querySelectorAll('[data-map]').forEach((b) => (b.onclick = async (e) => {
+    e.stopPropagation();
+    const id = Number(b.closest('tr').dataset.case);
+    const current = cases.find((c) => c.id === id).card_status;
+    b.disabled = true;
+    try {
+      // Clicking the status that is already set clears it.
+      await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'set_card_status', card_status: current === b.dataset.map ? '' : b.dataset.map } });
+      toast(current === b.dataset.map ? 'Mapping cleared' : `Card marked ${b.dataset.map}`);
+      viewCards(params);
+    } catch (ex) { toast(ex.message, true); b.disabled = false; }
+  }));
+}
+
 // ---------- bulk upload (MIS and business head) ----------
 const BULK_ROLES = ['mis', 'business_head'];
 const BULK = {
@@ -1330,6 +1615,7 @@ const BULK = {
     title: 'Bulk upload cases',
     lede: 'Add many sourced files at once from a spreadsheet, each naming the sales person by sales code. Every row is checked with the same rules as the New case form and starts as Sent to checker, awaiting verification.',
     template: 'cases-upload-template.csv',
+    done: ['#/cases', 'View cases'],
   },
   users: {
     tab: 'Users',
@@ -1337,10 +1623,33 @@ const BULK = {
     lede: 'Add many users at once from a spreadsheet. Team leaders and sales managers in the file are added first, so sales staff in the same file can name them.',
     template: 'users-upload-template.csv',
   },
+  cards: {
+    tab: 'Card activation',
+    title: 'Upload card activation',
+    lede: 'Map card activation from the bank\'s report. Each row names a completed credit card case by CRM reference, App ID or Emirates ID, and the result is counted for the sales person who sourced it.',
+    template: 'card-activation-template.csv',
+    done: ['#/cards', 'View card activation'],
+  },
+  targets: {
+    tab: 'Targets',
+    title: 'Upload targets',
+    lede: 'Set targets for many sales staff at once. One row per sales person and cycle; a cycle runs from the 21st to the 20th and is named after the month it ends in.',
+    template: 'targets-template.csv',
+    done: ['#/targets', 'View targets'],
+  },
+};
+
+// Wording per upload: what a row is, the result verb, and which columns name a failed row.
+const BULK_WORDS = {
+  cases: { one: 'file', many: 'files', verb: 'Added', who: 'Customer', names: ['firstname', 'middlename', 'lastname'], sep: ' ', after: 'They are in the verification queue as Sent to checker.', excel: 'phone, Emirates ID and App ID' },
+  users: { one: 'user', many: 'users', verb: 'Added', who: 'User', names: ['fullname', 'email'], sep: ' · ', after: 'They can sign in now.', excel: 'phone' },
+  cards: { one: 'card', many: 'cards', verb: 'Mapped', who: 'Case', names: ['reference'], sep: ' ', after: 'Activation now shows on each case and in the sales staff\'s numbers.', excel: 'Reference (App ID and Emirates ID)' },
+  targets: { one: 'target row', many: 'target rows', verb: 'Saved', who: 'Sales staff', names: ['salescode', 'cycle'], sep: ' · ', after: 'Staff see them on their Targets page.', excel: '' },
 };
 
 function viewBulkUpload(kind) {
   const cfg = BULK[kind];
+  const words = BULK_WORDS[kind];
   if (!BULK_ROLES.includes(state.user.role)) throw new Error('Only MIS and business heads can bulk upload');
   const columns = state.meta.import_columns[kind];
   const required = (c) => c.required;
@@ -1354,9 +1663,9 @@ function viewBulkUpload(kind) {
     <div class="bulk-steps">
       <section class="card">
         <div class="step-head"><span class="step-no">1</span><div><h2>Download the template</h2>
-          <p class="muted small">One row per ${kind === 'users' ? 'user' : 'file'}, up to ${state.meta.import_max_rows} rows. Keep the header row as it is.</p></div></div>
+          <p class="muted small">One row per ${words.one}, up to ${state.meta.import_max_rows} rows. Keep the header row as it is.</p></div></div>
         <div class="actions"><button class="btn-primary" id="dl-template">Download template (.csv)</button><button id="dl-example">Download with example row</button></div>
-        <div class="callout info small bulk-tip"><strong>Using Excel?</strong>Before typing, select the phone${kind === 'cases' ? ', Emirates ID and App ID' : ''} columns and set them to <em>Text</em> (Format Cells → Text) so Excel keeps leading zeros and long numbers. Save with <em>File → Save As → CSV UTF-8</em>.</div>
+        <div class="callout info small bulk-tip"><strong>Using Excel?</strong>${words.excel ? html`Before typing, select the ${words.excel} column${words.excel.includes(' and ') ? 's' : ''} and set ${words.excel.includes(' and ') ? 'them' : 'it'} to <em>Text</em> (Format Cells → Text) so Excel keeps leading zeros and long numbers. ` : ''}Save with <em>File → Save As → CSV UTF-8</em>.</div>
         <details class="col-guide"><summary>Column guide (${columns.length} columns)</summary>
           <div class="table-wrap"><table>
             <thead><tr><th>Column</th><th>Required</th><th>What to enter</th><th>Example</th></tr></thead>
@@ -1414,19 +1723,19 @@ function viewBulkUpload(kind) {
   let rowLabel = () => '';
   const render = (r) => {
     const at = (h) => r.header.findIndex((x) => x.toLowerCase().replace(/[^a-z]/g, '') === h);
-    const nameCols = (kind === 'users' ? ['fullname', 'email'] : ['firstname', 'middlename', 'lastname']).map(at).filter((i) => i >= 0);
-    rowLabel = (cells = []) => nameCols.map((i) => cells[i]).filter(Boolean).join(kind === 'users' ? ' · ' : ' ') || '—';
+    const nameCols = words.names.map(at).filter((i) => i >= 0);
+    rowLabel = (cells = []) => nameCols.map((i) => cells[i]).filter(Boolean).join(words.sep) || '—';
     const failed = r.rows.filter((x) => !x.ok);
     const passwords = r.rows.filter((x) => x.temp_password);
     const summary = r.dry_run
       ? (r.failed
         ? html`<div class="callout warn"><strong>${r.ok} of ${r.total} rows are ready. ${r.failed} ${r.failed === 1 ? 'has' : 'have'} errors.</strong>Fix them and check again, or upload the ${r.ok} good rows now and the rest later.</div>`
         : html`<div class="callout success"><strong>All ${r.total} rows are ready to upload.</strong>Nothing has been saved yet.</div>`)
-      : html`<div class="callout ${r.failed ? 'warn' : 'success'}"><strong>Added ${r.ok} ${kind === 'users' ? (r.ok === 1 ? 'user' : 'users') : (r.ok === 1 ? 'file' : 'files')}.${r.failed ? ` ${r.failed} ${r.failed === 1 ? 'row was' : 'rows were'} skipped.` : ''}</strong>${r.failed ? 'Download the skipped rows, fix them and upload that file.' : kind === 'cases' ? 'They are in the verification queue as Sent to checker.' : 'They can sign in now.'}</div>`;
+      : html`<div class="callout ${r.failed ? 'warn' : 'success'}"><strong>${words.verb} ${r.ok} ${r.ok === 1 ? words.one : words.many}.${r.failed ? ` ${r.failed} ${r.failed === 1 ? 'row was' : 'rows were'} skipped.` : ''}</strong>${r.failed ? 'Download the skipped rows, fix them and upload that file.' : words.after}</div>`;
     result.innerHTML = html`
       <div class="bulk-summary">
         <div class="kpi-mini"><span>${r.total}</span>rows</div>
-        <div class="kpi-mini good"><span>${r.ok}</span>${r.dry_run ? 'ready' : 'added'}</div>
+        <div class="kpi-mini good"><span>${r.ok}</span>${r.dry_run ? 'ready' : words.verb.toLowerCase()}</div>
         <div class="kpi-mini ${r.failed ? 'bad' : ''}"><span>${r.failed}</span>${r.dry_run ? 'with errors' : 'skipped'}</div>
       </div>
       ${summary}
@@ -1436,13 +1745,13 @@ function viewBulkUpload(kind) {
         ${r.dry_run && r.ok ? html`<button class="btn-primary" id="bulk-go">Upload ${r.ok} ${r.ok === 1 ? 'row' : 'rows'}${r.failed ? ' and skip the rest' : ''}</button>` : ''}
         ${failed.length ? html`<button id="bulk-errors">Download rows with errors</button>` : ''}
         ${passwords.length ? html`<button class="btn-primary" id="bulk-passwords">Download sign-in details</button>` : ''}
-        ${!r.dry_run && kind === 'cases' ? html`<a class="btn" href="#/cases">View cases</a>` : ''}
+        ${!r.dry_run && cfg.done ? html`<a class="btn" href="${cfg.done[0]}">${cfg.done[1]}</a>` : ''}
       </div>
       <div class="table-wrap bulk-rows"><table>
-        <thead><tr><th>Line</th><th>Result</th><th>${kind === 'users' ? 'User' : 'Customer'}</th><th>Details</th></tr></thead>
+        <thead><tr><th>Line</th><th>Result</th><th>${words.who}</th><th>Details</th></tr></thead>
         <tbody>${[...failed, ...r.rows.filter((x) => x.ok)].map((x) => html`<tr>
           <td class="mono">${x.line}</td>
-          <td>${x.ok ? html`<span class="chip good">${r.dry_run ? 'Ready' : 'Added'}</span>` : html`<span class="chip bad">Error</span>`}</td>
+          <td>${x.ok ? html`<span class="chip good">${r.dry_run ? 'Ready' : words.verb}</span>` : html`<span class="chip bad">Error</span>`}</td>
           <td>${x.ok ? (x.ref ? html`<a href="#/cases/${x.id}"><strong class="mono">${x.ref}</strong></a> ` : '') : ''}${x.ok ? x.label : rowLabel(x.cells)}</td>
           <td class="small">${x.ok ? (x.temp_password ? html`Temporary password <code>${x.temp_password}</code>` : x.email || '') : html`<span class="error">${x.error}</span>`}</td>
         </tr>`)}</tbody>
