@@ -41,7 +41,7 @@ async function login(email) {
   };
 }
 
-const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', amount: '1,50,000' };
+const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '1,50,000', interest_rate: 6.5 };
 
 test('rejects unauthenticated access and bad credentials', async () => {
   assert.equal((await fetch(`${base}/api/cases`)).status, 401);
@@ -64,7 +64,7 @@ test('full workflow: source → verify incomplete → TL returns → sales resub
   assert.equal(r.status, 201);
   const id = r.data.case.id;
   assert.equal(r.data.case.status, 'pending_verification');
-  assert.equal(r.data.case.amount, 150000);
+  assert.equal(r.data.case.loan_amount, 150000);
   assert.match(r.data.case.ref, /^CRM-0+\d+$/);
 
   // Processing sees it in the queue
@@ -194,7 +194,7 @@ test('product must be one of the fixed options, and a bundle needs two or more p
   assert.equal(r.data.case.product_label, 'Auto Loan');
   assert.equal(r.data.case.bundle_products, null);
 
-  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'], personal_loan_type: 'buy_out', buyout_bank: 'RAKBANK' });
+  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'], personal_loan_type: 'buy_out', buyout_bank: 'RAKBANK', loan_amount: '1,50,000', interest_rate: 6.5 });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.bundle_products, 'personal_loan,accounts');
   assert.equal(r.data.case.product_label, 'Bundle: Personal Loan (Buy Out from RAKBANK) + Accounts');
@@ -232,7 +232,7 @@ test('credit card cases must name a card from the list', async () => {
   // Only the card can change; dropping the Credit Card product clears it.
   r = await sales('PUT', `/cases/${id}`, { credit_card: 'LuLu Platinum Mastercard Credit Card' });
   assert.equal(r.data.case.credit_card, 'LuLu Platinum Mastercard Credit Card');
-  r = await sales('PUT', `/cases/${id}`, { product: 'personal_loan', personal_loan_type: 'top_up' });
+  r = await sales('PUT', `/cases/${id}`, { product: 'personal_loan', personal_loan_type: 'top_up', loan_amount: '1,50,000', interest_rate: 6.5, full_loan_amount: 200000, incremental_amount: 50000 });
   assert.equal(r.data.case.credit_card, null);
 
   // A card is ignored for products that are not credit cards
@@ -253,7 +253,7 @@ test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
   assert.equal((await sales('POST', '/cases', { ...base, product: 'personal_loan', personal_loan_type: 'refinance' })).status, 400);
   assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'] })).status, 400);
 
-  let r = await sales('POST', '/cases', { ...base, product: 'personal_loan', personal_loan_type: 'top_up' });
+  let r = await sales('POST', '/cases', { ...base, product: 'personal_loan', personal_loan_type: 'top_up', loan_amount: '1,50,000', interest_rate: 6.5, full_loan_amount: 200000, incremental_amount: 50000 });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.product_label, 'Personal Loan (Top Up)');
   const id = r.data.case.id;
@@ -275,7 +275,7 @@ test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
 
 test('a buy-out personal loan must name the bank it is bought out from', async () => {
   const sales = await login('sales@t.local');
-  const base = { customer_name: 'Buyout Test', phone: '9876543210', product: 'personal_loan' };
+  const base = { customer_name: 'Buyout Test', phone: '9876543210', product: 'personal_loan', loan_amount: '1,50,000', interest_rate: 6.5 };
 
   assert.equal((await sales('POST', '/cases', { ...base, personal_loan_type: 'buy_out' })).status, 400);
   let r = await sales('POST', '/cases', { ...base, personal_loan_type: 'buy_out', buyout_bank: 'Mashreq' });
@@ -289,11 +289,63 @@ test('a buy-out personal loan must name the bank it is bought out from', async (
   assert.ok((await sales('GET', '/cases?q=Small%20Bank')).data.cases.some((c) => c.id === id));
 
   // Switching to another loan type clears the bank; a bank is ignored for Fresh/Top Up
-  r = await sales('PUT', `/cases/${id}`, { personal_loan_type: 'top_up' });
+  r = await sales('PUT', `/cases/${id}`, { personal_loan_type: 'top_up', full_loan_amount: 200000, incremental_amount: 50000 });
   assert.equal(r.data.case.buyout_bank, null);
   r = await sales('POST', '/cases', { ...base, personal_loan_type: 'fresh', buyout_bank: 'Mashreq' });
   assert.equal(r.data.case.buyout_bank, null);
 
   const me = await sales('GET', '/me');
   assert.ok(me.data.meta.banks.flatMap((g) => g.banks).includes('Emirates NBD'));
+});
+
+test('customer identity fields and personal loan amounts are captured and validated', async () => {
+  const sales = await login('sales@t.local');
+  const base = {
+    first_name: 'Mohammed', middle_name: 'Ali', last_name: 'Rahman', phone: '+971 50 123 4567',
+    company_name: 'Acme Trading LLC', salary: '25,000', eid_number: '784 1990 1234567 1',
+    passport_number: 'n 1234567', bidaya_id: 'BID-0042', app_id: 'APP-7781',
+    product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '120,000', interest_rate: '5.99',
+  };
+
+  let r = await sales('POST', '/cases', base);
+  assert.equal(r.status, 201);
+  const c = r.data.case;
+  assert.equal(c.customer_name, 'Mohammed Ali Rahman');
+  assert.equal(c.eid_number, '784-1990-1234567-1');
+  assert.equal(c.passport_number, 'N1234567');
+  assert.equal(c.salary, 25000);
+  assert.equal(c.loan_amount, 120000);
+  assert.equal(c.interest_rate, 5.99);
+  assert.equal(c.full_loan_amount, null);
+
+  // Required names, EID / passport format, rate and loan amount rules
+  assert.equal((await sales('POST', '/cases', { ...base, first_name: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, last_name: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, eid_number: '123-4567' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, passport_number: 'AB' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, interest_rate: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, interest_rate: '120' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, loan_amount: '0' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, salary: 'lots' })).status, 400);
+
+  // Top Up needs the full and incremental amounts, and the increment cannot exceed the full amount
+  const topUp = { ...base, personal_loan_type: 'top_up' };
+  assert.equal((await sales('POST', '/cases', topUp)).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...topUp, full_loan_amount: 100000, incremental_amount: 150000 })).status, 400);
+  r = await sales('POST', '/cases', { ...topUp, full_loan_amount: '180,000', incremental_amount: '60,000' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.full_loan_amount, 180000);
+  assert.equal(r.data.case.incremental_amount, 60000);
+
+  // Changing only the middle name rebuilds the full name; IDs are searchable
+  r = await sales('PUT', `/cases/${c.id}`, { middle_name: '' });
+  assert.equal(r.data.case.customer_name, 'Mohammed Rahman');
+  for (const q of ['784199012345671', 'N1234567', 'BID-0042', 'APP-7781', 'Acme']) {
+    assert.ok((await sales('GET', `/cases?q=${encodeURIComponent(q)}`)).data.cases.some((x) => x.id === c.id), q);
+  }
+
+  // Dropping the personal loan clears its amounts
+  r = await sales('PUT', `/cases/${c.id}`, { product: 'accounts' });
+  assert.equal(r.data.case.loan_amount, null);
+  assert.equal(r.data.case.interest_rate, null);
 });

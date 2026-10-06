@@ -126,16 +126,26 @@ textarea { min-height: 80px; resize: vertical; }
 .form-grid .full { grid-column: 1 / -1; }
 @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
 .field-row { margin-bottom: 12px; }
+.case-form section + section, .case-form details.more { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+.case-form h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px; }
+.form-grid.three { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 760px) { .form-grid.three { grid-template-columns: 1fr; } }
+fieldset.product-detail { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px 14px; margin: 0; min-width: 0; display: grid; gap: 14px; }
+fieldset.product-detail legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+.product-detail .segmented { justify-self: start; }
+.sub-label { font-weight: 600; font-size: 13px; margin-bottom: -8px; }
+.case-form details.more summary { cursor: pointer; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
+.case-form details.more[open] summary { margin-bottom: 14px; }
+h2.sub { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+dd.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .02em; }
 fieldset.bundle-picker { border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px 14px; margin: 0; background: var(--bg); }
 fieldset.bundle-picker legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 16px; }
 label.check { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 14px; margin: 0; cursor: pointer; }
 label.check input { width: auto; margin: 0; accent-color: var(--primary); }
 .bundle-list { margin: 4px 0 0; padding-left: 18px; }
-fieldset.loan-type { border: 0; padding: 0; margin: 0; min-width: 0; }
-.bank-field { display: grid; gap: 8px; margin-top: 14px; max-width: 480px; }
+.bank-field { display: grid; gap: 8px; max-width: 480px; }
 .bank-field label { margin: 0; }
-fieldset.loan-type legend { font-weight: 600; font-size: 13px; padding: 0; margin-bottom: 4px; }
 .segmented { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .segmented label { margin: 0; font-weight: 500; font-size: 14px; cursor: pointer; }
 .segmented label + label { border-left: 1px solid var(--border); }

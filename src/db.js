@@ -22,6 +22,15 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS cases (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   customer_name      TEXT NOT NULL,
+  first_name         TEXT,
+  middle_name        TEXT,
+  last_name          TEXT,
+  company_name       TEXT,
+  salary             REAL,
+  eid_number         TEXT,
+  passport_number    TEXT,
+  bidaya_id          TEXT,
+  app_id             TEXT,
   phone              TEXT NOT NULL,
   alt_phone          TEXT,
   email              TEXT,
@@ -32,6 +41,10 @@ CREATE TABLE IF NOT EXISTS cases (
   credit_card        TEXT,
   personal_loan_type TEXT,
   buyout_bank        TEXT,
+  loan_amount        REAL,
+  interest_rate      REAL,
+  full_loan_amount   REAL,
+  incremental_amount REAL,
   amount             REAL,
   source             TEXT,
   sales_notes        TEXT,
@@ -89,12 +102,18 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
 }
 
 // Columns added after the first release; ALTER existing databases in place.
+const ADDED_COLUMNS = {
+  bundle_products: 'TEXT', credit_card: 'TEXT', personal_loan_type: 'TEXT', buyout_bank: 'TEXT',
+  first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL',
+  eid_number: 'TEXT', passport_number: 'TEXT', bidaya_id: 'TEXT', app_id: 'TEXT',
+  loan_amount: 'REAL', interest_rate: 'REAL', full_loan_amount: 'REAL', incremental_amount: 'REAL',
+};
+
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
-  if (!cols.includes('bundle_products')) db.exec('ALTER TABLE cases ADD COLUMN bundle_products TEXT');
-  if (!cols.includes('credit_card')) db.exec('ALTER TABLE cases ADD COLUMN credit_card TEXT');
-  if (!cols.includes('personal_loan_type')) db.exec('ALTER TABLE cases ADD COLUMN personal_loan_type TEXT');
-  if (!cols.includes('buyout_bank')) db.exec('ALTER TABLE cases ADD COLUMN buyout_bank TEXT');
+  for (const [name, type] of Object.entries(ADDED_COLUMNS)) {
+    if (!cols.includes(name)) db.exec(`ALTER TABLE cases ADD COLUMN ${name} ${type}`);
+  }
 }
 
 export function transaction(db, fn) {

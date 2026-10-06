@@ -18,7 +18,7 @@ const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing')
 
 if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
   const samples = [
-    [sales1, { customer_name: 'Arjun Mehta', phone: '+91 98765 43210', city: 'Mumbai', product: 'personal_loan', personal_loan_type: 'fresh', amount: '250000', source: 'Walk-in' }],
+    [sales1, { customer_name: 'Arjun Mehta', phone: '+91 98765 43210', city: 'Mumbai', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '250000', interest_rate: '6.25', source: 'Walk-in' }],
     [sales1, { customer_name: 'Neha Kapoor', phone: '+91 91234 56780', city: 'Pune', product: 'bundle', bundle_products: ['credit_card', 'accounts'], credit_card: 'Skywards Signature Credit Card', source: 'Referral' }],
     [sales2, { customer_name: 'John Fernandes', phone: '+91 99887 76655', city: 'Goa', product: 'auto_loan', amount: '900000', source: 'Field visit' }],
     [sales2, { customer_name: 'Priya Nair', phone: '+91 90000 11122', city: 'Kochi', product: 'accounts', amount: '150000', source: 'Cold call' }],

@@ -301,7 +301,7 @@ function miniTable(head, rows) {
 // ---------- case list ----------
 const COLS = {
   ref: ['Ref', (c) => html`<strong>${c.ref}</strong>`],
-  customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.city].filter(Boolean).join(' · ')}</div>`],
+  customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => c.phone],
   status: ['Status', (c) => badge(c.status)],
   source_by: ['Sourced by', (c) => c.created_by_name],
@@ -371,76 +371,130 @@ async function viewCases({ title, subtitle = '', params, fixedStatus }) {
 
 // ---------- case form ----------
 async function viewCaseForm(id) {
-  const c = id ? (await api(`/cases/${id}`)).case : {};
+  const c = id ? { ...(await api(`/cases/${id}`)).case } : {};
+  if (id && !c.first_name && c.customer_name) {
+    // Cases created before names were split: prefill first / middle / last from the full name.
+    const parts = c.customer_name.split(/\s+/);
+    c.first_name = parts.shift();
+    c.last_name = parts.pop() ?? '';
+    c.middle_name = parts.join(' ');
+  }
   const products = state.meta.products;
   const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
   const listedBanks = state.meta.banks.flatMap((g) => g.banks);
   const otherBank = Boolean(c.buyout_bank) && !listedBanks.includes(c.buyout_bank);
-  const field = (name, text, { type = 'text', required = false, full = false, placeholder = '' } = {}) => html`
+  const field = (name, text, { type = 'text', required = false, full = false, placeholder = '', attrs = '', hint = '' } = {}) => html`
     <div class="${full ? 'full' : ''}">
       <label for="f-${name}">${text}${required ? raw(' <span class="req">*</span>') : ''}</label>
       ${type === 'textarea'
         ? html`<textarea id="f-${name}" name="${name}" placeholder="${placeholder}">${c[name] ?? ''}</textarea>`
-        : html`<input id="f-${name}" name="${name}" type="${type}" value="${c[name] ?? ''}" placeholder="${placeholder}" ${required ? raw('required') : ''}>`}
+        : html`<input id="f-${name}" name="${name}" type="${type}" value="${c[name] ?? ''}" placeholder="${placeholder}" ${required ? raw('required') : ''} ${raw(attrs)}>`}
+      ${hint ? html`<div class="muted small">${hint}</div>` : ''}
     </div>`;
+  const money = 'inputmode="decimal" min="0" step="any"';
 
   shell(html`
     <div class="page-head"><div>
       <h1>${id ? `Edit ${c.ref}` : 'New sourcing case'}</h1>
       <p class="muted" style="margin:0">${id ? 'Update the customer details, then save.' : 'Enter the customer you sourced. It goes straight to the processing team for a verification call.'}</p>
     </div></div>
-    <form class="card" id="case-form">
+    <form class="card case-form" id="case-form" novalidate>
       ${c.status === 'returned_to_sales' ? html`<div class="callout info"><strong>Returned by team leader</strong>${c.tl_note}</div>` : ''}
-      <div class="form-grid">
-        ${field('customer_name', 'Customer name', { required: true })}
-        ${field('phone', 'Phone', { type: 'tel', required: true, placeholder: '+91 98765 43210' })}
-        ${field('alt_phone', 'Alternate phone', { type: 'tel' })}
-        ${field('email', 'Email', { type: 'email' })}
-        ${field('address', 'Address', { full: true })}
-        ${field('city', 'City')}
-        ${field('source', 'Lead source', { placeholder: 'e.g. Referral, Walk-in, Field visit' })}
-        <div>
-          <label for="f-product">Product <span class="req">*</span></label>
-          <select id="f-product" name="product" required>
-            <option value="">Choose a product…</option>
-            ${[...Object.entries(products), ['bundle', 'Bundle (multiple products)']].map(([k, l]) => html`<option value="${k}" ${c.product === k ? raw('selected') : ''}>${l}</option>`)}
-          </select>
+
+      <section>
+        <h2>Customer</h2>
+        <div class="form-grid three">
+          ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"' })}
+          ${field('middle_name', 'Middle name', { attrs: 'autocomplete="off"' })}
+          ${field('last_name', 'Last name', { required: true, attrs: 'autocomplete="off"' })}
+          ${field('phone', 'Mobile number', { type: 'tel', required: true, placeholder: '+971 50 123 4567' })}
+          ${field('eid_number', 'Emirates ID number', { placeholder: '784-YYYY-NNNNNNN-C', attrs: 'inputmode="numeric" pattern="784-?\\d{4}-?\\d{7}-?\\d" title="15 digits starting with 784, e.g. 784-1990-1234567-1"' })}
+          ${field('passport_number', 'Passport number', { attrs: 'pattern="[A-Za-z0-9 ]{5,20}" title="5–20 letters and digits"' })}
         </div>
-        ${field('amount', 'Amount', { type: 'number', placeholder: '0' })}
-        <fieldset class="full bundle-picker" id="bundle-picker" ${c.product === 'bundle' ? '' : raw('hidden')}>
-          <legend>Products in this bundle <span class="req">*</span> <span class="muted small">Pick at least two</span></legend>
-          <div class="checks">
-            ${Object.entries(products).map(([k, l]) => html`<label class="check"><input type="checkbox" name="bundle_products" value="${k}" ${bundled.has(k) ? raw('checked') : ''}> ${l}</label>`)}
-          </div>
-        </fieldset>
-        <fieldset class="full loan-type" id="loan-type-field" hidden>
-          <legend>Personal loan type <span class="req">*</span></legend>
-          <div class="segmented">
-            ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" required disabled ${c.personal_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
-          </div>
-          <div id="bank-field" class="bank-field" hidden>
-            <label for="f-buyout_bank">Buying out from which bank? <span class="req">*</span></label>
-            <select id="f-buyout_bank" name="buyout_bank" required disabled>
-              <option value="">Choose a bank…</option>
-              ${state.meta.banks.map((g) => html`<optgroup label="${g.group}">
-                ${g.banks.map((b) => html`<option value="${b}" ${c.buyout_bank === b ? raw('selected') : ''}>${b}</option>`)}
-              </optgroup>`)}
-              <option value="${OTHER_BANK}" ${otherBank ? raw('selected') : ''}>Other bank (type the name)</option>
+      </section>
+
+      <section>
+        <h2>Employment</h2>
+        <div class="form-grid">
+          ${field('company_name', 'Company name', { placeholder: 'Employer' })}
+          ${field('salary', 'Monthly salary (AED)', { type: 'number', attrs: money })}
+        </div>
+      </section>
+
+      <section>
+        <h2>Application</h2>
+        <div class="form-grid">
+          ${field('bidaya_id', 'Bidaya ID')}
+          ${field('app_id', 'App ID')}
+        </div>
+      </section>
+
+      <section>
+        <h2>Product</h2>
+        <div class="form-grid">
+          <div class="full">
+            <label for="f-product">Product <span class="req">*</span></label>
+            <select id="f-product" name="product" required>
+              <option value="">Choose a product…</option>
+              ${[...Object.entries(products), ['bundle', 'Bundle (multiple products)']].map(([k, l]) => html`<option value="${k}" ${c.product === k ? raw('selected') : ''}>${l}</option>`)}
             </select>
-            <input id="f-buyout_bank_other" name="buyout_bank_other" placeholder="Bank name" aria-label="Other bank name" value="${otherBank ? c.buyout_bank : ''}" required disabled hidden>
           </div>
-        </fieldset>
-        <div class="full" id="card-field" hidden>
-          <label for="f-credit_card">Credit card <span class="req">*</span></label>
-          <select id="f-credit_card" name="credit_card" required disabled>
-            <option value="">Choose a card…</option>
-            ${state.meta.credit_cards.map((f) => html`<optgroup label="${f.family}">
-              ${f.cards.map((card) => html`<option value="${card}" ${c.credit_card === card ? raw('selected') : ''}>${card}</option>`)}
-            </optgroup>`)}
-          </select>
+          <fieldset class="full bundle-picker" id="bundle-picker" ${c.product === 'bundle' ? '' : raw('hidden')}>
+            <legend>Products in this bundle <span class="req">*</span> <span class="muted small">Pick at least two</span></legend>
+            <div class="checks">
+              ${Object.entries(products).map(([k, l]) => html`<label class="check"><input type="checkbox" name="bundle_products" value="${k}" ${bundled.has(k) ? raw('checked') : ''}> ${l}</label>`)}
+            </div>
+          </fieldset>
+          <fieldset class="full product-detail" id="loan-type-field" hidden>
+            <legend>Personal loan</legend>
+            <div class="sub-label">Loan type <span class="req">*</span></div>
+            <div class="segmented">
+              ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" required disabled ${c.personal_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+            </div>
+            <div class="form-grid">
+              ${field('loan_amount', 'Loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-pl' })}
+              ${field('interest_rate', 'Interest rate (%)', { type: 'number', required: true, placeholder: 'e.g. 5.99', attrs: 'inputmode="decimal" min="0" max="100" step="0.01" disabled data-pl' })}
+            </div>
+            <div class="form-grid" id="topup-fields" hidden>
+              ${field('full_loan_amount', 'Full loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-topup', hint: 'Total loan after the top up' })}
+              ${field('incremental_amount', 'Incremental amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-topup', hint: 'New money added by the top up' })}
+            </div>
+            <div id="bank-field" class="bank-field" hidden>
+              <label for="f-buyout_bank">Buying out from which bank? <span class="req">*</span></label>
+              <select id="f-buyout_bank" name="buyout_bank" required disabled>
+                <option value="">Choose a bank…</option>
+                ${state.meta.banks.map((g) => html`<optgroup label="${g.group}">
+                  ${g.banks.map((b) => html`<option value="${b}" ${c.buyout_bank === b ? raw('selected') : ''}>${b}</option>`)}
+                </optgroup>`)}
+                <option value="${OTHER_BANK}" ${otherBank ? raw('selected') : ''}>Other bank (type the name)</option>
+              </select>
+              <input id="f-buyout_bank_other" name="buyout_bank_other" placeholder="Bank name" aria-label="Other bank name" value="${otherBank ? c.buyout_bank : ''}" required disabled hidden>
+            </div>
+          </fieldset>
+          <div class="full" id="card-field" hidden>
+            <label for="f-credit_card">Credit card <span class="req">*</span></label>
+            <select id="f-credit_card" name="credit_card" required disabled>
+              <option value="">Choose a card…</option>
+              ${state.meta.credit_cards.map((f) => html`<optgroup label="${f.family}">
+                ${f.cards.map((card) => html`<option value="${card}" ${c.credit_card === card ? raw('selected') : ''}>${card}</option>`)}
+              </optgroup>`)}
+            </select>
+          </div>
         </div>
-        ${field('sales_notes', 'Notes for the processing team', { type: 'textarea', full: true, placeholder: 'Best time to call, language preference, anything to verify…' })}
-      </div>
+      </section>
+
+      <details class="more" ${[c.alt_phone, c.email, c.address, c.city, c.source, c.sales_notes].some(Boolean) ? raw('open') : ''}>
+        <summary>More details (optional)</summary>
+        <div class="form-grid">
+          ${field('alt_phone', 'Alternate phone', { type: 'tel' })}
+          ${field('email', 'Email', { type: 'email' })}
+          ${field('address', 'Address', { full: true })}
+          ${field('city', 'City')}
+          ${field('source', 'Lead source', { placeholder: 'e.g. Referral, Walk-in, Field visit' })}
+          ${field('sales_notes', 'Notes for the processing team', { type: 'textarea', full: true, placeholder: 'Best time to call, language preference, anything to verify…' })}
+        </div>
+      </details>
+
       <p class="error" id="form-error" hidden></p>
       <div class="actions" style="margin-top:16px">
         <button class="btn-primary">${id ? 'Save changes' : 'Submit for verification'}</button>
@@ -450,46 +504,72 @@ async function viewCaseForm(id) {
     </form>`);
 
   const form = document.getElementById('case-form');
-  const productSelect = document.getElementById('f-product');
-  const picker = document.getElementById('bundle-picker');
+  const $ = (sel) => form.querySelector(sel);
+  const productSelect = $('#f-product');
+  const picker = $('#bundle-picker');
   const boxes = [...picker.querySelectorAll('input[type=checkbox]')];
-  const loanField = document.getElementById('loan-type-field');
-  const loanRadios = [...loanField.querySelectorAll('input')];
-  const bankField = document.getElementById('bank-field');
-  const bankSelect = document.getElementById('f-buyout_bank');
-  const bankOther = document.getElementById('f-buyout_bank_other');
-  const cardField = document.getElementById('card-field');
-  const cardSelect = document.getElementById('f-credit_card');
+  const loanField = $('#loan-type-field');
+  const loanRadios = [...loanField.querySelectorAll('input[type=radio]')];
+  const topupFields = $('#topup-fields');
+  const bankField = $('#bank-field');
+  const bankSelect = $('#f-buyout_bank');
+  const bankOther = $('#f-buyout_bank_other');
+  const cardField = $('#card-field');
+  const cardSelect = $('#f-credit_card');
+  const fullAmount = $('#f-full_loan_amount');
+  const increment = $('#f-incremental_amount');
+
   const updateProductFields = () => {
     const isBundle = productSelect.value === 'bundle';
+    picker.hidden = !isBundle;
     const count = boxes.filter((b) => b.checked).length;
     boxes[0].setCustomValidity(isBundle && count < 2 ? 'Pick at least two products for a bundle' : '');
     // Ask for product details only when that product is chosen or part of the bundle.
     const includes = (p) => productSelect.value === p || (isBundle && boxes.some((b) => b.value === p && b.checked));
+    const loanType = loanRadios.find((r) => r.checked)?.value;
     loanField.hidden = !includes('personal_loan');
     loanRadios.forEach((r) => (r.disabled = loanField.hidden));
-    const isBuyOut = !loanField.hidden && loanRadios.some((r) => r.value === 'buy_out' && r.checked);
-    bankField.hidden = !isBuyOut;
-    bankSelect.disabled = !isBuyOut;
-    bankOther.hidden = bankOther.disabled = !isBuyOut || bankSelect.value !== OTHER_BANK;
+    form.querySelectorAll('[data-pl]').forEach((i) => (i.disabled = loanField.hidden));
+    topupFields.hidden = loanField.hidden || loanType !== 'top_up';
+    form.querySelectorAll('[data-topup]').forEach((i) => (i.disabled = topupFields.hidden));
+    bankField.hidden = loanField.hidden || loanType !== 'buy_out';
+    bankSelect.disabled = bankField.hidden;
+    bankOther.hidden = bankOther.disabled = bankField.hidden || bankSelect.value !== OTHER_BANK;
     cardField.hidden = !includes('credit_card');
     cardSelect.disabled = cardField.hidden;
+    checkIncrement();
   };
-  productSelect.onchange = () => { picker.hidden = productSelect.value !== 'bundle'; updateProductFields(); };
+  const checkIncrement = () => {
+    const over = !increment.disabled && fullAmount.value && increment.value && Number(increment.value) > Number(fullAmount.value);
+    increment.setCustomValidity(over ? 'Incremental amount cannot be more than the full loan amount' : '');
+  };
+  productSelect.onchange = updateProductFields;
   boxes.forEach((b) => (b.onchange = updateProductFields));
   loanRadios.forEach((r) => (r.onchange = updateProductFields));
   bankSelect.onchange = () => { updateProductFields(); if (!bankOther.hidden) bankOther.focus(); };
+  fullAmount.oninput = increment.oninput = checkIncrement;
+  // Show the Emirates ID in its usual 784-YYYY-NNNNNNN-C layout once typed.
+  const eid = $('#f-eid_number');
+  eid.onblur = () => {
+    const d = eid.value.replace(/\D/g, '');
+    if (/^784\d{12}$/.test(d)) eid.value = `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7, 14)}-${d.slice(14)}`;
+  };
   updateProductFields();
 
   const save = async (resubmit) => {
     const err = document.getElementById('form-error');
     err.hidden = true;
-    if (!form.reportValidity()) return;
+    if (!form.checkValidity()) {
+      // Open the optional section if the problem is in there, then point at the first invalid field.
+      const bad = form.querySelector(':invalid:not(fieldset)');
+      bad?.closest('details')?.setAttribute('open', '');
+      form.reportValidity();
+      return;
+    }
     try {
       const body = formData(form);
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
-      body.credit_card ??= null;
-      body.personal_loan_type ??= null;
+      for (const f of ['credit_card', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount']) body[f] ??= null;
       body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
       delete body.buyout_bank_other;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
@@ -508,6 +588,8 @@ async function viewCaseForm(id) {
 // ---------- case detail ----------
 async function viewCase(id) {
   const { case: c } = await api(`/cases/${id}`);
+  // A detail row; ID-style values use a monospace face so digits are easy to read back on a call.
+  const row = (dt, value, mono = false) => html`<dt>${dt}</dt><dd class="${mono && value ? 'mono' : ''}">${value || '—'}</dd>`;
   const a = new Set(c.allowed_actions);
   const meta = state.meta;
 
@@ -595,17 +677,33 @@ async function viewCase(id) {
         <div class="card">
           <h2>Customer</h2>
           <dl class="details">
-            <dt>Phone</dt><dd><a class="phone-link" href="tel:${c.phone.replace(/[^\d+]/g, '')}">${c.phone}</a></dd>
+            <dt>Mobile</dt><dd><a class="phone-link" href="tel:${c.phone.replace(/[^\d+]/g, '')}">${c.phone}</a></dd>
             ${c.alt_phone ? html`<dt>Alternate phone</dt><dd><a href="tel:${c.alt_phone.replace(/[^\d+]/g, '')}">${c.alt_phone}</a></dd>` : ''}
-            <dt>Email</dt><dd>${c.email || '—'}</dd>
-            <dt>Address</dt><dd>${[c.address, c.city].filter(Boolean).join(', ') || '—'}</dd>
+            ${row('Emirates ID', c.eid_number, true)}
+            ${row('Passport number', c.passport_number, true)}
+            ${row('Company', c.company_name)}
+            ${row('Monthly salary', c.salary != null ? `AED ${fmtAmount(c.salary)}` : null)}
+            ${row('Bidaya ID', c.bidaya_id, true)}
+            ${row('App ID', c.app_id, true)}
+            ${row('Email', c.email)}
+            ${row('Address', [c.address, c.city].filter(Boolean).join(', '))}
+          </dl>
+          <h2 class="sub">Product</h2>
+          <dl class="details">
             <dt>Product</dt><dd>${c.product === 'bundle'
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
             ${c.personal_loan_type ? html`<dt>Personal loan type</dt><dd><strong>${state.meta.personal_loan_types[c.personal_loan_type]}</strong></dd>` : ''}
+            ${c.loan_amount != null ? html`<dt>Loan amount</dt><dd><strong>AED ${fmtAmount(c.loan_amount)}</strong></dd>` : ''}
+            ${c.interest_rate != null ? html`<dt>Interest rate</dt><dd><strong>${c.interest_rate}%</strong></dd>` : ''}
+            ${c.full_loan_amount != null ? html`<dt>Full loan amount</dt><dd>AED ${fmtAmount(c.full_loan_amount)}</dd>` : ''}
+            ${c.incremental_amount != null ? html`<dt>Incremental amount</dt><dd>AED ${fmtAmount(c.incremental_amount)}</dd>` : ''}
             ${c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
-            <dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>
+            ${c.amount != null ? html`<dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>` : ''}
+          </dl>
+          <h2 class="sub">Case</h2>
+          <dl class="details">
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
             <dt>Sales notes</dt><dd style="white-space:pre-wrap">${c.sales_notes || '—'}</dd>
             <dt>Processor</dt><dd>${c.assigned_to_name || '—'}</dd>

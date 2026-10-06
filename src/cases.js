@@ -70,7 +70,17 @@ export const ACTIONS = {
   resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.PENDING },
 };
 
-const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank', 'amount', 'source', 'sales_notes'];
+// Plain text fields and their length limits; name, product and number fields are validated separately.
+const TEXT_FIELDS = {
+  first_name: 100, middle_name: 100, last_name: 100, company_name: 200,
+  phone: 30, alt_phone: 30, email: 200, address: 2000, city: 100, source: 200, sales_notes: 2000,
+  eid_number: 30, passport_number: 30, bidaya_id: 50, app_id: 50,
+};
+const PRODUCT_FIELDS = [
+  'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank',
+  'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount',
+];
+const EDITABLE_FIELDS = [...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', ...PRODUCT_FIELDS];
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -82,7 +92,21 @@ function clean(value, max = 500) {
   return s ? s.slice(0, max) : null;
 }
 
+function parseNumber(value, label, { required = false, min = 0, max = Infinity, positive = false } = {}) {
+  const text = value === undefined || value === null ? '' : String(value).replace(/,/g, '').trim();
+  if (!text) {
+    if (required) throw new WorkflowError(400, `${label} is required`);
+    return null;
+  }
+  const n = Number(text);
+  if (!Number.isFinite(n) || n < min || n > max || (positive && n <= 0)) {
+    throw new WorkflowError(400, `${label} must be a number${positive ? ' greater than 0' : ''}${max < Infinity ? ` up to ${max}` : ''}`);
+  }
+  return n;
+}
+
 function validateProduct(input, current, out) {
+  const pick = (f) => (f in input ? input[f] : current?.[f]);
   const product = 'product' in input ? clean(input.product) : current?.product;
   if (!PRODUCT_TYPES.includes(product)) {
     throw new WorkflowError(400, 'Choose a product: Personal Loan, Credit Card, Auto Loan, Accounts or Bundle');
@@ -90,7 +114,7 @@ function validateProduct(input, current, out) {
   out.product = product;
   out.bundle_products = null;
   if (product === 'bundle') {
-    const raw = 'bundle_products' in input ? input.bundle_products : current?.bundle_products;
+    const raw = pick('bundle_products');
     const picked = new Set((Array.isArray(raw) ? raw : String(raw ?? '').split(',')).map((p) => String(p).trim()).filter(Boolean));
     for (const p of picked) if (!PRODUCTS[p]) throw new WorkflowError(400, `Unknown bundle product: ${p}`);
     if (picked.size < 2) throw new WorkflowError(400, 'A bundle needs at least two products');
@@ -100,24 +124,34 @@ function validateProduct(input, current, out) {
 
   const includes = (p) => product === p || String(out.bundle_products).split(',').includes(p);
 
-  out.personal_loan_type = null;
-  out.buyout_bank = null;
+  Object.assign(out, {
+    personal_loan_type: null, buyout_bank: null,
+    loan_amount: null, interest_rate: null, full_loan_amount: null, incremental_amount: null,
+  });
   if (includes('personal_loan')) {
-    const type = 'personal_loan_type' in input ? clean(input.personal_loan_type) : current?.personal_loan_type;
+    const type = clean(pick('personal_loan_type'));
     if (!PERSONAL_LOAN_TYPES[type]) throw new WorkflowError(400, 'Choose the personal loan type: Top Up, Buy Out or Fresh');
     out.personal_loan_type = type;
+    out.loan_amount = parseNumber(pick('loan_amount'), 'Loan amount', { required: true, positive: true });
+    out.interest_rate = parseNumber(pick('interest_rate'), 'Interest rate', { required: true, max: 100 });
     if (type === 'buy_out') {
       // Any bank name is accepted so a lender missing from the list never blocks a case.
-      const bank = 'buyout_bank' in input ? clean(input.buyout_bank, 200) : current?.buyout_bank;
+      const bank = clean(pick('buyout_bank'), 200);
       if (!bank) throw new WorkflowError(400, 'Choose which bank the loan is being bought out from');
       out.buyout_bank = bank;
     }
+    if (type === 'top_up') {
+      out.full_loan_amount = parseNumber(pick('full_loan_amount'), 'Full loan amount', { required: true, positive: true });
+      out.incremental_amount = parseNumber(pick('incremental_amount'), 'Incremental amount', { required: true, positive: true });
+      if (out.incremental_amount > out.full_loan_amount) {
+        throw new WorkflowError(400, 'Incremental amount cannot be more than the full loan amount');
+      }
+    }
   }
 
-  const needsCard = includes('credit_card');
   out.credit_card = null;
-  if (needsCard) {
-    const card = 'credit_card' in input ? clean(input.credit_card) : current?.credit_card;
+  if (includes('credit_card')) {
+    const card = clean(pick('credit_card'));
     if (!card) throw new WorkflowError(400, 'Choose which credit card the customer wants');
     if (!CREDIT_CARD_NAMES.has(card)) throw new WorkflowError(400, `Unknown credit card: ${card}`);
     out.credit_card = card;
@@ -125,33 +159,52 @@ function validateProduct(input, current, out) {
 }
 
 function validateCaseInput(input, { partial = false, current = null } = {}) {
+  input = { ...input };
+  // Older API clients send one customer_name; split it into first / middle / last.
+  if (!partial && !input.first_name && !input.last_name && input.customer_name) {
+    const parts = String(input.customer_name).trim().split(/\s+/);
+    input.first_name = parts.shift();
+    input.last_name = parts.pop() ?? '';
+    input.middle_name = parts.join(' ');
+  }
+
   const out = {};
-  for (const field of EDITABLE_FIELDS) {
-    if (['product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank'].includes(field)) continue;
-    if (partial && !(field in input)) continue;
-    out[field] = clean(input[field], field === 'sales_notes' || field === 'address' ? 2000 : 200);
+  const has = (f) => !partial || f in input;
+  for (const [field, max] of Object.entries(TEXT_FIELDS)) if (has(field)) out[field] = clean(input[field], max);
+
+  if (['first_name', 'middle_name', 'last_name'].some(has)) {
+    const name = (f) => (f in out ? out[f] : current?.[f] ?? null);
+    if (!name('first_name')) throw new WorkflowError(400, 'Customer first name is required');
+    if (!name('last_name')) throw new WorkflowError(400, 'Customer last name is required');
+    out.customer_name = [name('first_name'), name('middle_name'), name('last_name')].filter(Boolean).join(' ');
   }
-  if (!partial || 'customer_name' in out) {
-    if (!out.customer_name) throw new WorkflowError(400, 'Customer name is required');
-  }
+
   for (const field of ['phone', 'alt_phone']) {
-    if (!partial || field in out) {
-      if (field === 'phone' && !out.phone) throw new WorkflowError(400, 'Phone number is required');
-      if (out[field]) {
-        const digits = out[field].replace(/\D/g, '');
-        if (!/^[+\d][\d\s\-()]*$/.test(out[field]) || digits.length < 7 || digits.length > 15) {
-          throw new WorkflowError(400, `Invalid ${field === 'phone' ? 'phone' : 'alternate phone'} number`);
-        }
+    if (!has(field)) continue;
+    if (field === 'phone' && !out.phone) throw new WorkflowError(400, 'Mobile number is required');
+    if (out[field]) {
+      const digits = out[field].replace(/\D/g, '');
+      if (!/^[+\d][\d\s\-()]*$/.test(out[field]) || digits.length < 7 || digits.length > 15) {
+        throw new WorkflowError(400, `Invalid ${field === 'phone' ? 'mobile' : 'alternate phone'} number`);
       }
     }
   }
-  if (!partial || ['product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank'].some((f) => f in input)) validateProduct(input, current, out);
-  if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
-  if ('amount' in out && out.amount !== null) {
-    const amount = Number(out.amount.replace(/,/g, ''));
-    if (!Number.isFinite(amount) || amount < 0) throw new WorkflowError(400, 'Amount must be a positive number');
-    out.amount = amount;
+
+  if (out.eid_number) {
+    // Emirates ID: 15 digits starting 784, stored as 784-YYYY-NNNNNNN-C.
+    const d = out.eid_number.replace(/[\s-]/g, '');
+    if (!/^784\d{12}$/.test(d)) throw new WorkflowError(400, 'Emirates ID must be 15 digits starting with 784 (784-YYYY-NNNNNNN-C)');
+    out.eid_number = `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7, 14)}-${d.slice(14)}`;
   }
+  if (out.passport_number) {
+    out.passport_number = out.passport_number.replace(/\s/g, '').toUpperCase();
+    if (!/^[A-Z0-9]{5,20}$/.test(out.passport_number)) throw new WorkflowError(400, 'Passport number should be 5–20 letters and digits');
+  }
+  if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
+  if (has('salary')) out.salary = parseNumber(input.salary, 'Salary');
+  if (partial ? 'amount' in input : input.amount !== undefined) out.amount = parseNumber(input.amount, 'Amount');
+
+  if (!partial || PRODUCT_FIELDS.some((f) => f in input)) validateProduct(input, current, out);
   return out;
 }
 
@@ -217,8 +270,9 @@ export function listCases(db, user, { status, q, assigned, limit = 200 } = {}) {
   if (q) {
     const term = `%${String(q).trim()}%`;
     const idMatch = String(q).match(/^(?:crm-)?0*(\d+)$/i);
-    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(term, term, term, term, term, term);
+    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ? OR c.company_name LIKE ?
+      OR c.eid_number LIKE ? OR REPLACE(c.eid_number, '-', '') LIKE ? OR c.passport_number LIKE ? OR c.bidaya_id LIKE ? OR c.app_id LIKE ?${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(...Array(12).fill(term));
     if (idMatch) params.push(Number(idMatch[1]));
   }
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
