@@ -201,13 +201,46 @@ test('product must be one of the fixed options, and a bundle needs two or more p
   const id = r.data.case.id;
 
   // Editing only the bundle contents keeps the product; switching away from bundle clears them.
-  r = await sales('PUT', `/cases/${id}`, { bundle_products: 'credit_card,auto_loan,accounts' });
-  assert.equal(r.data.case.product_label, 'Bundle: Credit Card + Auto Loan + Accounts');
+  r = await sales('PUT', `/cases/${id}`, { bundle_products: 'credit_card,auto_loan,accounts', credit_card: 'Skywards Infinite Credit Card' });
+  assert.equal(r.data.case.product_label, 'Bundle: Credit Card (Skywards Infinite Credit Card) + Auto Loan + Accounts');
   assert.equal((await sales('PUT', `/cases/${id}`, { bundle_products: ['accounts'] })).status, 400);
   r = await sales('PUT', `/cases/${id}`, { product: 'credit_card', bundle_products: ['accounts', 'auto_loan'] });
   assert.equal(r.data.case.product, 'credit_card');
   assert.equal(r.data.case.bundle_products, null);
+  assert.equal(r.data.case.credit_card, 'Skywards Infinite Credit Card'); // kept from before
 
   const me = await sales('GET', '/me');
   assert.deepEqual(Object.keys(me.data.meta.products), ['personal_loan', 'credit_card', 'auto_loan', 'accounts']);
+});
+
+test('credit card cases must name a card from the list', async () => {
+  const sales = await login('sales@t.local');
+  const base = { customer_name: 'Card Test', phone: '9876543210' };
+
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'credit_card' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'credit_card', credit_card: 'Made Up Card' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card', 'accounts'] })).status, 400);
+
+  let r = await sales('POST', '/cases', { ...base, product: 'credit_card', credit_card: 'noon One Visa Credit Card' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.product_label, 'Credit Card (noon One Visa Credit Card)');
+  const id = r.data.case.id;
+
+  // Card is searchable
+  assert.ok((await sales('GET', '/cases?q=noon%20One')).data.cases.some((c) => c.id === id));
+
+  // Only the card can change; dropping the Credit Card product clears it.
+  r = await sales('PUT', `/cases/${id}`, { credit_card: 'LuLu Platinum Mastercard Credit Card' });
+  assert.equal(r.data.case.credit_card, 'LuLu Platinum Mastercard Credit Card');
+  r = await sales('PUT', `/cases/${id}`, { product: 'personal_loan' });
+  assert.equal(r.data.case.credit_card, null);
+
+  // A card is ignored for products that are not credit cards
+  r = await sales('POST', '/cases', { ...base, product: 'auto_loan', credit_card: 'Voyager World' });
+  assert.equal(r.data.case.credit_card, null);
+
+  const me = await sales('GET', '/me');
+  const cards = me.data.meta.credit_cards.flatMap((f) => f.cards);
+  assert.equal(cards.length, 29);
+  assert.ok(!cards.some((c) => /Family Total|All Cards/.test(c)));
 });

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS cases (
   city               TEXT,
   product            TEXT,
   bundle_products    TEXT,
+  credit_card        TEXT,
   amount             REAL,
   source             TEXT,
   sales_notes        TEXT,
@@ -89,6 +90,7 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
   if (!cols.includes('bundle_products')) db.exec('ALTER TABLE cases ADD COLUMN bundle_products TEXT');
+  if (!cols.includes('credit_card')) db.exec('ALTER TABLE cases ADD COLUMN credit_card TEXT');
 }
 
 export function transaction(db, fn) {

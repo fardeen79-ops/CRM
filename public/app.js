@@ -410,6 +410,15 @@ async function viewCaseForm(id) {
             ${Object.entries(products).map(([k, l]) => html`<label class="check"><input type="checkbox" name="bundle_products" value="${k}" ${bundled.has(k) ? raw('checked') : ''}> ${l}</label>`)}
           </div>
         </fieldset>
+        <div class="full" id="card-field" hidden>
+          <label for="f-credit_card">Credit card <span class="req">*</span></label>
+          <select id="f-credit_card" name="credit_card" required disabled>
+            <option value="">Choose a card…</option>
+            ${state.meta.credit_cards.map((f) => html`<optgroup label="${f.family}">
+              ${f.cards.map((card) => html`<option value="${card}" ${c.credit_card === card ? raw('selected') : ''}>${card}</option>`)}
+            </optgroup>`)}
+          </select>
+        </div>
         ${field('sales_notes', 'Notes for the processing team', { type: 'textarea', full: true, placeholder: 'Best time to call, language preference, anything to verify…' })}
       </div>
       <p class="error" id="form-error" hidden></p>
@@ -424,10 +433,16 @@ async function viewCaseForm(id) {
   const productSelect = document.getElementById('f-product');
   const picker = document.getElementById('bundle-picker');
   const boxes = [...picker.querySelectorAll('input[type=checkbox]')];
+  const cardField = document.getElementById('card-field');
+  const cardSelect = document.getElementById('f-credit_card');
   const checkBundle = () => {
     const isBundle = productSelect.value === 'bundle';
     const count = boxes.filter((b) => b.checked).length;
     boxes[0].setCustomValidity(isBundle && count < 2 ? 'Pick at least two products for a bundle' : '');
+    // Ask for the card only when Credit Card is the product or part of the bundle.
+    const needsCard = productSelect.value === 'credit_card' || (isBundle && boxes.some((b) => b.value === 'credit_card' && b.checked));
+    cardField.hidden = !needsCard;
+    cardSelect.disabled = !needsCard;
   };
   productSelect.onchange = () => { picker.hidden = productSelect.value !== 'bundle'; checkBundle(); };
   boxes.forEach((b) => (b.onchange = checkBundle));
@@ -440,6 +455,7 @@ async function viewCaseForm(id) {
     try {
       const body = formData(form);
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
+      body.credit_card ??= null;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
       toast(id ? (resubmit ? 'Saved and resubmitted for verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);
@@ -549,7 +565,8 @@ async function viewCase(id) {
             <dt>Address</dt><dd>${[c.address, c.city].filter(Boolean).join(', ') || '—'}</dd>
             <dt>Product</dt><dd>${c.product === 'bundle'
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
-              : c.product_label || '—'}</dd>
+              : state.meta.products[c.product] || c.product || '—'}</dd>
+            ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             <dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
             <dt>Sales notes</dt><dd style="white-space:pre-wrap">${c.sales_notes || '—'}</dd>

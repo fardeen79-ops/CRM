@@ -1,4 +1,5 @@
 import { transaction } from './db.js';
+import { CREDIT_CARD_NAMES } from './credit-cards.js';
 
 export class WorkflowError extends Error {
   constructor(status, message) {
@@ -35,12 +36,13 @@ export const PRODUCTS = {
 };
 export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
-export function productLabel(product, bundleProducts) {
+export function productLabel(product, bundleProducts, creditCard) {
+  const name = (p) => (p === 'credit_card' && creditCard ? `Credit Card (${creditCard})` : PRODUCTS[p] || p);
   if (product === 'bundle') {
-    const items = String(bundleProducts || '').split(',').filter(Boolean).map((p) => PRODUCTS[p] || p);
+    const items = String(bundleProducts || '').split(',').filter(Boolean).map(name);
     return items.length ? `Bundle: ${items.join(' + ')}` : 'Bundle';
   }
-  return PRODUCTS[product] || product || null;
+  return product ? name(product) : null;
 }
 
 const OPEN_FOR_PROCESSING = [STATUS.PENDING, STATUS.IN_VERIFICATION];
@@ -61,7 +63,7 @@ export const ACTIONS = {
   resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.PENDING },
 };
 
-const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'amount', 'source', 'sales_notes'];
+const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'credit_card', 'amount', 'source', 'sales_notes'];
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -80,19 +82,29 @@ function validateProduct(input, current, out) {
   }
   out.product = product;
   out.bundle_products = null;
-  if (product !== 'bundle') return;
-  const raw = 'bundle_products' in input ? input.bundle_products : current?.bundle_products;
-  const picked = new Set((Array.isArray(raw) ? raw : String(raw ?? '').split(',')).map((p) => String(p).trim()).filter(Boolean));
-  for (const p of picked) if (!PRODUCTS[p]) throw new WorkflowError(400, `Unknown bundle product: ${p}`);
-  if (picked.size < 2) throw new WorkflowError(400, 'A bundle needs at least two products');
-  // Stored in a fixed order so the same bundle always reads the same way.
-  out.bundle_products = Object.keys(PRODUCTS).filter((p) => picked.has(p)).join(',');
+  if (product === 'bundle') {
+    const raw = 'bundle_products' in input ? input.bundle_products : current?.bundle_products;
+    const picked = new Set((Array.isArray(raw) ? raw : String(raw ?? '').split(',')).map((p) => String(p).trim()).filter(Boolean));
+    for (const p of picked) if (!PRODUCTS[p]) throw new WorkflowError(400, `Unknown bundle product: ${p}`);
+    if (picked.size < 2) throw new WorkflowError(400, 'A bundle needs at least two products');
+    // Stored in a fixed order so the same bundle always reads the same way.
+    out.bundle_products = Object.keys(PRODUCTS).filter((p) => picked.has(p)).join(',');
+  }
+
+  const needsCard = product === 'credit_card' || String(out.bundle_products).split(',').includes('credit_card');
+  out.credit_card = null;
+  if (needsCard) {
+    const card = 'credit_card' in input ? clean(input.credit_card) : current?.credit_card;
+    if (!card) throw new WorkflowError(400, 'Choose which credit card the customer wants');
+    if (!CREDIT_CARD_NAMES.has(card)) throw new WorkflowError(400, `Unknown credit card: ${card}`);
+    out.credit_card = card;
+  }
 }
 
 function validateCaseInput(input, { partial = false, current = null } = {}) {
   const out = {};
   for (const field of EDITABLE_FIELDS) {
-    if (field === 'product' || field === 'bundle_products') continue;
+    if (field === 'product' || field === 'bundle_products' || field === 'credit_card') continue;
     if (partial && !(field in input)) continue;
     out[field] = clean(input[field], field === 'sales_notes' || field === 'address' ? 2000 : 200);
   }
@@ -110,7 +122,7 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
       }
     }
   }
-  if (!partial || 'product' in input || 'bundle_products' in input) validateProduct(input, current, out);
+  if (!partial || ['product', 'bundle_products', 'credit_card'].some((f) => f in input)) validateProduct(input, current, out);
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
   if ('amount' in out && out.amount !== null) {
     const amount = Number(out.amount.replace(/,/g, ''));
@@ -143,7 +155,7 @@ const CASE_SELECT = `
   LEFT JOIN users vb ON vb.id = c.verified_by
   LEFT JOIN users tb ON tb.id = c.tl_actioned_by`;
 
-const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products) };
+const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card) };
 
 function canView(user, row) {
   return user.role !== 'sales' || row.created_by === user.id;
@@ -182,8 +194,8 @@ export function listCases(db, user, { status, q, assigned, limit = 200 } = {}) {
   if (q) {
     const term = `%${String(q).trim()}%`;
     const idMatch = String(q).match(/^(?:crm-)?0*(\d+)$/i);
-    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ?${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(term, term, term, term);
+    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ?${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(term, term, term, term, term);
     if (idMatch) params.push(Number(idMatch[1]));
   }
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
