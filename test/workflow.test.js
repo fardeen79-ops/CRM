@@ -1002,3 +1002,42 @@ test('completing a loan records the disbursed amount, suggested from the file', 
   const c = (await complete(card)).data.case;
   assert.deepEqual([c.pl_disbursed_amount, c.allowed_actions.includes('set_disbursal')], [null, false]);
 });
+
+test('an inactive card 90 or more days after its temp end moves to Out of activation range', async () => {
+  const { openDb } = await import('../src/db.js');
+  const { createUser } = await import('../src/auth.js');
+  const cases = await import('../src/cases.js');
+  const perf = await import('../src/performance.js');
+  const db = openDb(':memory:');
+  const tl = createUser(db, { name: 'TL', email: 'tl@x.local', role: 'team_leader', password: 'password123' });
+  const sm = createUser(db, { name: 'SM', email: 'sm@x.local', role: 'sales_manager', password: 'password123' });
+  const mis = createUser(db, { name: 'Mo', email: 'mis@x.local', role: 'mis', password: 'password123' });
+  const sales = createUser(db, { name: 'Sa', email: 's@x.local', role: 'sales', password: 'password123', sales_code: 'S-9', team_leader_id: tl.id, sales_manager_id: sm.id });
+  const make = (daysAgo) => {
+    const id = cases.createCase(db, sales, { ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' }).id;
+    cases.applyAction(db, mis, id, { action: 'set_case_status', case_status: 'completed' });
+    cases.applyAction(db, mis, id, { action: 'set_card_status', card_status: 'inactive', activation_date: '2026-01-01' });
+    db.prepare('UPDATE cases SET case_status_at = ? WHERE id = ?').run(new Date(Date.now() - daysAgo * 864e5).toISOString(), id);
+    return id;
+  };
+  const old = make(95);
+  const young = make(60);
+  const edge = make(89);
+  const ninety = make(90);
+  // Reading cases applies the rule.
+  const byId = Object.fromEntries(cases.listCases(db, mis, { card: 'all' }).map((c) => [c.id, c.card_status]));
+  assert.deepEqual([byId[old], byId[young], byId[edge], byId[ninety]], ['out_of_range', 'inactive', 'inactive', 'out_of_range']);
+  const c = cases.getCase(db, mis, old);
+  assert.match(c.events[0].detail, /Out of activation range/);
+  assert.equal(c.events[0].user_id, null);
+  assert.deepEqual(cases.listCases(db, mis, { card: 'out_of_range' }).map((x) => x.id).sort(), [old, ninety]);
+  // MIS can still mark it active if the customer activates late; it then stays active.
+  cases.applyAction(db, mis, old, { action: 'set_card_status', card_status: 'active', activation_date: '2026-02-01' });
+  assert.equal(cases.getCase(db, mis, old).card_status, 'active');
+  // Targets count out-of-range cards on their own.
+  db.prepare("UPDATE cases SET card_status = 'inactive' WHERE id = ?").run(old);
+  const cycle = (await import('../src/cycles.js')).cycleOf(new Date(Date.now() - 95 * 864e5 + 4 * 3600e3).toISOString().slice(0, 10));
+  const inCycle = cases.listCases(db, mis, { card: 'out_of_range', cycle }).length;
+  assert.ok(inCycle >= 1);
+  assert.equal(perf.targetReport(db, mis, cycle).total.cards.out_of_range, inCycle);
+});

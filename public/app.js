@@ -91,7 +91,8 @@ const completionLabel = (c) => [
   caseProducts(c).some((p) => p === 'personal_loan' || p === 'auto_loan') && 'Disbursed',
 ].filter(Boolean).join(' / ');
 const cardChip = (st) => (st === 'active' ? html`<span class="chip good">Card active</span>`
-  : st === 'inactive' ? html`<span class="chip bad">Card inactive</span>` : html`<span class="chip">Not mapped</span>`);
+  : st === 'inactive' ? html`<span class="chip bad">Card inactive</span>`
+    : st === 'out_of_range' ? html`<span class="chip out-range">Out of activation range</span>` : html`<span class="chip">Not mapped</span>`);
 // Loans are measured by the AED amount disbursed; the file's amount is the suggestion.
 const LOAN_DISBURSAL = { personal_loan: ['pl_disbursed_amount', 'Personal loan'], auto_loan: ['al_disbursed_amount', 'Auto loan'] };
 const loansIn = (c) => Object.keys(LOAN_DISBURSAL).filter((p) => caseProducts(c).includes(p));
@@ -101,7 +102,20 @@ const fmtAed = (n) => `AED ${Number(n).toLocaleString(undefined, { maximumFracti
 const fmtAedShort = (n) => `AED ${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(n)}`;
 const disbursedText = (c) => loansIn(c).filter((p) => c[LOAN_DISBURSAL[p][0]] != null).map((p) => `${LOAN_DISBURSAL[p][1]} ${fmtAed(c[LOAN_DISBURSAL[p][0]])}`).join(' · ');
 // The date that goes with a card status: when it was activated, or since when it is inactive.
-const cardDateText = (c) => (c.card_activation_date ? `${c.card_status === 'inactive' ? 'Inactive since' : 'Activated on'} ${fmtDay(c.card_activation_date)}` : '');
+const cardDateText = (c) => (c.card_activation_date ? `${c.card_status === 'active' ? 'Activated on' : 'Inactive since'} ${fmtDay(c.card_activation_date)}` : '');
+// Ageing of an inactive card: whole days since the case was completed (the temp end), in UAE dates.
+const uaeDayOf = (ms) => new Date(ms + 4 * 3600e3).toISOString().slice(0, 10);
+const cardAgeDays = (c) => (['inactive', 'out_of_range'].includes(c.card_status) && c.case_status_at
+  ? Math.round((Date.parse(uaeDayOf(Date.now())) - Date.parse(uaeDayOf(Date.parse(c.case_status_at)))) / 864e5) : null);
+// Inactive cards by days since the temp end. At 90 days a card moves to Out of activation range.
+const AGE_BANDS = [[30, '0–30 days', ''], [60, '31–60 days', 'fair'], [89, '61–89 days', 'bad']];
+const ageBand = (d) => AGE_BANDS.find(([max]) => d <= max);
+const ageChip = (c) => {
+  const d = cardAgeDays(c);
+  if (d == null) return '';
+  const cls = c.card_status === 'out_of_range' ? 'out-range' : (ageBand(d) || AGE_BANDS[AGE_BANDS.length - 1])[2];
+  return html`<span class="chip ${cls}" title="Days since the temp end on ${fmtIsoDay(c.case_status_at)}">${d} ${d === 1 ? 'day' : 'days'}</span>`;
+};
 const fmtIsoDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
@@ -603,7 +617,7 @@ const COLS = {
   tl_note: ['Team leader note', (c) => c.tl_note],
   updated: ['Updated', (c) => html`<span class="small">${fmtDate(c.updated_at)}</span>`],
   completed_on: ['Completed', (c) => html`<span class="small nowrap">${fmtIsoDay(c.case_status_at)}</span><div class="muted small">${completionLabel(c)}</div>${disbursedText(c) ? html`<div class="small">${disbursedText(c)}</div>` : ''}`],
-  card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${cardDateText(c)}</div>` : ''}`],
+  card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${cardDateText(c)}</div>` : ''}${cardAgeDays(c) != null ? html`<div class="small">Ageing ${ageChip(c)}</div>` : ''}`],
 };
 
 function caseTable(cases, { cols, empty = 'No cases found' }) {
@@ -1288,7 +1302,7 @@ async function viewCase(id) {
           <dl class="details">
             <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
             ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong>${disbursedText(c) ? html`<div>${disbursedText(c)}</div>` : ''}<div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
-            ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="small">${cardDateText(c)}</div><div class="muted small">Mapped by ${c.card_status_by_name} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
+            ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="small">${cardDateText(c)}</div>${cardAgeDays(c) != null ? html`<div class="age-line">Ageing ${ageChip(c)} <span class="muted small">since the temp end on ${fmtIsoDay(c.case_status_at)}</span></div>` : ''}<div class="muted small">${c.card_status_by_name ? `Mapped by ${c.card_status_by_name}` : `Moved automatically after ${state.meta.card_range_days} days`} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
             ${row('Region', state.meta.regions[c.region])}
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
@@ -1529,7 +1543,7 @@ function targetTiles(rep, block) {
       <div class="kpi-label">Card activation</div>
       <div class="meter-text"><strong>${cards.active}</strong><span class="muted"> active of ${cards.temp_end} temp ends</span></div>
       <div class="meter"><span style="width:${activationRate(cards) ?? 0}%"></span></div>
-      <div class="muted small">${cards.temp_end ? `${activationRate(cards)}% activated · ${cards.inactive} inactive · ${cards.unmapped} not mapped` : 'No temp ends yet'}</div>
+      <div class="muted small">${cards.temp_end ? `${activationRate(cards)}% activated · ${cards.inactive} inactive${cards.out_of_range ? ` · ${cards.out_of_range} out of range` : ''} · ${cards.unmapped} not mapped` : 'No temp ends yet'}</div>
     </a>
   </div>`;
 }
@@ -1642,15 +1656,21 @@ async function viewTargets(cycleParam) {
 }
 
 // ---------- card activation ----------
-const CARD_FILTERS = [['all', 'All temp ends'], ['unmapped', 'Not mapped'], ['active', 'Active'], ['inactive', 'Inactive']];
+const CARD_FILTERS = [['all', 'All temp ends'], ['unmapped', 'Not mapped'], ['active', 'Active'], ['inactive', 'Inactive'], ['out_of_range', 'Out of range']];
 
 async function viewCards(params) {
   const card = CARD_FILTERS.some(([k]) => k === params.get('card')) ? params.get('card') : 'all';
   const cycle = params.get('cycle') || '';
   const { cases } = await api(`/cases?${new URLSearchParams({ card: 'all', limit: '1000', ...(cycle && { cycle }) })}`);
-  const counts = { all: cases.length, unmapped: 0, active: 0, inactive: 0 };
+  const counts = { all: cases.length, unmapped: 0, active: 0, inactive: 0, out_of_range: 0 };
   for (const c of cases) counts[c.card_status || 'unmapped']++;
   const shown = card === 'all' ? cases : cases.filter((c) => (c.card_status || 'unmapped') === card);
+  // Inactive cards, oldest first, so the longest-inactive ones get followed up first.
+  if (card === 'inactive' || card === 'out_of_range') shown.sort((a, b) => cardAgeDays(b) - cardAgeDays(a));
+  const inactive = cases.filter((c) => c.card_status === 'inactive');
+  const bands = AGE_BANDS.map(([max, label, cls], i) => ({
+    label, cls, n: inactive.filter((c) => { const d = cardAgeDays(c); return d <= max && (i === 0 || d > AGE_BANDS[i - 1][0]); }).length,
+  }));
   const canMap = state.meta.card_mappers.includes(state.user.role);
   const cycles = Array.from({ length: 12 }, (_, i) => shiftCycle(state.meta.current_cycle, -i));
   const href = (changes) => {
@@ -1662,11 +1682,11 @@ async function viewCards(params) {
   shell(html`
     <div class="page-head">
       <div><h1>Card activation</h1>
-        <p class="muted lede">Every completed credit card case (temp end), mapped to the sales person who sourced it. ${canMap ? 'To change a card, set the date in its row, then choose Active or Inactive. Or upload the bank\'s activation report.' : 'MIS records whether each card was activated, and when.'}</p></div>
+        <p class="muted lede">Every completed credit card case (temp end), mapped to the sales person who sourced it. A card still inactive 90 days after its temp end moves to Out of activation range on its own. ${canMap ? 'To change a card, set the date in its row, then choose Active or Inactive. Or upload the bank\'s activation report.' : 'MIS records whether each card was activated, and when.'}</p></div>
       ${canMap ? html`<a class="btn" href="#/import/cards">Upload activation report</a>` : ''}
     </div>
     <div class="kpis card-kpis">
-      ${[['all', 'Temp ends'], ['active', 'Active'], ['inactive', 'Inactive'], ['unmapped', 'Not mapped']].map(([k, l]) => html`<a class="kpi ${k === card ? 'kpi-on' : ''}" href="${href({ card: k })}">
+      ${[['all', 'Temp ends'], ['active', 'Active'], ['inactive', 'Inactive'], ['out_of_range', 'Out of activation range'], ['unmapped', 'Not mapped']].map(([k, l]) => html`<a class="kpi ${k === card ? 'kpi-on' : ''}" href="${href({ card: k })}">
         <span class="kpi-label">${l}</span><span class="kpi-value">${counts[k]}</span>
         <span class="kpi-sub">${k === 'all' ? (cycle ? `${cycleName(cycle)} cycle` : 'All cycles') : counts.all ? `${Math.round((counts[k] / counts.all) * 100)}% of temp ends` : ' '}</span>
       </a>`)}
@@ -1679,14 +1699,21 @@ async function viewCards(params) {
           </select></label>
         <div class="tabs" aria-label="Card status">${CARD_FILTERS.map(([k, l]) => html`<a class="${k === card ? 'active' : ''}" href="${href({ card: k })}">${l} <span class="muted">${counts[k]}</span></a>`)}</div>
       </div>
+      ${(inactive.length || counts.out_of_range) && ['inactive', 'all', 'out_of_range'].includes(card) ? html`<div class="ageing-strip" aria-label="Inactive card ageing">
+        <span class="small"><strong>Inactive ageing</strong> <span class="muted">days since temp end</span></span>
+        ${bands.map((b) => html`<span class="chip ${b.n ? b.cls : ''}">${b.label}: <strong>${b.n}</strong></span>`)}
+        <a class="chip ${counts.out_of_range ? 'out-range' : ''}" href="${href({ card: 'out_of_range' })}">90+ days, out of range: <strong>${counts.out_of_range}</strong></a>
+        ${card === 'all' ? html`<a class="small" href="${href({ card: 'inactive' })}">View inactive, oldest first →</a>` : html`<span class="muted small">Oldest first</span>`}
+      </div>` : ''}
       ${shown.length ? html`<div class="table-wrap"><table>
-        <thead><tr><th>Ref</th><th>Customer</th><th>Sales staff</th><th>Temp end</th><th>Card status</th>${canMap ? html`<th>Change status (date, then status)</th>` : ''}</tr></thead>
+        <thead><tr><th>Ref</th><th>Customer</th><th>Sales staff</th><th>Temp end</th><th>Card status</th><th>Ageing <span class="muted">(days since temp end)</span></th>${canMap ? html`<th>Change status <span class="muted">(date, then status)</span></th>` : ''}</tr></thead>
         <tbody>${shown.map((c) => html`<tr data-href="#/cases/${c.id}" data-case="${c.id}">
           <td><strong>${c.ref}</strong>${c.app_id ? html`<div class="muted small mono">${c.app_id}</div>` : ''}</td>
           <td>${c.customer_name}<div class="muted small">${c.credit_card || ''}</div></td>
           <td>${c.sales_staff_name || '—'}<div class="muted small"><span class="mono">${c.sales_code || ''}</span>${c.team_leader_name ? ` · TL ${c.team_leader_name}` : ''}</div></td>
           <td class="small nowrap">${fmtIsoDay(c.case_status_at)}<div class="muted">${cycleName(cycleOfIso(c.case_status_at))} cycle</div></td>
           <td>${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${cardDateText(c)}</div>` : ''}</td>
+          <td>${cardAgeDays(c) != null ? ageChip(c) : html`<span class="muted">—</span>`}</td>
           ${canMap ? html`<td class="map-cell"><div class="map-row">
             <input type="date" class="map-date" value="${c.card_activation_date || todayLocal()}" max="${todayLocal()}" aria-label="Status date for ${c.ref}">
             <div class="segmented map-toggle" role="group" aria-label="Card status for ${c.ref}">

@@ -524,3 +524,11 @@ fieldset.disbursal-fields { border: 1px solid var(--border); border-radius: 8px;
 fieldset.disbursal-fields legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
 .map-row { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
 .map-date { width: 140px; padding: 4px 8px; font-size: 13px; }
+.ageing-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }
+.ageing-strip .chip strong { font-variant-numeric: tabular-nums; }
+.age-line { margin: 2px 0; }
+.chip.out-range { color: var(--s-rejected); background: var(--s-rejected-bg); border-color: var(--s-rejected); }
+a.chip:hover { text-decoration: none; filter: brightness(1.05); }
+.card-kpis { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 900px) { .card-kpis { grid-template-columns: repeat(2, 1fr); } }
+.card-kpis + .card th .muted { text-transform: none; letter-spacing: 0; font-weight: 500; }

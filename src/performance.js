@@ -6,7 +6,7 @@
 // Credit cards and accounts are counted; personal and auto loans are measured by the AED amount
 // disbursed. A bundle counts for each product in it.
 import { transaction } from './db.js';
-import { PRODUCTS, CARD_STATUS, DISBURSAL_FIELDS, WorkflowError, caseProducts, includesCard, COMPLETED_IN_SQL } from './cases.js';
+import { PRODUCTS, CARD_STATES, DISBURSAL_FIELDS, sweepCardAgeing, WorkflowError, caseProducts, includesCard, COMPLETED_IN_SQL } from './cases.js';
 import { uaeDay, cycleOf, isCycle, cycleRange, cycleLabel } from './cycles.js';
 
 // Credit cards first: the main product for sales staff.
@@ -31,7 +31,7 @@ function staffInScope(db, user) {
 }
 
 const emptyCounts = () => Object.fromEntries(Object.keys(TARGET_PRODUCTS).map((p) => [p, 0]));
-const emptyCards = () => ({ temp_end: 0, active: 0, inactive: 0, unmapped: 0 });
+const emptyCards = () => ({ temp_end: 0, active: 0, inactive: 0, out_of_range: 0, unmapped: 0 });
 
 function addInto(into, from) {
   for (const [k, v] of Object.entries(from)) if (v != null) into[k] = (into[k] ?? 0) + v;
@@ -46,6 +46,7 @@ export function targetReport(db, user, cycle) {
   cycle = cycle ? String(cycle) : cycleOf(today);
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const { start, end } = cycleRange(cycle);
+  sweepCardAgeing(db);
   const staff = staffInScope(db, user);
   // `achieved` is in each product's unit (cases or AED); `cases` counts completed cases per product.
   const byId = new Map(staff.map((s) => [s.id, { ...s, target: {}, achieved: emptyCounts(), cases: emptyCounts(), cards: emptyCards() }]));
@@ -66,7 +67,7 @@ export function targetReport(db, user, cycle) {
     }
     if (includesCard(c)) {
       s.cards.temp_end++;
-      s.cards[CARD_STATUS[c.card_status] ? c.card_status : 'unmapped']++;
+      s.cards[CARD_STATES[c.card_status] ? c.card_status : 'unmapped']++;
     }
   }
   // Former staff only appear when they have numbers in this cycle.

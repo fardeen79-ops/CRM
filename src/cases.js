@@ -43,6 +43,10 @@ export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh
 // A completed case is a temp end for credit cards and a disbursal for loans. After a card's temp
 // end, MIS maps whether the card was activated.
 export const CARD_STATUS = { active: 'Active', inactive: 'Inactive' };
+// An inactive card this many days or more after its temp end moves to Out of activation range
+// on its own. MIS can still mark it Active if the customer activates later.
+export const CARD_RANGE_DAYS = 90;
+export const CARD_STATES = { ...CARD_STATUS, out_of_range: 'Out of activation range' };
 export const CARD_MAPPERS = ['mis', 'business_head'];
 /** The products a case counts for: a bundle counts once for each product in it. */
 export const caseProducts = (row) => (row.product === 'bundle' ? String(row.bundle_products || '').split(',').filter(Boolean) : [row.product]);
@@ -437,6 +441,7 @@ function canView(user, row) {
 }
 
 export function getCase(db, user, id) {
+  sweepCardAgeing(db);
   const row = db.prepare(`${CASE_SELECT} WHERE c.id = ?`).get(id);
   if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
   const events = db
@@ -453,6 +458,7 @@ export function getCase(db, user, id) {
 }
 
 export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, limit = 200 } = {}) {
+  sweepCardAgeing(db);
   const where = [];
   const params = [];
   // Completed in a sales cycle (21st to 20th), e.g. a target's achievement.
@@ -464,7 +470,7 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
   // Card activation: completed credit card cases, optionally by mapping.
   if (card) {
     where.push(`c.case_status = 'completed' AND ${CARD_SQL}`);
-    if (CARD_STATUS[card]) {
+    if (CARD_STATES[card]) {
       where.push('c.card_status = ?');
       params.push(card);
     } else if (card === 'unmapped') where.push('c.card_status IS NULL');
@@ -756,6 +762,25 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
  * to clear, with the date of that status (activated on / inactive since; today when not given).
  * Used by the case page, the card activation list and bulk upload; runs in the caller's transaction.
  */
+/**
+ * Moves inactive cards past the activation window to Out of activation range, recording it on
+ * each case. Runs before cases or numbers are read, so the status is always up to date.
+ */
+export function sweepCardAgeing(db) {
+  const stale = db.prepare(`SELECT c.id FROM cases c WHERE c.card_status = 'inactive' AND c.case_status = 'completed'
+    AND julianday(?) - julianday(date(c.case_status_at, '+4 hours')) >= ?`).all(uaeDay(), CARD_RANGE_DAYS);
+  if (!stale.length) return 0;
+  const ts = now();
+  // No transaction of its own: this can run inside a caller's transaction (e.g. getCase after an action).
+  for (const { id } of stale) {
+    db.prepare("UPDATE cases SET card_status = 'out_of_range', card_status_by = NULL, card_status_at = ?, updated_at = ? WHERE id = ?").run(ts, ts, id);
+    addEvent(db, id, null, 'card_status', {
+      from: 'inactive', to: 'out_of_range', detail: `Out of activation range: still inactive ${CARD_RANGE_DAYS}+ days after the temp end`,
+    });
+  }
+  return stale.length;
+}
+
 const disbursalText = (amounts) => Object.entries(DISBURSAL_FIELDS)
   .filter(([, f]) => amounts[f] != null)
   .map(([p, f]) => `${PRODUCTS[p]} AED ${amounts[f].toLocaleString('en-US', { maximumFractionDigits: 2 })}`)
