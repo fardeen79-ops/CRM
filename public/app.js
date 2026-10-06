@@ -102,7 +102,8 @@ const fmtAed = (n) => `AED ${Number(n).toLocaleString(undefined, { maximumFracti
 const fmtAedShort = (n) => `AED ${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(n)}`;
 const disbursedText = (c) => loansIn(c).filter((p) => c[LOAN_DISBURSAL[p][0]] != null).map((p) => `${LOAN_DISBURSAL[p][1]} ${fmtAed(c[LOAN_DISBURSAL[p][0]])}`).join(' · ');
 // The date that goes with a card status: when it was activated, or since when it is inactive.
-const cardDateText = (c) => (c.card_activation_date ? `${c.card_status === 'active' ? 'Activated on' : 'Inactive since'} ${fmtDay(c.card_activation_date)}` : '');
+const cardDateText = (c) => (c.card_activation_date
+  ? `${c.card_status === 'active' ? 'Activated on' : 'Inactive since'} ${fmtDay(c.card_activation_date)}${c.card_status === 'inactive' && !c.card_status_by ? ' · by default' : ''}` : '');
 // Ageing of an inactive card: whole days since the case was completed (the temp end), in UAE dates.
 const uaeDayOf = (ms) => new Date(ms + 4 * 3600e3).toISOString().slice(0, 10);
 const cardAgeDays = (c) => (['inactive', 'out_of_range'].includes(c.card_status) && c.case_status_at
@@ -1236,7 +1237,7 @@ async function viewCase(id) {
   }
   if (a.has('set_card_status')) {
     panel.push(html`${sep()}<h3>Card activation</h3>
-      <p class="muted small">After the temp end, record whether the customer activated the card. It counts for ${c.sales_staff_name || 'the sales person'}.</p>
+      <p class="muted small">The card is Inactive from the temp end until you mark it Active. It counts for ${c.sales_staff_name || 'the sales person'}.</p>
       <form data-form="set_card_status" id="card-form">
         <div class="segmented two-up card-pick" role="radiogroup" aria-label="Card status">
           <label><input type="radio" name="card_status" value="active" required ${c.card_status === 'active' ? raw('checked') : ''}><span>Active</span></label>
@@ -1244,7 +1245,7 @@ async function viewCase(id) {
         </div>
         <div class="field-row" id="card-date"><label for="card-date-input" id="card-date-label">${c.card_status === 'inactive' ? 'Inactive since' : 'Activated on'}</label>
           <input id="card-date-input" type="date" name="activation_date" value="${c.card_activation_date || todayLocal()}" max="${todayLocal()}" required></div>
-        <div class="actions"><button class="btn-primary">Save card status</button>${c.card_status ? html`<button type="button" data-card-clear>Clear mapping</button>` : ''}</div>
+        <div class="actions"><button class="btn-primary">Save card status</button></div>
       </form>`);
   }
 
@@ -1302,7 +1303,7 @@ async function viewCase(id) {
           <dl class="details">
             <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
             ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong>${disbursedText(c) ? html`<div>${disbursedText(c)}</div>` : ''}<div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
-            ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="small">${cardDateText(c)}</div>${cardAgeDays(c) != null ? html`<div class="age-line">Ageing ${ageChip(c)} <span class="muted small">since the temp end on ${fmtIsoDay(c.case_status_at)}</span></div>` : ''}<div class="muted small">${c.card_status_by_name ? `Mapped by ${c.card_status_by_name}` : `Moved automatically after ${state.meta.card_range_days} days`} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
+            ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="small">${cardDateText(c)}</div>${cardAgeDays(c) != null ? html`<div class="age-line">Ageing ${ageChip(c)} <span class="muted small">since the temp end on ${fmtIsoDay(c.case_status_at)}</span></div>` : ''}<div class="muted small">${c.card_status_by_name ? `Mapped by ${c.card_status_by_name}` : (c.card_status === 'inactive' ? 'Inactive by default until activation is confirmed' : `Moved automatically after ${state.meta.card_range_days} days`)} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
             ${row('Region', state.meta.regions[c.region])}
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
@@ -1392,7 +1393,6 @@ async function viewCase(id) {
   if (cardForm) {
     const dateLabel = cardForm.querySelector('#card-date-label');
     cardForm.querySelectorAll('input[name=card_status]').forEach((r) => (r.onchange = () => { dateLabel.textContent = r.value === 'inactive' ? 'Inactive since' : 'Activated on'; }));
-    cardForm.querySelector('[data-card-clear]')?.addEventListener('click', (e) => run({ action: 'set_card_status', card_status: '' }, e.target));
   }
   app.querySelectorAll('form[data-form]').forEach((f) => {
     const kind = f.dataset.form;
@@ -1543,7 +1543,7 @@ function targetTiles(rep, block) {
       <div class="kpi-label">Card activation</div>
       <div class="meter-text"><strong>${cards.active}</strong><span class="muted"> active of ${cards.temp_end} temp ends</span></div>
       <div class="meter"><span style="width:${activationRate(cards) ?? 0}%"></span></div>
-      <div class="muted small">${cards.temp_end ? `${activationRate(cards)}% activated · ${cards.inactive} inactive${cards.out_of_range ? ` · ${cards.out_of_range} out of range` : ''} · ${cards.unmapped} not mapped` : 'No temp ends yet'}</div>
+      <div class="muted small">${cards.temp_end ? `${activationRate(cards)}% activated · ${cards.inactive} inactive${cards.out_of_range ? ` · ${cards.out_of_range} out of range` : ''}` : 'No temp ends yet'}</div>
     </a>
   </div>`;
 }
@@ -1580,7 +1580,7 @@ async function viewTargets(cycleParam) {
             ? html`<td><input class="target-input aed" inputmode="numeric" name="${k}" value="${p.target[k] != null ? p.target[k].toLocaleString('en-US') : ''}" aria-label="${n} disbursal target in AED for ${p.name}" placeholder="AED"></td>`
             : html`<td><input class="target-input" type="number" min="0" step="1" inputmode="numeric" name="${k}" value="${p.target[k] ?? ''}" aria-label="${n} target for ${p.name}" placeholder="—"></td>`)
           : html`<td>${meter(p.achieved[k], p.target[k] ?? null, { compact: true, unit: rep.units[k] })}</td>`))}
-        ${editing ? '' : html`<td class="small">${p.cards.active}/${p.cards.temp_end}${p.cards.unmapped ? html`<div class="muted">${p.cards.unmapped} not mapped</div>` : ''}</td>`}
+        ${editing ? '' : html`<td class="small">${p.cards.active}/${p.cards.temp_end}${p.cards.inactive + p.cards.out_of_range ? html`<div class="muted">${p.cards.inactive} inactive${p.cards.out_of_range ? ` · ${p.cards.out_of_range} out of range` : ''}</div>` : ''}</td>`}
       </tr>`)}</tbody>
     </table></div>`;
 
@@ -1656,15 +1656,15 @@ async function viewTargets(cycleParam) {
 }
 
 // ---------- card activation ----------
-const CARD_FILTERS = [['all', 'All temp ends'], ['unmapped', 'Not mapped'], ['active', 'Active'], ['inactive', 'Inactive'], ['out_of_range', 'Out of range']];
+const CARD_FILTERS = [['all', 'All temp ends'], ['active', 'Active'], ['inactive', 'Inactive'], ['out_of_range', 'Out of range']];
 
 async function viewCards(params) {
   const card = CARD_FILTERS.some(([k]) => k === params.get('card')) ? params.get('card') : 'all';
   const cycle = params.get('cycle') || '';
   const { cases } = await api(`/cases?${new URLSearchParams({ card: 'all', limit: '1000', ...(cycle && { cycle }) })}`);
-  const counts = { all: cases.length, unmapped: 0, active: 0, inactive: 0, out_of_range: 0 };
-  for (const c of cases) counts[c.card_status || 'unmapped']++;
-  const shown = card === 'all' ? cases : cases.filter((c) => (c.card_status || 'unmapped') === card);
+  const counts = { all: cases.length, active: 0, inactive: 0, out_of_range: 0 };
+  for (const c of cases) if (c.card_status in counts) counts[c.card_status]++;
+  const shown = card === 'all' ? cases : cases.filter((c) => c.card_status === card);
   // Inactive cards, oldest first, so the longest-inactive ones get followed up first.
   if (card === 'inactive' || card === 'out_of_range') shown.sort((a, b) => cardAgeDays(b) - cardAgeDays(a));
   const inactive = cases.filter((c) => c.card_status === 'inactive');
@@ -1682,11 +1682,11 @@ async function viewCards(params) {
   shell(html`
     <div class="page-head">
       <div><h1>Card activation</h1>
-        <p class="muted lede">Every completed credit card case (temp end), mapped to the sales person who sourced it. A card still inactive 90 days after its temp end moves to Out of activation range on its own. ${canMap ? 'To change a card, set the date in its row, then choose Active or Inactive. Or upload the bank\'s activation report.' : 'MIS records whether each card was activated, and when.'}</p></div>
+        <p class="muted lede">Every completed credit card case (temp end), mapped to the sales person who sourced it. A card is Inactive from its temp end until it is marked Active; one still inactive 90 days after its temp end moves to Out of activation range on its own. ${canMap ? 'To change a card, set the date in its row, then choose Active or Inactive. Or upload the bank\'s activation report.' : 'MIS records whether each card was activated, and when.'}</p></div>
       ${canMap ? html`<a class="btn" href="#/import/cards">Upload activation report</a>` : ''}
     </div>
     <div class="kpis card-kpis">
-      ${[['all', 'Temp ends'], ['active', 'Active'], ['inactive', 'Inactive'], ['out_of_range', 'Out of activation range'], ['unmapped', 'Not mapped']].map(([k, l]) => html`<a class="kpi ${k === card ? 'kpi-on' : ''}" href="${href({ card: k })}">
+      ${[['all', 'Temp ends'], ['active', 'Active'], ['inactive', 'Inactive'], ['out_of_range', 'Out of activation range']].map(([k, l]) => html`<a class="kpi ${k === card ? 'kpi-on' : ''}" href="${href({ card: k })}">
         <span class="kpi-label">${l}</span><span class="kpi-value">${counts[k]}</span>
         <span class="kpi-sub">${k === 'all' ? (cycle ? `${cycleName(cycle)} cycle` : 'All cycles') : counts.all ? `${Math.round((counts[k] / counts.all) * 100)}% of temp ends` : ' '}</span>
       </a>`)}

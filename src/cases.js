@@ -763,22 +763,35 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
  * Used by the case page, the card activation list and bulk upload; runs in the caller's transaction.
  */
 /**
- * Moves inactive cards past the activation window to Out of activation range, recording it on
- * each case. Runs before cases or numbers are read, so the status is always up to date.
+ * Keeps card statuses up to date; runs before cases or numbers are read.
+ * 1. A completed card case with no result yet is Inactive by default, from its temp end date,
+ *    until MIS confirms the card was activated.
+ * 2. An inactive card 90+ days after its temp end moves to Out of activation range.
+ * Each change is recorded on the case as a system event.
  */
 export function sweepCardAgeing(db) {
-  const stale = db.prepare(`SELECT c.id FROM cases c WHERE c.card_status = 'inactive' AND c.case_status = 'completed'
-    AND julianday(?) - julianday(date(c.case_status_at, '+4 hours')) >= ?`).all(uaeDay(), CARD_RANGE_DAYS);
-  if (!stale.length) return 0;
   const ts = now();
   // No transaction of its own: this can run inside a caller's transaction (e.g. getCase after an action).
+  const unmapped = db.prepare(`SELECT c.id, c.case_status_at FROM cases c
+    WHERE c.card_status IS NULL AND c.case_status = 'completed' AND ${CARD_SQL}`).all();
+  for (const { id, case_status_at: at } of unmapped) {
+    const day = uaeDay(Date.parse(at));
+    db.prepare("UPDATE cases SET card_status = 'inactive', card_activation_date = ?, card_status_by = NULL, card_status_at = ? WHERE id = ?").run(day, ts, id);
+    addEvent(db, id, null, 'card_status', { to: 'inactive', detail: `Inactive by default from the temp end on ${day}, until activation is confirmed` });
+  }
+  // A default (unconfirmed) Inactive always dates from the temp end, even if the case is completed again later.
+  db.prepare(`UPDATE cases SET card_activation_date = date(case_status_at, '+4 hours')
+    WHERE card_status = 'inactive' AND card_status_by IS NULL AND case_status = 'completed'
+      AND card_activation_date IS NOT date(case_status_at, '+4 hours')`).run();
+  const stale = db.prepare(`SELECT c.id FROM cases c WHERE c.card_status = 'inactive' AND c.case_status = 'completed'
+    AND julianday(?) - julianday(date(c.case_status_at, '+4 hours')) >= ?`).all(uaeDay(), CARD_RANGE_DAYS);
   for (const { id } of stale) {
     db.prepare("UPDATE cases SET card_status = 'out_of_range', card_status_by = NULL, card_status_at = ?, updated_at = ? WHERE id = ?").run(ts, ts, id);
     addEvent(db, id, null, 'card_status', {
       from: 'inactive', to: 'out_of_range', detail: `Out of activation range: still inactive ${CARD_RANGE_DAYS}+ days after the temp end`,
     });
   }
-  return stale.length;
+  return unmapped.length + stale.length;
 }
 
 const disbursalText = (amounts) => Object.entries(DISBURSAL_FIELDS)
@@ -790,8 +803,9 @@ export function setCardStatus(db, user, row, { card_status, activation_date } = 
   if (row.case_status !== 'completed' || !includesCard(row)) {
     throw new WorkflowError(409, 'Card activation can only be mapped on a completed credit card case');
   }
-  const status = String(card_status ?? '').trim().toLowerCase() || null;
-  if (status && !CARD_STATUS[status]) throw new WorkflowError(400, 'Card status must be Active or Inactive');
+  // Every completed card has a status (Inactive by default), so it can only be set, not cleared.
+  const status = String(card_status ?? '').trim().toLowerCase();
+  if (!CARD_STATUS[status]) throw new WorkflowError(400, 'Card status must be Active or Inactive');
   const label = status === 'inactive' ? 'Inactive since date' : 'Activation date';
   let date = status ? clean(activation_date, 10) || uaeDay() : null;
   if (date) {

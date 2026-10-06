@@ -888,7 +888,8 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   assert.equal((await sally('POST', `/cases/${id}/actions`, { action: 'set_disbursal', pl_disbursed_amount: 1 })).status, 403);
   await mis('POST', `/cases/${id}/actions`, { action: 'set_disbursal', pl_disbursed_amount: 145000 });
   assert.equal((await sally('GET', `/targets?cycle=${cycle}`)).data.staff[0].achieved.personal_loan, start.personal_loan + 145000);
-  assert.equal(mine.staff[0].cards.unmapped >= 1, true);
+  assert.equal(mine.staff[0].cards.unmapped, 0);
+  assert.ok(mine.staff[0].cards.inactive >= 1);
   assert.equal(mine.can_set, false);
 
   // Team leader and sales manager see their team with a rolled-up target.
@@ -949,16 +950,19 @@ test('card activation is mapped on completed card cases, one by one or from a ba
   r = await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: 'inactive', activation_date: '2026-03-01' });
   assert.deepEqual([r.data.case.card_status, r.data.case.card_activation_date], ['inactive', '2026-03-01']);
   assert.match(r.data.case.events[0].detail, /Inactive since 2026-03-01/);
-  // Clearing the mapping clears the date too.
-  r = await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: '' });
-  assert.deepEqual([r.data.case.card_status, r.data.case.card_activation_date], [null, null]);
-  await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: 'inactive', activation_date: '2026-03-01' });
+  // A status can be changed but not cleared.
+  assert.equal((await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: '' })).status, 400);
 
   // Tracking lists, scoped for sales staff to their own cases.
   const ids = async (who, q) => (await who('GET', `/cases?card=${q}`)).data.cases.map((x) => x.id);
   assert.ok((await ids(lead, 'inactive')).includes(a));
   assert.ok((await ids(lead, 'active')).includes(b));
-  assert.ok((await ids(sally, 'unmapped')).includes(c));
+  // A completed card nobody has mapped is Inactive by default, dated from its temp end.
+  const cc = (await sally('GET', `/cases/${c}`)).data.case;
+  assert.deepEqual([cc.card_status, cc.card_activation_date, cc.card_status_by], ['inactive', uaeDay(), null]);
+  assert.ok(cc.events.some((e) => /Inactive by default/.test(e.detail || '')));
+  assert.ok((await ids(sally, 'inactive')).includes(c));
+  assert.deepEqual(await ids(lead, 'unmapped'), []);
   assert.ok(!(await ids(lead, 'all')).includes(loan));
 });
 
@@ -1024,13 +1028,17 @@ test('an inactive card 90 or more days after its temp end moves to Out of activa
   const young = make(60);
   const edge = make(89);
   const ninety = make(90);
+  // A card nobody mapped is Inactive by default, so it ages out the same way.
+  const neverMapped = cases.createCase(db, sales, { ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' }).id;
+  db.prepare("UPDATE cases SET case_status = 'completed', case_status_at = ? WHERE id = ?").run(new Date(Date.now() - 100 * 864e5).toISOString(), neverMapped);
   // Reading cases applies the rule.
   const byId = Object.fromEntries(cases.listCases(db, mis, { card: 'all' }).map((c) => [c.id, c.card_status]));
   assert.deepEqual([byId[old], byId[young], byId[edge], byId[ninety]], ['out_of_range', 'inactive', 'inactive', 'out_of_range']);
   const c = cases.getCase(db, mis, old);
   assert.match(c.events[0].detail, /Out of activation range/);
   assert.equal(c.events[0].user_id, null);
-  assert.deepEqual(cases.listCases(db, mis, { card: 'out_of_range' }).map((x) => x.id).sort(), [old, ninety]);
+  assert.deepEqual(cases.listCases(db, mis, { card: 'out_of_range' }).map((x) => x.id).sort((x, y) => x - y), [old, ninety, neverMapped]);
+  assert.deepEqual(cases.getCase(db, mis, neverMapped).events.slice(0, 2).map((e) => e.detail.split(':')[0].split(' from')[0]), ['Out of activation range', 'Inactive by default']);
   // MIS can still mark it active if the customer activates late; it then stays active.
   cases.applyAction(db, mis, old, { action: 'set_card_status', card_status: 'active', activation_date: '2026-02-01' });
   assert.equal(cases.getCase(db, mis, old).card_status, 'active');
