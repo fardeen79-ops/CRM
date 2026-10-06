@@ -9,6 +9,12 @@ import { CREDIT_CARD_NAMES } from './credit-cards.js';
 import { BANKS } from './banks.js';
 
 export const MAX_ROWS = 1000;
+// Only MIS and business heads can bulk upload, for users and cases alike.
+export const BULK_UPLOAD_ROLES = ['mis', 'business_head'];
+
+function requireBulkRole(user) {
+  if (!BULK_UPLOAD_ROLES.includes(user.role)) throw new WorkflowError(403, 'Only MIS and business heads can bulk upload');
+}
 
 const ROLE_LABELS = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader', sales_manager: 'Sales Manager',
@@ -29,7 +35,7 @@ export const USER_IMPORT_COLUMNS = [
 ];
 
 export const CASE_IMPORT_COLUMNS = [
-  { key: 'sales_code', header: 'Sales code', required: true, example: 'DXB-S-014', help: 'The sales person who sourced the file. Sales staff uploading their own files can leave it blank' },
+  { key: 'sales_code', header: 'Sales code', required: true, example: 'DXB-S-014', help: 'The sales person who sourced the file' },
   { key: 'sourcing_date', header: 'Sourcing date', required: true, example: '06/10/2026', help: 'DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'region', header: 'Region', required: true, example: 'DXB', allowed: Object.keys(REGIONS) },
   { key: 'core_product', header: 'Core product', required: true, example: 'Personal Loan', allowed: Object.values(CORE_PRODUCTS) },
@@ -225,6 +231,7 @@ function rowResult(record, fn) {
 
 /** Adds users from a CSV file. Team leaders and sales managers in the file are added before sales staff. */
 export function importUsers(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user);
   const { header, records, unknown } = readFile(csv, USER_IMPORT_COLUMNS);
   const seen = new Set();
   return run(db, dryRun, () => {
@@ -266,30 +273,17 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
   });
 }
 
-/**
- * Adds cases from a CSV file. Team leaders and sales managers name the sales person by sales code;
- * sales staff can only upload their own files.
- */
+/** Adds cases from a CSV file, each naming the sales person who sourced it by sales code. */
 export function importCases(db, user, csv, { dryRun = false } = {}) {
-  if (!['sales', 'team_leader', 'sales_manager'].includes(user.role)) {
-    throw new WorkflowError(403, 'Only sales staff, team leaders and sales managers can upload files');
-  }
+  requireBulkRole(user);
   const { header, records, unknown } = readFile(csv, CASE_IMPORT_COLUMNS);
-  const own = user.role === 'sales' ? db.prepare('SELECT sales_code FROM users WHERE id = ?').get(user.id) : null;
   const appIds = new Map();
   const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
     const v = record.values;
-    let staffId;
-    if (user.role === 'sales') {
-      if (v.sales_code && v.sales_code.toUpperCase() !== String(own?.sales_code || '').toUpperCase()) {
-        throw new Error(`Sales code ${v.sales_code} is not yours. Sales staff can only upload their own files`);
-      }
-    } else {
-      if (!v.sales_code) throw new Error('Sales code is required');
-      const staff = db.prepare("SELECT id FROM users WHERE sales_code = ? COLLATE NOCASE AND role = 'sales'").get(v.sales_code.trim());
-      if (!staff) throw new Error(`No sales staff member has the sales code ${v.sales_code}`);
-      staffId = staff.id;
-    }
+    if (!v.sales_code) throw new Error('Sales code is required');
+    const staff = db.prepare("SELECT id FROM users WHERE sales_code = ? COLLATE NOCASE AND role = 'sales'").get(v.sales_code.trim());
+    if (!staff) throw new Error(`No sales staff member has the sales code ${v.sales_code}`);
+    const staffId = staff.id;
     const input = caseInput(v);
     if (input.app_id) {
       const key = input.app_id.toUpperCase();

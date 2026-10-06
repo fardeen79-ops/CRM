@@ -767,7 +767,7 @@ test('while verification is pending, recordings cannot be retrieved; governance 
 
 test('bulk upload of users: preview saves nothing, import keeps good rows and reports the rest', async () => {
   const lead = await login('lead@t.local');
-  const sales = await login('sales@t.local');
+  const mis = await login('mis@t.local');
   const csv = [
     'Full name,Email,Role,Local mobile,WhatsApp number,Sales code,Team leader email,Sales manager email,Temporary password',
     'Bulk Seller,bulk.seller@t.local,Sales,050 111 2222,,BLK-1,bulk.lead@t.local,sm@t.local,',
@@ -776,15 +776,16 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
     'Dup,sales@t.local,MIS,0501112224,,,,,',
     'Excel,excel@t.local,MIS,9.71501E+11,,,,,',
   ].join('\r\n');
-  assert.equal((await sales('POST', '/import/users', { csv })).status, 403);
-  const preview = await lead('POST', '/import/users', { csv, dry_run: true });
+  // Only MIS and business heads can bulk upload, not even team leaders.
+  assert.equal((await lead('POST', '/import/users', { csv })).status, 403);
+  const preview = await mis('POST', '/import/users', { csv, dry_run: true });
   assert.equal(preview.status, 200);
   assert.deepEqual([preview.data.ok, preview.data.failed], [2, 3]);
   assert.equal(preview.data.rows[0].temp_password, undefined);
   const users = () => lead('GET', '/users').then((r) => r.data.users.map((u) => u.email));
   assert.ok(!(await users()).includes('bulk.lead@t.local'));
 
-  const done = await lead('POST', '/import/users', { csv });
+  const done = await mis('POST', '/import/users', { csv });
   assert.deepEqual([done.data.ok, done.data.failed], [2, 3]);
   // The sales row names a team leader added further down the same file.
   assert.equal(done.data.rows[0].ok, true);
@@ -801,7 +802,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
   });
   assert.equal(login2.status, 200);
 
-  const bad = await lead('POST', '/import/users', { csv: 'Name,Email\nA,a@t.local' });
+  const bad = await mis('POST', '/import/users', { csv: 'Name,Email\nA,a@t.local' });
   assert.equal(bad.status, 400);
   assert.match(bad.data.error, /missing these columns: Role, Local mobile/);
 });
@@ -809,7 +810,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
 test('bulk upload of cases by sales code, with labels, UAE dates and duplicate App IDs', async () => {
   const lead = await login('lead@t.local');
   const sales = await login('sales@t.local');
-  const proc = await login('proc@t.local');
+  const head = await login('bh@t.local');
   const header = 'Sales code,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID';
   const csv = [
     header,
@@ -818,8 +819,8 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
     'S-002,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,',
     'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,',
   ].join('\n');
-  assert.equal((await proc('POST', '/import/cases', { csv })).status, 403);
-  const done = await lead('POST', '/import/cases', { csv });
+  for (const who of [sales, lead]) assert.equal((await who('POST', '/import/cases', { csv })).status, 403);
+  const done = await head('POST', '/import/cases', { csv });
   assert.equal(done.status, 200);
   assert.deepEqual(done.data.rows.map((r) => r.ok), [true, true, false, false]);
   assert.match(done.data.rows[2].error, /also on line 2/);
@@ -831,12 +832,14 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   assert.ok(c2.events.some((e) => e.type === 'bulk_upload'));
 
   // Uploading the same file again finds the duplicates.
-  const again = await lead('POST', '/import/cases', { csv, dry_run: true });
+  const again = await head('POST', '/import/cases', { csv, dry_run: true });
   assert.match(again.data.rows[0].error, /already on CRM-/);
 
-  // Sales staff upload only their own files and may leave the sales code blank.
-  const own = [header, ',03/10/2026,DXB,Auto Loan,Own,,File,0501234567,Auto Loan,,,,,,,,,,', 'S-002,03/10/2026,DXB,Auto Loan,Not,,Mine,0501234567,Auto Loan,,,,,,,,,,'].join('\n');
-  const mine = await sales('POST', '/import/cases', { csv: own });
-  assert.deepEqual(mine.data.rows.map((r) => r.ok), [true, false]);
-  assert.match(mine.data.rows[1].error, /not yours/);
+  // The sales person owns an uploaded file: Sid sees it, and a blank sales code is an error.
+  const sid = await login('sales2@t.local');
+  assert.equal((await sid('GET', `/cases/${done.data.rows[0].id}`)).status, 200);
+  const blank = await head('POST', '/import/cases', { csv: [header, ',03/10/2026,DXB,Auto Loan,No,,Code,0501234567,Auto Loan,,,,,,,,,,'].join('\n') });
+  assert.match(blank.data.rows[0].error, /Sales code is required/);
+  // MIS and business heads still can't add single files from the New case form.
+  assert.equal((await head('POST', '/cases', newCase)).status, 403);
 });

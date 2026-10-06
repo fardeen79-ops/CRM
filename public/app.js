@@ -206,7 +206,7 @@ function navLinks() {
     links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case'], ['#/users', 'Users']);
   }
   if (r === 'sales_manager') links.push(editRequests, ['#/cases', 'All cases'], ['#/cases/new', '+ New case']);
-  if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases']);
+  if (r === 'mis' || r === 'business_head') links.push(['#/cases', 'All cases'], ['#/import/cases', 'Bulk upload']);
   const counted = (href, text, attr, n) => [href, raw(`${text}<span class="count" ${attr} ${n ? '' : 'hidden'}>${n}</span>`)];
   if (r === 'governance') {
     links.push(counted('#/urgent', 'Urgent', 'data-urgent-count', state.urgent), counted('#/quality-check', 'Quality check', 'data-qc-count', state.qc), counted('#/recordings', 'Recordings', 'data-rec-count', state.recordings), ['#/cases', 'All cases']);
@@ -413,7 +413,8 @@ async function viewDashboard() {
         <h1>Hello, ${state.user.name.split(' ')[0]}</h1>
         <p class="muted lede">${intro}</p>
       </div>
-      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<div class="actions"><a class="btn" href="#/import/cases">Bulk upload</a><a class="btn btn-primary" href="#/cases/new">+ New case</a></div>` : ''}
+      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
+      ${BULK_ROLES.includes(r) ? html`<a class="btn btn-primary" href="#/import/cases">Bulk upload</a>` : ''}
       ${r === 'processing' ? html`<a class="btn btn-primary" href="#/queue">Open verification queue</a>` : ''}
       ${r === 'governance' ? html`<a class="btn btn-primary" href="#/quality-check">Open quality check</a>` : ''}
     </div>
@@ -543,7 +544,8 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   shell(html`
     <div class="page-head">
       <div><h1>${title}</h1>${subtitle ? html`<p class="muted" style="margin:0">${subtitle}</p>` : ''}</div>
-      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<div class="actions"><a class="btn" href="#/import/cases">Bulk upload</a><a class="btn btn-primary" href="#/cases/new">+ New case</a></div>` : ''}
+      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
+      ${BULK_ROLES.includes(r) ? html`<a class="btn btn-primary" href="#/import/cases">Bulk upload</a>` : ''}
     </div>
     <div class="card">
       <div class="toolbar">
@@ -1320,35 +1322,34 @@ async function readCsvFile(file) {
   }
 }
 
-// ---------- bulk upload ----------
+// ---------- bulk upload (MIS and business head) ----------
+const BULK_ROLES = ['mis', 'business_head'];
 const BULK = {
+  cases: {
+    tab: 'Cases',
+    title: 'Bulk upload cases',
+    lede: 'Add many sourced files at once from a spreadsheet, each naming the sales person by sales code. Every row is checked with the same rules as the New case form and starts as Sent to checker, awaiting verification.',
+    template: 'cases-upload-template.csv',
+  },
   users: {
+    tab: 'Users',
     title: 'Bulk upload users',
     lede: 'Add many users at once from a spreadsheet. Team leaders and sales managers in the file are added first, so sales staff in the same file can name them.',
     template: 'users-upload-template.csv',
-    back: ['#/users', 'Back to users'],
-    roles: ['team_leader'],
-  },
-  cases: {
-    title: 'Bulk upload cases',
-    lede: 'Add many sourced files at once from a spreadsheet. Every row is checked with the same rules as the New case form and starts as Sent to checker, awaiting verification.',
-    template: 'cases-upload-template.csv',
-    back: ['#/cases', 'Back to cases'],
-    roles: ['sales', 'team_leader', 'sales_manager'],
   },
 };
 
 function viewBulkUpload(kind) {
   const cfg = BULK[kind];
-  if (!cfg.roles.includes(state.user.role)) throw new Error('You do not have permission to do that');
+  if (!BULK_ROLES.includes(state.user.role)) throw new Error('Only MIS and business heads can bulk upload');
   const columns = state.meta.import_columns[kind];
-  const ownCases = kind === 'cases' && state.user.role === 'sales';
-  const required = (c) => c.required && !(ownCases && c.key === 'sales_code');
+  const required = (c) => c.required;
   let file = null;
 
   shell(html`
     <div class="page-head">
-      <div><a class="small" href="${cfg.back[0]}">← ${cfg.back[1]}</a><h1>${cfg.title}</h1><p class="muted lede">${cfg.lede}</p></div>
+      <div><h1>${cfg.title}</h1><p class="muted lede">${cfg.lede}</p></div>
+      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
     </div>
     <div class="bulk-steps">
       <section class="card">
@@ -1435,7 +1436,7 @@ function viewBulkUpload(kind) {
         ${r.dry_run && r.ok ? html`<button class="btn-primary" id="bulk-go">Upload ${r.ok} ${r.ok === 1 ? 'row' : 'rows'}${r.failed ? ' and skip the rest' : ''}</button>` : ''}
         ${failed.length ? html`<button id="bulk-errors">Download rows with errors</button>` : ''}
         ${passwords.length ? html`<button class="btn-primary" id="bulk-passwords">Download sign-in details</button>` : ''}
-        ${!r.dry_run ? html`<a class="btn" href="${cfg.back[0]}">${kind === 'users' ? 'View users' : 'View cases'}</a>` : ''}
+        ${!r.dry_run && kind === 'cases' ? html`<a class="btn" href="#/cases">View cases</a>` : ''}
       </div>
       <div class="table-wrap bulk-rows"><table>
         <thead><tr><th>Line</th><th>Result</th><th>${kind === 'users' ? 'User' : 'Customer'}</th><th>Details</th></tr></thead>
@@ -1510,7 +1511,7 @@ async function viewUsers() {
 
   shell(html`
     <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processors, team leaders, sales managers, MIS and business heads. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
-      <a class="btn" href="#/import/users">Bulk upload users</a></div>
+</div>
     <div class="grid two-col">
       <div class="card"><div class="table-wrap"><table class="users-table">
         <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>

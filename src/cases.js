@@ -489,11 +489,11 @@ export function createCase(db, user, input) {
 
 /** Validates and inserts a new file, returning its id. The caller runs it inside a transaction. */
 export function insertCase(db, user, input, { bulk = false } = {}) {
-  if (!['sales', 'team_leader', 'sales_manager'].includes(user.role)) {
-    throw new WorkflowError(403, 'Only sales staff can add sourcing data');
-  }
+  // MIS and business heads add files only by bulk upload (see imports.js), naming the sales person.
+  const canAdd = ['sales', 'team_leader', 'sales_manager'].includes(user.role) || (bulk && ['mis', 'business_head'].includes(user.role));
+  if (!canAdd) throw new WorkflowError(403, 'Only sales staff can add sourcing data');
   const data = validateCaseInput(input);
-  // Sales staff source files as themselves; team leaders and sales managers pick the sales person.
+  // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
   const ts = now();
   const cols = [...EDITABLE_FIELDS, 'status', 'created_by', 'created_at', 'updated_at'];

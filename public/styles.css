@@ -436,3 +436,7 @@ label.check.wa-same { margin-top: 6px; font-size: 13px; color: var(--muted); }
 .users-table .actions { flex-direction: column; gap: 4px; align-items: flex-start; white-space: nowrap; }
 .users-table .actions .btn-link { font-size: 13px; }
 .users-table .wa { white-space: nowrap; }
+.bulk-tabs a { display: block; padding: 8px 18px; font-weight: 600; color: var(--muted); background: var(--surface); }
+.bulk-tabs a + a { border-left: 1px solid var(--border); }
+.bulk-tabs a:hover { text-decoration: none; color: var(--text); }
+.bulk-tabs a.on { background: var(--primary); color: var(--primary-ink); }

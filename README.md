@@ -86,7 +86,7 @@ Every user added on the **Users** page needs a full name, an **email address** a
 
 ### Bulk upload
 
-Team leaders can add many users at once from **Users → Bulk upload users**. Sales staff, team leaders and sales managers can add many files at once from **Bulk upload** on the dashboard or the cases list.
+Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** in the top bar (or on their dashboard) and switch between the **Cases** and **Users** tabs. Everyone else adds users and files one at a time, and MIS and business heads can't use the single New case form.
 
 1. **Download the template** (a CSV file that Excel, Numbers and Google Sheets open). **Download with example row** gives the same file with one filled-in row to copy. The **Column guide** on the page lists every column, whether it is required, and the accepted values.
 2. Fill in one row per user or file, save as CSV (in Excel: *File → Save As → CSV UTF-8*) and upload it.
@@ -99,7 +99,7 @@ Team leaders can add many users at once from **Users → Bulk upload users**. Sa
 - Leave *Temporary password* blank and one is generated. **Download sign-in details** right after the upload to get the generated passwords. They aren't shown again; a team leader can reset a password later.
 
 **Case rows**
-- Name the sales person by **sales code**. Sales staff uploading their own files can leave it blank, and can't upload anyone else's.
+- Name the sales person by **sales code** (required). The file belongs to that sales person exactly as if they had entered it.
 - Values can be labels or codes in any case: `Personal Loan` or `personal_loan`, `Top Up`, `Dubai` or `DXB`.
 - Bundle products are separated with `;`. Credit cards and buy-out banks match the form's lists, ignoring case.
 - Sourcing dates are `DD/MM/YYYY` or `YYYY-MM-DD`; Excel date cells are converted too.
@@ -246,4 +246,4 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
 | `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |
-| `POST /import/users`, `POST /import/cases` | Bulk upload: `{csv, dry_run}`. Returns `{total, ok, failed, rows: [{line, ok, error?, ref?, temp_password?}]}`; `dry_run: true` checks without saving |
+| `POST /import/users`, `POST /import/cases` | Bulk upload (MIS and business head only): `{csv, dry_run}`. Returns `{total, ok, failed, rows: [{line, ok, error?, ref?, temp_password?}]}`; `dry_run: true` checks without saving |

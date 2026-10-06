@@ -215,10 +215,8 @@ function routes(db, dispatch) {
     }],
 
     // Bulk upload: { csv, dry_run }. A dry run checks every row and saves nothing.
-    ['POST', /^\/api\/import\/users$/, async ({ user, body }) => {
-      requireRole(user, 'team_leader');
-      return imports.importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
-    }, { maxBody: MAX_UPLOAD }],
+    // Bulk upload is for MIS and business heads only (checked in imports.js).
+    ['POST', /^\/api\/import\/users$/, async ({ user, body }) => imports.importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
