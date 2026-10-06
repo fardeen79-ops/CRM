@@ -499,7 +499,7 @@ async function viewCase(id) {
 
   shell(html`
     <div class="page-head">
-      <div><a href="javascript:history.back()" class="small">← Back</a>
+      <div><a href="#/" class="small" id="back-link">← Back</a>
         <h1>${c.customer_name} <span class="muted" style="font-weight:400">${c.ref}</span></h1>
         <div>${badge(c.status)} <span class="muted small">Sourced by ${c.created_by_name} · ${fmtDate(c.created_at)}</span></div>
       </div>
@@ -550,6 +550,9 @@ async function viewCase(id) {
       if (btn) btn.disabled = false;
     }
   };
+  document.getElementById('back-link').onclick = (e) => {
+    if (history.length > 1) { e.preventDefault(); history.back(); }
+  };
   app.querySelectorAll('[data-action]').forEach((b) => (b.onclick = () => run({ action: b.dataset.action }, b)));
   app.querySelectorAll('form[data-form]').forEach((f) => {
     const kind = f.dataset.form;
@@ -558,7 +561,13 @@ async function viewCase(id) {
       f.querySelectorAll('[data-tl]').forEach((b) => (b.onclick = (e) => {
         e.preventDefault();
         const action = b.dataset.tl;
-        if (action === 'reject' && !confirm('Reject this case permanently?')) return;
+        // Reject is permanent, so it takes a second click to confirm.
+        if (action === 'reject' && !b.dataset.armed) {
+          b.dataset.armed = '1';
+          b.textContent = 'Click again to reject';
+          setTimeout(() => { delete b.dataset.armed; b.textContent = 'Reject'; }, 4000);
+          return;
+        }
         run({ action, note: formData(f).note }, b);
       }));
     } else {
@@ -608,13 +617,24 @@ async function viewUsers() {
       viewUsers();
     } catch (ex) { toast(ex.message, true); }
   }));
-  app.querySelectorAll('[data-reset]').forEach((b) => (b.onclick = async () => {
-    const password = prompt('New password (min 8 characters):');
-    if (!password) return;
-    try {
-      await api(`/users/${b.dataset.reset}`, { method: 'PATCH', body: { password } });
-      toast('Password updated');
-    } catch (ex) { toast(ex.message, true); }
+  app.querySelectorAll('[data-reset]').forEach((b) => (b.onclick = () => {
+    const form = document.createElement('form');
+    form.className = 'actions';
+    form.innerHTML = html`<input name="password" type="text" minlength="8" required placeholder="New password" aria-label="New password" style="width:160px">
+      <button class="btn-primary">Save</button><button type="button" data-cancel>Cancel</button>`.s;
+    const cell = b.closest('td');
+    const original = [...cell.childNodes];
+    cell.replaceChildren(form);
+    form.querySelector('input').focus();
+    form.querySelector('[data-cancel]').onclick = () => cell.replaceChildren(...original);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api(`/users/${b.dataset.reset}`, { method: 'PATCH', body: formData(form) });
+        toast('Password updated');
+        cell.replaceChildren(...original);
+      } catch (ex) { toast(ex.message, true); }
+    };
   }));
 }
 
