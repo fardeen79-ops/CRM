@@ -1,0 +1,15 @@
+{
+  "name": "sourcing-crm",
+  "version": "1.0.0",
+  "description": "CRM for sales sourcing, processing-team verification calls and team-leader follow-up",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  }
+}
