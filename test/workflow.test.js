@@ -415,7 +415,7 @@ test('only team leader, MIS, sales manager and business head can change case sta
   r = await set(bh, 'rejected', 'Policy decline');
   assert.equal(r.data.case.case_status, 'rejected');
 
-  const types = (await lead('GET', `/cases/${id}`)).data.case.events.map((e) => e.detail).filter(Boolean);
+  const types = (await lead('GET', `/cases/${id}`)).data.case.events.filter((e) => e.type === 'case_status').map((e) => e.detail);
   assert.deepEqual(types.slice(0, 3), ['rejected', 'completed', 'applicant_review']);
 });
 
@@ -858,7 +858,9 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   // Only MIS and business heads set targets.
   assert.equal((await lead('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, credit_card: 5 }] })).status, 403);
   assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, credit_card: 1.5 }] })).status, 400);
-  const set = await mis('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, credit_card: 5, personal_loan: 3, auto_loan: '' }] });
+  // Loan targets are AED amounts to disburse; a count-style decimal is rejected for cards.
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, personal_loan: '1,500,000.50' }] })).status, 400);
+  const set = await mis('PUT', '/targets', { cycle, targets: [{ user_id: sallyId, credit_card: 5, personal_loan: '1,500,000', auto_loan: '' }] });
   assert.equal(set.status, 200);
 
   const before = (await sally('GET', `/targets?cycle=${cycle}`)).data;
@@ -868,14 +870,24 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   // A bundle with a card and a loan, completed now: counts once for each product.
   const id = (await sally('POST', '/cases', { ...newCase, product: 'bundle', bundle_products: ['personal_loan', 'credit_card'], credit_card: 'Infinite Credit Card' })).data.case.id;
   assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_card_status', card_status: 'active' })).status, 403); // not completed yet
-  await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  // Completing records the amount actually disbursed (here less than the AED 150,000 applied for).
+  assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', pl_disbursed_amount: '-5' })).status, 400);
+  const completed = await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', pl_disbursed_amount: '140,000' });
+  assert.equal(completed.data.case.pl_disbursed_amount, 140000);
 
   const mine = (await sally('GET', `/targets?cycle=${cycle}`)).data;
+  assert.deepEqual(mine.units, { credit_card: 'count', personal_loan: 'aed', auto_loan: 'aed', accounts: 'count' });
   assert.equal(mine.is_current, true);
   assert.ok(mine.days_left >= 1 && mine.days_left <= 31);
-  assert.deepEqual(mine.staff[0].target, { credit_card: 5, personal_loan: 3 });
+  assert.deepEqual(mine.staff[0].target, { credit_card: 5, personal_loan: 1500000 });
   assert.equal(mine.staff[0].achieved.credit_card, start.credit_card + 1);
-  assert.equal(mine.staff[0].achieved.personal_loan, start.personal_loan + 1);
+  assert.equal(mine.staff[0].achieved.personal_loan, start.personal_loan + 140000);
+  assert.equal(mine.staff[0].cases.personal_loan, before.staff[0].cases.personal_loan + 1);
+
+  // MIS corrects the disbursed amount later; the target moves with it.
+  assert.equal((await sally('POST', `/cases/${id}/actions`, { action: 'set_disbursal', pl_disbursed_amount: 1 })).status, 403);
+  await mis('POST', `/cases/${id}/actions`, { action: 'set_disbursal', pl_disbursed_amount: 145000 });
+  assert.equal((await sally('GET', `/targets?cycle=${cycle}`)).data.staff[0].achieved.personal_loan, start.personal_loan + 145000);
   assert.equal(mine.staff[0].cards.unmapped >= 1, true);
   assert.equal(mine.can_set, false);
 
@@ -883,6 +895,7 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   const team = (await lead('GET', `/targets?cycle=${cycle}`)).data;
   assert.ok(team.staff.length >= 2);
   assert.equal(team.total.target.credit_card, 5);
+  assert.equal(team.total.target.personal_loan, 1500000);
   assert.ok((await sm('GET', `/targets?cycle=${cycle}`)).data.by_team_leader.length >= 1);
   assert.equal((await proc('GET', '/targets')).status, 403);
   // Another cycle has no targets.
@@ -942,8 +955,8 @@ test('card activation is mapped on completed card cases, one by one or from a ba
 test('targets bulk upload by sales code and cycle', async () => {
   const mis = await login('mis@t.local');
   const sally = await login('sales@t.local');
-  const csv = ['Sales code,Cycle,Credit Card,Personal Loan,Auto Loan,Accounts',
-    'S-001,Jan 2030,12,4,,',
+  const csv = ['Sales code,Cycle,Credit Card,Personal Loan disbursal (AED),Auto Loan disbursal (AED),Accounts',
+    'S-001,Jan 2030,12,"AED 1,200,000",,',
     'S-002,01/2030,,,,',
     'S-001,2030-01,1,,,',
     'X-9,Jan 2030,1,,,',
@@ -953,5 +966,29 @@ test('targets bulk upload by sales code and cycle', async () => {
   assert.match(done.rows[1].error, /at least one product/);
   assert.match(done.rows[2].error, /already has a row/);
   const t = (await sally('GET', '/targets?cycle=2030-01')).data.staff[0].target;
-  assert.deepEqual(t, { credit_card: 12, personal_loan: 4 });
+  assert.deepEqual(t, { credit_card: 12, personal_loan: 1200000 });
+});
+
+test('completing a loan records the disbursed amount, suggested from the file', async () => {
+  const sally = await login('sales@t.local');
+  const mis = await login('mis@t.local');
+  const complete = (id, extra = {}) => mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', ...extra });
+  // Fresh personal loan: the loan amount. Top up: the incremental amount (the new money).
+  const fresh = (await sally('POST', '/cases', newCase)).data.case.id;
+  assert.equal((await complete(fresh)).data.case.pl_disbursed_amount, 150000);
+  const topUp = (await sally('POST', '/cases', { ...newCase, personal_loan_type: 'top_up', loan_amount: 300000, full_loan_amount: 300000, incremental_amount: 80000 })).data.case.id;
+  assert.equal((await complete(topUp)).data.case.pl_disbursed_amount, 80000);
+  // An auto loan with no amount on file needs the disbursed amount.
+  const auto = (await sally('POST', '/cases', { ...newCase, product: 'auto_loan', core_product: 'auto_loan' })).data.case.id;
+  const r = await complete(auto);
+  assert.equal(r.status, 400);
+  assert.match(r.data.error, /auto loan disbursed amount/i);
+  assert.equal((await complete(auto, { al_disbursed_amount: 95000 })).data.case.al_disbursed_amount, 95000);
+  // Moving a case out of Completed clears its disbursal, so it stops counting.
+  const back = await mis('POST', `/cases/${auto}/actions`, { action: 'set_case_status', case_status: 'applicant_review', note: 'Disbursal reversed' });
+  assert.equal(back.data.case.al_disbursed_amount, null);
+  // A card-only case has no disbursal.
+  const card = (await sally('POST', '/cases', { ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card' })).data.case.id;
+  const c = (await complete(card)).data.case;
+  assert.deepEqual([c.pl_disbursed_amount, c.allowed_actions.includes('set_disbursal')], [null, false]);
 });

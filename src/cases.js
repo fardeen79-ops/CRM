@@ -47,6 +47,29 @@ export const CARD_MAPPERS = ['mis', 'business_head'];
 /** The products a case counts for: a bundle counts once for each product in it. */
 export const caseProducts = (row) => (row.product === 'bundle' ? String(row.bundle_products || '').split(',').filter(Boolean) : [row.product]);
 export const includesCard = (row) => caseProducts(row).includes('credit_card');
+
+// Loans are measured by the amount disbursed. A completed loan case records it; the form's amount
+// is the suggestion (the incremental amount for a top-up, which is the new money paid out).
+export const DISBURSAL_FIELDS = { personal_loan: 'pl_disbursed_amount', auto_loan: 'al_disbursed_amount' };
+export const suggestedDisbursal = (row, product) => (product === 'personal_loan'
+  ? (row.personal_loan_type === 'top_up' ? row.incremental_amount : row.loan_amount) ?? null
+  : row.amount ?? null);
+
+/** Disbursed amounts for the loans in a case, from the input or the suggestion. */
+function disbursals(row, input, { required }) {
+  const out = {};
+  for (const [product, field] of Object.entries(DISBURSAL_FIELDS)) {
+    if (!caseProducts(row).includes(product)) continue;
+    const label = `${PRODUCTS[product]} disbursed amount`;
+    const given = input[field];
+    const value = given === undefined || given === '' || given === null
+      ? (required ? suggestedDisbursal(row, product) : row[field])
+      : parseNumber(given, label, { positive: true });
+    if (value == null && required) throw new WorkflowError(400, `Enter the ${label.toLowerCase()} (AED)`);
+    out[field] = value;
+  }
+  return out;
+}
 // SQL for "this case includes a credit card" and "completed between UAE dates ? and ?".
 export const CARD_SQL = "(c.product = 'credit_card' OR (c.product = 'bundle' AND ',' || c.bundle_products || ',' LIKE '%,credit_card,%'))";
 export const COMPLETED_IN_SQL = "c.case_status = 'completed' AND date(c.case_status_at, '+4 hours') BETWEEN ? AND ?";
@@ -111,7 +134,7 @@ export function recordingEmail(row) {
 
 // Call-quality scores are out of 10, with at most one decimal place.
 export const SCORE_MAX = 10;
-const CASE_ACTIONS = ['set_case_status', 'request_edit', 'resolve_edit_request', 'set_card_status', ...GOVERNANCE_ACTIONS];
+const CASE_ACTIONS = ['set_case_status', 'set_disbursal', 'request_edit', 'resolve_edit_request', 'set_card_status', ...GOVERNANCE_ACTIONS];
 // Internal quality information that sales staff never see.
 const GOVERNANCE_FIELDS = [
   'qc_flag', 'qc_note', 'qc_by', 'qc_at', 'qc_by_name',
@@ -574,6 +597,8 @@ export function updateCase(db, user, id, input) {
 function allowedCaseActions(user, row) {
   const out = [];
   if (CASE_STATUS_ROLES.includes(user.role)) out.push('set_case_status');
+  const hasLoan = Object.keys(DISBURSAL_FIELDS).some((p) => caseProducts(row).includes(p));
+  if (CASE_STATUS_ROLES.includes(user.role) && row.case_status === 'completed' && hasLoan) out.push('set_disbursal');
   if (user.role === 'sales' && isOwner(user, row) && row.case_status === 'applicant_review') out.push('request_edit');
   if (row.edit_request_to && (user.role === row.edit_request_to || user.role === 'team_leader')) out.push('resolve_edit_request');
   // Recordings and scores only make sense once the processor has recorded a verification result.
@@ -730,6 +755,11 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
  * Records whether a completed (temp end) credit card was activated: 'active', 'inactive', or ''
  * to clear. Used by the case page and the card activation bulk upload; runs in the caller's transaction.
  */
+const disbursalText = (amounts) => Object.entries(DISBURSAL_FIELDS)
+  .filter(([, f]) => amounts[f] != null)
+  .map(([p, f]) => `${PRODUCTS[p]} AED ${amounts[f].toLocaleString('en-US', { maximumFractionDigits: 2 })}`)
+  .join(' · ');
+
 export function setCardStatus(db, user, row, { card_status, activation_date } = {}) {
   if (row.case_status !== 'completed' || !includesCard(row)) {
     throw new WorkflowError(409, 'Card activation can only be mapped on a completed credit card case');
@@ -750,7 +780,7 @@ export function setCardStatus(db, user, row, { card_status, activation_date } = 
   });
 }
 
-function applyCaseAction(db, user, id, { action, note, case_status, to, recording_ref, complaint_number, score, card_status, activation_date }) {
+function applyCaseAction(db, user, id, { action, note, case_status, to, recording_ref, complaint_number, score, card_status, activation_date, ...extra }) {
   const triggers = [];
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
   if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
@@ -761,7 +791,12 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
   const who = `${user.name}`;
 
   transaction(db, () => {
-    if (action === 'set_card_status') {
+    if (action === 'set_disbursal') {
+      const amounts = disbursals(row, extra, { required: true });
+      db.prepare('UPDATE cases SET pl_disbursed_amount = ?, al_disbursed_amount = ?, updated_at = ? WHERE id = ?')
+        .run(amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, ts, id);
+      addEvent(db, id, user.id, 'disbursal', { detail: disbursalText(amounts), note });
+    } else if (action === 'set_card_status') {
       setCardStatus(db, user, row, { card_status, activation_date });
     } else if (action === 'set_case_status') {
       if (!SETTABLE_CASE_STATUSES.includes(case_status)) {
@@ -769,9 +804,13 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       }
       if (case_status === row.case_status) throw new WorkflowError(409, `The case is already ${CASE_STATUS[case_status]}`);
       if (case_status !== 'completed' && !note) throw new WorkflowError(400, `Add a note explaining why the case is ${CASE_STATUS[case_status]}`);
-      db.prepare('UPDATE cases SET case_status = ?, case_status_note = ?, case_status_by = ?, case_status_at = ?, updated_at = ? WHERE id = ?')
-        .run(case_status, note, user.id, ts, ts, id);
+      // Completing a loan records how much was disbursed; leaving Completed clears it.
+      const amounts = case_status === 'completed' ? disbursals(row, extra, { required: true }) : {};
+      db.prepare(`UPDATE cases SET case_status = ?, case_status_note = ?, case_status_by = ?, case_status_at = ?, updated_at = ?,
+          pl_disbursed_amount = ?, al_disbursed_amount = ? WHERE id = ?`)
+        .run(case_status, note, user.id, ts, ts, amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, id);
       addEvent(db, id, user.id, 'case_status', { detail: case_status, note });
+      if (Object.keys(amounts).length) addEvent(db, id, user.id, 'disbursal', { detail: disbursalText(amounts) });
       const label = CASE_STATUS[case_status];
       notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) case status changed to ${label} by ${who}${note ? `: ${note}` : ''}`);
       if (case_status === 'applicant_review') {

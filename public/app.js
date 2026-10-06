@@ -51,6 +51,8 @@ const ACTION_LABEL = {
   set_complaint: 'Complaint number added',
   score_quality: 'Verification call scored',
   set_card_status: 'Card activation saved',
+  disbursal: 'Disbursed amount recorded',
+  set_disbursal: 'Disbursed amount updated',
   card_status: 'Card activation mapped',
   bulk_upload: 'Added by bulk upload',
 };
@@ -90,6 +92,14 @@ const completionLabel = (c) => [
 ].filter(Boolean).join(' / ');
 const cardChip = (st) => (st === 'active' ? html`<span class="chip good">Card active</span>`
   : st === 'inactive' ? html`<span class="chip bad">Card inactive</span>` : html`<span class="chip">Not mapped</span>`);
+// Loans are measured by the AED amount disbursed; the file's amount is the suggestion.
+const LOAN_DISBURSAL = { personal_loan: ['pl_disbursed_amount', 'Personal loan'], auto_loan: ['al_disbursed_amount', 'Auto loan'] };
+const loansIn = (c) => Object.keys(LOAN_DISBURSAL).filter((p) => caseProducts(c).includes(p));
+const suggestedDisbursal = (c, p) => (p === 'personal_loan' ? (c.personal_loan_type === 'top_up' ? c.incremental_amount : c.loan_amount) : c.amount) ?? '';
+const fmtAed = (n) => `AED ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+// Compact for meters and tables: AED 1.25M, AED 480K.
+const fmtAedShort = (n) => `AED ${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(n)}`;
+const disbursedText = (c) => loansIn(c).filter((p) => c[LOAN_DISBURSAL[p][0]] != null).map((p) => `${LOAN_DISBURSAL[p][1]} ${fmtAed(c[LOAN_DISBURSAL[p][0]])}`).join(' · ');
 const fmtIsoDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
@@ -518,7 +528,7 @@ const COLS = {
   waiting: ['Waiting', (c) => ago(c.incomplete_at)],
   tl_note: ['Team leader note', (c) => c.tl_note],
   updated: ['Updated', (c) => html`<span class="small">${fmtDate(c.updated_at)}</span>`],
-  completed_on: ['Completed', (c) => html`<span class="small nowrap">${fmtIsoDay(c.case_status_at)}</span><div class="muted small">${completionLabel(c)}</div>`],
+  completed_on: ['Completed', (c) => html`<span class="small nowrap">${fmtIsoDay(c.case_status_at)}</span><div class="muted small">${completionLabel(c)}</div>${disbursedText(c) ? html`<div class="small">${disbursedText(c)}</div>` : ''}`],
   card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${fmtDay(c.card_activation_date)}</div>` : ''}`],
 };
 
@@ -923,7 +933,7 @@ function eventDetail(e) {
   if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);
   if (e.type === 'request_edit' || e.type === 'resolve_edit_request') return `${state.meta.edit_queues[e.detail] || label(e.detail)} queue`;
   if (e.type === 'score_quality') return `${e.detail}/10`;
-  if (['set_complaint', 'receive_recording', 'recording_it_email', 'card_status', 'bulk_upload'].includes(e.type)) return e.detail;
+  if (['set_complaint', 'receive_recording', 'recording_it_email', 'card_status', 'bulk_upload', 'disbursal'].includes(e.type)) return e.detail;
   return label(e.detail);
 }
 
@@ -1112,6 +1122,12 @@ async function viewCase(id) {
             <option value="">Change status to…</option>
             ${choices.map((k) => html`<option value="${k}">${k === 'completed' && completionLabel(c) ? `Completed (${completionLabel(c)})` : CASE_STATUS_LABEL[k]}</option>`)}
           </select></div>
+        ${c.case_status !== 'completed' && loansIn(c).length ? html`<fieldset class="disbursal-fields" id="cs-disbursal">
+          <legend>Disbursed amount <span class="muted">(when completing)</span></legend>
+          ${loansIn(c).map((p) => html`<div class="field-row"><label for="cs-${p}">${LOAN_DISBURSAL[p][1]} (AED) <span class="req">*</span></label>
+            <input id="cs-${p}" name="${LOAN_DISBURSAL[p][0]}" inputmode="decimal" value="${suggestedDisbursal(c, p)}" placeholder="Amount paid out"></div>`)}
+          <p class="muted small">Prefilled from the file${c.personal_loan_type === 'top_up' ? ' (the incremental amount for a top up)' : ''}. Change it if a different amount was disbursed. It counts towards the loan target.</p>
+        </fieldset>` : ''}
         <div class="field-row"><textarea name="note" id="cs-note" placeholder="Note (required for Applicant review and Rejected)"></textarea></div>
         <div class="actions">
           <button class="btn-primary">Update status</button>
@@ -1120,6 +1136,15 @@ async function viewCase(id) {
       </form>
       ${c.status === 'completed' && c.case_status !== 'completed' ? html`<p class="muted small">Verification is completed, but the case is not. Mark the case completed when it is done.</p>` : ''}
       <p class="muted small">A completed case counts towards the sales person's target in the cycle it is completed in.</p>`);
+  }
+  if (a.has('set_disbursal')) {
+    panel.push(html`${sep()}<h3>Disbursed amount</h3>
+      <p class="muted small">Counts towards ${c.sales_staff_name || 'the sales person'}'s loan target for the ${cycleName(cycleOfIso(c.case_status_at))} cycle.</p>
+      <form data-form="set_disbursal">
+        ${loansIn(c).map((p) => html`<div class="field-row"><label for="ds-${p}">${LOAN_DISBURSAL[p][1]} (AED)</label>
+          <input id="ds-${p}" name="${LOAN_DISBURSAL[p][0]}" inputmode="decimal" required value="${c[LOAN_DISBURSAL[p][0]] ?? suggestedDisbursal(c, p)}"></div>`)}
+        <button>Update disbursed amount</button>
+      </form>`);
   }
   if (a.has('set_card_status')) {
     panel.push(html`${sep()}<h3>Card activation</h3>
@@ -1188,7 +1213,7 @@ async function viewCase(id) {
           <h2 class="sub">Case</h2>
           <dl class="details">
             <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
-            ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong><div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
+            ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong>${disbursedText(c) ? html`<div>${disbursedText(c)}</div>` : ''}<div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
             ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="muted small">${c.card_activation_date ? `Activated ${fmtDay(c.card_activation_date)} · ` : ''}mapped by ${c.card_status_by_name} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
             ${row('Region', state.meta.regions[c.region])}
@@ -1273,7 +1298,8 @@ async function viewCase(id) {
       toast('Press Ctrl+C (or ⌘C) to copy the selected email');
     }
   });
-  app.querySelectorAll('[data-case-complete]').forEach((b) => (b.onclick = () => run({ action: 'set_case_status', case_status: 'completed' }, b)));
+  const disbursalInputs = () => Object.fromEntries([...app.querySelectorAll('#cs-disbursal input')].map((i) => [i.name, i.value]));
+  app.querySelectorAll('[data-case-complete]').forEach((b) => (b.onclick = () => run({ action: 'set_case_status', case_status: 'completed', ...disbursalInputs() }, b)));
   const cardForm = document.getElementById('card-form');
   if (cardForm) {
     const dateRow = cardForm.querySelector('#card-date');
@@ -1397,20 +1423,16 @@ const cycleOfIso = (iso) => {
 
 const pct = (a, t) => (t ? Math.round((a / t) * 100) : null);
 /** Achieved against target: a thin meter plus "7 / 20". Over target turns green. */
-function meter(achieved, target, { compact = false } = {}) {
+function meter(achieved, target, { compact = false, unit = 'count' } = {}) {
+  const f = unit === 'aed' ? fmtAedShort : String;
   if (target == null) {
-    return html`<div class="meter-text${compact ? ' compact' : ''}"><strong>${achieved}</strong> <span class="muted small">no target</span></div>`;
+    return html`<div class="meter-text${compact ? ' compact' : ''}"><strong>${f(achieved)}</strong> <span class="muted small">no target</span></div>`;
   }
   const p = pct(achieved, target) ?? (achieved ? 100 : 0);
-  return html`<div class="meter-text${compact ? ' compact' : ''}"><strong>${achieved}</strong><span class="muted"> / ${target}</span>${compact ? '' : html` <span class="muted small">${target ? `${p}%` : ''}</span>`}</div>
+  return html`<div class="meter-text${compact ? ' compact' : ''}"><strong>${f(achieved)}</strong><span class="muted"> / ${unit === 'aed' ? fmtAedShort(target).replace('AED ', '') : target}</span>${compact ? '' : html` <span class="muted small">${target ? `${p}%` : ''}</span>`}</div>
     <div class="meter ${p >= 100 ? 'done' : ''}" role="meter" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${achieved}" aria-label="${achieved} of ${target}"><span style="width:${Math.min(p, 100)}%"></span></div>`;
 }
 
-const sumTargets = (t) => {
-  const vals = Object.values(t).filter((v) => v != null);
-  return vals.length ? vals.reduce((a, b) => a + b, 0) : null;
-};
-const sumAchieved = (a) => Object.values(a).reduce((x, y) => x + y, 0);
 const activationRate = (cards) => (cards.temp_end ? Math.round((cards.active / cards.temp_end) * 100) : null);
 
 /** Product tiles and the card activation tile for one person or a whole team. */
@@ -1418,11 +1440,17 @@ function targetTiles(rep, block) {
   const products = Object.entries(rep.products);
   const cards = block.cards;
   return html`<div class="target-tiles">
-    ${products.map(([k, name]) => html`<div class="target-tile">
-      <div class="kpi-label">${name}</div>
-      ${meter(block.achieved[k], block.target[k] ?? null)}
-      <div class="muted small">${block.target[k] == null ? (k === 'credit_card' ? 'Temp ends' : 'Completed') : block.target[k] > block.achieved[k] ? `${block.target[k] - block.achieved[k]} to go` : 'Target met'}</div>
-    </div>`)}
+    ${products.map(([k, name]) => {
+      const aed = rep.units[k] === 'aed';
+      const n = block.cases[k];
+      const what = aed ? `${n} ${n === 1 ? 'disbursal' : 'disbursals'}` : k === 'credit_card' ? `${n === 1 ? 'temp end' : 'temp ends'}` : 'completed';
+      const left = block.target[k] - block.achieved[k];
+      return html`<div class="target-tile">
+        <div class="kpi-label">${name}${aed ? ' disbursed' : ''}</div>
+        ${meter(block.achieved[k], block.target[k] ?? null, { unit: rep.units[k] })}
+        <div class="muted small">${aed ? `${what} · ` : ''}${block.target[k] == null ? (aed ? 'no target' : what) : left > 0 ? `${aed ? fmtAedShort(left) : left} to go` : 'Target met'}</div>
+      </div>`;
+    })}
     <a class="target-tile card-tile" href="#/cards?cycle=${rep.cycle}">
       <div class="kpi-label">Card activation</div>
       <div class="meter-text"><strong>${cards.active}</strong><span class="muted"> active of ${cards.temp_end} temp ends</span></div>
@@ -1444,11 +1472,10 @@ async function viewTargets(cycleParam) {
     <div class="card">
       <h2>${title}</h2>
       <div class="table-wrap"><table class="target-table">
-        <thead><tr><th>${title.replace('By ', '')}</th><th>Staff</th>${products.map(([, n]) => html`<th>${n}</th>`)}<th>Total</th><th>Cards active</th></tr></thead>
+        <thead><tr><th>${title.replace('By ', '')}</th><th>Staff</th>${products.map(([k, n]) => html`<th>${n}${rep.units[k] === 'aed' ? ' (AED)' : ''}</th>`)}<th>Cards active</th></tr></thead>
         <tbody>${groups.map((g) => html`<tr>
           <td><strong>${g.name}</strong></td><td>${g.staff_count}</td>
-          ${products.map(([k]) => html`<td>${meter(g.achieved[k], g.target[k] ?? null, { compact: true })}</td>`)}
-          <td>${meter(sumAchieved(g.achieved), sumTargets(g.target), { compact: true })}</td>
+          ${products.map(([k]) => html`<td>${meter(g.achieved[k], g.target[k] ?? null, { compact: true, unit: rep.units[k] })}</td>`)}
           <td class="small">${g.cards.active}/${g.cards.temp_end}${g.cards.temp_end ? html` <span class="muted">(${activationRate(g.cards)}%)</span>` : ''}</td>
         </tr>`)}</tbody>
       </table></div>
@@ -1457,14 +1484,15 @@ async function viewTargets(cycleParam) {
   // Staff table; MIS and business heads can switch it to an editable grid of targets.
   const staffTable = (editing) => html`
     <div class="table-wrap"><table class="target-table${editing ? ' editing' : ''}">
-      <thead><tr><th>Sales staff</th>${products.map(([, n]) => html`<th>${n}</th>`)}${editing ? '' : html`<th>Total</th><th>Cards active</th>`}</tr></thead>
+      <thead><tr><th>Sales staff</th>${products.map(([k, n]) => html`<th>${n}${rep.units[k] === 'aed' ? ' (AED)' : ''}</th>`)}${editing ? '' : html`<th>Cards active</th>`}</tr></thead>
       <tbody>${rep.staff.map((p) => html`<tr ${editing ? '' : raw(`data-href="${casesLink(p.id)}"`)} data-staff="${p.id}">
         <td><strong>${p.name}</strong>${p.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><span class="mono">${p.sales_code || '—'}</span>${r !== 'team_leader' && p.team_leader_name ? ` · TL ${p.team_leader_name}` : ''}</div></td>
         ${products.map(([k, n]) => (editing
-          ? html`<td><input class="target-input" type="number" min="0" step="1" inputmode="numeric" name="${k}" value="${p.target[k] ?? ''}" aria-label="${n} target for ${p.name}" placeholder="—"></td>`
-          : html`<td>${meter(p.achieved[k], p.target[k] ?? null, { compact: true })}</td>`))}
-        ${editing ? '' : html`<td>${meter(sumAchieved(p.achieved), sumTargets(p.target), { compact: true })}</td>
-          <td class="small">${p.cards.active}/${p.cards.temp_end}${p.cards.unmapped ? html`<div class="muted">${p.cards.unmapped} not mapped</div>` : ''}</td>`}
+          ? (rep.units[k] === 'aed'
+            ? html`<td><input class="target-input aed" inputmode="numeric" name="${k}" value="${p.target[k] != null ? p.target[k].toLocaleString('en-US') : ''}" aria-label="${n} disbursal target in AED for ${p.name}" placeholder="AED"></td>`
+            : html`<td><input class="target-input" type="number" min="0" step="1" inputmode="numeric" name="${k}" value="${p.target[k] ?? ''}" aria-label="${n} target for ${p.name}" placeholder="—"></td>`)
+          : html`<td>${meter(p.achieved[k], p.target[k] ?? null, { compact: true, unit: rep.units[k] })}</td>`))}
+        ${editing ? '' : html`<td class="small">${p.cards.active}/${p.cards.temp_end}${p.cards.unmapped ? html`<div class="muted">${p.cards.unmapped} not mapped</div>` : ''}</td>`}
       </tr>`)}</tbody>
     </table></div>`;
 
@@ -1473,7 +1501,7 @@ async function viewTargets(cycleParam) {
       <div>
         <div class="eyebrow">Sales cycle · ${cycleSpan(rep.cycle)}${rep.is_current ? ` · ${rep.days_left} ${rep.days_left === 1 ? 'day' : 'days'} left` : ''}</div>
         <h1>${scopeTitle} — ${cycleName(rep.cycle)}</h1>
-        <p class="muted lede">The ${cycleName(rep.cycle).split(' ')[0]} cycle runs from ${cycleSpan(rep.cycle).replace(' – ', ' to ')}. Cases count when their case status is set to Completed in the cycle: a temp end for credit cards, disbursed for loans. A bundle counts for each product in it.</p>
+        <p class="muted lede">The ${cycleName(rep.cycle).split(' ')[0]} cycle runs from ${cycleSpan(rep.cycle).replace(' – ', ' to ')}. Credit cards (temp ends) and accounts count completed cases; personal and auto loans count the AED amount disbursed. A case counts when its case status is set to Completed in the cycle, and a bundle counts for each product in it.</p>
       </div>
       <div class="cycle-nav">
         <a class="btn" href="#/targets?cycle=${shiftCycle(rep.cycle, -1)}" aria-label="Previous cycle">‹ ${cycleName(shiftCycle(rep.cycle, -1)).split(' ')[0]}</a>
@@ -1505,7 +1533,7 @@ async function viewTargets(cycleParam) {
   edit.onclick = () => {
     const actions = document.getElementById('target-actions');
     document.getElementById('staff-table').innerHTML = staffTable(true).s;
-    document.getElementById('staff-hint').textContent = `Targets for the ${cycleName(rep.cycle)} cycle, in completed cases. Leave a box empty for no target.`;
+    document.getElementById('staff-hint').textContent = `Targets for the ${cycleName(rep.cycle)} cycle: credit cards and accounts in completed cases, personal and auto loans in AED disbursed. Leave a box empty for no target.`;
     actions.innerHTML = html`<button id="copy-prev">Copy ${cycleName(shiftCycle(rep.cycle, -1)).split(' ')[0]} targets</button>
       <button id="cancel-targets">Cancel</button><button class="btn-primary" id="save-targets">Save targets</button>`.s;
     document.getElementById('cancel-targets').onclick = () => viewTargets(rep.cycle);
@@ -1517,7 +1545,7 @@ async function viewTargets(cycleParam) {
         for (const p of prev.staff) {
           for (const [k, v] of Object.entries(p.target)) {
             const input = app.querySelector(`tr[data-staff="${p.id}"] input[name="${k}"]`);
-            if (input && input.value === '') { input.value = v; filled++; }
+            if (input && input.value === '') { input.value = input.classList.contains('aed') ? v.toLocaleString('en-US') : v; filled++; }
           }
         }
         toast(filled ? `Copied ${filled} targets into empty boxes. Save to keep them.` : 'Nothing to copy: last cycle had no targets for these staff');

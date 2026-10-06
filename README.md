@@ -79,12 +79,23 @@ The **Scan Emirates ID** button on the entry form fills in the customer's **firs
 
 **Sales cycle.** A cycle runs from the **21st of one month to the 20th of the next** and is named after the month it ends in, so 21 May – 20 June is the **June cycle**. Dates are UAE dates.
 
-**What counts.** A case counts towards a cycle when its **case status is set to Completed** during that cycle:
-- for credit cards, a completed case is a **temp end**;
-- for personal and auto loans, a completed case is **disbursed**;
-- a bundle counts once for each product in it.
+**What counts.** A case counts towards a cycle when its **case status is set to Completed** during that cycle. How it counts depends on the product:
 
-The case page shows how each completed case counted ("Completed as Temp end", and its cycle).
+| Product | Completed case is a… | Target and achievement |
+|---|---|---|
+| Credit card | temp end | number of temp ends |
+| Accounts | completed case | number of completed cases |
+| Personal loan | disbursal | **AED amount disbursed** |
+| Auto loan | disbursal | **AED amount disbursed** |
+
+A bundle counts for each product in it. The case page shows how a completed case counted, for example "Completed as Disbursed · Personal loan AED 140,000 · June 2026 cycle".
+
+**Disbursed amounts.** Completing a loan case records the amount actually disbursed:
+- The case status panel asks for it, prefilled from the file: the loan amount, the incremental amount for a top up (the new money paid out), or the amount entered for an auto loan.
+- An auto loan with no amount on file must have one entered.
+- Team leaders, MIS, sales managers and business heads can correct it later with **Update disbursed amount**.
+- Moving a case out of Completed clears the amount, so it stops counting.
+- Loans completed before this feature are counted at the amount on their file.
 
 **Who sees what** on **Targets** (and the cycle summary at the top of the dashboard):
 
@@ -97,9 +108,9 @@ The case page shows how each completed case counted ("Completed as Temp end", an
 
 Team and manager targets are the sum of their sales staff's targets. Selecting a row lists the cases completed in that cycle. Use **‹ / ›** to move between cycles.
 
-**Setting targets.** Only **MIS and business heads** set targets, per sales person, cycle and product (number of completed cases). There are two ways:
+**Setting targets.** Only **MIS and business heads** set targets, per sales person, cycle and product: a number of cases for credit cards and accounts, and an AED amount for personal and auto loans (for example `1,500,000`). There are two ways:
 - **Set targets** on the Targets page turns the staff table into an editable grid. **Copy *last month's* targets** fills empty boxes from the previous cycle.
-- **Bulk upload → Targets** takes a CSV of sales code, cycle (`Jun 2026` or `2026-06`) and one column per product. Blank cells leave a target unchanged.
+- **Bulk upload → Targets** takes a CSV with a sales code, a cycle (`Jun 2026` or `2026-06`), card and account counts, and personal and auto loan disbursal amounts in AED. Blank cells leave a target unchanged.
 
 ### Card activation
 
@@ -289,5 +300,6 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |
 | `GET /targets?cycle=2026-06`, `PUT /targets` | Targets and achievement for a cycle (default: current). `PUT {cycle, targets: [{user_id, credit_card, personal_loan, auto_loan, accounts}]}`, MIS and business head only |
 | `GET /cases?cycle=2026-06&staff=:id&card=active\|inactive\|unmapped\|all` | Cases completed in a cycle, for one sales person, or by card activation |
+| `POST /cases/:id/actions` with `set_case_status` / `set_disbursal` | Completing a loan takes `pl_disbursed_amount` / `al_disbursed_amount` (AED; defaults to the file's amount). `set_disbursal` corrects them on a completed case |
 | `POST /cases/:id/actions` with `set_card_status` | `{card_status: 'active'\|'inactive'\|'', activation_date?}` on a completed card case (MIS and business head) |
 | `POST /import/users`, `/import/cases`, `/import/cards`, `/import/targets` | Bulk upload (MIS and business head only): `{csv, dry_run}`. Returns `{total, ok, failed, rows: [{line, ok, error?, ref?, temp_password?}]}`; `dry_run: true` checks without saving |

@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS cases (
   card_activation_date TEXT,
   card_status_by       INTEGER REFERENCES users(id),
   card_status_at       TEXT,
+  -- Amounts actually disbursed, recorded when a loan case is completed (count towards AED targets).
+  pl_disbursed_amount  REAL,
+  al_disbursed_amount  REAL,
   core_product       TEXT,
   sales_staff_id     INTEGER REFERENCES users(id),
   sales_staff_name   TEXT,
@@ -184,6 +187,7 @@ const ADDED_COLUMNS = {
   qc_score: 'REAL', recording_decided_by: 'INTEGER REFERENCES users(id)', recording_decided_at: 'TEXT',
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
+  pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL',
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
@@ -197,6 +201,13 @@ function migrate(db) {
   }
   // Cases created before the sourcing date existed were sourced on the day they were entered.
   db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
+  // Loans completed before disbursed amounts were recorded: assume the amount on the file.
+  db.exec(`UPDATE cases SET pl_disbursed_amount = CASE WHEN personal_loan_type = 'top_up' THEN incremental_amount ELSE loan_amount END
+    WHERE case_status = 'completed' AND pl_disbursed_amount IS NULL
+      AND (product = 'personal_loan' OR ',' || bundle_products || ',' LIKE '%,personal_loan,%')`);
+  db.exec(`UPDATE cases SET al_disbursed_amount = amount
+    WHERE case_status = 'completed' AND al_disbursed_amount IS NULL
+      AND (product = 'auto_loan' OR ',' || bundle_products || ',' LIKE '%,auto_loan,%')`);
 
   // The first release limited users.role to three roles with a CHECK constraint; rebuild the
   // table without it so the newer roles (MIS, sales manager, business head) can be stored.

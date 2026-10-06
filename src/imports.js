@@ -5,7 +5,7 @@
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword } from './auth.js';
 import { PRODUCTS, PERSONAL_LOAN_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
-import { setTargetsFor } from './performance.js';
+import { setTargetsFor, TARGET_UNITS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { CREDIT_CARD_NAMES } from './credit-cards.js';
 import { BANKS } from './banks.js';
@@ -76,7 +76,10 @@ export const CARD_IMPORT_COLUMNS = [
 export const TARGET_IMPORT_COLUMNS = [
   { key: 'sales_code', header: 'Sales code', required: true, example: 'DXB-S-014' },
   { key: 'cycle', header: 'Cycle', required: true, example: 'Jun 2026', help: 'The month the cycle ends in: Jun 2026 is 21 May to 20 June' },
-  ...['credit_card', 'personal_loan', 'auto_loan', 'accounts'].map((key) => ({ key, header: PRODUCTS[key], example: { credit_card: '20', personal_loan: '8', auto_loan: '2', accounts: '10' }[key], help: 'Completed cases. Blank leaves the target unchanged; 0 sets a zero target' })),
+  { key: 'credit_card', header: 'Credit Card', example: '20', help: 'Number of temp ends. Blank leaves the target unchanged; 0 sets a zero target' },
+  { key: 'personal_loan', header: 'Personal Loan disbursal (AED)', example: '1500000', help: 'AED amount to disburse. Blank leaves the target unchanged' },
+  { key: 'auto_loan', header: 'Auto Loan disbursal (AED)', example: '400000', help: 'AED amount to disburse. Blank leaves the target unchanged' },
+  { key: 'accounts', header: 'Accounts', example: '10', help: 'Number of accounts. Blank leaves the target unchanged' },
 ];
 
 // ---------- CSV ----------
@@ -373,7 +376,7 @@ export function importTargets(db, user, csv, { dryRun = false } = {}) {
     const [y, m] = cycle.split('-');
     return {
       label: `${staff.name} · ${new Date(Date.UTC(+y, +m - 1, 1)).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })} cycle`,
-      email: Object.entries(values).map(([p, n]) => `${PRODUCTS[p]} ${n}`).join(' · '),
+      email: Object.entries(values).map(([p, n]) => `${PRODUCTS[p]} ${TARGET_UNITS[p] === 'aed' ? 'AED ' : ''}${n}`).join(' · '),
     };
   }))));
   return summarize(header, unknown, results, dryRun);

@@ -483,3 +483,6 @@ a.target-tile:hover { text-decoration: none; border-color: var(--primary); }
 /* The tooltip only takes up space while shown, so it never widens the page on phones. */
 .mix-seg::after { display: none; }
 .mix-seg:hover::after, .mix-seg:focus-visible::after { display: block; }
+.target-input.aed { width: 130px; }
+fieldset.disbursal-fields { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 4px; margin: 0 0 12px; background: var(--surface-2); }
+fieldset.disbursal-fields legend { font-weight: 600; font-size: 13px; padding: 0 4px; }

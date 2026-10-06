@@ -3,13 +3,16 @@
 // Sales cycle: the 21st of one month to the 20th of the next, named after the month it ends in
 // (21 May – 20 June is the June cycle), in UAE time. A case counts towards a cycle when its case
 // status is set to Completed in that cycle: a temp end for credit cards, a disbursal for loans.
-// A bundle counts once for each product in it.
+// Credit cards and accounts are counted; personal and auto loans are measured by the AED amount
+// disbursed. A bundle counts for each product in it.
 import { transaction } from './db.js';
-import { PRODUCTS, CARD_STATUS, WorkflowError, caseProducts, includesCard, COMPLETED_IN_SQL } from './cases.js';
+import { PRODUCTS, CARD_STATUS, DISBURSAL_FIELDS, WorkflowError, caseProducts, includesCard, COMPLETED_IN_SQL } from './cases.js';
 import { uaeDay, cycleOf, isCycle, cycleRange, cycleLabel } from './cycles.js';
 
 // Credit cards first: the main product for sales staff.
 export const TARGET_PRODUCTS = Object.fromEntries(['credit_card', 'personal_loan', 'auto_loan', 'accounts'].map((k) => [k, PRODUCTS[k]]));
+// How each product's target is measured: completed cases, or AED disbursed.
+export const TARGET_UNITS = { credit_card: 'count', personal_loan: 'aed', auto_loan: 'aed', accounts: 'count' };
 // Who sets targets and maps card activation.
 export const TARGET_SETTERS = ['mis', 'business_head'];
 const VIEWERS = ['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'];
@@ -44,17 +47,23 @@ export function targetReport(db, user, cycle) {
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const { start, end } = cycleRange(cycle);
   const staff = staffInScope(db, user);
-  const byId = new Map(staff.map((s) => [s.id, { ...s, target: {}, achieved: emptyCounts(), cards: emptyCards() }]));
+  // `achieved` is in each product's unit (cases or AED); `cases` counts completed cases per product.
+  const byId = new Map(staff.map((s) => [s.id, { ...s, target: {}, achieved: emptyCounts(), cases: emptyCounts(), cards: emptyCards() }]));
 
   for (const t of db.prepare('SELECT user_id, product, target FROM targets WHERE cycle = ?').all(cycle)) {
     const s = byId.get(t.user_id);
     if (s && TARGET_PRODUCTS[t.product]) s.target[t.product] = t.target;
   }
-  const done = db.prepare(`SELECT c.sales_staff_id, c.product, c.bundle_products, c.card_status FROM cases c WHERE ${COMPLETED_IN_SQL}`).all(start, end);
+  const done = db.prepare(`SELECT c.sales_staff_id, c.product, c.bundle_products, c.card_status, c.pl_disbursed_amount, c.al_disbursed_amount
+    FROM cases c WHERE ${COMPLETED_IN_SQL}`).all(start, end);
   for (const c of done) {
     const s = byId.get(c.sales_staff_id);
     if (!s) continue;
-    for (const p of caseProducts(c)) if (p in s.achieved) s.achieved[p]++;
+    for (const p of caseProducts(c)) {
+      if (!(p in s.achieved)) continue;
+      s.cases[p]++;
+      s.achieved[p] += TARGET_UNITS[p] === 'aed' ? c[DISBURSAL_FIELDS[p]] ?? 0 : 1;
+    }
     if (includesCard(c)) {
       s.cards.temp_end++;
       s.cards[CARD_STATUS[c.card_status] ? c.card_status : 'unmapped']++;
@@ -64,10 +73,11 @@ export function targetReport(db, user, cycle) {
   const rows = [...byId.values()].filter((s) => s.active || Object.keys(s.target).length || Object.values(s.achieved).some(Boolean));
 
   const rollup = (list) => {
-    const out = { target: {}, achieved: emptyCounts(), cards: emptyCards(), staff_count: list.length };
+    const out = { target: {}, achieved: emptyCounts(), cases: emptyCounts(), cards: emptyCards(), staff_count: list.length };
     for (const s of list) {
       addInto(out.target, s.target);
       addInto(out.achieved, s.achieved);
+      addInto(out.cases, s.cases);
       addInto(out.cards, s.cards);
     }
     return out;
@@ -91,6 +101,7 @@ export function targetReport(db, user, cycle) {
     // Days left including today, for the current cycle.
     days_left: cycle === cycleOf(today) ? Math.round((Date.parse(end) - Date.parse(today)) / 864e5) + 1 : null,
     products: TARGET_PRODUCTS,
+    units: TARGET_UNITS,
     can_set: TARGET_SETTERS.includes(user.role),
     staff: rows,
     total: rollup(rows),
@@ -100,11 +111,17 @@ export function targetReport(db, user, cycle) {
   return result;
 }
 
-const parseTarget = (value, label) => {
-  const text = String(value ?? '').replace(/,/g, '').trim();
+// Case targets are whole numbers of cases; loan targets are whole AED amounts ("1,500,000" is fine).
+const parseTarget = (value, label, unit) => {
+  const text = String(value ?? '').replace(/,/g, '').replace(/^aed\s*/i, '').trim();
   if (text === '') return null;
   const n = Number(text);
-  if (!Number.isInteger(n) || n < 0 || n > 100000) throw new Error(`${label} target must be a whole number from 0 to 100000`);
+  const max = unit === 'aed' ? 1e10 : 100000;
+  if (!Number.isInteger(n) || n < 0 || n > max) {
+    throw new Error(unit === 'aed'
+      ? `${label} target is the AED amount to disburse: a whole number, e.g. 1500000`
+      : `${label} target must be a whole number of cases from 0 to 100000`);
+  }
   return n;
 };
 
@@ -115,7 +132,7 @@ export function setTargetsFor(db, user, staffId, cycle, values) {
   const ts = new Date().toISOString();
   for (const [product, label] of Object.entries(TARGET_PRODUCTS)) {
     if (!(product in values)) continue;
-    const n = parseTarget(values[product], label);
+    const n = parseTarget(values[product], label, TARGET_UNITS[product]);
     if (n === null) db.prepare('DELETE FROM targets WHERE user_id = ? AND cycle = ? AND product = ?').run(staff.id, cycle, product);
     else {
       db.prepare(`INSERT INTO targets (user_id, cycle, product, target, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?)
