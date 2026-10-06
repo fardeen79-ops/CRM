@@ -300,7 +300,7 @@ function miniTable(head, rows) {
 // ---------- case list ----------
 const COLS = {
   ref: ['Ref', (c) => html`<strong>${c.ref}</strong>`],
-  customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product, c.city].filter(Boolean).join(' · ')}</div>`],
+  customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => c.phone],
   status: ['Status', (c) => badge(c.status)],
   source_by: ['Sourced by', (c) => c.created_by_name],
@@ -371,6 +371,8 @@ async function viewCases({ title, subtitle = '', params, fixedStatus }) {
 // ---------- case form ----------
 async function viewCaseForm(id) {
   const c = id ? (await api(`/cases/${id}`)).case : {};
+  const products = state.meta.products;
+  const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
   const field = (name, text, { type = 'text', required = false, full = false, placeholder = '' } = {}) => html`
     <div class="${full ? 'full' : ''}">
       <label for="f-${name}">${text}${required ? raw(' <span class="req">*</span>') : ''}</label>
@@ -393,9 +395,21 @@ async function viewCaseForm(id) {
         ${field('email', 'Email', { type: 'email' })}
         ${field('address', 'Address', { full: true })}
         ${field('city', 'City')}
-        ${field('product', 'Product / service', { placeholder: 'e.g. Personal Loan' })}
-        ${field('amount', 'Amount', { type: 'number', placeholder: '0' })}
         ${field('source', 'Lead source', { placeholder: 'e.g. Referral, Walk-in, Field visit' })}
+        <div>
+          <label for="f-product">Product <span class="req">*</span></label>
+          <select id="f-product" name="product" required>
+            <option value="">Choose a product…</option>
+            ${[...Object.entries(products), ['bundle', 'Bundle (multiple products)']].map(([k, l]) => html`<option value="${k}" ${c.product === k ? raw('selected') : ''}>${l}</option>`)}
+          </select>
+        </div>
+        ${field('amount', 'Amount', { type: 'number', placeholder: '0' })}
+        <fieldset class="full bundle-picker" id="bundle-picker" ${c.product === 'bundle' ? '' : raw('hidden')}>
+          <legend>Products in this bundle <span class="req">*</span> <span class="muted small">Pick at least two</span></legend>
+          <div class="checks">
+            ${Object.entries(products).map(([k, l]) => html`<label class="check"><input type="checkbox" name="bundle_products" value="${k}" ${bundled.has(k) ? raw('checked') : ''}> ${l}</label>`)}
+          </div>
+        </fieldset>
         ${field('sales_notes', 'Notes for the processing team', { type: 'textarea', full: true, placeholder: 'Best time to call, language preference, anything to verify…' })}
       </div>
       <p class="error" id="form-error" hidden></p>
@@ -407,12 +421,25 @@ async function viewCaseForm(id) {
     </form>`);
 
   const form = document.getElementById('case-form');
+  const productSelect = document.getElementById('f-product');
+  const picker = document.getElementById('bundle-picker');
+  const boxes = [...picker.querySelectorAll('input[type=checkbox]')];
+  const checkBundle = () => {
+    const isBundle = productSelect.value === 'bundle';
+    const count = boxes.filter((b) => b.checked).length;
+    boxes[0].setCustomValidity(isBundle && count < 2 ? 'Pick at least two products for a bundle' : '');
+  };
+  productSelect.onchange = () => { picker.hidden = productSelect.value !== 'bundle'; checkBundle(); };
+  boxes.forEach((b) => (b.onchange = checkBundle));
+  checkBundle();
+
   const save = async (resubmit) => {
     const err = document.getElementById('form-error');
     err.hidden = true;
     if (!form.reportValidity()) return;
     try {
       const body = formData(form);
+      body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
       toast(id ? (resubmit ? 'Saved and resubmitted for verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);
@@ -499,7 +526,9 @@ async function viewCase(id) {
     panel.push(html`<h3>Fix &amp; resubmit</h3><p class="muted small">Correct the details the team leader flagged, then resubmit for verification.</p>
       <div class="actions"><a class="btn" href="#/cases/${c.id}/edit">Edit details</a><button class="btn-primary" data-action="resubmit">Resubmit</button></div>`);
   }
-  if (c.can_edit && !a.has('resubmit')) panel.push(html`<hr><a class="btn" href="#/cases/${c.id}/edit">Edit details</a>`);
+  if (c.can_edit && !a.has('resubmit')) {
+    panel.push(html`${panel.length ? raw('<hr>') : ''}<a class="btn" href="#/cases/${c.id}/edit">Edit details</a>`);
+  }
 
   shell(html`
     <div class="page-head">
@@ -518,7 +547,9 @@ async function viewCase(id) {
             ${c.alt_phone ? html`<dt>Alternate phone</dt><dd><a href="tel:${c.alt_phone.replace(/[^\d+]/g, '')}">${c.alt_phone}</a></dd>` : ''}
             <dt>Email</dt><dd>${c.email || '—'}</dd>
             <dt>Address</dt><dd>${[c.address, c.city].filter(Boolean).join(', ') || '—'}</dd>
-            <dt>Product</dt><dd>${c.product || '—'}</dd>
+            <dt>Product</dt><dd>${c.product === 'bundle'
+              ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
+              : c.product_label || '—'}</dd>
             <dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
             <dt>Sales notes</dt><dd style="white-space:pre-wrap">${c.sales_notes || '—'}</dd>

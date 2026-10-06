@@ -18,10 +18,10 @@ const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing')
 
 if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
   const samples = [
-    [sales1, { customer_name: 'Arjun Mehta', phone: '+91 98765 43210', city: 'Mumbai', product: 'Personal Loan', amount: '250000', source: 'Walk-in' }],
-    [sales1, { customer_name: 'Neha Kapoor', phone: '+91 91234 56780', city: 'Pune', product: 'Credit Card', source: 'Referral' }],
-    [sales2, { customer_name: 'John Fernandes', phone: '+91 99887 76655', city: 'Goa', product: 'Home Loan', amount: '4500000', source: 'Field visit' }],
-    [sales2, { customer_name: 'Priya Nair', phone: '+91 90000 11122', city: 'Kochi', product: 'Personal Loan', amount: '150000', source: 'Cold call' }],
+    [sales1, { customer_name: 'Arjun Mehta', phone: '+91 98765 43210', city: 'Mumbai', product: 'personal_loan', amount: '250000', source: 'Walk-in' }],
+    [sales1, { customer_name: 'Neha Kapoor', phone: '+91 91234 56780', city: 'Pune', product: 'bundle', bundle_products: ['credit_card', 'accounts'], source: 'Referral' }],
+    [sales2, { customer_name: 'John Fernandes', phone: '+91 99887 76655', city: 'Goa', product: 'auto_loan', amount: '900000', source: 'Field visit' }],
+    [sales2, { customer_name: 'Priya Nair', phone: '+91 90000 11122', city: 'Kochi', product: 'accounts', amount: '150000', source: 'Cold call' }],
   ];
   const ids = samples.map(([u, data]) => createCase(db, u, data).id);
   applyAction(db, proc, ids[0], { action: 'log_call', outcome: 'connected', note: 'Customer confirmed details' });

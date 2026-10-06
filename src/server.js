@@ -107,6 +107,7 @@ function routes(db, dispatch) {
         statuses: Object.values(cases.STATUS),
         call_outcomes: cases.CALL_OUTCOMES,
         incomplete_reasons: cases.INCOMPLETE_REASONS,
+        products: cases.PRODUCTS,
       },
     })],
 

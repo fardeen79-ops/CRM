@@ -51,6 +51,10 @@ Run the tests with `npm test`.
 | **Processing** | See the verification queue, **pick up** a case (locks it to them), **log calls** with an outcome, mark **Completed**, or mark **Incomplete** (a reason and a note are required) |
 | **Team leader** | **Action required** queue of incomplete cases: **Return to sales** (note required), **Re-verify**, or **Reject** (note required). Also sees team stats, manages users, and can edit any open case |
 
+### Products
+
+Each case records one product: **Personal Loan**, **Credit Card**, **Auto Loan**, **Accounts**, or a **Bundle**. Choosing Bundle shows checkboxes for the products in it, and a bundle needs at least two. The API takes `product` as one of `personal_loan`, `credit_card`, `auto_loan`, `accounts` or `bundle`. For a bundle it also takes `bundle_products`, as an array such as `["credit_card", "accounts"]` or a comma-separated string. Cases created before this change keep their original free-text product until someone edits them.
+
 Every step is recorded in the case's activity timeline. People are notified in-app (the 🔔 icon) when something needs them:
 
 - team leaders when a case is marked incomplete

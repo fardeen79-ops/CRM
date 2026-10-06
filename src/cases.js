@@ -27,6 +27,22 @@ export const INCOMPLETE_REASONS = [
   'other',
 ];
 
+export const PRODUCTS = {
+  personal_loan: 'Personal Loan',
+  credit_card: 'Credit Card',
+  auto_loan: 'Auto Loan',
+  accounts: 'Accounts',
+};
+export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
+
+export function productLabel(product, bundleProducts) {
+  if (product === 'bundle') {
+    const items = String(bundleProducts || '').split(',').filter(Boolean).map((p) => PRODUCTS[p] || p);
+    return items.length ? `Bundle: ${items.join(' + ')}` : 'Bundle';
+  }
+  return PRODUCTS[product] || product || null;
+}
+
 const OPEN_FOR_PROCESSING = [STATUS.PENDING, STATUS.IN_VERIFICATION];
 
 /**
@@ -45,7 +61,7 @@ export const ACTIONS = {
   resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.PENDING },
 };
 
-const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'amount', 'source', 'sales_notes'];
+const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'amount', 'source', 'sales_notes'];
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -57,9 +73,26 @@ function clean(value, max = 500) {
   return s ? s.slice(0, max) : null;
 }
 
-function validateCaseInput(input, { partial = false } = {}) {
+function validateProduct(input, current, out) {
+  const product = 'product' in input ? clean(input.product) : current?.product;
+  if (!PRODUCT_TYPES.includes(product)) {
+    throw new WorkflowError(400, 'Choose a product: Personal Loan, Credit Card, Auto Loan, Accounts or Bundle');
+  }
+  out.product = product;
+  out.bundle_products = null;
+  if (product !== 'bundle') return;
+  const raw = 'bundle_products' in input ? input.bundle_products : current?.bundle_products;
+  const picked = new Set((Array.isArray(raw) ? raw : String(raw ?? '').split(',')).map((p) => String(p).trim()).filter(Boolean));
+  for (const p of picked) if (!PRODUCTS[p]) throw new WorkflowError(400, `Unknown bundle product: ${p}`);
+  if (picked.size < 2) throw new WorkflowError(400, 'A bundle needs at least two products');
+  // Stored in a fixed order so the same bundle always reads the same way.
+  out.bundle_products = Object.keys(PRODUCTS).filter((p) => picked.has(p)).join(',');
+}
+
+function validateCaseInput(input, { partial = false, current = null } = {}) {
   const out = {};
   for (const field of EDITABLE_FIELDS) {
+    if (field === 'product' || field === 'bundle_products') continue;
     if (partial && !(field in input)) continue;
     out[field] = clean(input[field], field === 'sales_notes' || field === 'address' ? 2000 : 200);
   }
@@ -77,6 +110,7 @@ function validateCaseInput(input, { partial = false } = {}) {
       }
     }
   }
+  if (!partial || 'product' in input || 'bundle_products' in input) validateProduct(input, current, out);
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
   if ('amount' in out && out.amount !== null) {
     const amount = Number(out.amount.replace(/,/g, ''));
@@ -109,7 +143,7 @@ const CASE_SELECT = `
   LEFT JOIN users vb ON vb.id = c.verified_by
   LEFT JOIN users tb ON tb.id = c.tl_actioned_by`;
 
-const withRef = (row) => row && { ...row, ref: caseRef(row.id) };
+const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products) };
 
 function canView(user, row) {
   return user.role !== 'sales' || row.created_by === user.id;
@@ -185,7 +219,7 @@ export function updateCase(db, user, id, input) {
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
   if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
   if (!canEdit(user, row)) throw new WorkflowError(403, 'This case can no longer be edited');
-  const data = validateCaseInput(input, { partial: true });
+  const data = validateCaseInput(input, { partial: true, current: row });
   const changed = Object.keys(data).filter((f) => (data[f] ?? null) !== (row[f] ?? null));
   if (!changed.length) return getCase(db, user, id);
   return transaction(db, () => {

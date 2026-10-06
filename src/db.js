@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS cases (
   address            TEXT,
   city               TEXT,
   product            TEXT,
+  bundle_products    TEXT,
   amount             REAL,
   source             TEXT,
   sales_notes        TEXT,
@@ -80,7 +81,14 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
   db.exec('PRAGMA foreign_keys = ON;');
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+// Columns added after the first release; ALTER existing databases in place.
+function migrate(db) {
+  const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
+  if (!cols.includes('bundle_products')) db.exec('ALTER TABLE cases ADD COLUMN bundle_products TEXT');
 }
 
 export function transaction(db, fn) {

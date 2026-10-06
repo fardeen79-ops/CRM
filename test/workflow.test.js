@@ -41,7 +41,7 @@ async function login(email) {
   };
 }
 
-const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'Personal Loan', amount: '1,50,000' };
+const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', amount: '1,50,000' };
 
 test('rejects unauthenticated access and bad credentials', async () => {
   assert.equal((await fetch(`${base}/api/cases`)).status, 401);
@@ -177,4 +177,37 @@ test('only team leaders manage users', async () => {
     body: JSON.stringify({ email: 'new@t.local', password: 'longenough' }),
   });
   assert.equal(res.status, 401);
+});
+
+test('product must be one of the fixed options, and a bundle needs two or more products', async () => {
+  const sales = await login('sales@t.local');
+  const base = { customer_name: 'Bundle Test', phone: '9876543210' };
+
+  assert.equal((await sales('POST', '/cases', base)).status, 400); // product required
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'home_loan' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card'] })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card', 'mortgage'] })).status, 400);
+
+  let r = await sales('POST', '/cases', { ...base, product: 'auto_loan' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.product_label, 'Auto Loan');
+  assert.equal(r.data.case.bundle_products, null);
+
+  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'] });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.bundle_products, 'personal_loan,accounts');
+  assert.equal(r.data.case.product_label, 'Bundle: Personal Loan + Accounts');
+  const id = r.data.case.id;
+
+  // Editing only the bundle contents keeps the product; switching away from bundle clears them.
+  r = await sales('PUT', `/cases/${id}`, { bundle_products: 'credit_card,auto_loan,accounts' });
+  assert.equal(r.data.case.product_label, 'Bundle: Credit Card + Auto Loan + Accounts');
+  assert.equal((await sales('PUT', `/cases/${id}`, { bundle_products: ['accounts'] })).status, 400);
+  r = await sales('PUT', `/cases/${id}`, { product: 'credit_card', bundle_products: ['accounts', 'auto_loan'] });
+  assert.equal(r.data.case.product, 'credit_card');
+  assert.equal(r.data.case.bundle_products, null);
+
+  const me = await sales('GET', '/me');
+  assert.deepEqual(Object.keys(me.data.meta.products), ['personal_loan', 'credit_card', 'auto_loan', 'accounts']);
 });
