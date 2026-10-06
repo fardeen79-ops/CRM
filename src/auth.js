@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { findUser, salesProfile } from './users.js';
 
 const SESSION_DAYS = 7;
 export const ROLES = ['sales', 'processing', 'team_leader', 'sales_manager', 'mis', 'business_head'];
@@ -17,19 +18,19 @@ export function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(actual, expected);
 }
 
-export function createUser(db, { name, email, role, password }) {
+export function createUser(db, input) {
+  const { name, email, role, password } = input;
   if (!name?.trim() || !email?.trim()) throw new Error('Name and email are required');
   if (!ROLES.includes(role)) throw new Error(`Role must be one of: ${ROLES.join(', ')}`);
   if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
+  const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null };
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO users (name, email, role, password_hash) VALUES (?, ?, ?, ?)')
-    .run(name.trim(), email.trim().toLowerCase(), role, hashPassword(password));
+    .prepare('INSERT INTO users (name, email, role, password_hash, sales_code, team_leader_id, sales_manager_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(name.trim(), email.trim().toLowerCase(), role, hashPassword(password), profile.sales_code, profile.team_leader_id, profile.sales_manager_id);
   return getUser(db, Number(lastInsertRowid));
 }
 
-export function getUser(db, id) {
-  return db.prepare('SELECT id, name, email, role, active, created_at FROM users WHERE id = ?').get(id);
-}
+export const getUser = findUser;
 
 export function login(db, email, password) {
   const user = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(String(email || '').trim());

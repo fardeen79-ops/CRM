@@ -6,6 +6,7 @@ import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { CREDIT_CARDS } from './credit-cards.js';
 import { BANKS } from './banks.js';
+import { findUser, listUsers, salesProfile } from './users.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -104,7 +105,7 @@ function routes(db, dispatch) {
     }],
 
     ['GET', /^\/api\/me$/, async ({ user }) => ({
-      user,
+      user: findUser(db, user.id),
       meta: {
         statuses: Object.values(cases.STATUS),
         call_outcomes: cases.CALL_OUTCOMES,
@@ -114,6 +115,8 @@ function routes(db, dispatch) {
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         banks: BANKS,
         case_statuses: cases.CASE_STATUS,
+        regions: cases.REGIONS,
+        core_products: cases.CORE_PRODUCTS,
         settable_case_statuses: cases.SETTABLE_CASE_STATUSES,
         edit_queues: cases.EDIT_QUEUES,
       },
@@ -150,7 +153,16 @@ function routes(db, dispatch) {
 
     ['GET', /^\/api\/users$/, async ({ user }) => {
       requireRole(user, 'team_leader');
-      return { users: db.prepare('SELECT id, name, email, role, active, created_at FROM users ORDER BY role, name').all() };
+      return { users: listUsers(db) };
+    }],
+
+    // Sales people a team leader or sales manager can enter a file for, with their profile.
+    ['GET', /^\/api\/sales-staff$/, async ({ user }) => {
+      requireRole(user, 'team_leader', 'sales_manager');
+      return {
+        staff: listUsers(db, { role: 'sales' }).map(({ id, name, sales_code, team_leader_name, sales_manager_name }) =>
+          ({ id, name, sales_code, team_leader_name, sales_manager_name })),
+      };
     }],
 
     ['POST', /^\/api\/users$/, async ({ user, body, res }) => {
@@ -166,7 +178,19 @@ function routes(db, dispatch) {
     ['PATCH', /^\/api\/users\/(\d+)$/, async ({ user, params, body }) => {
       requireRole(user, 'team_leader');
       const id = Number(params[0]);
-      if (!auth.getUser(db, id)) throw new HttpError(404, 'User not found');
+      const target = auth.getUser(db, id);
+      if (!target) throw new HttpError(404, 'User not found');
+      if (['sales_code', 'team_leader_id', 'sales_manager_id'].some((f) => f in body)) {
+        if (target.role !== 'sales') throw new HttpError(400, 'Only sales staff have a sales code, team leader and sales manager');
+        let profile;
+        try {
+          profile = salesProfile(db, body, target);
+        } catch (err) {
+          throw new HttpError(400, err.message);
+        }
+        db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ? WHERE id = ?')
+          .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, id);
+      }
       if ('active' in body) {
         if (id === user.id && !body.active) throw new HttpError(400, 'You cannot deactivate your own account');
         db.prepare('UPDATE users SET active = ? WHERE id = ?').run(body.active ? 1 : 0, id);

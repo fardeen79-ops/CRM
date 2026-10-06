@@ -10,7 +10,10 @@ CREATE TABLE IF NOT EXISTS users (
   role          TEXT NOT NULL, -- validated against ROLES in auth.js
   password_hash TEXT NOT NULL,
   active        INTEGER NOT NULL DEFAULT 1,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  sales_code       TEXT,
+  team_leader_id   INTEGER REFERENCES users(id),
+  sales_manager_id INTEGER REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -54,6 +57,13 @@ CREATE TABLE IF NOT EXISTS cases (
   case_status_by     INTEGER REFERENCES users(id),
   case_status_at     TEXT,
   sourcing_date      TEXT,
+  region             TEXT,
+  core_product       TEXT,
+  sales_staff_id     INTEGER REFERENCES users(id),
+  sales_staff_name   TEXT,
+  sales_code         TEXT,
+  team_leader_name   TEXT,
+  sales_manager_name TEXT,
   edit_request_to    TEXT,
   edit_request_note  TEXT,
   edit_request_by    INTEGER REFERENCES users(id),
@@ -119,6 +129,11 @@ const ADDED_COLUMNS = {
   case_status: "TEXT NOT NULL DEFAULT 'sent_to_check'", case_status_note: 'TEXT',
   case_status_by: 'INTEGER REFERENCES users(id)', case_status_at: 'TEXT', sourcing_date: 'TEXT',
   edit_request_to: 'TEXT', edit_request_note: 'TEXT', edit_request_by: 'INTEGER REFERENCES users(id)', edit_request_at: 'TEXT',
+  region: 'TEXT', core_product: 'TEXT', sales_staff_id: 'INTEGER REFERENCES users(id)', sales_staff_name: 'TEXT',
+  sales_code: 'TEXT', team_leader_name: 'TEXT', sales_manager_name: 'TEXT',
+};
+const ADDED_USER_COLUMNS = {
+  sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
 };
 
 function migrate(db) {
@@ -153,6 +168,15 @@ function migrate(db) {
       db.exec('PRAGMA foreign_keys = ON');
     }
   }
+
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  for (const [name, type] of Object.entries(ADDED_USER_COLUMNS)) {
+    if (!userCols.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+  }
+  // Files entered before sales staff details existed belong to the sales person who created them.
+  db.exec(`UPDATE cases SET sales_staff_id = created_by,
+             sales_staff_name = (SELECT name FROM users WHERE users.id = cases.created_by)
+           WHERE sales_staff_id IS NULL AND created_by IN (SELECT id FROM users WHERE role = 'sales')`);
 }
 
 export function transaction(db, fn) {

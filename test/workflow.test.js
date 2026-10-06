@@ -10,16 +10,18 @@ const dispatched = [];
 
 before(async () => {
   const db = openDb(':memory:');
+  const ids = {};
   for (const [name, email, role] of [
     ['Manager', 'sm@t.local', 'sales_manager'],
     ['Mira', 'mis@t.local', 'mis'],
     ['Boss', 'bh@t.local', 'business_head'],
     ['Lead', 'lead@t.local', 'team_leader'],
-    ['Sally', 'sales@t.local', 'sales'],
-    ['Sid', 'sales2@t.local', 'sales'],
     ['Pam', 'proc@t.local', 'processing'],
     ['Pete', 'proc2@t.local', 'processing'],
-  ]) createUser(db, { name, email, role, password: PASSWORD });
+  ]) ids[email] = createUser(db, { name, email, role, password: PASSWORD }).id;
+  const profile = (code) => ({ sales_code: code, team_leader_id: ids['lead@t.local'], sales_manager_id: ids['sm@t.local'] });
+  createUser(db, { name: 'Sally', email: 'sales@t.local', role: 'sales', password: PASSWORD, ...profile('S-001') });
+  createUser(db, { name: 'Sid', email: 'sales2@t.local', role: 'sales', password: PASSWORD, ...profile('S-002') });
   server = createServer(db, { dispatch: (t) => dispatched.push(...t) });
   await new Promise((r) => server.listen(0, r));
   base = `http://localhost:${server.address().port}`;
@@ -35,6 +37,8 @@ async function login(email) {
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
+    // Every new file needs a region and core product; tests that don't care get defaults.
+    if (method === 'POST' && path === '/cases' && body) body = { region: 'DXB', core_product: 'personal_loan', ...body };
     const r = await fetch(`${base}/api${path}`, {
       method,
       headers: { cookie, ...(body && { 'content-type': 'application/json' }) },
@@ -540,4 +544,70 @@ test('team leaders never see company, salary, Emirates ID or passport; processor
   assert.equal(r.data.case.passport_number, null);
   assert.equal((await fields(sm)).passport_number, 'Q1112223');
   assert.equal((await fields(sm)).eid_number, secret.eid_number); // untouched fields keep their values
+});
+
+test('files capture region, core product and the sales staff details from the user profile', async () => {
+  const sales = await login('sales@t.local');
+  const lead = await login('lead@t.local');
+  const sm = await login('sm@t.local');
+
+  // Profile on /me pre-fills the form
+  const me = (await sales('GET', '/me')).data.user;
+  assert.deepEqual([me.sales_code, me.team_leader_name, me.sales_manager_name], ['S-001', 'Lead', 'Manager']);
+
+  // Region and core product are required and checked
+  assert.equal((await sales('POST', '/cases', { ...newCase, region: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...newCase, region: 'SHJ' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...newCase, core_product: 'accounts' })).status, 400);
+
+  let r = await sales('POST', '/cases', { ...newCase, region: 'auh', core_product: 'multi_product', sales_staff_id: 999 });
+  assert.equal(r.status, 201);
+  const c = r.data.case;
+  assert.equal(c.region, 'AUH');
+  assert.equal(c.core_product, 'multi_product');
+  // Sales staff always file as themselves, whatever is sent
+  assert.deepEqual([c.sales_staff_name, c.sales_code, c.team_leader_name, c.sales_manager_name], ['Sally', 'S-001', 'Lead', 'Manager']);
+
+  // A team leader enters a file for Sid: Sid owns it, sees it and is notified about it
+  assert.equal((await lead('POST', '/cases', newCase)).status, 400); // must pick the sales person
+  const staff = (await sm('GET', '/sales-staff')).data.staff;
+  assert.equal((await sales('GET', '/sales-staff')).status, 403);
+  const sid = staff.find((s) => s.name === 'Sid');
+  assert.equal(sid.sales_code, 'S-002');
+  r = await lead('POST', '/cases', { ...newCase, sales_staff_id: sid.id });
+  assert.equal(r.data.case.sales_staff_name, 'Sid');
+  const sidLogin = await login('sales2@t.local');
+  assert.ok((await sidLogin('GET', '/cases')).data.cases.some((x) => x.id === r.data.case.id));
+  await sm('POST', `/cases/${r.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  assert.ok((await sidLogin('GET', '/notifications')).data.items.some((n) => n.case_id === r.data.case.id));
+
+  // Searching by sales code finds the files
+  assert.ok((await lead('GET', '/cases?q=S-002')).data.cases.some((x) => x.id === r.data.case.id));
+
+  // The details are a snapshot: changing the profile later does not rewrite old files
+  const users = (await lead('GET', '/users')).data.users;
+  const sally = users.find((u) => u.email === 'sales@t.local');
+  assert.equal((await lead('PATCH', `/users/${sally.id}`, { sales_code: 'S-002' })).status, 400); // taken by Sid
+  assert.equal((await lead('PATCH', `/users/${sally.id}`, { sales_code: 'S-101' })).data.user.sales_code, 'S-101');
+  assert.equal((await sales('GET', `/cases/${c.id}`)).data.case.sales_code, 'S-001');
+  await lead('PATCH', `/users/${sally.id}`, { sales_code: 'S-001' });
+});
+
+test('registering sales staff requires a sales code, team leader and sales manager', async () => {
+  const lead = await login('lead@t.local');
+  const users = (await lead('GET', '/users')).data.users;
+  const tl = users.find((u) => u.role === 'team_leader').id;
+  const smId = users.find((u) => u.role === 'sales_manager').id;
+  const mis = users.find((u) => u.role === 'mis').id;
+  const base = { name: 'New Sales', email: 'ns@t.local', role: 'sales', password: 'longenough' };
+
+  assert.equal((await lead('POST', '/users', base)).status, 400);
+  assert.equal((await lead('POST', '/users', { ...base, sales_code: 'S-900', team_leader_id: mis, sales_manager_id: smId })).status, 400);
+  assert.equal((await lead('POST', '/users', { ...base, sales_code: 'S-001', team_leader_id: tl, sales_manager_id: smId })).status, 400);
+  const r = await lead('POST', '/users', { ...base, sales_code: 's-900', team_leader_id: tl, sales_manager_id: smId });
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.data.user.sales_code, r.data.user.team_leader_name, r.data.user.sales_manager_name], ['S-900', 'Lead', 'Manager']);
+  // Other roles don't need (or get) a profile
+  const p = await lead('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', sales_code: 'X-1' });
+  assert.equal(p.data.user.sales_code, null);
 });

@@ -364,7 +364,8 @@ const COLS = {
     ? html`${c.edit_request_note}<div class="muted small">${c.edit_request_by_name} → ${state.meta.edit_queues[c.edit_request_to]} queue</div>`
     : html`<span class="muted">—</span>`)],
   req_waiting: ['Waiting', (c) => ago(c.edit_request_at)],
-  source_by: ['Sourced by', (c) => c.created_by_name],
+  source_by: ['Sourced by', (c) => html`${c.sales_staff_name || c.created_by_name}${c.sales_code ? html`<div class="muted small mono">${c.sales_code}</div>` : ''}`],
+  region: ['Region', (c) => c.region || html`<span class="muted">—</span>`],
   assigned: ['Processor', (c) => c.assigned_to_name || html`<span class="muted">—</span>`],
   calls: ['Calls', (c) => c.call_attempts],
   reason: ['Reason', (c) => html`${label(c.incomplete_reason)}<div class="muted small">${c.incomplete_note || ''}</div>`],
@@ -398,8 +399,8 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   const { cases } = await api(`/cases?${query}`);
 
   const r = state.user.role;
-  let cols = fixedCols || ['ref', 'customer', 'sourced', 'case_status', 'status', 'source_by', 'assigned', 'updated'];
-  if (!fixedCols && r === 'sales') cols = ['ref', 'customer', 'sourced', 'case_status', 'status', 'updated'];
+  let cols = fixedCols || ['ref', 'customer', 'sourced', 'region', 'case_status', 'status', 'source_by', 'assigned', 'updated'];
+  if (!fixedCols && r === 'sales') cols = ['ref', 'customer', 'sourced', 'region', 'case_status', 'status', 'updated'];
   if (fixedStatus === 'incomplete') cols = ['ref', 'customer', 'phone', 'reason', 'by', 'source_by', 'waiting'];
 
   const base = location.hash.split('?')[0];
@@ -422,7 +423,7 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     <div class="card">
       <div class="toolbar">
         <form id="search-form" style="display:flex;gap:8px;flex:1;min-width:240px">
-          <input type="search" name="q" placeholder="Search name, mobile, Emirates ID, passport, Bidaya / App ID or ref…" value="${q}">
+          <input type="search" name="q" placeholder="Search name, mobile, Emirates ID, passport, Bidaya / App ID, sales code or ref…" value="${q}">
           <button>Search</button>
         </form>
         ${filters}
@@ -454,6 +455,15 @@ async function viewCaseForm(id) {
     c.middle_name = parts.join(' ');
   }
   const products = state.meta.products;
+  const r = state.user.role;
+  // Sales staff file as themselves; team leaders and sales managers pick who sourced the file.
+  const pickStaff = r === 'team_leader' || r === 'sales_manager';
+  const staffList = pickStaff ? (await api('/sales-staff')).staff : [];
+  const me = state.user;
+  const staffNow = id
+    ? { id: c.sales_staff_id, name: c.sales_staff_name, sales_code: c.sales_code, team_leader_name: c.team_leader_name, sales_manager_name: c.sales_manager_name }
+    : r === 'sales' ? me : null;
+  const profileGap = r === 'sales' && !id && (!me.sales_code || !me.team_leader_name || !me.sales_manager_name);
   const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
   const listedBanks = state.meta.banks.flatMap((g) => g.banks);
   const otherBank = Boolean(c.buyout_bank) && !listedBanks.includes(c.buyout_bank);
@@ -481,6 +491,25 @@ async function viewCaseForm(id) {
       ${c.status === 'returned_to_sales' ? html`<div class="callout info"><strong>Returned by team leader</strong>${c.tl_note}</div>` : ''}
 
       <section>
+        <h2>Sales staff</h2>
+        ${profileGap ? html`<div class="callout warn"><strong>Your sales profile is incomplete.</strong>Ask a team leader to add your sales code, team leader and sales manager on the Users page before you submit files.</div>` : ''}
+        <div class="form-grid four">
+          <div>
+            <label for="f-sales_staff_id">Sales staff full name ${pickStaff ? raw('<span class="req">*</span>') : ''}</label>
+            ${pickStaff
+              ? html`<select id="f-sales_staff_id" name="sales_staff_id" required>
+                  <option value="">Choose the sales person…</option>
+                  ${staffList.map((st) => html`<option value="${st.id}" ${st.id === staffNow?.id ? raw('selected') : ''}>${st.name}${st.sales_code ? ` (${st.sales_code})` : ''}</option>`)}
+                </select>`
+              : html`<input id="f-sales_staff_id" value="${staffNow?.name || ''}" readonly>`}
+          </div>
+          <div><label for="f-sales_code">Sales code</label><input id="f-sales_code" value="${staffNow?.sales_code || ''}" readonly placeholder="From the user profile"></div>
+          <div><label for="f-team_leader_name">Team leader</label><input id="f-team_leader_name" value="${staffNow?.team_leader_name || ''}" readonly placeholder="From the user profile"></div>
+          <div><label for="f-sales_manager_name">Sales manager</label><input id="f-sales_manager_name" value="${staffNow?.sales_manager_name || ''}" readonly placeholder="From the user profile"></div>
+        </div>
+      </section>
+
+      <section>
         <h2>Customer</h2>
         <div class="form-grid three">
           ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"' })}
@@ -503,8 +532,15 @@ async function viewCaseForm(id) {
 
       <section>
         <h2>Application</h2>
-        <div class="form-grid three">
+        <div class="form-grid four">
           ${field('sourcing_date', 'Sourcing date', { type: 'date', required: true, attrs: `max="${todayLocal()}"` })}
+          <div>
+            <label for="f-region">Region <span class="req">*</span></label>
+            <select id="f-region" name="region" required>
+              <option value="">Choose…</option>
+              ${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${c.region === k ? raw('selected') : ''}>${l}</option>`)}
+            </select>
+          </div>
           ${field('bidaya_id', 'Bidaya ID')}
           ${field('app_id', 'App ID')}
         </div>
@@ -513,7 +549,14 @@ async function viewCaseForm(id) {
       <section>
         <h2>Product</h2>
         <div class="form-grid">
-          <div class="full">
+          <div>
+            <label for="f-core_product">Core product <span class="req">*</span></label>
+            <select id="f-core_product" name="core_product" required>
+              <option value="">Choose…</option>
+              ${Object.entries(state.meta.core_products).map(([k, l]) => html`<option value="${k}" ${c.core_product === k ? raw('selected') : ''}>${l}</option>`)}
+            </select>
+          </div>
+          <div>
             <label for="f-product">Product <span class="req">*</span></label>
             <select id="f-product" name="product" required>
               <option value="">Choose a product…</option>
@@ -623,7 +666,25 @@ async function viewCaseForm(id) {
     const over = !increment.disabled && fullAmount.value && increment.value && Number(increment.value) > Number(fullAmount.value);
     increment.setCustomValidity(over ? 'Incremental amount cannot be more than the full loan amount' : '');
   };
-  productSelect.onchange = updateProductFields;
+  // Suggest the core product from the product until the user picks one themselves.
+  const coreSelect = $('#f-core_product');
+  let coreTouched = Boolean(c.core_product);
+  coreSelect.onchange = () => { coreTouched = true; };
+  const suggestCore = () => {
+    if (coreTouched) return;
+    const map = { personal_loan: 'personal_loan', credit_card: 'credit_card', auto_loan: 'auto_loan', bundle: 'multi_product' };
+    coreSelect.value = map[productSelect.value] || '';
+  };
+  productSelect.onchange = () => { updateProductFields(); suggestCore(); };
+  const staffSelect = pickStaff ? $('#f-sales_staff_id') : null;
+  if (staffSelect) {
+    staffSelect.onchange = () => {
+      const st = staffList.find((x) => x.id === Number(staffSelect.value)) || {};
+      $('#f-sales_code').value = st.sales_code || '';
+      $('#f-team_leader_name').value = st.team_leader_name || '';
+      $('#f-sales_manager_name').value = st.sales_manager_name || '';
+    };
+  }
   boxes.forEach((b) => (b.onchange = updateProductFields));
   loanRadios.forEach((r) => (r.onchange = updateProductFields));
   bankSelect.onchange = () => { updateProductFields(); if (!bankOther.hidden) bankOther.focus(); };
@@ -806,7 +867,7 @@ async function viewCase(id) {
     <div class="page-head">
       <div><a href="#/" class="small" id="back-link">← Back</a>
         <h1>${c.customer_name} <span class="muted" style="font-weight:400">${c.ref}</span></h1>
-        <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} <span class="muted small">Sourced by ${c.created_by_name} on ${fmtDay(c.sourcing_date)}</span></div>
+        <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
     ${c.case_status === 'applicant_review' ? html`<div class="callout warn"><strong>Applicant review${c.case_status_by_name ? ` — set by ${c.case_status_by_name} ${ago(c.case_status_at)}` : ''}</strong>${c.case_status_note || ''}</div>` : ''}
@@ -831,6 +892,7 @@ async function viewCase(id) {
           </dl>
           <h2 class="sub">Product</h2>
           <dl class="details">
+            ${row('Core product', state.meta.core_products[c.core_product])}
             <dt>Product</dt><dd>${c.product === 'bundle'
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
@@ -843,10 +905,18 @@ async function viewCase(id) {
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             ${c.amount != null ? html`<dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>` : ''}
           </dl>
+          <h2 class="sub">Sales staff</h2>
+          <dl class="details">
+            ${row('Sales staff', c.sales_staff_name || c.created_by_name)}
+            ${row('Sales code', c.sales_code, true)}
+            ${row('Team leader', c.team_leader_name)}
+            ${row('Sales manager', c.sales_manager_name)}
+          </dl>
           <h2 class="sub">Case</h2>
           <dl class="details">
             <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
+            ${row('Region', state.meta.regions[c.region])}
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
             <dt>Sales notes</dt><dd style="white-space:pre-wrap">${c.sales_notes || '—'}</dd>
             <dt>Processor</dt><dd>${c.assigned_to_name || '—'}</dd>
@@ -933,38 +1003,94 @@ async function viewCase(id) {
 // ---------- users (team leader) ----------
 async function viewUsers() {
   const { users } = await api('/users');
+  const leaders = users.filter((u) => u.role === 'team_leader' && u.active);
+  const managers = users.filter((u) => u.role === 'sales_manager' && u.active);
+  const options = (list, selected) => list.map((u) => html`<option value="${u.id}" ${u.id === selected ? raw('selected') : ''}>${u.name}</option>`);
+  // Sales code, team leader and sales manager; these pre-fill the Sales staff section of every file.
+  const profileFields = (u = {}, prefix = 'n') => html`
+    <div class="field-row"><label for="${prefix}-code">Sales code <span class="req">*</span></label>
+      <input id="${prefix}-code" name="sales_code" value="${u.sales_code || ''}" placeholder="e.g. DXB-S-014" required></div>
+    <div class="field-row"><label for="${prefix}-tl">Team leader <span class="req">*</span></label>
+      <select id="${prefix}-tl" name="team_leader_id" required><option value="">Choose…</option>${options(leaders, u.team_leader_id)}</select></div>
+    <div class="field-row"><label for="${prefix}-sm">Sales manager <span class="req">*</span></label>
+      <select id="${prefix}-sm" name="sales_manager_id" required><option value="">Choose…</option>${options(managers, u.sales_manager_id)}</select></div>`;
+
   shell(html`
-    <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processing team members and team leaders.</p></div></div>
+    <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processors, team leaders, sales managers, MIS and business heads. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div></div>
     <div class="grid two-col">
       <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
-        <tbody>${users.map((u) => html`<tr style="cursor:default">
-          <td>${u.name}</td><td>${u.email}</td><td>${ROLE_LABEL[u.role]}</td>
+        <thead><tr><th>Name</th><th>Role</th><th>Sales profile</th><th>Status</th><th></th></tr></thead>
+        <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
+          <td>${u.name}<div class="muted small">${u.email}</div></td><td>${ROLE_LABEL[u.role]}</td>
+          <td class="small">${u.role === 'sales'
+            ? (u.sales_code
+              ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}</div>`
+              : html`<span class="lock">Incomplete</span>`)
+            : html`<span class="muted">—</span>`}</td>
           <td>${u.active ? 'Active' : html`<span class="muted">Disabled</span>`}</td>
-          <td class="actions">
+          <td><div class="actions">
+            ${u.role === 'sales' ? html`<button class="btn-link" data-profile="${u.id}">Edit profile</button>` : ''}
             <button class="btn-link" data-reset="${u.id}">Reset password</button>
             ${u.id !== state.user.id ? html`<button class="btn-link" data-toggle="${u.id}" data-active="${u.active}">${u.active ? 'Disable' : 'Enable'}</button>` : ''}
-          </td></tr>`)}</tbody>
+          </div></td></tr>`)}</tbody>
       </table></div></div>
       <form class="card" id="user-form">
         <h2>Add user</h2>
-        <div class="field-row"><label>Name</label><input name="name" required></div>
-        <div class="field-row"><label>Email</label><input name="email" type="email" required></div>
-        <div class="field-row"><label>Role</label><select name="role" required>
+        <div class="field-row"><label for="nu-name">Full name</label><input id="nu-name" name="name" required></div>
+        <div class="field-row"><label for="nu-email">Email</label><input id="nu-email" name="email" type="email" required></div>
+        <div class="field-row"><label for="nu-role">Role</label><select id="nu-role" name="role" required>
           ${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}
         </select></div>
-        <div class="field-row"><label>Temporary password</label><input name="password" type="text" minlength="8" required></div>
+        <fieldset class="product-detail" id="nu-profile">
+          <legend>Sales profile</legend>
+          ${!leaders.length || !managers.length ? html`<p class="small error">Add at least one team leader and one sales manager first.</p>` : ''}
+          ${profileFields({}, 'nu')}
+        </fieldset>
+        <div class="field-row"><label for="nu-password">Temporary password</label><input id="nu-password" name="password" type="text" minlength="8" required></div>
         <button class="btn-primary">Add user</button>
       </form>
     </div>`);
-  document.getElementById('user-form').onsubmit = async (e) => {
+
+  const form = document.getElementById('user-form');
+  const role = document.getElementById('nu-role');
+  const profile = document.getElementById('nu-profile');
+  const syncRole = () => {
+    profile.hidden = role.value !== 'sales';
+    profile.querySelectorAll('input, select').forEach((i) => (i.disabled = profile.hidden));
+  };
+  role.onchange = syncRole;
+  syncRole();
+  form.onsubmit = async (e) => {
     e.preventDefault();
     try {
-      await api('/users', { method: 'POST', body: formData(e.target) });
+      await api('/users', { method: 'POST', body: formData(form) });
       toast('User added');
       viewUsers();
     } catch (ex) { toast(ex.message, true); }
   };
+  app.querySelectorAll('[data-profile]').forEach((b) => (b.onclick = () => {
+    const u = users.find((x) => x.id === Number(b.dataset.profile));
+    const row = app.querySelector(`[data-user-row="${u.id}"]`);
+    if (row.nextElementSibling?.dataset.profileEditor) return;
+    const tr = document.createElement('tr');
+    tr.dataset.profileEditor = '1';
+    tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
+      <strong>Sales profile for ${u.name}</strong>
+      <div class="form-grid three">${profileFields(u, `e${u.id}`)}</div>
+      <div class="actions"><button class="btn-primary">Save profile</button><button type="button" data-cancel>Cancel</button></div>
+    </form></td>`.s;
+    row.after(tr);
+    const f = tr.querySelector('form');
+    f.querySelector('[data-cancel]').onclick = () => tr.remove();
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api(`/users/${u.id}`, { method: 'PATCH', body: formData(f) });
+        toast('Profile saved');
+        viewUsers();
+      } catch (ex) { toast(ex.message, true); }
+    };
+  }));
   app.querySelectorAll('[data-toggle]').forEach((b) => (b.onclick = async () => {
     try {
       await api(`/users/${b.dataset.toggle}`, { method: 'PATCH', body: { active: b.dataset.active !== '1' } });

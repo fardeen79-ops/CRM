@@ -54,6 +54,24 @@ Run the tests with `npm test`.
 | **MIS** | Sees all cases and sets case status |
 | **Business head** | Sees all cases, team stats, and sets case status |
 
+### Sales staff, region and core product
+
+When a team leader registers a sales person on the **Users** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users. A team leader can change these later with **Edit profile**.
+
+At the top of every file, the **Sales staff** section shows the sales person's full name, sales code, team leader and sales manager:
+
+- When a sales person enters a file, it fills in automatically from their profile and can't be edited.
+- When a team leader or sales manager enters a file, they pick the sales person and the rest fills in.
+
+These details are saved with the file as they were at submission, so later changes to a profile don't rewrite old files. A sales person can't submit until their profile is complete. The named sales person owns the file: they see it, can request edits and receive its notifications.
+
+Every file also needs:
+
+- a **Region**: `DXB` or `AUH`
+- a **Core product**: Credit Card, Personal Loan, Auto Loan or Multi product. It is suggested from the product chosen, and a bundle suggests Multi product.
+
+The API fields are `region`, `core_product` and, for team leaders and sales managers, `sales_staff_id`.
+
 ### Customer details
 
 The case form groups the customer's details:

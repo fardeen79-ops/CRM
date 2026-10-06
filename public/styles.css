@@ -129,7 +129,12 @@ textarea { min-height: 80px; resize: vertical; }
 .case-form section + section, .case-form details.more { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
 .case-form h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px; }
 .form-grid.three { grid-template-columns: repeat(3, 1fr); }
-@media (max-width: 760px) { .form-grid.three { grid-template-columns: 1fr; } }
+.form-grid.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 960px) { .form-grid.four { grid-template-columns: repeat(2, 1fr); } }
+input[readonly] { background: var(--bg); color: var(--muted); }
+.profile-editor { display: grid; gap: 10px; padding: 8px 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+@media (max-width: 760px) { .form-grid.three, .form-grid.four { grid-template-columns: 1fr; } }
 fieldset.product-detail { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px 14px; margin: 0; min-width: 0; display: grid; gap: 14px; }
 fieldset.product-detail legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
 .product-detail .segmented { justify-self: start; }

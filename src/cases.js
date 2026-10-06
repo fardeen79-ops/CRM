@@ -1,5 +1,6 @@
 import { transaction } from './db.js';
 import { CREDIT_CARD_NAMES } from './credit-cards.js';
+import { findUser } from './users.js';
 
 export class WorkflowError extends Error {
   constructor(status, message) {
@@ -37,6 +38,14 @@ export const PRODUCTS = {
 export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
 export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
+
+export const REGIONS = { DXB: 'DXB (Dubai)', AUH: 'AUH (Abu Dhabi)' };
+export const CORE_PRODUCTS = {
+  credit_card: 'Credit Card',
+  personal_loan: 'Personal Loan',
+  auto_loan: 'Auto Loan',
+  multi_product: 'Multi product',
+};
 
 // Case status is separate from verification: a sourced file starts as "Sent to checker" and only
 // these roles can move it on. Sales staff can never change it.
@@ -98,7 +107,12 @@ const PRODUCT_FIELDS = [
   'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank',
   'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount',
 ];
-const EDITABLE_FIELDS = [...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', ...PRODUCT_FIELDS];
+// Snapshot of the sales person's profile, copied onto the file when it is sourced.
+const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name'];
+const EDITABLE_FIELDS = [
+  ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'region', 'core_product',
+  ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS,
+];
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -230,9 +244,42 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
   }
   if (partial ? 'amount' in input : input.amount !== undefined) out.amount = parseNumber(input.amount, 'Amount');
 
+  if (has('region')) {
+    const region = clean(input.region)?.toUpperCase() ?? null;
+    if (!REGIONS[region]) throw new WorkflowError(400, 'Choose the region: DXB or AUH');
+    out.region = region;
+  }
+  if (has('core_product')) {
+    const core = clean(input.core_product);
+    if (!CORE_PRODUCTS[core]) throw new WorkflowError(400, 'Choose the core product: Credit Card, Personal Loan, Auto Loan or Multi product');
+    out.core_product = core;
+  }
   if (!partial || PRODUCT_FIELDS.some((f) => f in input)) validateProduct(input, current, out);
   return out;
 }
+
+/** Copies the sales person's name, code, team leader and sales manager onto the file. */
+function salesStaffSnapshot(db, staffId) {
+  const staff = staffId ? findUser(db, Number(staffId)) : null;
+  if (!staff || staff.role !== 'sales' || !staff.active) {
+    throw new WorkflowError(400, 'Choose the sales staff member who sourced this file');
+  }
+  const missing = [!staff.sales_code && 'sales code', !staff.team_leader_name && 'team leader', !staff.sales_manager_name && 'sales manager'].filter(Boolean);
+  if (missing.length) {
+    throw new WorkflowError(400, `${staff.name}'s profile has no ${missing.join(', ')}. A team leader can add it on the Users page.`);
+  }
+  return {
+    sales_staff_id: staff.id,
+    sales_staff_name: staff.name,
+    sales_code: staff.sales_code,
+    team_leader_name: staff.team_leader_name,
+    sales_manager_name: staff.sales_manager_name,
+  };
+}
+
+// The sales person a file belongs to: the one named on it, or whoever entered it before that existed.
+const ownerId = (row) => row.sales_staff_id ?? row.created_by;
+const isOwner = (user, row) => row.created_by === user.id || row.sales_staff_id === user.id;
 
 function addEvent(db, caseId, userId, type, { from = null, to = null, detail = null, note = null } = {}) {
   db.prepare(
@@ -289,7 +336,7 @@ function present(user, row) {
 }
 
 function canView(user, row) {
-  return user.role !== 'sales' || row.created_by === user.id;
+  return user.role !== 'sales' || isOwner(user, row);
 }
 
 export function getCase(db, user, id) {
@@ -308,8 +355,8 @@ export function listCases(db, user, { status, case_status, edit_requests, q, ass
   const where = [];
   const params = [];
   if (user.role === 'sales') {
-    where.push('c.created_by = ?');
-    params.push(user.id);
+    where.push('(c.created_by = ? OR c.sales_staff_id = ?)');
+    params.push(user.id, user.id);
   }
   if (status) {
     const statuses = String(status).split(',').filter((s) => Object.values(STATUS).includes(s));
@@ -347,8 +394,8 @@ export function listCases(db, user, { status, case_status, edit_requests, q, ass
       sensitiveClause = ` OR ${sensitive}`;
     }
     where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?
-      OR c.bidaya_id LIKE ? OR c.app_id LIKE ?${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(...Array(8).fill(term));
+      OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(...Array(10).fill(term));
     if (user.role === 'processing') params.push(...PROCESSOR_SENSITIVE_STATUSES);
     if (sensitiveClause) params.push(...Array(4).fill(term));
     if (idMatch) params.push(Number(idMatch[1]));
@@ -364,6 +411,8 @@ export function createCase(db, user, input) {
     throw new WorkflowError(403, 'Only sales staff can add sourcing data');
   }
   const data = validateCaseInput(input);
+  // Sales staff source files as themselves; team leaders and sales managers pick the sales person.
+  Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
   return transaction(db, () => {
     const ts = now();
     const cols = [...EDITABLE_FIELDS, 'status', 'created_by', 'created_at', 'updated_at'];
@@ -381,7 +430,7 @@ function canEdit(user, row) {
   if (EDITOR_ROLES.includes(user.role)) return !closed;
   if (user.role === 'sales') {
     // Once the file is under review, sales must ask a team leader or sales manager to make changes.
-    return row.created_by === user.id && row.case_status === 'sent_to_check' && [STATUS.PENDING, STATUS.RETURNED].includes(row.status);
+    return isOwner(user, row) && row.case_status === 'sent_to_check' && [STATUS.PENDING, STATUS.RETURNED].includes(row.status);
   }
   return false;
 }
@@ -391,6 +440,10 @@ export function updateCase(db, user, id, input) {
   if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
   if (!canEdit(user, row)) throw new WorkflowError(403, 'This case can no longer be edited');
   const data = validateCaseInput(input, { partial: true, current: row });
+  if ('sales_staff_id' in input && Number(input.sales_staff_id) !== row.sales_staff_id) {
+    if (!EDITOR_ROLES.includes(user.role)) throw new WorkflowError(403, 'Only a team leader or sales manager can change the sales staff on a file');
+    Object.assign(data, salesStaffSnapshot(db, input.sales_staff_id));
+  }
   const changed = Object.keys(data).filter((f) => (data[f] ?? null) !== (row[f] ?? null));
   if (!changed.length) return getCase(db, user, id);
   return transaction(db, () => {
@@ -407,7 +460,7 @@ export function updateCase(db, user, id, input) {
 function allowedCaseActions(user, row) {
   const out = [];
   if (CASE_STATUS_ROLES.includes(user.role)) out.push('set_case_status');
-  if (user.role === 'sales' && row.created_by === user.id && row.case_status === 'applicant_review') out.push('request_edit');
+  if (user.role === 'sales' && isOwner(user, row) && row.case_status === 'applicant_review') out.push('request_edit');
   if (row.edit_request_to && (user.role === row.edit_request_to || user.role === 'team_leader')) out.push('resolve_edit_request');
   return out;
 }
@@ -420,7 +473,7 @@ function verificationActions(user, row) {
   return Object.entries(ACTIONS)
     .filter(([name, rule]) => {
       if (!rule.roles.includes(user.role) || !rule.from.includes(row.status)) return false;
-      if (user.role === 'sales') return row.created_by === user.id;
+      if (user.role === 'sales') return isOwner(user, row);
       if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id) return false;
       return name !== 'claim' || !row.assigned_to;
     })
@@ -478,13 +531,13 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         break;
       case 'complete':
         Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts });
-        notify(db, [row.created_by], id, `${ref} (${row.customer_name}) verification completed by ${user.name}`);
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) verification completed by ${user.name}`);
         break;
       case 'reject_verification':
         // Verification failing does not change the case status; that stays a separate decision.
         Object.assign(set, { assigned_to: row.assigned_to ?? user.id, incomplete_reason: reason || null, incomplete_note: note, incomplete_at: ts });
         detail = reason || null;
-        notify(db, [row.created_by, ...activeUserIds(db, 'team_leader')], id,
+        notify(db, [ownerId(row), ...activeUserIds(db, 'team_leader')], id,
           `${ref} (${row.customer_name}) verification rejected by ${user.name}: ${note}`);
         break;
       case 'mark_incomplete':
@@ -524,9 +577,9 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
           set.assigned_to = null;
           notify(db, [row.assigned_to], id, `${ref} was sent back for re-verification by ${user.name}`);
         } else if (action === 'return_to_sales') {
-          notify(db, [row.created_by], id, `${ref} (${row.customer_name}) was returned to you: ${note}`);
+          notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) was returned to you: ${note}`);
         } else {
-          notify(db, [row.created_by, row.assigned_to], id, `${ref} (${row.customer_name}) was rejected by ${user.name}`);
+          notify(db, [ownerId(row), row.assigned_to], id, `${ref} (${row.customer_name}) was rejected by ${user.name}`);
         }
         break;
       case 'resubmit':
@@ -565,7 +618,7 @@ function applyCaseAction(db, user, id, { action, note, case_status, to }) {
         .run(case_status, note, user.id, ts, ts, id);
       addEvent(db, id, user.id, 'case_status', { detail: case_status, note });
       const label = CASE_STATUS[case_status];
-      notify(db, [row.created_by], id, `${ref} (${row.customer_name}) case status changed to ${label} by ${who}${note ? `: ${note}` : ''}`);
+      notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) case status changed to ${label} by ${who}${note ? `: ${note}` : ''}`);
       if (case_status === 'applicant_review') {
         notify(db, activeUserIds(db, 'team_leader').filter((u) => u !== user.id), id,
           `Applicant review: ${ref} (${row.customer_name}) set by ${who}${note ? ` — ${note}` : ''}`);
@@ -588,8 +641,8 @@ function applyCaseAction(db, user, id, { action, note, case_status, to }) {
 }
 
 export function stats(db, user) {
-  const scope = user.role === 'sales' ? 'WHERE created_by = ?' : '';
-  const params = user.role === 'sales' ? [user.id] : [];
+  const scope = user.role === 'sales' ? 'WHERE (created_by = ? OR sales_staff_id = ?)' : '';
+  const params = user.role === 'sales' ? [user.id, user.id] : [];
   const byStatus = Object.fromEntries(Object.values(STATUS).map((s) => [s, 0]));
   for (const r of db.prepare(`SELECT status, COUNT(*) AS n FROM cases ${scope} GROUP BY status`).all(...params)) {
     byStatus[r.status] = r.n;
@@ -623,7 +676,7 @@ export function stats(db, user) {
       .prepare(
         `SELECT u.name, COUNT(c.id) AS sourced,
            SUM(CASE WHEN c.status = 'completed' THEN 1 ELSE 0 END) AS completed
-         FROM users u LEFT JOIN cases c ON c.created_by = u.id
+         FROM users u LEFT JOIN cases c ON COALESCE(c.sales_staff_id, c.created_by) = u.id
          WHERE u.role = 'sales' GROUP BY u.id ORDER BY u.name`
       )
       .all();
