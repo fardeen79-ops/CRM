@@ -484,23 +484,27 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
 }
 
 export function createCase(db, user, input) {
+  return transaction(db, () => getCase(db, user, insertCase(db, user, input)));
+}
+
+/** Validates and inserts a new file, returning its id. The caller runs it inside a transaction. */
+export function insertCase(db, user, input, { bulk = false } = {}) {
   if (!['sales', 'team_leader', 'sales_manager'].includes(user.role)) {
     throw new WorkflowError(403, 'Only sales staff can add sourcing data');
   }
   const data = validateCaseInput(input);
   // Sales staff source files as themselves; team leaders and sales managers pick the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
-  return transaction(db, () => {
-    const ts = now();
-    const cols = [...EDITABLE_FIELDS, 'status', 'created_by', 'created_at', 'updated_at'];
-    const { lastInsertRowid } = db
-      .prepare(`INSERT INTO cases (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-      .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), STATUS.PENDING, user.id, ts, ts);
-    const id = Number(lastInsertRowid);
-    addEvent(db, id, user.id, 'created', { to: STATUS.PENDING, detail: 'sent_to_check' });
-    if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
-    return getCase(db, user, id);
-  });
+  const ts = now();
+  const cols = [...EDITABLE_FIELDS, 'status', 'created_by', 'created_at', 'updated_at'];
+  const { lastInsertRowid } = db
+    .prepare(`INSERT INTO cases (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+    .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), STATUS.PENDING, user.id, ts, ts);
+  const id = Number(lastInsertRowid);
+  addEvent(db, id, user.id, 'created', { to: STATUS.PENDING, detail: 'sent_to_check' });
+  if (bulk) addEvent(db, id, user.id, 'bulk_upload', { detail: 'Added from a bulk upload file' });
+  if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
+  return id;
 }
 
 function canEdit(user, row) {

@@ -6,7 +6,8 @@ import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { CREDIT_CARDS } from './credit-cards.js';
 import { BANKS } from './banks.js';
-import { findUser, listUsers, salesProfile } from './users.js';
+import { contactDetails, findUser, listUsers, salesProfile } from './users.js';
+import * as imports from './imports.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -19,6 +20,7 @@ const MIME = {
   '.gz': 'application/gzip',
 };
 const MAX_BODY = 1024 * 1024;
+const MAX_UPLOAD = 6 * 1024 * 1024; // bulk upload files
 
 // Emirates ID scanner (Tesseract.js). Served from public/vendor/tesseract after `npm run setup:ocr`,
 // otherwise from the jsDelivr CDN. Versions are pinned to match setup-ocr.js.
@@ -86,7 +88,7 @@ function parseCookies(header = '') {
   );
 }
 
-async function readJson(req) {
+async function readJson(req, limit = MAX_BODY) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return {};
   // Requiring JSON blocks cross-site form posts (CSRF) along with SameSite cookies.
   if (!String(req.headers['content-type'] || '').includes('application/json')) {
@@ -96,7 +98,7 @@ async function readJson(req) {
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_BODY) throw new HttpError(413, 'Request body too large');
+    if (size > limit) throw new HttpError(413, limit > MAX_BODY ? 'The file is too large. Split it into smaller files' : 'Request body too large');
     chunks.push(chunk);
   }
   if (!size) return {};
@@ -154,6 +156,8 @@ function routes(db, dispatch) {
         score_max: cases.SCORE_MAX,
         it_email: cases.config.itEmail,
         ocr: ocrAssets(),
+        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS },
+        import_max_rows: imports.MAX_ROWS,
       },
     })],
 
@@ -203,18 +207,38 @@ function routes(db, dispatch) {
     ['POST', /^\/api\/users$/, async ({ user, body, res }) => {
       requireRole(user, 'team_leader');
       try {
-        send(res, 201, { user: auth.createUser(db, body) });
+        send(res, 201, { user: auth.createUser(db, body, { requireMobile: true }) });
       } catch (err) {
-        if (/UNIQUE/.test(err.message)) throw new HttpError(409, 'A user with that email already exists');
+        if (/UNIQUE|already exists/.test(err.message)) throw new HttpError(409, 'A user with that email already exists');
         throw new HttpError(400, err.message);
       }
     }],
+
+    // Bulk upload: { csv, dry_run }. A dry run checks every row and saves nothing.
+    ['POST', /^\/api\/import\/users$/, async ({ user, body }) => {
+      requireRole(user, 'team_leader');
+      return imports.importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
+    }, { maxBody: MAX_UPLOAD }],
+
+    ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     ['PATCH', /^\/api\/users\/(\d+)$/, async ({ user, params, body }) => {
       requireRole(user, 'team_leader');
       const id = Number(params[0]);
       const target = auth.getUser(db, id);
       if (!target) throw new HttpError(404, 'User not found');
+      if (['name', 'email', 'mobile_number', 'whatsapp_number'].some((f) => f in body)) {
+        let contact;
+        try {
+          contact = contactDetails(body, { current: target });
+        } catch (err) {
+          throw new HttpError(400, err.message);
+        }
+        if (contact.email && db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(contact.email, id)) {
+          throw new HttpError(409, 'A user with that email already exists');
+        }
+        for (const [field, value] of Object.entries(contact)) db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, id);
+      }
       if (['sales_code', 'team_leader_id', 'sales_manager_id'].some((f) => f in body)) {
         if (target.role !== 'sales') throw new HttpError(400, 'Only sales staff have a sales code, team leader and sales manager');
         let profile;
@@ -287,7 +311,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
       const token = parseCookies(req.headers.cookie).sid;
       const user = auth.userForToken(db, token);
       if (!matched.opts.public && !user) throw new HttpError(401, 'Please sign in');
-      const body = await readJson(req);
+      const body = await readJson(req, matched.opts.maxBody);
       const result = await matched.handler({ req, res, user, token, body, params: matched.params, query: url.searchParams });
       if (!res.headersSent && result !== undefined) send(res, 200, result);
     } catch (err) {

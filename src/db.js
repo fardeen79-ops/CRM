@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   sales_code       TEXT,
   team_leader_id   INTEGER REFERENCES users(id),
-  sales_manager_id INTEGER REFERENCES users(id)
+  sales_manager_id INTEGER REFERENCES users(id),
+  mobile_number    TEXT, -- UAE local mobile, stored as 05XXXXXXXX
+  whatsapp_number  TEXT  -- international format, +9715XXXXXXXX
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -167,6 +169,7 @@ const ADDED_COLUMNS = {
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
+  mobile_number: 'TEXT', whatsapp_number: 'TEXT',
 };
 
 function migrate(db) {
@@ -210,6 +213,23 @@ function migrate(db) {
   db.exec(`UPDATE cases SET sales_staff_id = created_by,
              sales_staff_name = (SELECT name FROM users WHERE users.id = cases.created_by)
            WHERE sales_staff_id IS NULL AND created_by IN (SELECT id FROM users WHERE role = 'sales')`);
+}
+
+/**
+ * Runs fn inside a savepoint so one failing step can be undone without ending the surrounding
+ * transaction (used by bulk imports to skip bad rows).
+ */
+export function savepoint(db, fn) {
+  db.exec('SAVEPOINT row');
+  try {
+    const result = fn();
+    db.exec('RELEASE row');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK TO row');
+    db.exec('RELEASE row');
+    throw err;
+  }
 }
 
 export function transaction(db, fn) {

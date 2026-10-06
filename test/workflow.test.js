@@ -176,14 +176,22 @@ test('only team leaders manage users', async () => {
   const sales = await login('sales@t.local');
   const lead = await login('lead@t.local');
   assert.equal((await sales('GET', '/users')).status, 403);
-  const r = await lead('POST', '/users', { name: 'New', email: 'new@t.local', role: 'processing', password: 'longenough' });
+  const newUser = { name: 'New', email: 'New@T.local', role: 'processing', password: 'longenough' };
+  // A local mobile number is required; WhatsApp is optional and stored with its country code.
+  assert.equal((await lead('POST', '/users', newUser)).status, 400);
+  const r = await lead('POST', '/users', { ...newUser, mobile_number: '+971 50 123 4567', whatsapp_number: '050 765 4321' });
   assert.equal(r.status, 201);
-  assert.equal((await lead('POST', '/users', { name: 'New', email: 'new@t.local', role: 'processing', password: 'longenough' })).status, 409);
+  assert.deepEqual([r.data.user.email, r.data.user.mobile_number, r.data.user.whatsapp_number], ['new@t.local', '0501234567', '+971507654321']);
+  assert.equal((await lead('POST', '/users', { ...newUser, mobile_number: '0501234567' })).status, 409);
+  assert.equal((await lead('POST', '/users', { ...newUser, email: 'x@t.local', mobile_number: '12345' })).status, 400);
+  const edited = await lead('PATCH', `/users/${r.data.user.id}`, { whatsapp_number: '+44 7700 900123', email: 'renamed@t.local' });
+  assert.deepEqual([edited.data.user.whatsapp_number, edited.data.user.email], ['+447700900123', 'renamed@t.local']);
+  assert.equal((await lead('PATCH', `/users/${r.data.user.id}`, { email: 'sales@t.local' })).status, 409);
   await lead('PATCH', `/users/${r.data.user.id}`, { active: false });
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'new@t.local', password: 'longenough' }),
+    body: JSON.stringify({ email: 'renamed@t.local', password: 'longenough' }),
   });
   assert.equal(res.status, 401);
 });
@@ -601,7 +609,7 @@ test('registering sales staff requires a sales code, team leader and sales manag
   const tl = users.find((u) => u.role === 'team_leader').id;
   const smId = users.find((u) => u.role === 'sales_manager').id;
   const mis = users.find((u) => u.role === 'mis').id;
-  const base = { name: 'New Sales', email: 'ns@t.local', role: 'sales', password: 'longenough' };
+  const base = { name: 'New Sales', email: 'ns@t.local', role: 'sales', password: 'longenough', mobile_number: '0501234567' };
 
   assert.equal((await lead('POST', '/users', base)).status, 400);
   assert.equal((await lead('POST', '/users', { ...base, sales_code: 'S-900', team_leader_id: mis, sales_manager_id: smId })).status, 400);
@@ -610,7 +618,7 @@ test('registering sales staff requires a sales code, team leader and sales manag
   assert.equal(r.status, 201);
   assert.deepEqual([r.data.user.sales_code, r.data.user.team_leader_name, r.data.user.sales_manager_name], ['S-900', 'Lead', 'Manager']);
   // Other roles don't need (or get) a profile
-  const p = await lead('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', sales_code: 'X-1' });
+  const p = await lead('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', mobile_number: '0501234567', sales_code: 'X-1' });
   assert.equal(p.data.user.sales_code, null);
 });
 
@@ -755,4 +763,80 @@ test('while verification is pending, recordings cannot be retrieved; governance 
   assert.ok(!(await allowed(gov)).includes('flag_urgent'));
   assert.ok((await allowed(gov)).includes('request_recording'));
   assert.equal((await gov('GET', '/stats')).data.governance.urgent, 0);
+});
+
+test('bulk upload of users: preview saves nothing, import keeps good rows and reports the rest', async () => {
+  const lead = await login('lead@t.local');
+  const sales = await login('sales@t.local');
+  const csv = [
+    'Full name,Email,Role,Local mobile,WhatsApp number,Sales code,Team leader email,Sales manager email,Temporary password',
+    'Bulk Seller,bulk.seller@t.local,Sales,050 111 2222,,BLK-1,bulk.lead@t.local,sm@t.local,',
+    'Bulk Lead,bulk.lead@t.local,Team Leader,+971501112223,+971501112223,,,,longenough1',
+    'No Phone,nophone@t.local,MIS,,,,,,',
+    'Dup,sales@t.local,MIS,0501112224,,,,,',
+    'Excel,excel@t.local,MIS,9.71501E+11,,,,,',
+  ].join('\r\n');
+  assert.equal((await sales('POST', '/import/users', { csv })).status, 403);
+  const preview = await lead('POST', '/import/users', { csv, dry_run: true });
+  assert.equal(preview.status, 200);
+  assert.deepEqual([preview.data.ok, preview.data.failed], [2, 3]);
+  assert.equal(preview.data.rows[0].temp_password, undefined);
+  const users = () => lead('GET', '/users').then((r) => r.data.users.map((u) => u.email));
+  assert.ok(!(await users()).includes('bulk.lead@t.local'));
+
+  const done = await lead('POST', '/import/users', { csv });
+  assert.deepEqual([done.data.ok, done.data.failed], [2, 3]);
+  // The sales row names a team leader added further down the same file.
+  assert.equal(done.data.rows[0].ok, true);
+  assert.match(done.data.rows[0].temp_password, /^\w{10}$/);
+  assert.equal(done.data.rows[1].temp_password, undefined);
+  assert.match(done.data.rows[2].error, /mobile number is required/i);
+  assert.match(done.data.rows[3].error, /already exists/);
+  assert.match(done.data.rows[4].error, /scientific notation/);
+  assert.deepEqual(done.data.rows[4].cells.slice(0, 2), ['Excel', 'excel@t.local']);
+  assert.ok((await users()).includes('bulk.seller@t.local'));
+  const login2 = await fetch(`${base}/api/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'bulk.seller@t.local', password: done.data.rows[0].temp_password }),
+  });
+  assert.equal(login2.status, 200);
+
+  const bad = await lead('POST', '/import/users', { csv: 'Name,Email\nA,a@t.local' });
+  assert.equal(bad.status, 400);
+  assert.match(bad.data.error, /missing these columns: Role, Local mobile/);
+});
+
+test('bulk upload of cases by sales code, with labels, UAE dates and duplicate App IDs', async () => {
+  const lead = await login('lead@t.local');
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const header = 'Sales code,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID';
+  const csv = [
+    header,
+    'S-002,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671',
+    'S-002,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,',
+    'S-002,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,',
+    'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,',
+  ].join('\n');
+  assert.equal((await proc('POST', '/import/cases', { csv })).status, 403);
+  const done = await lead('POST', '/import/cases', { csv });
+  assert.equal(done.status, 200);
+  assert.deepEqual(done.data.rows.map((r) => r.ok), [true, true, false, false]);
+  assert.match(done.data.rows[2].error, /also on line 2/);
+  assert.match(done.data.rows[3].error, /sales code NOPE/);
+  const c1 = (await lead('GET', `/cases/${done.data.rows[0].id}`)).data.case;
+  assert.deepEqual([c1.sales_staff_name, c1.sourcing_date, c1.region, c1.personal_loan_type, c1.loan_amount, c1.case_status], ['Sid', '2026-10-01', 'DXB', 'top_up', 150000, 'sent_to_check']);
+  const c2 = (await lead('GET', `/cases/${done.data.rows[1].id}`)).data.case;
+  assert.deepEqual([c2.bundle_products, c2.credit_card, c2.buyout_bank], ['personal_loan,credit_card', 'Infinite Credit Card', 'Abu Dhabi Islamic Bank (ADIB)']);
+  assert.ok(c2.events.some((e) => e.type === 'bulk_upload'));
+
+  // Uploading the same file again finds the duplicates.
+  const again = await lead('POST', '/import/cases', { csv, dry_run: true });
+  assert.match(again.data.rows[0].error, /already on CRM-/);
+
+  // Sales staff upload only their own files and may leave the sales code blank.
+  const own = [header, ',03/10/2026,DXB,Auto Loan,Own,,File,0501234567,Auto Loan,,,,,,,,,,', 'S-002,03/10/2026,DXB,Auto Loan,Not,,Mine,0501234567,Auto Loan,,,,,,,,,,'].join('\n');
+  const mine = await sales('POST', '/import/cases', { csv: own });
+  assert.deepEqual(mine.data.rows.map((r) => r.ok), [true, false]);
+  assert.match(mine.data.rows[1].error, /not yours/);
 });

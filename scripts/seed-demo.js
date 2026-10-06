@@ -11,12 +11,12 @@ function ensureUser(name, email, role, profile = {}) {
     createUser(db, { name, email, role, password: PASSWORD, ...profile });
 }
 
-const leader = ensureUser('Tara Leader', 'leader@demo.local', 'team_leader');
-const manager = ensureUser('Sana Manager', 'manager@demo.local', 'sales_manager');
+const leader = ensureUser('Tara Leader', 'leader@demo.local', 'team_leader', { mobile_number: '0501110001', whatsapp_number: '+971501110001' });
+const manager = ensureUser('Sana Manager', 'manager@demo.local', 'sales_manager', { mobile_number: '0501110002' });
 const team = { team_leader_id: leader.id, sales_manager_id: manager.id };
-const sales1 = ensureUser('Sam Sales', 'sales@demo.local', 'sales', { sales_code: 'DXB-S-001', ...team });
-const sales2 = ensureUser('Riya Sales', 'sales2@demo.local', 'sales', { sales_code: 'AUH-S-002', ...team });
-const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing');
+const sales1 = ensureUser('Sam Sales', 'sales@demo.local', 'sales', { sales_code: 'DXB-S-001', mobile_number: '0551110003', whatsapp_number: '+971551110003', ...team });
+const sales2 = ensureUser('Riya Sales', 'sales2@demo.local', 'sales', { sales_code: 'AUH-S-002', mobile_number: '0561110004', whatsapp_number: '+919876543210', ...team });
+const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing', { mobile_number: '0521110005' });
 
 if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
   const samples = [

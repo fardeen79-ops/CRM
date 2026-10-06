@@ -1,0 +1,306 @@
+// Bulk upload of users and cases from CSV files (Excel "Save as CSV" works). Each row is checked
+// with the same rules as the on-screen forms. A preview runs the whole import inside a transaction
+// and rolls it back; a real import keeps the good rows and reports the rest so they can be fixed
+// and uploaded again.
+import { transaction, savepoint } from './db.js';
+import { ROLES, createUser, tempPassword } from './auth.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, REGIONS, CORE_PRODUCTS, caseRef, insertCase, WorkflowError } from './cases.js';
+import { CREDIT_CARD_NAMES } from './credit-cards.js';
+import { BANKS } from './banks.js';
+
+export const MAX_ROWS = 1000;
+
+const ROLE_LABELS = {
+  sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader', sales_manager: 'Sales Manager',
+  mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
+};
+
+// Column guide shared with the page (template download and the help table).
+export const USER_IMPORT_COLUMNS = [
+  { key: 'name', header: 'Full name', required: true, example: 'Aisha Khan' },
+  { key: 'email', header: 'Email', required: true, example: 'aisha.khan@yourbank.ae' },
+  { key: 'role', header: 'Role', required: true, example: 'Sales', allowed: Object.values(ROLE_LABELS) },
+  { key: 'mobile_number', header: 'Local mobile', required: true, example: '050 123 4567', help: 'UAE mobile number' },
+  { key: 'whatsapp_number', header: 'WhatsApp number', example: '+971 50 123 4567', help: 'With country code; a UAE number without one gets +971' },
+  { key: 'sales_code', header: 'Sales code', example: 'DXB-S-021', help: 'Sales staff only. Must be unique' },
+  { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader, or one added earlier in this file' },
+  { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only. An active sales manager, or one added earlier in this file' },
+  { key: 'password', header: 'Temporary password', example: '', help: 'Optional, 8+ characters. Left blank, one is generated and shown after the upload' },
+];
+
+export const CASE_IMPORT_COLUMNS = [
+  { key: 'sales_code', header: 'Sales code', required: true, example: 'DXB-S-014', help: 'The sales person who sourced the file. Sales staff uploading their own files can leave it blank' },
+  { key: 'sourcing_date', header: 'Sourcing date', required: true, example: '06/10/2026', help: 'DD/MM/YYYY or YYYY-MM-DD' },
+  { key: 'region', header: 'Region', required: true, example: 'DXB', allowed: Object.keys(REGIONS) },
+  { key: 'core_product', header: 'Core product', required: true, example: 'Personal Loan', allowed: Object.values(CORE_PRODUCTS) },
+  { key: 'first_name', header: 'First name', required: true, example: 'Mohammed' },
+  { key: 'middle_name', header: 'Middle name', example: 'Rashid' },
+  { key: 'last_name', header: 'Last name', required: true, example: 'Al Mansoori' },
+  { key: 'phone', header: 'Mobile number', required: true, example: '+971 50 123 4567' },
+  { key: 'alt_phone', header: 'Alternate phone', example: '' },
+  { key: 'email', header: 'Customer email', example: 'customer@example.com' },
+  { key: 'company_name', header: 'Company name', example: 'Emirates Logistics LLC' },
+  { key: 'salary', header: 'Salary', example: '25000', help: 'Monthly, AED' },
+  { key: 'eid_number', header: 'Emirates ID', example: '784-1990-1234567-1', help: 'Keep the dashes so Excel treats it as text' },
+  { key: 'passport_number', header: 'Passport number', example: 'N1234567' },
+  { key: 'bidaya_id', header: 'Bidaya ID', example: '' },
+  { key: 'app_id', header: 'App ID', example: '', help: 'An App ID already on the CRM is treated as a duplicate' },
+  { key: 'product', header: 'Product', required: true, example: 'Personal Loan', allowed: [...Object.values(PRODUCTS), 'Bundle'] },
+  { key: 'bundle_products', header: 'Bundle products', example: '', help: 'For Bundle: two or more products separated by ; e.g. Personal Loan; Credit Card' },
+  { key: 'credit_card', header: 'Credit card', example: '', help: 'Card name exactly as in the New case form' },
+  { key: 'personal_loan_type', header: 'Personal loan type', example: 'Top Up', allowed: Object.values(PERSONAL_LOAN_TYPES) },
+  { key: 'buyout_bank', header: 'Buy-out bank', example: '', help: 'For Buy Out' },
+  { key: 'loan_amount', header: 'Loan amount', example: '150000', help: 'Personal loan' },
+  { key: 'interest_rate', header: 'Interest rate', example: '6.5', help: 'Personal loan, % a year' },
+  { key: 'full_loan_amount', header: 'Full loan amount', example: '250000', help: 'Top Up' },
+  { key: 'incremental_amount', header: 'Incremental amount', example: '100000', help: 'Top Up' },
+  { key: 'city', header: 'City', example: 'Dubai' },
+  { key: 'source', header: 'Lead source', example: '' },
+  { key: 'sales_notes', header: 'Notes', example: '' },
+];
+
+// ---------- CSV ----------
+
+/** Parses CSV text (RFC 4180 quoting; comma, semicolon or tab separated) into rows of cells. */
+export function parseCsv(text) {
+  text = String(text ?? '').replace(/^﻿/, '');
+  const firstLine = text.slice(0, text.search(/\r?\n|$/));
+  const delimiter = [',', ';', '\t'].reduce((best, d) => (firstLine.split(d).length > firstLine.split(best).length ? d : best), ',');
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"' && cell === '') quoted = true;
+    else if (c === delimiter) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+const norm = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Maps each template column to its position in the uploaded header row. */
+function mapHeader(header, columns) {
+  const positions = {};
+  const unknown = [];
+  header.forEach((h, i) => {
+    const n = norm(h);
+    if (!n) return;
+    const col = columns.find((c) => norm(c.header) === n || norm(c.key) === n);
+    if (col) positions[col.key] ??= i;
+    else unknown.push(h.trim());
+  });
+  const missing = columns.filter((c) => c.required && !(c.key in positions)).map((c) => c.header);
+  return { positions, missing, unknown };
+}
+
+function readFile(csv, columns) {
+  const rows = parseCsv(csv);
+  const headerAt = rows.findIndex((r) => r.some((c) => c.trim()));
+  if (headerAt < 0) throw new WorkflowError(400, 'The file is empty. Download the template and add one row per record');
+  const header = rows[headerAt];
+  const { positions, missing, unknown } = mapHeader(header, columns);
+  if (missing.length) {
+    throw new WorkflowError(400, `The file is missing these columns: ${missing.join(', ')}. Start from the downloaded template`);
+  }
+  const records = [];
+  rows.slice(headerAt + 1).forEach((cells, i) => {
+    if (!cells.some((c) => c.trim())) return;
+    const values = Object.fromEntries(Object.entries(positions).map(([key, at]) => [key, (cells[at] ?? '').trim()]));
+    records.push({ line: headerAt + i + 2, cells, values });
+  });
+  if (!records.length) throw new WorkflowError(400, 'The file has a header row but no data rows');
+  if (records.length > MAX_ROWS) throw new WorkflowError(400, `Upload at most ${MAX_ROWS} rows at a time (this file has ${records.length})`);
+  return { header, records, unknown };
+}
+
+// ---------- value matching ----------
+
+/** Matches a cell against a { key: label } map by key or label, ignoring case, spaces and punctuation. */
+function choose(value, options, label) {
+  if (!value) return '';
+  const n = norm(value);
+  const hit = Object.entries(options).find(([k, l]) => norm(k) === n || norm(l) === n);
+  if (!hit) throw new Error(`${label} "${value}" is not one of: ${Object.values(options).join(', ')}`);
+  return hit[0];
+}
+
+const REGION_NAMES = { DXB: 'DXB', AUH: 'AUH' };
+const REGION_ALIASES = { dubai: 'DXB', abudhabi: 'AUH' };
+const CARD_BY_NORM = new Map([...CREDIT_CARD_NAMES].map((c) => [norm(c), c]));
+const BANK_BY_NORM = new Map(BANKS.flatMap((g) => g.banks).map((b) => [norm(b), b]));
+
+/** Sourcing date as YYYY-MM-DD from YYYY-MM-DD, DD/MM/YYYY (UAE order) or an Excel date serial. */
+export function parseDate(value) {
+  const v = String(value ?? '').trim();
+  if (!v) return '';
+  let m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = v.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (m) {
+    if (Number(m[2]) > 12) throw new Error(`Sourcing date "${v}" is not a valid date. Use day first: DD/MM/YYYY`);
+    return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  if (/^\d{5}$/.test(v)) return new Date(Date.UTC(1899, 11, 30) + Number(v) * 864e5).toISOString().slice(0, 10);
+  throw new Error(`Sourcing date "${v}" should be DD/MM/YYYY or YYYY-MM-DD`);
+}
+
+function noScientific(values) {
+  for (const [key, v] of Object.entries(values)) {
+    if (/^\d(\.\d+)?E\+\d+$/i.test(v)) {
+      const col = CASE_IMPORT_COLUMNS.find((c) => c.key === key);
+      throw new Error(`${col?.header || key} "${v}" was changed by Excel into scientific notation. Format the column as Text and enter the number again`);
+    }
+  }
+}
+
+/** Turns one case row into the same input the New case form sends. */
+function caseInput(v) {
+  noScientific(v);
+  const regionKey = REGION_ALIASES[norm(v.region)] || v.region;
+  const product = choose(v.product, { ...PRODUCTS, bundle: 'Bundle' }, 'Product');
+  const input = {
+    ...v,
+    sourcing_date: parseDate(v.sourcing_date),
+    region: choose(regionKey, REGION_NAMES, 'Region'),
+    core_product: choose(v.core_product, CORE_PRODUCTS, 'Core product'),
+    product,
+    personal_loan_type: choose(v.personal_loan_type, PERSONAL_LOAN_TYPES, 'Personal loan type'),
+    bundle_products: product === 'bundle'
+      ? String(v.bundle_products || '').split(/[;,|/+]/).map((p) => p.trim()).filter(Boolean).map((p) => choose(p, PRODUCTS, 'Bundle product'))
+      : '',
+    credit_card: v.credit_card ? CARD_BY_NORM.get(norm(v.credit_card)) || v.credit_card : '',
+    buyout_bank: v.buyout_bank ? BANK_BY_NORM.get(norm(v.buyout_bank)) || v.buyout_bank : '',
+  };
+  if (!input.sourcing_date) throw new Error('Sourcing date is required');
+  delete input.sales_code;
+  return input;
+}
+
+// ---------- imports ----------
+
+function run(db, dryRun, fn) {
+  // A preview does every insert for real, then rolls back, so it reports exactly what an import would.
+  if (!dryRun) return transaction(db, fn);
+  db.exec('BEGIN');
+  try {
+    return fn();
+  } finally {
+    db.exec('ROLLBACK');
+  }
+}
+
+function summarize(header, unknown, results, dryRun) {
+  // Nothing from a preview was kept, so it has no case numbers or passwords to show.
+  if (dryRun) for (const r of results) { delete r.id; delete r.ref; delete r.temp_password; }
+  const failed = results.filter((r) => !r.ok);
+  return {
+    dry_run: dryRun,
+    total: results.length,
+    ok: results.length - failed.length,
+    failed: failed.length,
+    ignored_columns: unknown,
+    header,
+    rows: results,
+  };
+}
+
+function rowResult(record, fn) {
+  try {
+    return { line: record.line, ok: true, ...fn() };
+  } catch (err) {
+    return { line: record.line, ok: false, error: err.message, cells: record.cells };
+  }
+}
+
+/** Adds users from a CSV file. Team leaders and sales managers in the file are added before sales staff. */
+export function importUsers(db, user, csv, { dryRun = false } = {}) {
+  const { header, records, unknown } = readFile(csv, USER_IMPORT_COLUMNS);
+  const seen = new Set();
+  return run(db, dryRun, () => {
+    const roleOf = (r) => {
+      try { return choose(r.values.role, ROLE_LABELS, 'Role'); } catch { return null; }
+    };
+    // Managers first so sales rows can name a team leader or sales manager added in the same file.
+    const ordered = [...records].sort((a, b) => (roleOf(a) === 'sales') - (roleOf(b) === 'sales'));
+    const results = new Map();
+    for (const record of ordered) {
+      results.set(record, rowResult(record, () => savepoint(db, () => {
+        const v = record.values;
+        const role = choose(v.role, ROLE_LABELS, 'Role');
+        if (!ROLES.includes(role)) throw new Error('Role is required');
+        const email = v.email.toLowerCase();
+        if (seen.has(email)) throw new Error(`${email} appears more than once in this file`);
+        seen.add(email);
+        const manager = (field, wanted, label) => {
+          if (!v[field]) throw new Error(`${label} email is required for sales staff`);
+          const row = db.prepare('SELECT id, role, active FROM users WHERE email = ? COLLATE NOCASE').get(v[field]);
+          if (!row) throw new Error(`No user with the email ${v[field]} (${label.toLowerCase()})`);
+          if (row.role !== wanted || !row.active) throw new Error(`${v[field]} is not an active ${label.toLowerCase()}`);
+          return row.id;
+        };
+        const generated = v.password ? null : tempPassword();
+        const input = { ...v, role, password: v.password || generated };
+        if (role === 'sales') {
+          input.team_leader_id = manager('team_leader_email', 'team_leader', 'Team leader');
+          input.sales_manager_id = manager('sales_manager_email', 'sales_manager', 'Sales manager');
+        }
+        const created = createUser(db, input, { requireMobile: true });
+        return {
+          id: created.id, label: `${created.name} · ${ROLE_LABELS[role]}`, email: created.email,
+          ...(generated && { temp_password: generated }),
+        };
+      })));
+    }
+    return summarize(header, unknown, records.map((r) => results.get(r)), dryRun);
+  });
+}
+
+/**
+ * Adds cases from a CSV file. Team leaders and sales managers name the sales person by sales code;
+ * sales staff can only upload their own files.
+ */
+export function importCases(db, user, csv, { dryRun = false } = {}) {
+  if (!['sales', 'team_leader', 'sales_manager'].includes(user.role)) {
+    throw new WorkflowError(403, 'Only sales staff, team leaders and sales managers can upload files');
+  }
+  const { header, records, unknown } = readFile(csv, CASE_IMPORT_COLUMNS);
+  const own = user.role === 'sales' ? db.prepare('SELECT sales_code FROM users WHERE id = ?').get(user.id) : null;
+  const appIds = new Map();
+  const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
+    const v = record.values;
+    let staffId;
+    if (user.role === 'sales') {
+      if (v.sales_code && v.sales_code.toUpperCase() !== String(own?.sales_code || '').toUpperCase()) {
+        throw new Error(`Sales code ${v.sales_code} is not yours. Sales staff can only upload their own files`);
+      }
+    } else {
+      if (!v.sales_code) throw new Error('Sales code is required');
+      const staff = db.prepare("SELECT id FROM users WHERE sales_code = ? COLLATE NOCASE AND role = 'sales'").get(v.sales_code.trim());
+      if (!staff) throw new Error(`No sales staff member has the sales code ${v.sales_code}`);
+      staffId = staff.id;
+    }
+    const input = caseInput(v);
+    if (input.app_id) {
+      const key = input.app_id.toUpperCase();
+      if (appIds.has(key)) throw new Error(`App ID ${input.app_id} is also on line ${appIds.get(key)} of this file`);
+      const existing = db.prepare('SELECT id FROM cases WHERE app_id = ? COLLATE NOCASE').get(input.app_id);
+      if (existing) throw new Error(`App ID ${input.app_id} is already on ${caseRef(existing.id)}`);
+      appIds.set(key, record.line);
+    }
+    const id = insertCase(db, user, { ...input, sales_staff_id: staffId }, { bulk: true });
+    const row = db.prepare('SELECT customer_name FROM cases WHERE id = ?').get(id);
+    return { id, ref: caseRef(id), label: row.customer_name };
+  }))));
+  return summarize(header, unknown, results, dryRun);
+}

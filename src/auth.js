@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { findUser, salesProfile } from './users.js';
+import { contactDetails, findUser, salesProfile } from './users.js';
 
 const SESSION_DAYS = 7;
 export const ROLES = ['sales', 'processing', 'team_leader', 'sales_manager', 'mis', 'business_head', 'governance'];
@@ -18,15 +18,27 @@ export function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(actual, expected);
 }
 
-export function createUser(db, input) {
-  const { name, email, role, password } = input;
-  if (!name?.trim() || !email?.trim()) throw new Error('Name and email are required');
+/** A readable temporary password, e.g. for users added by bulk upload without one. */
+export function tempPassword() {
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from(crypto.randomBytes(10), (b) => chars[b % chars.length]).join('');
+}
+
+/** `requireMobile` is set for users added from the Users page or a bulk upload. */
+export function createUser(db, input, { requireMobile = false } = {}) {
+  const { role, password } = input;
+  const contact = contactDetails(input, { requireMobile });
   if (!ROLES.includes(role)) throw new Error(`Role must be one of: ${ROLES.join(', ')}`);
-  if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
+  if (!password || String(password).length < 8) throw new Error('Password must be at least 8 characters');
+  if (db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(contact.email)) {
+    throw new Error(`A user with the email ${contact.email} already exists`);
+  }
   const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null };
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO users (name, email, role, password_hash, sales_code, team_leader_id, sales_manager_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(name.trim(), email.trim().toLowerCase(), role, hashPassword(password), profile.sales_code, profile.team_leader_id, profile.sales_manager_id);
+    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(contact.name, contact.email, role, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number,
+      profile.sales_code, profile.team_leader_id, profile.sales_manager_id);
   return getUser(db, Number(lastInsertRowid));
 }
 

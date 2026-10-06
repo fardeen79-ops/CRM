@@ -316,6 +316,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
+    if ((m = path.match(/^\/import\/(users|cases)$/))) return viewBulkUpload(m[1]);
     shell(html`<div class="card empty">Page not found</div>`);
   } catch (err) {
     if (state.user) shell(html`<div class="card"><p class="error">${err.message}</p></div>`);
@@ -412,7 +413,7 @@ async function viewDashboard() {
         <h1>Hello, ${state.user.name.split(' ')[0]}</h1>
         <p class="muted lede">${intro}</p>
       </div>
-      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
+      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<div class="actions"><a class="btn" href="#/import/cases">Bulk upload</a><a class="btn btn-primary" href="#/cases/new">+ New case</a></div>` : ''}
       ${r === 'processing' ? html`<a class="btn btn-primary" href="#/queue">Open verification queue</a>` : ''}
       ${r === 'governance' ? html`<a class="btn btn-primary" href="#/quality-check">Open quality check</a>` : ''}
     </div>
@@ -542,7 +543,7 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   shell(html`
     <div class="page-head">
       <div><h1>${title}</h1>${subtitle ? html`<p class="muted" style="margin:0">${subtitle}</p>` : ''}</div>
-      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
+      ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<div class="actions"><a class="btn" href="#/import/cases">Bulk upload</a><a class="btn btn-primary" href="#/cases/new">+ New case</a></div>` : ''}
     </div>
     <div class="card">
       <div class="toolbar">
@@ -1275,6 +1276,208 @@ async function viewCase(id) {
   });
 }
 
+// ---------- contact helpers ----------
+/** 0501234567 -> 050 123 4567 */
+const fmtMobile = (m) => (m && /^05\d{8}$/.test(m) ? `${m.slice(0, 3)} ${m.slice(3, 6)} ${m.slice(6)}` : m || '');
+
+/** "Same as local mobile" copies the mobile number into WhatsApp (with +971) and keeps it in step. */
+function wireWhatsappSame(form) {
+  const box = form.querySelector('[data-wa-same]');
+  const mobile = form.querySelector('[name=mobile_number]');
+  const wa = form.querySelector('[name=whatsapp_number]');
+  const toIntl = (v) => {
+    const d = v.replace(/\D/g, '').replace(/^(00)?971/, '').replace(/^0/, '');
+    return d ? `+971 ${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5)}`.trim() : '';
+  };
+  const sync = () => { if (box.checked) wa.value = toIntl(mobile.value); wa.readOnly = box.checked; };
+  box.onchange = sync;
+  mobile.addEventListener('input', sync);
+}
+
+// ---------- files ----------
+/** Offers a generated file to the user. The demo page replaces this with its own save. */
+function saveFile(filename, text, type = 'text/csv') {
+  if (window.__saveFile) return window.__saveFile(filename, text, type);
+  const url = URL.createObjectURL(new Blob([text], { type: `${type};charset=utf-8` }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const csvCell = (v) => (/[",\r\n;]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
+// The byte-order mark makes Excel open the file as UTF-8 (names with accents or Arabic stay intact).
+const toCsv = (rows) => '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
+/** Reads an uploaded CSV as UTF-8, falling back to Excel's Windows-1252 for older "CSV" saves. */
+async function readCsvFile(file) {
+  const bytes = await file.arrayBuffer();
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
+// ---------- bulk upload ----------
+const BULK = {
+  users: {
+    title: 'Bulk upload users',
+    lede: 'Add many users at once from a spreadsheet. Team leaders and sales managers in the file are added first, so sales staff in the same file can name them.',
+    template: 'users-upload-template.csv',
+    back: ['#/users', 'Back to users'],
+    roles: ['team_leader'],
+  },
+  cases: {
+    title: 'Bulk upload cases',
+    lede: 'Add many sourced files at once from a spreadsheet. Every row is checked with the same rules as the New case form and starts as Sent to checker, awaiting verification.',
+    template: 'cases-upload-template.csv',
+    back: ['#/cases', 'Back to cases'],
+    roles: ['sales', 'team_leader', 'sales_manager'],
+  },
+};
+
+function viewBulkUpload(kind) {
+  const cfg = BULK[kind];
+  if (!cfg.roles.includes(state.user.role)) throw new Error('You do not have permission to do that');
+  const columns = state.meta.import_columns[kind];
+  const ownCases = kind === 'cases' && state.user.role === 'sales';
+  const required = (c) => c.required && !(ownCases && c.key === 'sales_code');
+  let file = null;
+
+  shell(html`
+    <div class="page-head">
+      <div><a class="small" href="${cfg.back[0]}">← ${cfg.back[1]}</a><h1>${cfg.title}</h1><p class="muted lede">${cfg.lede}</p></div>
+    </div>
+    <div class="bulk-steps">
+      <section class="card">
+        <div class="step-head"><span class="step-no">1</span><div><h2>Download the template</h2>
+          <p class="muted small">One row per ${kind === 'users' ? 'user' : 'file'}, up to ${state.meta.import_max_rows} rows. Keep the header row as it is.</p></div></div>
+        <div class="actions"><button class="btn-primary" id="dl-template">Download template (.csv)</button><button id="dl-example">Download with example row</button></div>
+        <div class="callout info small bulk-tip"><strong>Using Excel?</strong>Before typing, select the phone${kind === 'cases' ? ', Emirates ID and App ID' : ''} columns and set them to <em>Text</em> (Format Cells → Text) so Excel keeps leading zeros and long numbers. Save with <em>File → Save As → CSV UTF-8</em>.</div>
+        <details class="col-guide"><summary>Column guide (${columns.length} columns)</summary>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Column</th><th>Required</th><th>What to enter</th><th>Example</th></tr></thead>
+            <tbody>${columns.map((c) => html`<tr>
+              <td><strong>${c.header}</strong></td>
+              <td>${required(c) ? html`<span class="chip bad">Required</span>` : html`<span class="muted small">Optional</span>`}</td>
+              <td class="small">${c.allowed ? html`One of: ${c.allowed.join(', ')}` : ''}${c.allowed && c.help ? html`<br>` : ''}${c.help || ''}</td>
+              <td class="small mono">${c.example || '—'}</td></tr>`)}</tbody>
+          </table></div>
+        </details>
+      </section>
+      <section class="card">
+        <div class="step-head"><span class="step-no">2</span><div><h2>Upload your file</h2>
+          <p class="muted small">Check the file first: nothing is saved until you confirm. Rows with errors are skipped and can be downloaded, fixed and uploaded again.</p></div></div>
+        <label class="dropzone" id="dropzone">
+          <input type="file" id="bulk-file" accept=".csv,text/csv">
+          <span class="dz-main" id="dz-main">Choose a CSV file or drop it here</span>
+          <span class="muted small">.csv, saved from Excel or Google Sheets</span>
+        </label>
+        <div class="actions" style="margin-top:12px"><button class="btn-primary" id="bulk-check" disabled>Check file</button></div>
+        <div id="bulk-result"></div>
+      </section>
+    </div>`);
+
+  const header = columns.map((c) => c.header);
+  document.getElementById('dl-template').onclick = () => saveFile(cfg.template, toCsv([header]));
+  document.getElementById('dl-example').onclick = () => saveFile(cfg.template.replace('template', 'example'), toCsv([header, columns.map((c) => c.example || '')]));
+
+  const input = document.getElementById('bulk-file');
+  const zone = document.getElementById('dropzone');
+  const checkBtn = document.getElementById('bulk-check');
+  const result = document.getElementById('bulk-result');
+  const pick = (f) => {
+    result.innerHTML = '';
+    if (f && !/\.csv$/i.test(f.name) && f.type !== 'text/csv') {
+      file = null;
+      checkBtn.disabled = true;
+      document.getElementById('dz-main').textContent = 'Choose a CSV file or drop it here';
+      result.innerHTML = html`<div class="callout danger"><strong>${f.name} is not a CSV file.</strong>${/\.xlsx?$/i.test(f.name) ? 'In Excel, use File → Save As and choose “CSV UTF-8 (Comma delimited)”, then upload that file.' : 'Save the sheet as CSV and upload that file.'}</div>`.s;
+      return;
+    }
+    file = f || null;
+    checkBtn.disabled = !file;
+    document.getElementById('dz-main').textContent = file ? `${file.name} · ${(file.size / 1024).toFixed(1)} KB` : 'Choose a CSV file or drop it here';
+  };
+  input.onchange = () => pick(input.files[0]);
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('over'); pick(e.dataTransfer.files[0]); });
+
+  let csv = '';
+  const send = (dryRun) => api(`/import/${kind}`, { method: 'POST', body: { csv, dry_run: dryRun } });
+
+  // Who an error row is about, from the name columns of the uploaded file.
+  let rowLabel = () => '';
+  const render = (r) => {
+    const at = (h) => r.header.findIndex((x) => x.toLowerCase().replace(/[^a-z]/g, '') === h);
+    const nameCols = (kind === 'users' ? ['fullname', 'email'] : ['firstname', 'middlename', 'lastname']).map(at).filter((i) => i >= 0);
+    rowLabel = (cells = []) => nameCols.map((i) => cells[i]).filter(Boolean).join(kind === 'users' ? ' · ' : ' ') || '—';
+    const failed = r.rows.filter((x) => !x.ok);
+    const passwords = r.rows.filter((x) => x.temp_password);
+    const summary = r.dry_run
+      ? (r.failed
+        ? html`<div class="callout warn"><strong>${r.ok} of ${r.total} rows are ready. ${r.failed} ${r.failed === 1 ? 'has' : 'have'} errors.</strong>Fix them and check again, or upload the ${r.ok} good rows now and the rest later.</div>`
+        : html`<div class="callout success"><strong>All ${r.total} rows are ready to upload.</strong>Nothing has been saved yet.</div>`)
+      : html`<div class="callout ${r.failed ? 'warn' : 'success'}"><strong>Added ${r.ok} ${kind === 'users' ? (r.ok === 1 ? 'user' : 'users') : (r.ok === 1 ? 'file' : 'files')}.${r.failed ? ` ${r.failed} ${r.failed === 1 ? 'row was' : 'rows were'} skipped.` : ''}</strong>${r.failed ? 'Download the skipped rows, fix them and upload that file.' : kind === 'cases' ? 'They are in the verification queue as Sent to checker.' : 'They can sign in now.'}</div>`;
+    result.innerHTML = html`
+      <div class="bulk-summary">
+        <div class="kpi-mini"><span>${r.total}</span>rows</div>
+        <div class="kpi-mini good"><span>${r.ok}</span>${r.dry_run ? 'ready' : 'added'}</div>
+        <div class="kpi-mini ${r.failed ? 'bad' : ''}"><span>${r.failed}</span>${r.dry_run ? 'with errors' : 'skipped'}</div>
+      </div>
+      ${summary}
+      ${r.ignored_columns?.length ? html`<p class="small muted">Ignored columns not in the template: ${r.ignored_columns.join(', ')}</p>` : ''}
+      ${passwords.length ? html`<div class="callout info"><strong>Temporary passwords were generated for ${passwords.length} ${passwords.length === 1 ? 'user' : 'users'}.</strong>Download the sign-in details now; they are not shown again.</div>` : ''}
+      <div class="actions" style="margin-bottom:12px">
+        ${r.dry_run && r.ok ? html`<button class="btn-primary" id="bulk-go">Upload ${r.ok} ${r.ok === 1 ? 'row' : 'rows'}${r.failed ? ' and skip the rest' : ''}</button>` : ''}
+        ${failed.length ? html`<button id="bulk-errors">Download rows with errors</button>` : ''}
+        ${passwords.length ? html`<button class="btn-primary" id="bulk-passwords">Download sign-in details</button>` : ''}
+        ${!r.dry_run ? html`<a class="btn" href="${cfg.back[0]}">${kind === 'users' ? 'View users' : 'View cases'}</a>` : ''}
+      </div>
+      <div class="table-wrap bulk-rows"><table>
+        <thead><tr><th>Line</th><th>Result</th><th>${kind === 'users' ? 'User' : 'Customer'}</th><th>Details</th></tr></thead>
+        <tbody>${[...failed, ...r.rows.filter((x) => x.ok)].map((x) => html`<tr>
+          <td class="mono">${x.line}</td>
+          <td>${x.ok ? html`<span class="chip good">${r.dry_run ? 'Ready' : 'Added'}</span>` : html`<span class="chip bad">Error</span>`}</td>
+          <td>${x.ok ? (x.ref ? html`<a href="#/cases/${x.id}"><strong class="mono">${x.ref}</strong></a> ` : '') : ''}${x.ok ? x.label : rowLabel(x.cells)}</td>
+          <td class="small">${x.ok ? (x.temp_password ? html`Temporary password <code>${x.temp_password}</code>` : x.email || '') : html`<span class="error">${x.error}</span>`}</td>
+        </tr>`)}</tbody>
+      </table></div>`.s;
+    const go = document.getElementById('bulk-go');
+    if (go) go.onclick = async () => {
+      go.disabled = true;
+      go.textContent = 'Uploading…';
+      try {
+        render(await send(false));
+        toast('Upload finished');
+        refreshCounters();
+      } catch (ex) { toast(ex.message, true); go.disabled = false; }
+    };
+    const errs = document.getElementById('bulk-errors');
+    if (errs) errs.onclick = () => saveFile(`${kind}-upload-errors.csv`, toCsv([[...r.header, 'Error'], ...failed.map((x) => [...r.header.map((_, i) => x.cells[i] ?? ''), x.error])]));
+    const pw = document.getElementById('bulk-passwords');
+    if (pw) pw.onclick = () => saveFile('new-user-sign-in-details.csv', toCsv([['Name and role', 'Email', 'Temporary password'], ...passwords.map((x) => [x.label, x.email, x.temp_password])]));
+  };
+
+  checkBtn.onclick = async () => {
+    if (!file) return;
+    checkBtn.disabled = true;
+    checkBtn.textContent = 'Checking…';
+    try {
+      csv = await readCsvFile(file);
+      render(await send(true));
+    } catch (ex) {
+      result.innerHTML = html`<div class="callout danger"><strong>The file could not be read.</strong>${ex.message}</div>`.s;
+    } finally {
+      checkBtn.disabled = false;
+      checkBtn.textContent = 'Check file';
+    }
+  };
+}
+
 // ---------- users (team leader) ----------
 async function viewUsers() {
   const { users } = await api('/users');
@@ -1290,29 +1493,43 @@ async function viewUsers() {
     <div class="field-row"><label for="${prefix}-sm">Sales manager <span class="req">*</span></label>
       <select id="${prefix}-sm" name="sales_manager_id" required><option value="">Choose…</option>${options(managers, u.sales_manager_id)}</select></div>`;
 
+  // Email, local mobile and WhatsApp for any user.
+  const contactFields = (u = {}, prefix = 'n') => html`
+    <div class="field-row"><label for="${prefix}-name">Full name <span class="req">*</span></label>
+      <input id="${prefix}-name" name="name" value="${u.name || ''}" autocomplete="off" required></div>
+    <div class="field-row"><label for="${prefix}-email">Email address <span class="req">*</span></label>
+      <input id="${prefix}-email" name="email" type="email" value="${u.email || ''}" autocomplete="off" required>
+      ${prefix === 'nu' ? html`<div class="muted small" id="nu-email-hint" hidden>Suggested from the name. Change it if their address is different.</div>` : ''}</div>
+    <div class="field-row"><label for="${prefix}-mobile">Local mobile <span class="req">*</span></label>
+      <input id="${prefix}-mobile" name="mobile_number" type="tel" inputmode="tel" value="${fmtMobile(u.mobile_number)}" placeholder="050 123 4567" required></div>
+    <div class="field-row"><label for="${prefix}-wa">WhatsApp number</label>
+      <input id="${prefix}-wa" name="whatsapp_number" type="tel" inputmode="tel" value="${u.whatsapp_number || ''}" placeholder="+971 50 123 4567">
+      <label class="check small wa-same"><input type="checkbox" data-wa-same> Same as local mobile</label></div>`;
+  const contactCell = (u) => html`${u.mobile_number ? html`<div class="mono">${fmtMobile(u.mobile_number)}</div>` : html`<span class="muted">—</span>`}
+    ${u.whatsapp_number ? html`<a class="wa" href="https://wa.me/${u.whatsapp_number.slice(1)}" target="_blank" rel="noopener" title="Open a WhatsApp chat">WhatsApp ${u.whatsapp_number}</a>` : ''}`;
+
   shell(html`
-    <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processors, team leaders, sales managers, MIS and business heads. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div></div>
+    <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processors, team leaders, sales managers, MIS and business heads. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
+      <a class="btn" href="#/import/users">Bulk upload users</a></div>
     <div class="grid two-col">
-      <div class="card"><div class="table-wrap"><table>
-        <thead><tr><th>Name</th><th>Role</th><th>Sales profile</th><th>Status</th><th></th></tr></thead>
+      <div class="card"><div class="table-wrap"><table class="users-table">
+        <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
         <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
-          <td>${u.name}<div class="muted small">${u.email}</div></td><td>${ROLE_LABEL[u.role]}</td>
+          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
               ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}</div>`
               : html`<span class="lock">Incomplete</span>`)
             : html`<span class="muted">—</span>`}</td>
-          <td>${u.active ? 'Active' : html`<span class="muted">Disabled</span>`}</td>
           <td><div class="actions">
-            ${u.role === 'sales' ? html`<button class="btn-link" data-profile="${u.id}">Edit profile</button>` : ''}
+            <button class="btn-link" data-profile="${u.id}">Edit</button>
             <button class="btn-link" data-reset="${u.id}">Reset password</button>
             ${u.id !== state.user.id ? html`<button class="btn-link" data-toggle="${u.id}" data-active="${u.active}">${u.active ? 'Disable' : 'Enable'}</button>` : ''}
           </div></td></tr>`)}</tbody>
       </table></div></div>
       <form class="card" id="user-form">
         <h2>Add user</h2>
-        <div class="field-row"><label for="nu-name">Full name</label><input id="nu-name" name="name" required></div>
-        <div class="field-row"><label for="nu-email">Email</label><input id="nu-email" name="email" type="email" required></div>
+        ${contactFields({}, 'nu')}
         <div class="field-row"><label for="nu-role">Role</label><select id="nu-role" name="role" required>
           ${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}
         </select></div>
@@ -1335,6 +1552,20 @@ async function viewUsers() {
   };
   role.onchange = syncRole;
   syncRole();
+  // Suggest first.last@<your domain> until the email is typed by hand.
+  const nameInput = document.getElementById('nu-name');
+  const emailInput = document.getElementById('nu-email');
+  const domain = state.user.email.split('@')[1];
+  let emailTouched = false;
+  emailInput.addEventListener('input', () => { emailTouched = true; document.getElementById('nu-email-hint').hidden = true; });
+  nameInput.addEventListener('input', () => {
+    if (emailTouched || !domain) return;
+    const parts = nameInput.value.toLowerCase().normalize('NFD').replace(/[^a-z\s'-]/g, '').replace(/['-]/g, '').trim().split(/\s+/).filter(Boolean);
+    const local = parts.length > 1 ? `${parts[0]}.${parts[parts.length - 1]}` : parts[0] || '';
+    emailInput.value = local ? `${local}@${domain}` : '';
+    document.getElementById('nu-email-hint').hidden = !local;
+  });
+  wireWhatsappSame(form);
   form.onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -1350,18 +1581,20 @@ async function viewUsers() {
     const tr = document.createElement('tr');
     tr.dataset.profileEditor = '1';
     tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
-      <strong>Sales profile for ${u.name}</strong>
-      <div class="form-grid three">${profileFields(u, `e${u.id}`)}</div>
-      <div class="actions"><button class="btn-primary">Save profile</button><button type="button" data-cancel>Cancel</button></div>
+      <strong>Edit ${u.name}</strong>
+      <div class="form-grid two">${contactFields(u, `e${u.id}`)}</div>
+      ${u.role === 'sales' ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, `e${u.id}`)}</div>` : ''}
+      <div class="actions"><button class="btn-primary">Save changes</button><button type="button" data-cancel>Cancel</button></div>
     </form></td>`.s;
     row.after(tr);
     const f = tr.querySelector('form');
+    wireWhatsappSame(f);
     f.querySelector('[data-cancel]').onclick = () => tr.remove();
     f.onsubmit = async (e) => {
       e.preventDefault();
       try {
         await api(`/users/${u.id}`, { method: 'PATCH', body: formData(f) });
-        toast('Profile saved');
+        toast('User updated');
         viewUsers();
       } catch (ex) { toast(ex.message, true); }
     };

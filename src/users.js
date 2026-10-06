@@ -2,7 +2,7 @@
 // which pre-fill the "Sales staff" section of every file they source.
 
 export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at,
-  u.sales_code, u.team_leader_id, u.sales_manager_id,
+  u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id,
   tl.name AS team_leader_name, sm.name AS sales_manager_name`;
 export const USER_FROM = `users u
   LEFT JOIN users tl ON tl.id = u.team_leader_id
@@ -40,4 +40,63 @@ export function salesProfile(db, input, current = null) {
     team_leader_id: manager('team_leader_id', 'team_leader', 'team leader'),
     sales_manager_id: manager('sales_manager_id', 'sales_manager', 'sales manager'),
   };
+}
+
+// Excel turns long numbers into "9.71501E+11" when a column is not formatted as text, and the
+// digits are lost for good, so say so instead of saving a wrong number.
+function digitsOf(value, label) {
+  const text = String(value ?? '').trim();
+  if (/\d[.,]?\d*E\+\d+/i.test(text)) {
+    throw new Error(`${label} looks like Excel scientific notation (${text}). Format the column as Text and type the number again`);
+  }
+  return { text, digits: text.replace(/\D/g, '') };
+}
+
+/** UAE local mobile number, stored as 05XXXXXXXX. Accepts 050…, +971 50…, 00971 50… or 50… */
+export function localMobile(value, label = 'Local mobile number') {
+  let { digits } = digitsOf(value, label);
+  if (!digits) return null;
+  if (digits.startsWith('00971')) digits = digits.slice(5);
+  else if (digits.startsWith('971')) digits = digits.slice(3);
+  if (digits.length === 9 && digits.startsWith('5')) digits = `0${digits}`;
+  if (!/^05\d{8}$/.test(digits)) throw new Error(`${label} must be a UAE mobile number like 050 123 4567`);
+  return digits;
+}
+
+/** WhatsApp number in international format (+countrycode…). A UAE local number gets +971. */
+export function whatsappNumber(value, label = 'WhatsApp number') {
+  const { text, digits: d } = digitsOf(value, label);
+  if (!d) return null;
+  let digits = d;
+  if (text.startsWith('00')) digits = digits.slice(2);
+  else if (/^0?5\d{8}$/.test(digits) && !text.startsWith('+')) digits = `971${digits.replace(/^0/, '')}`;
+  if (digits.length < 8 || digits.length > 15 || digits.startsWith('0')) {
+    throw new Error(`${label} must include the country code, e.g. +971 50 123 4567`);
+  }
+  return `+${digits}`;
+}
+
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Name, email, local mobile and WhatsApp for a user. `current` is the existing user when editing,
+ * so only the fields being changed need to be sent.
+ */
+export function contactDetails(input, { current = null, requireMobile = false } = {}) {
+  const out = {};
+  if (!current || 'name' in input) {
+    out.name = String(input.name ?? '').trim();
+    if (!out.name) throw new Error('Full name is required');
+  }
+  if (!current || 'email' in input) {
+    out.email = String(input.email ?? '').trim().toLowerCase();
+    if (!out.email) throw new Error('Email address is required');
+    if (!EMAIL_RE.test(out.email)) throw new Error(`Invalid email address: ${out.email}`);
+  }
+  if (!current || 'mobile_number' in input) {
+    out.mobile_number = localMobile(input.mobile_number);
+    if (!out.mobile_number && requireMobile) throw new Error('Local mobile number is required');
+  }
+  if (!current || 'whatsapp_number' in input) out.whatsapp_number = whatsappNumber(input.whatsapp_number);
+  return out;
 }

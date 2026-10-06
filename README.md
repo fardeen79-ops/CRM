@@ -75,9 +75,45 @@ The **Scan Emirates ID** button on the entry form fills in the customer's **firs
   - **Scanner files:** by default they load from the jsDelivr CDN (about 7 MB the first time, then cached). To serve them from the CRM instead, which most banks will want, run `npm run setup:ocr` once and restart. It saves them under `public/vendor/tesseract/`.
   - **Testing:** the scanner was tested with made-up sample cards drawn to resemble the current Emirates ID. The front reader finds fields by their English labels ("Name", "ID Number", "Date of Birth", "Expiry Date"), so try it on real cards, including older designs, before rolling it out.
 
+### Users and contact details
+
+Every user added on the **Users** page needs a full name, an **email address** and a **local mobile** number; a **WhatsApp number** is optional.
+
+- The email is suggested from the name as `first.last@` plus your own email domain. Overwrite it if the person's address is different.
+- Local mobile numbers must be UAE mobiles. They are stored as `05XXXXXXXX`, whether typed as `050 123 4567`, `+971 50 123 4567` or `501234567`.
+- WhatsApp numbers are stored in international format (`+971…`), so a number from another country works too. **Same as local mobile** copies the mobile number across. The Users list links each WhatsApp number to a chat.
+- **Edit** on any user changes their name, email and numbers (and, for sales staff, the sales profile).
+
+### Bulk upload
+
+Team leaders can add many users at once from **Users → Bulk upload users**. Sales staff, team leaders and sales managers can add many files at once from **Bulk upload** on the dashboard or the cases list.
+
+1. **Download the template** (a CSV file that Excel, Numbers and Google Sheets open). **Download with example row** gives the same file with one filled-in row to copy. The **Column guide** on the page lists every column, whether it is required, and the accepted values.
+2. Fill in one row per user or file, save as CSV (in Excel: *File → Save As → CSV UTF-8*) and upload it.
+3. **Check file** validates every row with the same rules as the on-screen forms and saves nothing.
+4. **Upload** adds the good rows and skips the rest. **Download rows with errors** gives the skipped rows with an *Error* column, ready to fix and upload again.
+
+**User rows**
+- Choose the role by name (`Sales`, `Team Leader`…).
+- Sales staff name their team leader and sales manager by **email**. These can be existing users or ones added in the same file, because managers are added first.
+- Leave *Temporary password* blank and one is generated. **Download sign-in details** right after the upload to get the generated passwords. They aren't shown again; a team leader can reset a password later.
+
+**Case rows**
+- Name the sales person by **sales code**. Sales staff uploading their own files can leave it blank, and can't upload anyone else's.
+- Values can be labels or codes in any case: `Personal Loan` or `personal_loan`, `Top Up`, `Dubai` or `DXB`.
+- Bundle products are separated with `;`. Credit cards and buy-out banks match the form's lists, ignoring case.
+- Sourcing dates are `DD/MM/YYYY` or `YYYY-MM-DD`; Excel date cells are converted too.
+- Each file starts as *Sent to checker* and is marked "Added from a bulk upload file" in its timeline.
+- An App ID already in the CRM, or repeated in the file, counts as a duplicate. Re-uploading the same file adds nothing twice.
+
+**Limits and Excel**
+- Up to 1,000 rows per file.
+- Excel drops leading zeros and turns long numbers into `9.71501E+11`. Set the phone, Emirates ID and App ID columns to **Text** before typing. A row with a mangled number is reported instead of being saved with the wrong digits.
+- `.xlsx` files aren't read; save as CSV first.
+
 ### Sales staff, region and core product
 
-When a team leader registers a sales person on the **Users** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users. A team leader can change these later with **Edit profile**.
+When a team leader registers a sales person on the **Users** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users. A team leader can change these later with **Edit**.
 
 At the top of every file, the **Sales staff** section shows the sales person's full name, sales code, team leader and sales manager:
 
@@ -187,6 +223,8 @@ src/
   index.js     entry point (first-run admin, starts server)
   server.js    HTTP routing, auth cookies, JSON API, static files, webhook dispatch
   cases.js     case workflow / state machine, notifications, stats
+  imports.js   bulk upload of users and cases (CSV parsing, row checks, column guide)
+  users.js     user profiles, contact details and phone number rules
   credit-cards.js  the credit card list shown when Credit Card is selected
   auth.js      users, scrypt password hashing, sessions
   db.js        SQLite schema
@@ -207,4 +245,5 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `POST /cases/:id/actions` | `{action, note?, outcome?, reason?}`, where action is one of `claim`, `release`, `log_call`, `complete`, `mark_incomplete`, `return_to_sales`, `reverify`, `reject`, `resubmit` |
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
-| `GET/POST /users`, `PATCH /users/:id` | User management (team leader only) |
+| `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |
+| `POST /import/users`, `POST /import/cases` | Bulk upload: `{csv, dry_run}`. Returns `{total, ok, failed, rows: [{line, ok, error?, ref?, temp_password?}]}`; `dry_run: true` checks without saving |
