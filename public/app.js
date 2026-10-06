@@ -457,14 +457,19 @@ async function viewCaseForm(id) {
   const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
   const listedBanks = state.meta.banks.flatMap((g) => g.banks);
   const otherBank = Boolean(c.buyout_bank) && !listedBanks.includes(c.buyout_bank);
-  const field = (name, text, { type = 'text', required = false, full = false, placeholder = '', attrs = '', hint = '' } = {}) => html`
+  // Fields this viewer may not read; they can still type a replacement without seeing the old value.
+  const hiddenFields = new Set(c.hidden_fields || []);
+  const field = (name, text, { type = 'text', required = false, full = false, placeholder = '', attrs = '', hint = '' } = {}) => {
+    const masked = hiddenFields.has(name);
+    return html`
     <div class="${full ? 'full' : ''}">
-      <label for="f-${name}">${text}${required ? raw(' <span class="req">*</span>') : ''}</label>
+      <label for="f-${name}">${text}${required ? raw(' <span class="req">*</span>') : ''}${masked ? raw(' <span class="lock">Hidden</span>') : ''}</label>
       ${type === 'textarea'
         ? html`<textarea id="f-${name}" name="${name}" placeholder="${placeholder}">${c[name] ?? ''}</textarea>`
-        : html`<input id="f-${name}" name="${name}" type="${type}" value="${c[name] ?? ''}" placeholder="${placeholder}" ${required ? raw('required') : ''} ${raw(attrs)}>`}
+        : html`<input id="f-${name}" name="${name}" type="${type}" value="${c[name] ?? ''}" placeholder="${masked ? 'Hidden. Type a new value only to replace it' : placeholder}" ${required ? raw('required') : ''} ${raw(attrs)} ${masked ? raw('data-masked') : ''}>`}
       ${hint ? html`<div class="muted small">${hint}</div>` : ''}
     </div>`;
+  };
   const money = 'inputmode="decimal" min="0" step="any"';
 
   shell(html`
@@ -645,6 +650,8 @@ async function viewCaseForm(id) {
       const body = formData(form);
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
       for (const f of ['credit_card', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount']) body[f] ??= null;
+      // Leave hidden values untouched unless a replacement was typed.
+      form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
       delete body.buyout_bank_other;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
@@ -671,7 +678,10 @@ function eventDetail(e) {
 async function viewCase(id) {
   const { case: c } = await api(`/cases/${id}`);
   // A detail row; ID-style values use a monospace face so digits are easy to read back on a call.
-  const row = (dt, value, mono = false) => html`<dt>${dt}</dt><dd class="${mono && value ? 'mono' : ''}">${value || '—'}</dd>`;
+  const hiddenFields = new Set(c.hidden_fields || []);
+  const row = (dt, value, mono = false, field = null) => (field && hiddenFields.has(field)
+    ? html`<dt>${dt}</dt><dd><span class="lock">Hidden</span></dd>`
+    : html`<dt>${dt}</dt><dd class="${mono && value ? 'mono' : ''}">${value || '—'}</dd>`);
   const a = new Set(c.allowed_actions);
   const meta = state.meta;
 
@@ -768,7 +778,8 @@ async function viewCase(id) {
             ${Object.entries(state.meta.edit_queues).map(([k, l]) => html`<label><input type="radio" name="to" value="${k}" required><span>${l}</span></label>`)}
           </div>
         </div>
-        <div class="field-row"><textarea name="note" required placeholder="What needs to change? e.g. correct Emirates ID is 784-…"></textarea></div>
+        <div class="field-row"><textarea name="note" required placeholder="What needs to change?"></textarea></div>
+        <p class="muted small">Team leaders can't see company, salary, Emirates ID or passport details. Send changes to those to the Sales Manager queue.</p>
         <button class="btn-primary">Send edit request</button>
       </form>`);
   }
@@ -805,13 +816,14 @@ async function viewCase(id) {
       <div>
         <div class="card">
           <h2>Customer</h2>
+          ${hiddenFields.size ? html`<p class="muted small">Company, salary, Emirates ID and passport details are hidden for your role${state.user.role === 'processing' ? ' once verification is completed or rejected' : ''}.</p>` : ''}
           <dl class="details">
             <dt>Mobile</dt><dd><a class="phone-link" href="tel:${c.phone.replace(/[^\d+]/g, '')}">${c.phone}</a></dd>
             ${c.alt_phone ? html`<dt>Alternate phone</dt><dd><a href="tel:${c.alt_phone.replace(/[^\d+]/g, '')}">${c.alt_phone}</a></dd>` : ''}
-            ${row('Emirates ID', c.eid_number, true)}
-            ${row('Passport number', c.passport_number, true)}
-            ${row('Company', c.company_name)}
-            ${row('Monthly salary', c.salary != null ? `AED ${fmtAmount(c.salary)}` : null)}
+            ${row('Emirates ID', c.eid_number, true, 'eid_number')}
+            ${row('Passport number', c.passport_number, true, 'passport_number')}
+            ${row('Company', c.company_name, false, 'company_name')}
+            ${row('Monthly salary', c.salary != null ? `AED ${fmtAmount(c.salary)}` : null, false, 'salary')}
             ${row('Bidaya ID', c.bidaya_id, true)}
             ${row('App ID', c.app_id, true)}
             ${row('Email', c.email)}

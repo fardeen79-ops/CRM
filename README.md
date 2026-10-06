@@ -79,6 +79,16 @@ While a file is in **Applicant review**, the sales person who sourced it can't e
 
 Each file also has a **sourcing date**, which defaults to today and can't be in the future.
 
+### Personal details: who can see them
+
+Company name, salary, Emirates ID and passport number are restricted. The server removes them from every response, and from search, for people who may not see them:
+
+| Role | Sees these details |
+|------|--------------------|
+| Sales (own files), Sales manager, MIS, Business head | Always |
+| Processor | Until verification is **Completed** or **Rejected**. While it is awaiting, in progress or **Pending**, they are visible for the call. They become visible again if the file is sent back for re-verification |
+| Team leader | Never, on any submitted file. A team leader can still type a replacement value (for example, for an edit request) without seeing the old one |
+
 ### Products
 
 Each case records one product: **Personal Loan**, **Credit Card**, **Auto Loan**, **Accounts**, or a **Bundle**. Choosing Bundle shows checkboxes for the products in it, and a bundle needs at least two. The API takes `product` as one of `personal_loan`, `credit_card`, `auto_loan`, `accounts` or `bundle`. For a bundle it also takes `bundle_products`, as an array such as `["credit_card", "accounts"]` or a comma-separated string. Cases created before this change keep their original free-text product until someone edits them.

@@ -262,6 +262,32 @@ const CASE_SELECT = `
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
 
+// Personal details that only some people may see once a file is submitted.
+export const SENSITIVE_FIELDS = ['company_name', 'salary', 'eid_number', 'passport_number'];
+
+// Verification states in which processors still need the personal details: before and during the
+// call, and while verification is Pending (it may come back to them).
+const PROCESSOR_SENSITIVE_STATUSES = [...OPEN_FOR_PROCESSING, STATUS.INCOMPLETE];
+
+/**
+ * Team leaders never see these on a submitted file. Processors see them until verification is
+ * Completed or Rejected (or the file has been returned to sales).
+ */
+export function canViewSensitive(user, row) {
+  if (user.role === 'team_leader') return false;
+  if (user.role === 'processing') return PROCESSOR_SENSITIVE_STATUSES.includes(row.status);
+  return true;
+}
+
+// Strips sensitive fields the viewer may not see, before anything leaves the server.
+function present(user, row) {
+  const out = withRef(row);
+  if (!out || canViewSensitive(user, row)) return out ? { ...out, hidden_fields: [] } : out;
+  for (const f of SENSITIVE_FIELDS) out[f] = null;
+  out.hidden_fields = SENSITIVE_FIELDS;
+  return out;
+}
+
 function canView(user, row) {
   return user.role !== 'sales' || row.created_by === user.id;
 }
@@ -275,7 +301,7 @@ export function getCase(db, user, id) {
        LEFT JOIN users u ON u.id = e.user_id WHERE e.case_id = ? ORDER BY e.id DESC`
     )
     .all(id);
-  return { ...withRef(row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row) };
+  return { ...present(user, row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row) };
 }
 
 export function listCases(db, user, { status, case_status, edit_requests, q, assigned, limit = 200 } = {}) {
@@ -311,15 +337,26 @@ export function listCases(db, user, { status, case_status, edit_requests, q, ass
   if (q) {
     const term = `%${String(q).trim()}%`;
     const idMatch = String(q).match(/^(?:crm-)?0*(\d+)$/i);
-    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ? OR c.company_name LIKE ?
-      OR c.eid_number LIKE ? OR REPLACE(c.eid_number, '-', '') LIKE ? OR c.passport_number LIKE ? OR c.bidaya_id LIKE ? OR c.app_id LIKE ?${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(...Array(12).fill(term));
+    // Searching sensitive fields is limited to files where the viewer may see them, so a match
+    // cannot reveal a hidden Emirates ID, passport number or employer.
+    const sensitive = '(c.company_name LIKE ? OR c.eid_number LIKE ? OR REPLACE(c.eid_number, \'-\', \'\') LIKE ? OR c.passport_number LIKE ?)';
+    let sensitiveClause = '';
+    if (user.role === 'processing') {
+      sensitiveClause = ` OR (c.status IN (${PROCESSOR_SENSITIVE_STATUSES.map(() => '?').join(',')}) AND ${sensitive})`;
+    } else if (user.role !== 'team_leader') {
+      sensitiveClause = ` OR ${sensitive}`;
+    }
+    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?
+      OR c.bidaya_id LIKE ? OR c.app_id LIKE ?${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(...Array(8).fill(term));
+    if (user.role === 'processing') params.push(...PROCESSOR_SENSITIVE_STATUSES);
+    if (sensitiveClause) params.push(...Array(4).fill(term));
     if (idMatch) params.push(Number(idMatch[1]));
   }
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY c.updated_at DESC LIMIT ?`;
   params.push(Math.min(Number(limit) || 200, 1000));
-  return db.prepare(sql).all(...params).map(withRef);
+  return db.prepare(sql).all(...params).map((row) => present(user, row));
 }
 
 export function createCase(db, user, input) {

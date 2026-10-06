@@ -480,3 +480,64 @@ test('processors mark verification completed, pending or rejected; case status i
   assert.equal(r.data.case.status, 'incomplete');
   assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /verification pending/.test(n.message)));
 });
+
+test('team leaders never see company, salary, Emirates ID or passport; processors lose them once verification is completed or rejected', async () => {
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const lead = await login('lead@t.local');
+  const sm = await login('sm@t.local');
+  const mis = await login('mis@t.local');
+  const bh = await login('bh@t.local');
+  const secret = { company_name: 'Hidden Trading LLC', salary: 41000, eid_number: '784-1991-7654321-0', passport_number: 'P7654321' };
+  const id = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
+  const fields = async (who) => {
+    const c = (await who('GET', `/cases/${id}`)).data.case;
+    return { company_name: c.company_name, salary: c.salary, eid_number: c.eid_number, passport_number: c.passport_number, hidden: c.hidden_fields };
+  };
+  const shown = { ...secret, hidden: [] };
+  const hidden = { company_name: null, salary: null, eid_number: null, passport_number: null, hidden: ['company_name', 'salary', 'eid_number', 'passport_number'] };
+
+  assert.deepEqual(await fields(sales), shown);
+  assert.deepEqual(await fields(sm), shown);
+  assert.deepEqual(await fields(mis), shown);
+  assert.deepEqual(await fields(bh), shown);
+  assert.deepEqual(await fields(lead), hidden);
+  assert.deepEqual(await fields(proc), shown); // needed for the verification call
+
+  // Also hidden in lists, and searching cannot reveal a match
+  const leadRow = (await lead('GET', '/cases')).data.cases.find((c) => c.id === id);
+  assert.equal(leadRow.eid_number, null);
+  assert.equal(leadRow.company_name, null);
+  for (const q of ['7654321', 'P7654321', 'Hidden Trading']) {
+    assert.ok(!(await lead('GET', `/cases?q=${q}`)).data.cases.some((c) => c.id === id), q);
+    assert.ok((await mis('GET', `/cases?q=${q}`)).data.cases.some((c) => c.id === id), q);
+  }
+  assert.ok((await proc('GET', '/cases?q=P7654321')).data.cases.some((c) => c.id === id));
+
+  // Verification Pending: the processor still sees the details
+  let r = await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'documents_pending', note: 'Missing slips' });
+  assert.equal(r.data.case.eid_number, secret.eid_number);
+  assert.deepEqual(await fields(proc), shown);
+  assert.ok((await proc('GET', '/cases?q=P7654321')).data.cases.some((c) => c.id === id));
+  assert.deepEqual(await fields(lead), hidden);
+
+  // Back to the queue, then verification Completed: hidden from the processor (response redacted too)
+  await lead('POST', `/cases/${id}/actions`, { action: 'reverify' });
+  assert.deepEqual(await fields(proc), shown);
+  r = await proc('POST', `/cases/${id}/actions`, { action: 'complete' });
+  assert.equal(r.data.case.eid_number, null);
+  assert.deepEqual(await fields(proc), hidden);
+  assert.ok(!(await proc('GET', '/cases?q=P7654321')).data.cases.some((c) => c.id === id));
+
+  // Verification Rejected hides them as well
+  const id2 = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
+  await proc('POST', `/cases/${id2}/actions`, { action: 'reject_verification', note: 'Employer denies' });
+  assert.equal((await proc('GET', `/cases/${id2}`)).data.case.passport_number, null);
+
+  // A team leader can replace a hidden value (e.g. for an edit request) without ever reading it
+  r = await lead('PUT', `/cases/${id}`, { passport_number: 'Q1112223' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.case.passport_number, null);
+  assert.equal((await fields(sm)).passport_number, 'Q1112223');
+  assert.equal((await fields(sm)).eid_number, secret.eid_number); // untouched fields keep their values
+});
