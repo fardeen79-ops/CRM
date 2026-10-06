@@ -288,7 +288,7 @@ async function viewDashboard() {
 
   const intro = {
     sales: 'Add the customers you source; each file goes in as Sent to checker. If a file moves to Applicant review, send an edit request to your team leader or sales manager.',
-    processing: 'Work through the verification queue: call the customer, log each attempt, and mark the verification completed, pending or rejected. Completing the verification does not complete the case; mark the case completed separately.',
+    processing: 'Work through the verification queue: call the customer, log each attempt, and mark the verification completed, pending or rejected. The case status is set separately by team leaders, MIS, sales managers and business heads.',
     team_leader: 'Pending verifications and edit requests need you. You can also set any case status.',
     sales_manager: 'Make the changes sales ask for in edit requests, and keep case statuses up to date.',
     mis: 'Track every sourced file and update its case status: Applicant review, Completed or Rejected.',
@@ -882,7 +882,7 @@ async function viewCase(id) {
       const note = f.querySelector('textarea');
       const hint = f.querySelector('#vr-hint');
       const hints = {
-        complete: 'Details confirmed with the customer. This does not complete the case; set the case status below.',
+        complete: 'Details confirmed with the customer. This does not complete the case; the case status is set separately.',
         mark_incomplete: 'You could not finish. Your team leader is alerted to return it to sales, re-verify or reject.',
         reject_verification: 'The customer or details failed verification. Sales and team leaders are told.',
       };

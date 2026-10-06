@@ -368,13 +368,16 @@ test('sourcing date and email are captured; files start as Sent to checker', asy
   assert.equal((await sales('POST', '/cases', { ...newCase, sourcing_date: '2099-01-01' })).status, 400);
 });
 
-test('only team leader, MIS, sales manager, processor and business head can change case status', async () => {
+test('only team leader, MIS, sales manager and business head can change case status', async () => {
   const sales = await login('sales@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
   const set = (who, case_status, note) => who('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status, note });
 
   assert.equal((await set(sales, 'completed')).status, 403);
-  for (const email of ['lead@t.local', 'mis@t.local', 'sm@t.local', 'proc@t.local', 'bh@t.local']) {
+  const proc = await login('proc@t.local');
+  assert.equal((await set(proc, 'completed')).status, 403);
+  assert.ok(!(await proc('GET', `/cases/${id}`)).data.case.allowed_actions.includes('set_case_status'));
+  for (const email of ['lead@t.local', 'mis@t.local', 'sm@t.local', 'bh@t.local']) {
     const who = await login(email);
     assert.ok((await who('GET', `/cases/${id}`)).data.case.allowed_actions.includes('set_case_status'), email);
   }
@@ -391,10 +394,9 @@ test('only team leader, MIS, sales manager, processor and business head can chan
   const lead = await login('lead@t.local');
   assert.ok((await lead('GET', '/notifications')).data.items.some((n) => n.message.startsWith('Applicant review:')));
 
-  const proc = await login('proc@t.local');
-  r = await set(proc, 'completed');
+  r = await set(lead, 'completed');
   assert.equal(r.data.case.case_status, 'completed');
-  assert.equal((await set(proc, 'completed')).status, 409); // already completed
+  assert.equal((await set(lead, 'completed')).status, 409); // already completed
   const bh = await login('bh@t.local');
   r = await set(bh, 'rejected', 'Policy decline');
   assert.equal(r.data.case.case_status, 'rejected');
@@ -445,7 +447,7 @@ test('in Applicant review sales cannot edit, but can send an edit request to the
   assert.equal((await sm('PUT', `/cases/${id}`, { city: 'x' })).status, 403);
 });
 
-test('processors can mark verification completed, pending or rejected, separately from case status', async () => {
+test('processors mark verification completed, pending or rejected; case status is separate', async () => {
   const sales = await login('sales@t.local');
   const proc = await login('proc@t.local');
   const lead = await login('lead@t.local');
@@ -458,8 +460,9 @@ test('processors can mark verification completed, pending or rejected, separatel
   assert.equal(r.data.case.case_status, 'sent_to_check');
   assert.ok((await sales('GET', '/notifications')).data.items.some((n) => /verification rejected/.test(n.message)));
   assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /verification rejected/.test(n.message)));
-  // The processor can still mark the case itself
-  r = await proc('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'rejected', note: 'Fraud suspected' });
+  // Rejecting the case is a separate decision, and not the processor's
+  assert.equal((await proc('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'rejected', note: 'Fraud suspected' })).status, 403);
+  r = await lead('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'rejected', note: 'Fraud suspected' });
   assert.equal(r.data.case.case_status, 'rejected');
 
   // Completed verification does not complete the case; marking the case completed is a separate step
@@ -467,7 +470,7 @@ test('processors can mark verification completed, pending or rejected, separatel
   r = await proc('POST', `/cases/${id}/actions`, { action: 'complete' });
   assert.equal(r.data.case.status, 'completed');
   assert.equal(r.data.case.case_status, 'sent_to_check');
-  r = await proc('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  r = await (await login('mis@t.local'))('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
   assert.equal(r.data.case.case_status, 'completed');
   assert.equal(r.data.case.status, 'completed');
 

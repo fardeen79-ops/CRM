@@ -47,7 +47,8 @@ export const CASE_STATUS = {
   rejected: 'Rejected',
 };
 export const SETTABLE_CASE_STATUSES = ['applicant_review', 'completed', 'rejected'];
-export const CASE_STATUS_ROLES = ['team_leader', 'mis', 'sales_manager', 'processing', 'business_head'];
+// Processors only mark the verification result; they never change the case status.
+export const CASE_STATUS_ROLES = ['team_leader', 'mis', 'sales_manager', 'business_head'];
 // Where a sales person can send a case in Applicant review to have its details corrected.
 export const EDIT_QUEUES = { team_leader: 'Team Leader', sales_manager: 'Sales Manager' };
 const EDITOR_ROLES = ['team_leader', 'sales_manager'];
