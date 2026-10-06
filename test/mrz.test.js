@@ -75,3 +75,18 @@ test('copes with OCR reading one < too many or too few in line 2', () => {
     assert.equal(r.valid, true);
   }
 });
+
+test('keeps the last letter of names ending in K, C or S', () => {
+  for (const [line, surname, given] of [
+    ['THOMAS<<JAMES<<<<<<<<<<<<<<<<', 'Thomas', ['James']],
+    ['MALIK<<YOUSUF<ISAAC<<<<<<<<<<', 'Malik', ['Yousuf', 'Isaac']],
+    ['AL<MANSOORI<<AHMED<KHALID<KCK', 'Al Mansoori', ['Ahmed', 'Khalid']],
+    ['AL<MANSOORI<<AHMED<KHALIDKKKK', 'Al Mansoori', ['Ahmed', 'Khalid']],
+    ['DAS<<ANISH<<<<<<<<<<<<<<<<<<<', 'Das', ['Anish']],
+  ]) {
+    const [l1, l2] = uaeMrz();
+    const r = parseTd1([l1, l2, line]);
+    assert.equal(r.surname, surname, line);
+    assert.deepEqual(r.givenNames, given, line);
+  }
+});

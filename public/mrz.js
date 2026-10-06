@@ -46,6 +46,15 @@ function fitLine2(raw) {
   return raw.slice(0, 18) + (/^<*$/.test(optional) ? '<'.repeat(11) : optional.padEnd(11, '<').slice(0, 11)) + raw.slice(-1);
 }
 
+// OCR sometimes reads the < filler after the name as K or C. Only treat those letters as filler when
+// they come after a real < or form a long run at the very end, so names ending in K, C or S
+// (Malik, Isaac, Thomas) keep their last letter.
+function cleanNameLine(line) {
+  return alpha(line)
+    .replace(/[KC]{4,}(?=<*$)/, (m) => '<'.repeat(m.length))
+    .replace(/<[<KC]*$/, (m) => '<'.repeat(m.length));
+}
+
 export function parseTd1(lines) {
   const [r1, r2, r3] = lines.map(normalizeLine);
   let l1 = fit(r1);
@@ -55,7 +64,7 @@ export function parseTd1(lines) {
   l1 = alpha(l1.slice(0, 5)) + l1.slice(5, 14) + digits(l1[14]) + l1.slice(15);
   l2 = digits(l2.slice(0, 7)) + l2[7].replace('H', 'M').replace('P', 'F') + digits(l2.slice(8, 15)) + alpha(l2.slice(15, 18)) + l2.slice(18, 29) + digits(l2[29]);
   // Trailing filler in the name line is often read as K or S; names never end in a run of them.
-  l3 = alpha(l3).replace(/[<KS]{3,}$/, (m) => '<'.repeat(m.length));
+  l3 = cleanNameLine(l3);
 
   const docNumber = l1.slice(5, 14);
   const optional1 = l1.slice(15, 30);
