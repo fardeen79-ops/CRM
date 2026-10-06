@@ -128,7 +128,7 @@ function renderLogin() {
       <form class="card" id="login-form">
         <div class="brand" style="margin-bottom:16px"><span class="logo">✓</span> Sourcing CRM</div>
         <h1>Sign in</h1>
-        <p class="muted">Sales, processing and team leaders sign in here.</p>
+        <p class="muted">Sign in with your work email. Your role decides what you see.</p>
         <div class="field-row"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required autofocus></div>
         <div class="field-row"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
         <button class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
@@ -223,7 +223,7 @@ function shell(content) {
       <a class="brand" href="#/"><span class="logo">✓</span> Sourcing CRM</a>
       <nav class="nav">${navLinks().map(([href, text]) => html`<a href="${href}" class="${current === href ? 'active' : ''}">${text}</a>`)}</nav>
       <div class="user-box">
-        <button class="bell btn-link" id="bell" aria-label="Notifications">🔔<span class="dot" ${state.unread ? '' : 'hidden'}>${state.unread}</span></button>
+        <button class="bell btn-link" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot" ${state.unread ? '' : 'hidden'}>${state.unread}</span></button>
         <div><div>${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role]}</div></div>
         <button id="logout">Sign out</button>
       </div>
@@ -328,8 +328,6 @@ async function viewDashboard() {
   const cs = s.by_case_status;
   const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
 
-  const caseTiles = Object.entries(CASE_STATUS_LABEL).map(([k, l]) => [l, cs[k], `#/cases?case_status=${k}`, k === 'applicant_review' && cs[k] > 0]);
-  caseTiles.push(['Total files', s.total, '#/cases']);
   const verifyTiles = [];
   if (r === 'team_leader') verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
   if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0]);
@@ -396,13 +394,22 @@ async function viewDashboard() {
     main = html`<div class="card"><h2>My cases in progress</h2>${caseTable(cases, { cols: ['ref', 'customer', 'phone', 'calls', 'updated'], empty: 'Nothing in progress. Pick a case from the verification queue.' })}</div>`;
   }
 
-  const tileGrid = (tiles) => html`<div class="grid stats">
-    ${tiles.map(([l, v, href, alert]) => html`<a class="card stat ${alert ? 'alert' : ''}" href="${href}"><div class="label">${l}</div><div class="value">${v ?? 0}</div></a>`)}
+  // A KPI tile: label, headline number and a share-of-files line. Alerts get a red accent.
+  const tileGrid = (tiles) => html`<div class="kpis">
+    ${tiles.map(([l, v, href, alert, sub]) => html`<a class="kpi ${alert ? 'kpi-alert' : ''}" href="${href}">
+      <span class="kpi-label">${l}</span>
+      <span class="kpi-value">${v ?? 0}</span>
+      <span class="kpi-sub">${sub ?? (typeof v === 'number' && s.total ? `${Math.round((v / s.total) * 100)}% of files` : ' ')}</span>
+    </a>`)}
   </div>`;
 
   shell(html`
-    <div class="page-head">
-      <div><h1>Hello, ${state.user.name.split(' ')[0]}</h1><p class="muted" style="margin:0">${intro}</p></div>
+    <div class="page-head dash-head">
+      <div>
+        <div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · ${ROLE_LABEL[r]}</div>
+        <h1>Hello, ${state.user.name.split(' ')[0]}</h1>
+        <p class="muted lede">${intro}</p>
+      </div>
       ${['sales', 'team_leader', 'sales_manager'].includes(r) ? html`<a class="btn btn-primary" href="#/cases/new">+ New case</a>` : ''}
       ${r === 'processing' ? html`<a class="btn btn-primary" href="#/queue">Open verification queue</a>` : ''}
       ${r === 'governance' ? html`<a class="btn btn-primary" href="#/quality-check">Open quality check</a>` : ''}
@@ -414,21 +421,46 @@ async function viewDashboard() {
       ['Requested from IT', s.governance.recordings_with_it, '#/recordings'],
       ['Recordings received', s.governance.recordings_received, '#/recordings'],
       ['Calls scored', s.governance.scored, '#/cases'],
-      ['Average score', s.governance.avg_score ?? '—', '#/cases'],
+      ['Average score', s.governance.avg_score ?? '—', '#/cases', false, 'out of 10'],
       ['Complaints', s.governance.complaints, '#/cases'],
     ])}` : ''}
-    <h2 class="tiles-head">Case status</h2>
-    ${tileGrid(caseTiles)}
+    ${statusOverview(cs, s.total)}
     <h2 class="tiles-head">Verification</h2>
     ${tileGrid(verifyTiles)}
     ${oversight ? html`<div class="grid two-col"><div>${main}</div><div>${teamTables}</div></div>` : main}`);
   bindRows();
 }
 
+// Case status mix. Order and colours are validated for colour-blind separation (see styles.css).
+const MIX = ['completed', 'sent_to_check', 'applicant_review', 'rejected'];
+function statusOverview(cs, total) {
+  const pct = (n) => (total ? Math.round((n / total) * 100) : 0);
+  return html`<section class="card overview">
+    <div class="overview-head">
+      <div><h2>Case status</h2><p class="muted small">Every sourced file by its current case status</p></div>
+      <a class="overview-total" href="#/cases"><span class="kpi-value">${total}</span><span class="kpi-label">Total files</span></a>
+    </div>
+    ${total
+      ? html`<div class="mix" role="img" aria-label="${MIX.map((k) => `${CASE_STATUS_LABEL[k]} ${cs[k]}`).join(', ')}">
+          ${MIX.filter((k) => cs[k] > 0).map((k) => html`<a class="mix-seg mix-${k}" href="#/cases?case_status=${k}" style="flex-grow:${cs[k]}"
+              data-tip="${CASE_STATUS_LABEL[k]}: ${cs[k]} (${pct(cs[k])}%)" aria-label="${CASE_STATUS_LABEL[k]}: ${cs[k]} files"></a>`)}
+        </div>`
+      : html`<p class="muted small">No files yet. They appear here as sales staff submit them.</p>`}
+    <div class="mix-legend">
+      ${MIX.map((k) => html`<a class="mix-item" href="#/cases?case_status=${k}">
+        <span class="mix-swatch mix-${k}"></span>
+        <span class="mix-label">${CASE_STATUS_LABEL[k]}</span>
+        <span class="mix-count">${cs[k]}</span>
+        <span class="mix-pct">${pct(cs[k])}%</span>
+      </a>`)}
+    </div>
+  </section>`;
+}
+
 function miniTable(head, rows) {
   if (!rows.length) return html`<p class="muted">No users yet.</p>`;
-  return html`<table><thead><tr>${head.map((h) => html`<th>${h}</th>`)}</tr></thead>
-    <tbody>${rows.map((r) => html`<tr style="cursor:default">${r.map((c) => html`<td>${c ?? 0}</td>`)}</tr>`)}</tbody></table>`;
+  return html`<div class="table-wrap"><table><thead><tr>${head.map((h) => html`<th>${h}</th>`)}</tr></thead>
+    <tbody>${rows.map((r) => html`<tr style="cursor:default">${r.map((c) => html`<td>${c ?? 0}</td>`)}</tr>`)}</tbody></table></div>`;
 }
 
 // ---------- case list ----------
