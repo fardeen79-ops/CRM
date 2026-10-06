@@ -3,3 +3,4 @@ data/
 *.db
 *.db-*
 .env
+public/vendor/

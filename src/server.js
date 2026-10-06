@@ -15,8 +15,26 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.gz': 'application/gzip',
 };
 const MAX_BODY = 1024 * 1024;
+
+// Emirates ID scanner (Tesseract.js). Served from public/vendor/tesseract after `npm run setup:ocr`,
+// otherwise from the jsDelivr CDN. Versions are pinned to match setup-ocr.js.
+function ocrAssets() {
+  if (fs.existsSync(path.join(PUBLIC_DIR, 'vendor', 'tesseract', 'tesseract.min.js'))) {
+    return { script: '/vendor/tesseract/tesseract.min.js', workerPath: '/vendor/tesseract/worker.min.js', corePath: '/vendor/tesseract', langPath: '/vendor/tesseract', workerBlobURL: false };
+  }
+  const cdn = 'https://cdn.jsdelivr.net/npm';
+  return {
+    script: `${cdn}/tesseract.js@5.1.1/dist/tesseract.min.js`,
+    workerPath: `${cdn}/tesseract.js@5.1.1/dist/worker.min.js`,
+    corePath: `${cdn}/tesseract.js-core@5.1.1`,
+    langPath: `${cdn}/@tesseract.js-data/eng@1.0.0/4.0.0_best_int`,
+    workerBlobURL: true,
+  };
+}
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -136,6 +154,7 @@ function routes(db, dispatch) {
         recording_statuses: cases.RECORDING_STATUS,
         score_max: cases.SCORE_MAX,
         it_email: cases.config.itEmail,
+        ocr: ocrAssets(),
       },
     })],
 

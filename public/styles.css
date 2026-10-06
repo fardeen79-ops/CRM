@@ -362,3 +362,43 @@ dl.details dd { margin: 0; word-break: break-word; }
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast.error { background: var(--danger); color: #fff; }
+
+/* Emirates ID scanner */
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.case-form .section-head h2 { margin: 0; }
+.scan-btn { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: var(--primary-soft); }
+.scan-btn svg { width: 18px; height: 18px; }
+.scan-callout { margin-bottom: 14px; }
+.scan-warning { margin-top: 4px; font-weight: 500; color: var(--s-pending); }
+input.scanned { border-color: var(--s-done); background: var(--s-done-bg); }
+.scan-modal {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
+  background: rgba(8, 19, 37, .72);
+}
+.scan-sheet {
+  width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; display: grid; gap: 12px;
+  background: var(--surface); color: var(--text); border-radius: var(--radius); padding: 18px; box-shadow: 0 20px 50px rgba(0, 0, 0, .35);
+}
+.scan-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.scan-head h2 { margin: 0 0 2px; }
+.scan-head p { margin: 0; }
+.scan-view { position: relative; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 10px; overflow: hidden; background: #000; }
+.scan-view video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-frame {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: var(--frame-w); aspect-ratio: var(--card-aspect); max-width: 100%;
+  border: 2px solid rgba(255, 255, 255, .9); border-radius: 12px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .45);
+  display: flex; align-items: flex-end;
+}
+.scan-mrz {
+  width: 100%; border-top: 2px dashed var(--accent); background: rgba(195, 154, 60, .14);
+  display: flex; align-items: flex-start; justify-content: flex-end;
+}
+.scan-mrz span {
+  margin: -9px 8px 0 0; padding: 1px 6px; border-radius: 4px; background: var(--accent); color: #0e2442;
+  font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+}
+.scan-status { margin: 0; font-weight: 500; min-height: 1.5em; }
+.scan-progress { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.scan-progress span { display: block; height: 100%; width: 0; background: var(--primary); transition: width .2s; }
+.scan-actions { justify-content: flex-end; }

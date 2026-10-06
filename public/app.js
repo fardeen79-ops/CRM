@@ -1,4 +1,6 @@
 // Sourcing CRM — single-page frontend (no build step).
+import { openEidScanner } from './eid-scan.js';
+import { toFormFields } from './mrz.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
 const STATUS_LABEL = {
@@ -39,6 +41,7 @@ const ACTION_LABEL = {
   resolve_edit_request: 'Requested changes made',
   flag_urgent: 'Flagged for urgent verification',
   clear_urgent: 'Urgent flag removed',
+  eid_scan: 'Details filled from Emirates ID scan',
   mark_qc: 'Marked for quality check',
   clear_qc: 'Removed from quality check',
   request_recording: 'Call recording requested',
@@ -632,7 +635,14 @@ async function viewCaseForm(id) {
       </section>
 
       <section>
-        <h2>Customer</h2>
+        <div class="section-head">
+          <h2>Customer</h2>
+          <button type="button" class="btn scan-btn" id="scan-eid">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 15h10M7 12h10M7 9h4"/></svg>
+            Scan Emirates ID
+          </button>
+        </div>
+        <div id="scan-result"></div>
         <div class="form-grid three">
           ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"' })}
           ${field('middle_name', 'Middle name', { attrs: 'autocomplete="off"' })}
@@ -819,6 +829,32 @@ async function viewCaseForm(id) {
   };
   updateProductFields();
 
+  // Emirates ID scan: fills the name and ID number for the sales person to check.
+  let scanned = false;
+  $('#scan-eid').onclick = async () => {
+    const mrz = await openEidScanner(state.meta.ocr);
+    if (!mrz) return;
+    const fields = toFormFields(mrz);
+    for (const [name, value] of Object.entries(fields)) {
+      const input = $(`#f-${name}`);
+      if (!input || !value) continue;
+      input.value = value;
+      input.classList.add('scanned');
+      input.addEventListener('input', () => input.classList.remove('scanned'), { once: true });
+    }
+    scanned = true;
+    const warnings = [];
+    if (mrz.expiryDate && mrz.expiryDate < todayLocal()) warnings.push(`This Emirates ID expired on ${fmtDay(mrz.expiryDate)}.`);
+    if (mrz.nameTruncated) warnings.push('The name on the back of the card is cut short to fit. Check the full name on the front.');
+    if (!mrz.checks.composite) warnings.push('One of the card’s check digits did not match. Compare the ID number with the card carefully.');
+    $('#scan-result').innerHTML = html`<div class="callout ${warnings.length ? 'warn' : 'success'} scan-callout">
+      <strong>Filled from the Emirates ID: name and Emirates ID number.</strong>
+      Check them against the card before submitting.${mrz.expiryDate ? html` <span class="muted">Card valid until ${fmtDay(mrz.expiryDate)}.</span>` : ''}
+      ${warnings.map((w) => html`<div class="scan-warning">${w}</div>`)}
+    </div>`.s;
+    toast('Details filled from the Emirates ID');
+  };
+
   const save = async (resubmit) => {
     const err = document.getElementById('form-error');
     err.hidden = true;
@@ -837,6 +873,7 @@ async function viewCaseForm(id) {
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
       delete body.buyout_bank_other;
+      if (scanned) body.eid_scanned = true;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
       toast(id ? (resubmit ? 'Saved and resubmitted for verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);

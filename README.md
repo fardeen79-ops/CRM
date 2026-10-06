@@ -55,6 +55,19 @@ Run the tests with `npm test`.
 | **Business head** | Sees all cases, team stats, sets case status, and approves or declines call recording requests |
 | **Governance** | Marks files for quality check, adds complaint numbers, scores verification calls (0–10) and requests call recordings after verification |
 
+### Scanning the Emirates ID
+
+The **Scan Emirates ID** button on the entry form fills in the customer's **first, middle and last name** and **Emirates ID number** from the machine-readable lines on the **back** of the card.
+
+- **Live:** on a phone, the rear camera opens with a card-shaped guide. The scan completes as soon as a read passes the card's check digits, usually in a few seconds.
+- **Photo:** **Use a photo instead** reads a picture of the card. Use it when live camera access isn't available.
+- **Review:** filled fields are highlighted for the sales person to check against the card. The form warns if the card has expired, if the name was cut short on the card, or if a check digit didn't match. Every scan is recorded in the file's activity history.
+- **Privacy:** text recognition (Tesseract.js) runs entirely on the device. The card image is never uploaded or stored.
+- **Setup:**
+  - **HTTPS:** live camera scanning needs the CRM to be served over HTTPS (or `localhost`). Photo scanning works either way.
+  - **Scanner files:** by default they load from the jsDelivr CDN (about 7 MB the first time, then cached). To serve them from the CRM instead, which most banks will want, run `npm run setup:ocr` once and restart. It saves them under `public/vendor/tesseract/`.
+  - **Testing:** the scanner was tested with made-up sample cards. Try it on real cards before rolling it out.
+
 ### Sales staff, region and core product
 
 When a team leader registers a sales person on the **Users** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users. A team leader can change these later with **Edit profile**.
