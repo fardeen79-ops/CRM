@@ -9,6 +9,7 @@ const FRAME_WIDTH = 0.88; // guide frame, as a share of the video width
 const MRZ_SHARE = 0.45; // the MRZ sits in roughly the bottom 45% of the card's back
 
 let workerPromise = null;
+const LOAD_TIMEOUT_MS = 60000;
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -21,24 +22,73 @@ function loadScript(src) {
   });
 }
 
-/** Starts (once) a Tesseract worker set up for MRZ characters. */
+// Downloads a file with progress, as raw bytes.
+async function fetchBytes(url, onBytes) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Could not download the scanner (${res.status}).`);
+  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+  const reader = res.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    size += value.length;
+    onBytes(value.length);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out;
+}
+
+const blobUrl = (bytes, name) => `${URL.createObjectURL(new Blob([bytes], { type: 'text/javascript' }))}#${name}`;
+
+// WebAssembly SIMD makes OCR faster; fall back to the plain build where it is missing.
+const hasSimd = () => {
+  try {
+    return WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Starts (once) a Tesseract worker set up for MRZ characters. The page downloads the worker
+ * script and the WebAssembly core itself and starts them from blob: URLs, which keeps the
+ * scanner working under strict content security policies; the worker then fetches the English
+ * model from langPath.
+ */
 function getWorker(ocr, onProgress) {
   workerPromise ??= (async () => {
-    await loadScript(ocr.script);
+    const coreFile = hasSimd() ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js';
+    const expected = 4.1e6 / 0.6; // worker + core are ~60% of the download; the model is the rest
+    let loaded = 0;
+    const tick = (n) => { loaded += n; onProgress?.(Math.min(0.99, loaded / expected)); };
+    onProgress?.(0);
+    const [, workerJs, coreJs] = await Promise.all([
+      loadScript(ocr.script),
+      fetchBytes(ocr.workerPath, tick),
+      fetchBytes(`${ocr.coreDir.replace(/\/$/, '')}/${coreFile}`, tick),
+    ]);
     const worker = await window.Tesseract.createWorker('eng', 1, {
-      workerPath: ocr.workerPath,
-      corePath: ocr.corePath,
-      langPath: ocr.langPath,
-      workerBlobURL: ocr.workerBlobURL,
-      logger: (m) => { if (m.progress != null && /loading/.test(m.status)) onProgress?.(m.progress); },
+      workerPath: blobUrl(workerJs, 'worker.min.js'),
+      corePath: blobUrl(coreJs, coreFile),
+      workerBlobURL: false,
+      // The worker runs from a blob: URL, so the model's location must be absolute.
+      langPath: new URL(ocr.langPath, location.href).href,
+      logger: (m) => { if (m.status === 'loading language traineddata' && m.progress != null) onProgress?.(0.6 + m.progress * 0.4); },
     });
+    onProgress?.(1);
     await worker.setParameters({ tessedit_char_whitelist: MRZ_CHARS, tessedit_pageseg_mode: '6' });
     return worker;
-  })().catch((err) => {
+  })();
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('The scanner took too long to load. Check your connection and try again.')), LOAD_TIMEOUT_MS));
+  return Promise.race([workerPromise, timeout]).catch((err) => {
     workerPromise = null;
     throw err;
   });
-  return workerPromise;
 }
 
 /** Grayscale + contrast stretch, which helps Tesseract on glossy cards. */
@@ -182,7 +232,7 @@ export function openEidScanner(ocr) {
     // Live camera path.
     (async () => {
       if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
-        say('Live scanning needs the CRM to be opened over HTTPS on this device. Use a photo instead.');
+        say('Live scanning needs the CRM to be opened over HTTPS. Take or choose a photo of the back of the card instead.');
         photoButton.classList.add('btn-primary');
         return;
       }
@@ -192,7 +242,7 @@ export function openEidScanner(ocr) {
           audio: false,
         });
       } catch {
-        say('The camera is not available (permission denied or in use). Use a photo instead.');
+        say('The camera can\u2019t be opened here (it may be blocked or in use). Take or choose a photo of the back of the card instead.');
         photoButton.classList.add('btn-primary');
         return;
       }
