@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS cases (
   bundle_products    TEXT,
   credit_card        TEXT,
   personal_loan_type TEXT,
+  buyout_bank        TEXT,
   amount             REAL,
   source             TEXT,
   sales_notes        TEXT,
@@ -93,6 +94,7 @@ function migrate(db) {
   if (!cols.includes('bundle_products')) db.exec('ALTER TABLE cases ADD COLUMN bundle_products TEXT');
   if (!cols.includes('credit_card')) db.exec('ALTER TABLE cases ADD COLUMN credit_card TEXT');
   if (!cols.includes('personal_loan_type')) db.exec('ALTER TABLE cases ADD COLUMN personal_loan_type TEXT');
+  if (!cols.includes('buyout_bank')) db.exec('ALTER TABLE cases ADD COLUMN buyout_bank TEXT');
 }
 
 export function transaction(db, fn) {

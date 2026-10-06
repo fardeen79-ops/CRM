@@ -38,9 +38,10 @@ export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
 export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
 
-export function productLabel(product, bundleProducts, creditCard, loanType) {
+export function productLabel(product, bundleProducts, creditCard, loanType, buyoutBank) {
   const name = (p) => {
     if (p === 'credit_card' && creditCard) return `Credit Card (${creditCard})`;
+    if (p === 'personal_loan' && loanType === 'buy_out' && buyoutBank) return `Personal Loan (Buy Out from ${buyoutBank})`;
     if (p === 'personal_loan' && PERSONAL_LOAN_TYPES[loanType]) return `Personal Loan (${PERSONAL_LOAN_TYPES[loanType]})`;
     return PRODUCTS[p] || p;
   };
@@ -69,7 +70,7 @@ export const ACTIONS = {
   resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.PENDING },
 };
 
-const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'amount', 'source', 'sales_notes'];
+const EDITABLE_FIELDS = ['customer_name', 'phone', 'alt_phone', 'email', 'address', 'city', 'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank', 'amount', 'source', 'sales_notes'];
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -100,10 +101,17 @@ function validateProduct(input, current, out) {
   const includes = (p) => product === p || String(out.bundle_products).split(',').includes(p);
 
   out.personal_loan_type = null;
+  out.buyout_bank = null;
   if (includes('personal_loan')) {
     const type = 'personal_loan_type' in input ? clean(input.personal_loan_type) : current?.personal_loan_type;
     if (!PERSONAL_LOAN_TYPES[type]) throw new WorkflowError(400, 'Choose the personal loan type: Top Up, Buy Out or Fresh');
     out.personal_loan_type = type;
+    if (type === 'buy_out') {
+      // Any bank name is accepted so a lender missing from the list never blocks a case.
+      const bank = 'buyout_bank' in input ? clean(input.buyout_bank, 200) : current?.buyout_bank;
+      if (!bank) throw new WorkflowError(400, 'Choose which bank the loan is being bought out from');
+      out.buyout_bank = bank;
+    }
   }
 
   const needsCard = includes('credit_card');
@@ -119,7 +127,7 @@ function validateProduct(input, current, out) {
 function validateCaseInput(input, { partial = false, current = null } = {}) {
   const out = {};
   for (const field of EDITABLE_FIELDS) {
-    if (['product', 'bundle_products', 'credit_card', 'personal_loan_type'].includes(field)) continue;
+    if (['product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank'].includes(field)) continue;
     if (partial && !(field in input)) continue;
     out[field] = clean(input[field], field === 'sales_notes' || field === 'address' ? 2000 : 200);
   }
@@ -137,7 +145,7 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
       }
     }
   }
-  if (!partial || ['product', 'bundle_products', 'credit_card', 'personal_loan_type'].some((f) => f in input)) validateProduct(input, current, out);
+  if (!partial || ['product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank'].some((f) => f in input)) validateProduct(input, current, out);
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
   if ('amount' in out && out.amount !== null) {
     const amount = Number(out.amount.replace(/,/g, ''));
@@ -170,7 +178,7 @@ const CASE_SELECT = `
   LEFT JOIN users vb ON vb.id = c.verified_by
   LEFT JOIN users tb ON tb.id = c.tl_actioned_by`;
 
-const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type) };
+const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
 
 function canView(user, row) {
   return user.role !== 'sales' || row.created_by === user.id;
@@ -209,8 +217,8 @@ export function listCases(db, user, { status, q, assigned, limit = 200 } = {}) {
   if (q) {
     const term = `%${String(q).trim()}%`;
     const idMatch = String(q).match(/^(?:crm-)?0*(\d+)$/i);
-    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ?${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(term, term, term, term, term);
+    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(term, term, term, term, term, term);
     if (idMatch) params.push(Number(idMatch[1]));
   }
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}

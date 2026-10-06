@@ -8,6 +8,7 @@ const STATUS_LABEL = {
   returned_to_sales: 'Returned to sales',
   rejected: 'Rejected',
 };
+const OTHER_BANK = '__other';
 const ROLE_LABEL = { sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader' };
 const ACTION_LABEL = {
   created: 'Case created',
@@ -373,6 +374,8 @@ async function viewCaseForm(id) {
   const c = id ? (await api(`/cases/${id}`)).case : {};
   const products = state.meta.products;
   const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
+  const listedBanks = state.meta.banks.flatMap((g) => g.banks);
+  const otherBank = Boolean(c.buyout_bank) && !listedBanks.includes(c.buyout_bank);
   const field = (name, text, { type = 'text', required = false, full = false, placeholder = '' } = {}) => html`
     <div class="${full ? 'full' : ''}">
       <label for="f-${name}">${text}${required ? raw(' <span class="req">*</span>') : ''}</label>
@@ -415,6 +418,17 @@ async function viewCaseForm(id) {
           <div class="segmented">
             ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" required disabled ${c.personal_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
           </div>
+          <div id="bank-field" class="bank-field" hidden>
+            <label for="f-buyout_bank">Buying out from which bank? <span class="req">*</span></label>
+            <select id="f-buyout_bank" name="buyout_bank" required disabled>
+              <option value="">Choose a bank…</option>
+              ${state.meta.banks.map((g) => html`<optgroup label="${g.group}">
+                ${g.banks.map((b) => html`<option value="${b}" ${c.buyout_bank === b ? raw('selected') : ''}>${b}</option>`)}
+              </optgroup>`)}
+              <option value="${OTHER_BANK}" ${otherBank ? raw('selected') : ''}>Other bank (type the name)</option>
+            </select>
+            <input id="f-buyout_bank_other" name="buyout_bank_other" placeholder="Bank name" aria-label="Other bank name" value="${otherBank ? c.buyout_bank : ''}" required disabled hidden>
+          </div>
         </fieldset>
         <div class="full" id="card-field" hidden>
           <label for="f-credit_card">Credit card <span class="req">*</span></label>
@@ -441,9 +455,12 @@ async function viewCaseForm(id) {
   const boxes = [...picker.querySelectorAll('input[type=checkbox]')];
   const loanField = document.getElementById('loan-type-field');
   const loanRadios = [...loanField.querySelectorAll('input')];
+  const bankField = document.getElementById('bank-field');
+  const bankSelect = document.getElementById('f-buyout_bank');
+  const bankOther = document.getElementById('f-buyout_bank_other');
   const cardField = document.getElementById('card-field');
   const cardSelect = document.getElementById('f-credit_card');
-  const checkBundle = () => {
+  const updateProductFields = () => {
     const isBundle = productSelect.value === 'bundle';
     const count = boxes.filter((b) => b.checked).length;
     boxes[0].setCustomValidity(isBundle && count < 2 ? 'Pick at least two products for a bundle' : '');
@@ -451,12 +468,18 @@ async function viewCaseForm(id) {
     const includes = (p) => productSelect.value === p || (isBundle && boxes.some((b) => b.value === p && b.checked));
     loanField.hidden = !includes('personal_loan');
     loanRadios.forEach((r) => (r.disabled = loanField.hidden));
+    const isBuyOut = !loanField.hidden && loanRadios.some((r) => r.value === 'buy_out' && r.checked);
+    bankField.hidden = !isBuyOut;
+    bankSelect.disabled = !isBuyOut;
+    bankOther.hidden = bankOther.disabled = !isBuyOut || bankSelect.value !== OTHER_BANK;
     cardField.hidden = !includes('credit_card');
     cardSelect.disabled = cardField.hidden;
   };
-  productSelect.onchange = () => { picker.hidden = productSelect.value !== 'bundle'; checkBundle(); };
-  boxes.forEach((b) => (b.onchange = checkBundle));
-  checkBundle();
+  productSelect.onchange = () => { picker.hidden = productSelect.value !== 'bundle'; updateProductFields(); };
+  boxes.forEach((b) => (b.onchange = updateProductFields));
+  loanRadios.forEach((r) => (r.onchange = updateProductFields));
+  bankSelect.onchange = () => { updateProductFields(); if (!bankOther.hidden) bankOther.focus(); };
+  updateProductFields();
 
   const save = async (resubmit) => {
     const err = document.getElementById('form-error');
@@ -467,6 +490,8 @@ async function viewCaseForm(id) {
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
       body.credit_card ??= null;
       body.personal_loan_type ??= null;
+      body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
+      delete body.buyout_bank_other;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
       toast(id ? (resubmit ? 'Saved and resubmitted for verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);
@@ -578,6 +603,7 @@ async function viewCase(id) {
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
             ${c.personal_loan_type ? html`<dt>Personal loan type</dt><dd><strong>${state.meta.personal_loan_types[c.personal_loan_type]}</strong></dd>` : ''}
+            ${c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             <dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>

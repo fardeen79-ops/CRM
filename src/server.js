@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { CREDIT_CARDS } from './credit-cards.js';
+import { BANKS } from './banks.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -111,6 +112,7 @@ function routes(db, dispatch) {
         products: cases.PRODUCTS,
         credit_cards: CREDIT_CARDS,
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
+        banks: BANKS,
       },
     })],
 

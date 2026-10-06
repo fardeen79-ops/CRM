@@ -194,10 +194,10 @@ test('product must be one of the fixed options, and a bundle needs two or more p
   assert.equal(r.data.case.product_label, 'Auto Loan');
   assert.equal(r.data.case.bundle_products, null);
 
-  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'], personal_loan_type: 'buy_out' });
+  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'], personal_loan_type: 'buy_out', buyout_bank: 'RAKBANK' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.bundle_products, 'personal_loan,accounts');
-  assert.equal(r.data.case.product_label, 'Bundle: Personal Loan (Buy Out) + Accounts');
+  assert.equal(r.data.case.product_label, 'Bundle: Personal Loan (Buy Out from RAKBANK) + Accounts');
   const id = r.data.case.id;
 
   // Editing only the bundle contents keeps the product; switching away from bundle clears them.
@@ -271,4 +271,29 @@ test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
   assert.equal(r.data.case.personal_loan_type, null);
   r = await sales('POST', '/cases', { ...base, product: 'accounts', personal_loan_type: 'buy_out' });
   assert.equal(r.data.case.personal_loan_type, null);
+});
+
+test('a buy-out personal loan must name the bank it is bought out from', async () => {
+  const sales = await login('sales@t.local');
+  const base = { customer_name: 'Buyout Test', phone: '9876543210', product: 'personal_loan' };
+
+  assert.equal((await sales('POST', '/cases', { ...base, personal_loan_type: 'buy_out' })).status, 400);
+  let r = await sales('POST', '/cases', { ...base, personal_loan_type: 'buy_out', buyout_bank: 'Mashreq' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.product_label, 'Personal Loan (Buy Out from Mashreq)');
+  const id = r.data.case.id;
+
+  // A bank outside the list is accepted, and the bank is searchable
+  r = await sales('PUT', `/cases/${id}`, { buyout_bank: 'Some Small Bank' });
+  assert.equal(r.data.case.buyout_bank, 'Some Small Bank');
+  assert.ok((await sales('GET', '/cases?q=Small%20Bank')).data.cases.some((c) => c.id === id));
+
+  // Switching to another loan type clears the bank; a bank is ignored for Fresh/Top Up
+  r = await sales('PUT', `/cases/${id}`, { personal_loan_type: 'top_up' });
+  assert.equal(r.data.case.buyout_bank, null);
+  r = await sales('POST', '/cases', { ...base, personal_loan_type: 'fresh', buyout_bank: 'Mashreq' });
+  assert.equal(r.data.case.buyout_bank, null);
+
+  const me = await sales('GET', '/me');
+  assert.ok(me.data.meta.banks.flatMap((g) => g.banks).includes('Emirates NBD'));
 });
