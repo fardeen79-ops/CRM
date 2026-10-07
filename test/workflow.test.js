@@ -1119,3 +1119,37 @@ test('a call-back request takes a date and time and alerts the processor when it
   r = await proc('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Verified' });
   assert.equal(r.data.case.callback_at, null);
 });
+
+test('changing verified product details after verification sends the file back for re-verification', async () => {
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const lead = await login('lead@t.local');
+  const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  // Before verification, edits never trigger anything.
+  let r = await lead('PUT', `/cases/${id}`, { loan_amount: 160000 });
+  assert.equal(r.data.case.status, 'pending_verification');
+  assert.ok(!r.data.case.events.some((e) => e.type === 're_verification'));
+  await proc('POST', `/cases/${id}/actions`, { action: 'log_call', outcome: 'connected' });
+  await proc('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Verified' });
+  // Changes to details the processor did not confirm leave the verification alone.
+  r = await lead('PUT', `/cases/${id}`, { city: 'Dubai', email: 'asha@example.com' });
+  assert.equal(r.data.case.status, 'completed');
+  // Changing the interest rate and FPD after completion resets it.
+  const before = (await proc('GET', '/notifications')).data.items.length;
+  r = await lead('PUT', `/cases/${id}`, { interest_rate: 7.25, fpd: '2027-01-05' });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.data.case.status, r.data.case.assigned_to, r.data.case.verified_by, r.data.case.call_attempts], ['pending_verification', null, null, 0]);
+  const ev = r.data.case.events.find((e) => e.type === 're_verification');
+  assert.equal(ev.detail, 'interest rate, FPD');
+  assert.ok((await proc('GET', '/notifications')).data.items.length > before);
+  assert.match((await proc('GET', '/notifications')).data.items[0].message, /Re-verification needed.*interest rate, FPD changed by Lead/);
+  assert.match((await sales('GET', '/notifications')).data.items[0].message, /goes back for verification/);
+  // It is in the processing queue again and can be verified afresh.
+  assert.ok((await proc('GET', '/cases?status=pending_verification')).data.cases.some((c) => c.id === id));
+  assert.ok((await proc('GET', `/cases/${id}`)).data.case.allowed_actions.includes('claim'));
+  // Switching the product counts too.
+  await proc('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Verified again' });
+  r = await lead('PUT', `/cases/${id}`, { product: 'auto_loan', amount: 50000 });
+  assert.equal(r.data.case.status, 'pending_verification');
+  assert.equal(r.data.case.events.filter((e) => e.type === 're_verification').length, 2);
+});

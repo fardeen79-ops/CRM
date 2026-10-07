@@ -55,6 +55,17 @@ Run the tests with `npm test`.
 | **Business head** | Sees all cases, team stats, sets case status, and approves or declines call recording requests |
 | **Governance** | Marks files for quality check, adds complaint numbers, scores verification calls (0–10) and requests call recordings after verification |
 
+### Re-verification after changes
+
+Once a processor has marked verification **Completed**, the details they confirmed with the customer are locked in. If a team leader or sales manager later changes any of them — the **product** (or bundle contents, card, loan type or buy-out bank), the **loan amount**, **interest rate**, top-up amounts or **FPD** — the file goes back to **Awaiting verification** automatically:
+
+- the processor's assignment and call count are cleared, so it rejoins the verification queue as a fresh request;
+- the case timeline records *Sent back for re-verification* with what changed;
+- the processor who verified it, every processor, the sales person and the team leaders are notified;
+- the case status (Sent to checker, Applicant review…) is not changed.
+
+Changes to anything else (contact details, address, notes, sales staff) leave the completed verification as it is. The edit form warns before saving on a verified file.
+
 ### Scheduled call-backs
 
 When a processor logs a call with the outcome **Call back later**, they must enter the **date and time** the customer asked for (up to 30 days ahead; quick picks for "in 1 hour", "tomorrow 10:00" and so on). The case then shows a *Call-back scheduled* banner with the time and who noted it.

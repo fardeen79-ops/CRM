@@ -24,6 +24,7 @@ const ROLE_LABEL = {
 const ACTION_LABEL = {
   created: 'Case created',
   edited: 'Details edited',
+  re_verification: 'Sent back for re-verification',
   claim: 'Picked up for verification',
   release: 'Released back to queue',
   log_call: 'Call logged',
@@ -917,6 +918,7 @@ async function viewCaseForm(id) {
         </div>
       </details>
 
+      ${id && c.status === 'completed' ? html`<div class="callout warn" style="margin-top:16px"><strong>Verification is already completed on this file.</strong>Changing the product, loan amount, interest rate, top-up amounts or FPD sends it back to the processing team for a fresh verification. Other details can be changed freely.</div>` : ''}
       <p class="error" id="form-error" hidden></p>
       <div class="actions" style="margin-top:16px">
         <button class="btn-primary">${id ? 'Save changes' : 'Submit for verification'}</button>
@@ -1034,7 +1036,7 @@ async function viewCaseForm(id) {
     try {
       const body = formData(form);
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
-      for (const f of ['credit_card', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount']) body[f] ??= null;
+      for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd']) body[f] ??= null;
       // Leave hidden values untouched unless a replacement was typed.
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
@@ -1042,7 +1044,8 @@ async function viewCaseForm(id) {
       if (scanned) body.eid_scanned = scanned;
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
-      toast(id ? (resubmit ? 'Saved and resubmitted for verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);
+      const reverified = id && c.status === 'completed' && res.case.status === 'pending_verification';
+      toast(id ? (resubmit ? 'Saved and resubmitted for verification' : reverified ? 'Changes saved — sent back for re-verification' : 'Changes saved') : `${res.case.ref} submitted for verification`);
       go(`#/cases/${res.case.id}`);
     } catch (ex) {
       err.textContent = ex.message;
@@ -1056,6 +1059,7 @@ async function viewCaseForm(id) {
 // ---------- case detail ----------
 function eventDetail(e) {
   if (e.type === 'edited') return `fields: ${e.detail}`;
+  if (e.type === 're_verification') return `${e.detail} changed after verification was completed`;
   if (e.type === 'log_call' && e.detail?.startsWith('call_back_later ')) return `Call back later · ${fmtWhen(e.detail.slice(16))}`;
   if (e.type === 'callback_due') return `customer asked for ${e.detail}`;
   if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);

@@ -214,6 +214,13 @@ const PRODUCT_FIELDS = [
 ];
 // Snapshot of the sales person's profile, copied onto the file when it is sourced.
 const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name'];
+// Details the processor confirmed with the customer. Changing any of them after verification is
+// completed sends the file back for a fresh verification.
+export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd'];
+const VERIFIED_FIELD_LABELS = {
+  product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
+  loan_amount: 'loan amount', interest_rate: 'interest rate', full_loan_amount: 'full loan amount', incremental_amount: 'incremental amount', fpd: 'FPD',
+};
 const EDITABLE_FIELDS = [
   ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'region', 'core_product',
   ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS,
@@ -643,6 +650,20 @@ export function updateCase(db, user, id, input) {
     );
     addEvent(db, id, user.id, 'edited', { detail: changed.join(', ') });
     if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
+    // Verified details changed after verification was completed: the customer must be called again.
+    const reverify = row.status === STATUS.COMPLETED ? changed.filter((f) => VERIFIED_FIELDS.includes(f)) : [];
+    if (reverify.length) {
+      const what = reverify.map((f) => VERIFIED_FIELD_LABELS[f] || f).join(', ');
+      const ts = now();
+      db.prepare(`UPDATE cases SET status = ?, assigned_to = NULL, verified_by = NULL, verified_at = NULL, call_attempts = 0,
+          callback_at = NULL, callback_notified_at = NULL, updated_at = ? WHERE id = ?`).run(STATUS.PENDING, ts, id);
+      addEvent(db, id, user.id, 're_verification', { from: STATUS.COMPLETED, to: STATUS.PENDING, detail: what });
+      const ref = caseRef(id);
+      notify(db, [row.verified_by, ...activeUserIds(db, 'processing')], id,
+        `Re-verification needed: ${ref} (${row.customer_name}) — ${what} changed by ${user.name} after verification`);
+      notify(db, [ownerId(row), ...activeUserIds(db, 'team_leader')].filter((u) => u !== user.id), id,
+        `${ref} (${row.customer_name}) goes back for verification: ${what} changed by ${user.name}`);
+    }
     return getCase(db, user, id);
   });
 }
