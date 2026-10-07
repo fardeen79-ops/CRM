@@ -27,6 +27,9 @@ const ACTION_LABEL = {
   claim: 'Picked up for verification',
   release: 'Released back to queue',
   log_call: 'Call logged',
+  bot_call: 'Bot call requested',
+  bot_call_result: 'Bot call finished',
+  bot_call_failed: 'Bot call failed',
   complete: 'Verification completed',
   mark_incomplete: 'Verification pending',
   reject_verification: 'Verification rejected',
@@ -1055,6 +1058,22 @@ function eventDetail(e) {
   return label(e.detail);
 }
 
+const BOT_CALL_STATUS = { requested: 'Waiting for the bot', in_progress: 'On the call', completed: 'Finished', failed: 'Failed', expired: 'No result' };
+const CHECK_RESULT = { confirmed: ['Confirmed', 'good'], mismatch: ['Did not match', 'bad'], not_answered: ['Not answered', ''] };
+
+// The latest bot verification call: what the customer confirmed, the summary and the transcript.
+function botCallCard(b) {
+  return html`<div class="card">
+    <h2>Bot call</h2>
+    <p class="muted small">${BOT_CALL_STATUS[b.status] || label(b.status)} · requested by ${b.requested_by_name} ${ago(b.requested_at)}${b.outcome ? ` · ${label(b.outcome)}` : ''}</p>
+    ${b.error ? html`<div class="callout danger"><strong>The bot could not place the call</strong>${b.error}</div>` : ''}
+    ${b.checks.length ? html`<dl class="details">${b.checks.map((ch) => html`<dt>${ch.label}</dt><dd><span class="chip ${CHECK_RESULT[ch.result][1]}">${CHECK_RESULT[ch.result][0]}</span></dd>`)}</dl>` : ''}
+    ${b.summary ? html`<div class="note">${b.summary}</div>` : ''}
+    ${b.recording_url ? html`<p class="small"><a href="${b.recording_url}" target="_blank" rel="noopener noreferrer">Listen to the recording</a></p>` : ''}
+    ${b.transcript ? html`<details><summary class="small">Transcript</summary><pre class="transcript">${b.transcript}</pre></details>` : ''}
+  </div>`;
+}
+
 async function viewCase(id) {
   const { case: c } = await api(`/cases/${id}`);
   // A detail row; ID-style values use a monospace face so digits are easy to read back on a call.
@@ -1105,6 +1124,13 @@ async function viewCase(id) {
         <div class="field-row"><textarea name="note" placeholder="What did the customer say?"></textarea></div>
         <button>Log call</button>
       </form>`);
+  }
+  if (a.has('bot_call')) {
+    panel.push(html`<h3>Call with bot</h3><p class="muted small">The bot calls the customer and asks them to confirm their details. You still save the verification result.</p>
+      <button data-action="bot_call">🤖 Call with bot</button>`);
+  } else if (meta.call_bot && ['requested', 'in_progress'].includes(c.bot_call_status) && a.has('log_call')) {
+    panel.push(html`<h3>Call with bot</h3><p class="muted small">${c.bot_call_status === 'in_progress' ? 'The bot is on the call now.' : 'Waiting for the bot to call the customer.'}
+      Refresh the page for the result.</p>`);
   }
   if (a.has('complete') || a.has('mark_incomplete') || a.has('reject_verification')) {
     panel.push(html`<hr><h3>Verification result</h3>
@@ -1380,6 +1406,7 @@ async function viewCase(id) {
             <p class="muted small">Sent automatically when the email relay is set up; otherwise copy it into your email.</p>
           </div>` : ''}
         </div>` : ''}
+        ${c.bot_call ? botCallCard(c.bot_call) : ''}
         <div class="card">
           <h2>Activity</h2>
           <ul class="timeline">

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { transaction } from './db.js';
 import { CREDIT_CARD_NAMES } from './credit-cards.js';
 import { findUser } from './users.js';
@@ -118,7 +119,13 @@ export const RECORDING_STATUS = {
 };
 
 // Where approved recording requests are emailed. Set by the server from IT_EMAIL.
-export const config = { itEmail: null };
+export const config = { itEmail: null, callBot: false };
+
+// A bot call with no result after this long no longer blocks placing another one.
+export const BOT_CALL_TIMEOUT_MINUTES = 30;
+const BOT_CALL_OPEN = ['requested', 'in_progress'];
+const botCallPending = (row) => BOT_CALL_OPEN.includes(row.bot_call_status)
+  && Date.now() - Date.parse(row.bot_call_at) < BOT_CALL_TIMEOUT_MINUTES * 60_000;
 
 export function recordingEmail(row) {
   const lines = [
@@ -179,6 +186,8 @@ export const ACTIONS = {
   claim:           { roles: ['processing'],  from: [STATUS.PENDING],      to: STATUS.IN_VERIFICATION },
   release:         { roles: ['processing'],  from: [STATUS.IN_VERIFICATION], to: STATUS.PENDING },
   log_call:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: null },
+  // Asks the calling bot to phone the customer; its result is logged like a call (see bot.js).
+  bot_call:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: null },
   complete:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.COMPLETED },
   // "Verification pending" in the UI: the processor could not finish and a team leader must decide.
   mark_incomplete: { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.INCOMPLETE, noteRequired: true },
@@ -373,13 +382,13 @@ function salesStaffSnapshot(db, staffId) {
 const ownerId = (row) => row.sales_staff_id ?? row.created_by;
 const isOwner = (user, row) => row.created_by === user.id || row.sales_staff_id === user.id;
 
-function addEvent(db, caseId, userId, type, { from = null, to = null, detail = null, note = null } = {}) {
+export function addEvent(db, caseId, userId, type, { from = null, to = null, detail = null, note = null } = {}) {
   db.prepare(
     'INSERT INTO case_events (case_id, user_id, type, from_status, to_status, detail, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(caseId, userId, type, from, to, detail, note, now());
 }
 
-function notify(db, userIds, caseId, message) {
+export function notify(db, userIds, caseId, message) {
   const stmt = db.prepare('INSERT INTO notifications (user_id, case_id, message, created_at) VALUES (?, ?, ?, ?)');
   for (const id of new Set(userIds.filter(Boolean))) stmt.run(id, caseId, message, now());
 }
@@ -443,6 +452,15 @@ function canView(user, row) {
   return user.role !== 'sales' || isOwner(user, row);
 }
 
+function latestBotCall(db, caseId) {
+  const call = db.prepare(
+    `SELECT b.id, b.status, b.requested_at, b.finished_at, b.outcome, b.checks, b.summary, b.transcript, b.recording_url, b.error,
+            u.name AS requested_by_name
+     FROM bot_calls b JOIN users u ON u.id = b.requested_by WHERE b.case_id = ? ORDER BY b.id DESC LIMIT 1`
+  ).get(caseId);
+  return call && { ...call, checks: call.checks ? JSON.parse(call.checks) : [] };
+}
+
 export function getCase(db, user, id) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
@@ -455,6 +473,7 @@ export function getCase(db, user, id) {
     )
     .all(id);
   const out = { ...present(user, row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row) };
+  if (user.role !== 'sales' && row.bot_call_status) out.bot_call = latestBotCall(db, id);
   if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
     out.recording_email = recordingEmail(row);
   }
@@ -646,6 +665,7 @@ function verificationActions(user, row) {
       if (!rule.roles.includes(user.role) || !rule.from.includes(row.status)) return false;
       if (user.role === 'sales') return isOwner(user, row);
       if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id) return false;
+      if (name === 'bot_call') return config.callBot && !botCallPending(row);
       return name !== 'claim' || !row.assigned_to;
     })
     .map(([name]) => name);
@@ -745,6 +765,18 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
           : { callback_at: null, callback_by: null, callback_set_at: null, callback_notified_at: null });
         if (callbackAt) detail = `${outcome} ${callbackAt}`;
         break;
+      case 'bot_call': {
+        set.assigned_to = row.assigned_to ?? user.id;
+        if (row.status === STATUS.PENDING) set.status = STATUS.IN_VERIFICATION;
+        Object.assign(set, { bot_call_status: 'requested', bot_call_at: ts });
+        // A newer call replaces one the bot never reported back on; a late result for it is refused.
+        db.prepare(`UPDATE bot_calls SET status = 'expired', finished_at = ? WHERE case_id = ? AND status IN ('requested', 'in_progress')`).run(ts, id);
+        const token = randomBytes(24).toString('hex');
+        const call = db.prepare('INSERT INTO bot_calls (case_id, token, status, requested_by, requested_at) VALUES (?, ?, ?, ?, ?)')
+          .run(id, token, 'requested', user.id, ts);
+        triggers.push({ event: 'bot_call.request', case_id: id, call_id: Number(call.lastInsertRowid), token, ref });
+        break;
+      }
       case 'complete':
         Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts, urgent_flag: 0, callback_at: null, callback_notified_at: null });
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) verification completed by ${user.name}`);
