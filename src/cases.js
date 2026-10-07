@@ -30,6 +30,8 @@ export const INCOMPLETE_REASONS = [
   'incorrect_details',
   'documents_pending',
   'not_interested',
+  // The customer is on the Do Not Call Register, so the verification call cannot be made.
+  'customer_in_dncr',
   'other',
 ];
 

@@ -271,7 +271,7 @@ When the product is Credit Card, or a bundle that includes Credit Card, staff mu
 
 Every step is recorded in the case's activity timeline. People are notified in-app (the 🔔 icon) when something needs them:
 
-- team leaders when a case is marked incomplete
+- team leaders when a case is marked incomplete (reasons include *Customer in DNCR*, for customers on the Do Not Call Register who cannot be phoned; such files show a DNCR chip)
 - sales when their case is verified, returned or rejected
 - the processor when a case they handled is sent back or rejected
 

@@ -79,7 +79,10 @@ const html = (strings, ...vals) =>
     return out + s + str;
   }));
 
-const label = (s) => String(s || '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+// Labels for codes whose plain spelling would be wrong (abbreviations).
+const SPECIAL_LABEL = { customer_in_dncr: 'Customer in DNCR (Do Not Call Register)' };
+const label = (s) => SPECIAL_LABEL[s] || String(s || '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+const isDncr = (c) => c.incomplete_reason === 'customer_in_dncr' && ['incomplete', 'rejected', 'returned_to_sales'].includes(c.status);
 const badge = (status) => html`<span class="badge st-${status}">${STATUS_LABEL[status] || status}</span>`;
 // Call-quality score bands (out of 10): 8.5+ good, 7–8.4 fair, below 7 needs attention.
 const scoreClass = (n) => (n >= 8.5 ? 'good' : n >= 7 ? 'fair' : 'bad');
@@ -620,7 +623,7 @@ const COLS = {
   ref: ['Ref', (c) => html`<strong>${c.ref}</strong>`],
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => c.phone],
-  status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}${c.callback_at && state.user.role === 'processing' ? html` ${callbackChip(c)}` : ''}`],
+  status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}${isDncr(c) ? html` <span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''}${c.callback_at && state.user.role === 'processing' ? html` ${callbackChip(c)}` : ''}`],
   case_status: ['Case status', (c) => html`${caseBadge(c.case_status)}${c.case_status === 'completed' && completionLabel(c) ? html`<div class="muted small">${completionLabel(c)}</div>` : ''}`],
   sourced: ['Sourced', (c) => html`<span class="small nowrap">${fmtDay(c.sourcing_date)}</span>`],
   cs_note: ['Status note', (c) => html`${c.case_status_note || ''}<div class="muted small">${c.case_status_by_name || ''}</div>`],
@@ -1327,7 +1330,7 @@ async function viewCase(id) {
     <div class="page-head">
       <div><a href="#/" class="small" id="back-link">← Back</a>
         <h1>${c.customer_name} <span class="muted" style="font-weight:400">${c.ref}</span></h1>
-        <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
+        <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} ${isDncr(c) ? html`<span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
     ${c.callback_at && ['pending_verification', 'in_verification'].includes(c.status) ? html`<div class="callout ${callbackDue(c) ? 'danger' : 'warn'}">
