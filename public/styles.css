@@ -537,3 +537,5 @@ a.chip:hover { text-decoration: none; filter: brightness(1.05); }
 .quick-picks .chip { cursor: pointer; font-weight: 500; }
 .quick-picks .chip:hover { border-color: var(--primary); color: var(--primary); }
 .transcript { white-space: pre-wrap; font-size: 13px; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0 0; }
+/* Date pickers draw their own calendar control; keep them the same height as text boxes. */
+input[type=date], input[type=datetime-local] { padding-block: 7px; line-height: 1.5; min-height: 39px; }

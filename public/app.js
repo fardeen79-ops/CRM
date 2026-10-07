@@ -868,7 +868,7 @@ async function viewCaseForm(id) {
             <div class="segmented">
               ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" required disabled ${c.personal_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
             </div>
-            <div class="form-grid">
+            <div class="form-grid three">
               ${field('loan_amount', 'Loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-pl' })}
               ${field('interest_rate', 'Interest rate (%)', { type: 'number', required: true, placeholder: 'e.g. 5.99', attrs: 'inputmode="decimal" min="0" max="100" step="0.01" disabled data-pl' })}
               ${field('fpd', 'FPD (first payment date)', { type: 'date', required: true, attrs: 'disabled data-pl', hint: 'When the first instalment is due' })}
