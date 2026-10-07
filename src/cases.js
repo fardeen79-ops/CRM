@@ -42,6 +42,10 @@ export const PRODUCTS = {
 export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 
 export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
+// How a credit card was sold: first year free, full annual fee, or free for life.
+export const CARD_FEE_TYPES = { fyf: 'FYF (first year free)', full_fee: 'Full fee', ffl: 'FFL (free for life)' };
+// A personal loan's FPD (first payment date) can be this far after the sourcing date.
+export const FPD_MAX_DAYS = 365;
 
 // A completed case is a temp end for credit cards and a disbursal for loans. After a card's temp
 // end, MIS maps whether the card was activated.
@@ -205,8 +209,8 @@ const TEXT_FIELDS = {
   eid_number: 30, passport_number: 30, bidaya_id: 50, app_id: 50,
 };
 const PRODUCT_FIELDS = [
-  'product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank',
-  'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount',
+  'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank',
+  'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
 ];
 // Snapshot of the sales person's profile, copied onto the file when it is sourced.
 const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name'];
@@ -259,12 +263,20 @@ function validateProduct(input, current, out) {
 
   Object.assign(out, {
     personal_loan_type: null, buyout_bank: null,
-    loan_amount: null, interest_rate: null, full_loan_amount: null, incremental_amount: null,
+    loan_amount: null, interest_rate: null, full_loan_amount: null, incremental_amount: null, fpd: null,
   });
   if (includes('personal_loan')) {
     const type = clean(pick('personal_loan_type'));
     if (!PERSONAL_LOAN_TYPES[type]) throw new WorkflowError(400, 'Choose the personal loan type: Top Up, Buy Out or Fresh');
     out.personal_loan_type = type;
+    // FPD: the first payment date, on or after the sourcing date and within a year of it.
+    const fpd = clean(pick('fpd'), 10);
+    if (!fpd) throw new WorkflowError(400, 'Enter the FPD (first payment date) for the personal loan');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fpd) || Number.isNaN(Date.parse(fpd))) throw new WorkflowError(400, 'FPD must be a valid date');
+    const sourced = out.sourcing_date ?? current?.sourcing_date ?? null;
+    if (sourced && fpd < sourced) throw new WorkflowError(400, 'FPD cannot be before the sourcing date');
+    if (sourced && Date.parse(fpd) > Date.parse(sourced) + FPD_MAX_DAYS * 864e5) throw new WorkflowError(400, 'FPD must be within a year of the sourcing date');
+    out.fpd = fpd;
     out.loan_amount = parseNumber(pick('loan_amount'), 'Loan amount', { required: true, positive: true });
     out.interest_rate = parseNumber(pick('interest_rate'), 'Interest rate', { required: true, max: 100 });
     if (type === 'buy_out') {
@@ -283,11 +295,15 @@ function validateProduct(input, current, out) {
   }
 
   out.credit_card = null;
+  out.card_fee_type = null;
   if (includes('credit_card')) {
     const card = clean(pick('credit_card'));
     if (!card) throw new WorkflowError(400, 'Choose which credit card the customer wants');
     if (!CREDIT_CARD_NAMES.has(card)) throw new WorkflowError(400, `Unknown credit card: ${card}`);
     out.credit_card = card;
+    const fee = clean(pick('card_fee_type'));
+    if (!CARD_FEE_TYPES[fee]) throw new WorkflowError(400, 'Choose the card sourced type: FYF, Full fee or FFL');
+    out.card_fee_type = fee;
   }
 }
 

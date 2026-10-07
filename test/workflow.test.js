@@ -41,7 +41,8 @@ async function login(email) {
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
     // Every new file needs a region and core product; tests that don't care get defaults.
-    if (method === 'POST' && path === '/cases' && body) body = { region: 'DXB', core_product: 'personal_loan', ...body };
+    if (method === 'POST' && path === '/cases' && body) body = { region: 'DXB', core_product: 'personal_loan', ...withProductDefaults(body) };
+    if (method === 'PUT' && /^\/cases\/\d+$/.test(path) && body && (body.product || body.bundle_products)) body = withProductDefaults(body);
     const r = await fetch(`${base}/api${path}`, {
       method,
       headers: { cookie, ...(body && { 'content-type': 'application/json' }) },
@@ -51,6 +52,15 @@ async function login(email) {
   };
 }
 
+// Card sourced type and FPD are required with those products; tests that don't care get defaults.
+const withProductDefaults = (body) => {
+  const raw = body.bundle_products;
+  const products = body.product === 'bundle' || (!body.product && raw) ? (Array.isArray(raw) ? raw : String(raw || '').split(',')) : [body.product];
+  const out = { ...body };
+  if (products.includes('credit_card') && !('card_fee_type' in out)) out.card_fee_type = 'fyf';
+  if (products.includes('personal_loan') && !('fpd' in out)) out.fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  return out;
+};
 const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '1,50,000', interest_rate: 6.5 };
 
 test('rejects unauthenticated access and bad credentials', async () => {
@@ -812,13 +822,13 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   const lead = await login('lead@t.local');
   const sales = await login('sales@t.local');
   const head = await login('bh@t.local');
-  const header = 'Sales code,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID';
+  const header = 'Sales code,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID,Card sourced type,FPD';
   const csv = [
     header,
-    'S-002,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671',
-    'S-002,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,',
-    'S-002,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,',
-    'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,',
+    'S-002,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671,,05/11/2026',
+    'S-002,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,,first year free,2026-11-05',
+    'S-002,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,,Full fee,',
+    'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,,,',
   ].join('\n');
   for (const who of [sales, lead]) assert.equal((await who('POST', '/import/cases', { csv })).status, 403);
   const done = await head('POST', '/import/cases', { csv });
@@ -829,7 +839,8 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   const c1 = (await lead('GET', `/cases/${done.data.rows[0].id}`)).data.case;
   assert.deepEqual([c1.sales_staff_name, c1.sourcing_date, c1.region, c1.personal_loan_type, c1.loan_amount, c1.case_status], ['Sid', '2026-10-01', 'DXB', 'top_up', 150000, 'sent_to_check']);
   const c2 = (await lead('GET', `/cases/${done.data.rows[1].id}`)).data.case;
-  assert.deepEqual([c2.bundle_products, c2.credit_card, c2.buyout_bank], ['personal_loan,credit_card', 'Infinite Credit Card', 'Abu Dhabi Islamic Bank (ADIB)']);
+  assert.deepEqual([c2.bundle_products, c2.credit_card, c2.buyout_bank, c2.card_fee_type, c2.fpd], ['personal_loan,credit_card', 'Infinite Credit Card', 'Abu Dhabi Islamic Bank (ADIB)', 'fyf', '2026-11-05']);
+  assert.equal(c1.fpd, '2026-11-05');
   assert.ok(c2.events.some((e) => e.type === 'bulk_upload'));
 
   // Uploading the same file again finds the duplicates.
@@ -839,7 +850,7 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   // The sales person owns an uploaded file: Sid sees it, and a blank sales code is an error.
   const sid = await login('sales2@t.local');
   assert.equal((await sid('GET', `/cases/${done.data.rows[0].id}`)).status, 200);
-  const blank = await head('POST', '/import/cases', { csv: [header, ',03/10/2026,DXB,Auto Loan,No,,Code,0501234567,Auto Loan,,,,,,,,,,'].join('\n') });
+  const blank = await head('POST', '/import/cases', { csv: [header, ',03/10/2026,DXB,Auto Loan,No,,Code,0501234567,Auto Loan,,,,,,,,,,,,'].join('\n') });
   assert.match(blank.data.rows[0].error, /Sales code is required/);
   // MIS and business heads still can't add single files from the New case form.
   assert.equal((await head('POST', '/cases', newCase)).status, 403);
@@ -1019,7 +1030,7 @@ test('an inactive card 90 or more days after its temp end moves to Out of activa
   const mis = createUser(db, { name: 'Mo', email: 'mis@x.local', role: 'mis', password: 'password123' });
   const sales = createUser(db, { name: 'Sa', email: 's@x.local', role: 'sales', password: 'password123', sales_code: 'S-9', team_leader_id: tl.id, sales_manager_id: sm.id });
   const make = (daysAgo) => {
-    const id = cases.createCase(db, sales, { ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' }).id;
+    const id = cases.createCase(db, sales, withProductDefaults({ ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' })).id;
     cases.applyAction(db, mis, id, { action: 'set_case_status', case_status: 'completed' });
     cases.applyAction(db, mis, id, { action: 'set_card_status', card_status: 'inactive', activation_date: '2026-01-01' });
     db.prepare('UPDATE cases SET case_status_at = ? WHERE id = ?').run(new Date(Date.now() - daysAgo * 864e5).toISOString(), id);
@@ -1030,7 +1041,7 @@ test('an inactive card 90 or more days after its temp end moves to Out of activa
   const edge = make(89);
   const ninety = make(90);
   // A card nobody mapped is Inactive by default, so it ages out the same way.
-  const neverMapped = cases.createCase(db, sales, { ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' }).id;
+  const neverMapped = cases.createCase(db, sales, withProductDefaults({ ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' })).id;
   db.prepare("UPDATE cases SET case_status = 'completed', case_status_at = ? WHERE id = ?").run(new Date(Date.now() - 100 * 864e5).toISOString(), neverMapped);
   // Reading cases applies the rule.
   const byId = Object.fromEntries(cases.listCases(db, mis, { card: 'all' }).map((c) => [c.id, c.card_status]));

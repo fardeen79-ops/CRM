@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
 import { setTargetsFor, TARGET_UNITS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { CREDIT_CARD_NAMES } from './credit-cards.js';
@@ -56,7 +56,9 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'product', header: 'Product', required: true, example: 'Personal Loan', allowed: [...Object.values(PRODUCTS), 'Bundle'] },
   { key: 'bundle_products', header: 'Bundle products', example: '', help: 'For Bundle: two or more products separated by ; e.g. Personal Loan; Credit Card' },
   { key: 'credit_card', header: 'Credit card', example: '', help: 'Card name exactly as in the New case form' },
+  { key: 'card_fee_type', header: 'Card sourced type', example: '', help: 'For credit cards', allowed: ['FYF', 'Full fee', 'FFL'] },
   { key: 'personal_loan_type', header: 'Personal loan type', example: 'Top Up', allowed: Object.values(PERSONAL_LOAN_TYPES) },
+  { key: 'fpd', header: 'FPD', example: '05/11/2026', help: 'Personal loan first payment date, DD/MM/YYYY' },
   { key: 'buyout_bank', header: 'Buy-out bank', example: '', help: 'For Buy Out' },
   { key: 'loan_amount', header: 'Loan amount', example: '150000', help: 'Personal loan' },
   { key: 'interest_rate', header: 'Interest rate', example: '6.5', help: 'Personal loan, % a year' },
@@ -199,6 +201,8 @@ function caseInput(v) {
     core_product: choose(v.core_product, CORE_PRODUCTS, 'Core product'),
     product,
     personal_loan_type: choose(v.personal_loan_type, PERSONAL_LOAN_TYPES, 'Personal loan type'),
+    card_fee_type: choose({ firstyearfree: 'fyf', freeforlife: 'ffl', fullannualfee: 'full_fee' }[norm(v.card_fee_type)] || v.card_fee_type, { fyf: 'FYF', full_fee: 'Full fee', ffl: 'FFL' }, 'Card sourced type'),
+    fpd: v.fpd ? parseDate(v.fpd, 'FPD') : '',
     bundle_products: product === 'bundle'
       ? String(v.bundle_products || '').split(/[;,|/+]/).map((p) => p.trim()).filter(Boolean).map((p) => choose(p, PRODUCTS, 'Bundle product'))
       : '',

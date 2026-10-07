@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS cases (
   al_disbursed_amount  REAL,
   -- Call-back the customer asked for: when (UTC), who scheduled it, and whether the processor
   -- has been alerted that it is due.
+  -- Card fee arrangement the customer was sold, and a personal loan's first payment date.
+  card_fee_type        TEXT,
+  fpd                  TEXT,
   callback_at          TEXT,
   callback_by          INTEGER REFERENCES users(id),
   callback_set_at      TEXT,
@@ -216,6 +219,7 @@ const ADDED_COLUMNS = {
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
   pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
+  card_fee_type: 'TEXT', fpd: 'TEXT',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {

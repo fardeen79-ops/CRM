@@ -20,8 +20,8 @@ const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing',
 
 if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
   const samples = [
-    [sales1, { region: 'DXB', core_product: 'personal_loan', customer_name: 'Arjun Mehta', phone: '+91 98765 43210', city: 'Mumbai', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '250000', interest_rate: '6.25', source: 'Walk-in' }],
-    [sales1, { region: 'DXB', core_product: 'multi_product', customer_name: 'Neha Kapoor', phone: '+91 91234 56780', city: 'Pune', product: 'bundle', bundle_products: ['credit_card', 'accounts'], credit_card: 'Skywards Signature Credit Card', source: 'Referral' }],
+    [sales1, { region: 'DXB', core_product: 'personal_loan', customer_name: 'Arjun Mehta', phone: '+91 98765 43210', city: 'Mumbai', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '250000', interest_rate: '6.25', fpd: new Date(Date.now() + 35 * 864e5).toISOString().slice(0, 10), source: 'Walk-in' }],
+    [sales1, { region: 'DXB', core_product: 'multi_product', customer_name: 'Neha Kapoor', phone: '+91 91234 56780', city: 'Pune', product: 'bundle', bundle_products: ['credit_card', 'accounts'], credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', source: 'Referral' }],
     [sales2, { region: 'AUH', core_product: 'auto_loan', customer_name: 'John Fernandes', phone: '+91 99887 76655', city: 'Goa', product: 'auto_loan', amount: '900000', source: 'Field visit' }],
     [sales2, { region: 'AUH', core_product: 'credit_card', customer_name: 'Priya Nair', phone: '+91 90000 11122', city: 'Kochi', product: 'accounts', amount: '150000', source: 'Cold call' }],
   ];

@@ -161,6 +161,7 @@ function routes(db, dispatch, bot) {
         products: cases.PRODUCTS,
         credit_cards: CREDIT_CARDS,
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
+        card_fee_types: cases.CARD_FEE_TYPES,
         banks: BANKS,
         case_statuses: cases.CASE_STATUS,
         regions: cases.REGIONS,

@@ -68,7 +68,7 @@ async function botResult(url, payload, { signature } = {}) {
   return { status: r.status, data: await r.json() };
 }
 
-const newCase = {
+const newCase = { fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
   first_name: 'Asha', last_name: 'Rao', phone: '0501234567', region: 'DXB', core_product: 'personal_loan',
   product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 150000, interest_rate: 6.5,
   company_name: 'Emirates Steel', salary: 25000, eid_number: '784-1990-1234567-1',

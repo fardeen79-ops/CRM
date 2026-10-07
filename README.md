@@ -254,7 +254,9 @@ Each case records one product: **Personal Loan**, **Credit Card**, **Auto Loan**
 
 When the product is Personal Loan, or a bundle that includes it, staff must also say whether it is a **Top Up**, **Buy Out** or **Fresh** loan. The API takes this as `personal_loan_type`, one of `top_up`, `buy_out` or `fresh`. Every personal loan needs a **loan amount** (`loan_amount`, AED) and an **interest rate** (`interest_rate`, %). A **Top Up** also needs the **full loan amount** (`full_loan_amount`) and the **incremental amount** (`incremental_amount`); the increment cannot be more than the full amount. For a **Buy Out**, staff also choose the bank the loan is coming from (`buyout_bank`). The list of UAE banks is in [`src/banks.js`](src/banks.js), and staff can type a bank that isn't listed.
 
-When the product is Credit Card, or a bundle that includes Credit Card, staff must also choose the card. The list has 29 cards grouped by family and lives in [`src/credit-cards.js`](src/credit-cards.js). Edit that file to add or retire cards. The API takes the card's exact name as `credit_card`.
+Every personal loan also needs its **FPD** (first payment date, `fpd` as `YYYY-MM-DD`): on or after the sourcing date and within a year of it.
+
+When the product is Credit Card, or a bundle that includes Credit Card, staff must also choose the card. The list has 29 cards grouped by family and lives in [`src/credit-cards.js`](src/credit-cards.js). Edit that file to add or retire cards. The API takes the card's exact name as `credit_card`. Staff also pick the **card sourced type** (`card_fee_type`): `fyf` (first year free), `full_fee` or `ffl` (free for life). Both appear on the case page and in the case bulk upload template (*Card sourced type*, *FPD*).
 
 Every step is recorded in the case's activity timeline. People are notified in-app (the 🔔 icon) when something needs them:
 

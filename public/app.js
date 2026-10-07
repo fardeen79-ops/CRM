@@ -871,6 +871,7 @@ async function viewCaseForm(id) {
             <div class="form-grid">
               ${field('loan_amount', 'Loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-pl' })}
               ${field('interest_rate', 'Interest rate (%)', { type: 'number', required: true, placeholder: 'e.g. 5.99', attrs: 'inputmode="decimal" min="0" max="100" step="0.01" disabled data-pl' })}
+              ${field('fpd', 'FPD (first payment date)', { type: 'date', required: true, attrs: 'disabled data-pl', hint: 'When the first instalment is due' })}
             </div>
             <div class="form-grid" id="topup-fields" hidden>
               ${field('full_loan_amount', 'Full loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-topup', hint: 'Total loan after the top up' })}
@@ -888,7 +889,8 @@ async function viewCaseForm(id) {
               <input id="f-buyout_bank_other" name="buyout_bank_other" placeholder="Bank name" aria-label="Other bank name" value="${otherBank ? c.buyout_bank : ''}" required disabled hidden>
             </div>
           </fieldset>
-          <div class="full" id="card-field" hidden>
+          <fieldset class="full product-detail" id="card-field" hidden>
+            <legend>Credit card</legend>
             <label for="f-credit_card">Credit card <span class="req">*</span></label>
             <select id="f-credit_card" name="credit_card" required disabled>
               <option value="">Choose a card…</option>
@@ -896,7 +898,11 @@ async function viewCaseForm(id) {
                 ${f.cards.map((card) => html`<option value="${card}" ${c.credit_card === card ? raw('selected') : ''}>${card}</option>`)}
               </optgroup>`)}
             </select>
-          </div>
+            <div class="sub-label" style="margin-top:12px">Card sourced type <span class="req">*</span></div>
+            <div class="segmented three-up">
+              ${Object.entries(state.meta.card_fee_types).map(([k, l]) => html`<label><input type="radio" name="card_fee_type" value="${k}" required disabled ${c.card_fee_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+            </div>
+          </fieldset>
         </div>
       </section>
 
@@ -953,6 +959,7 @@ async function viewCaseForm(id) {
     bankOther.hidden = bankOther.disabled = bankField.hidden || bankSelect.value !== OTHER_BANK;
     cardField.hidden = !includes('credit_card');
     cardSelect.disabled = cardField.hidden;
+    cardField.querySelectorAll('input[name=card_fee_type]').forEach((r) => (r.disabled = cardField.hidden));
     checkIncrement();
   };
   const checkIncrement = () => {
@@ -1350,12 +1357,14 @@ async function viewCase(id) {
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
             ${c.personal_loan_type ? html`<dt>Personal loan type</dt><dd><strong>${state.meta.personal_loan_types[c.personal_loan_type]}</strong></dd>` : ''}
+            ${c.fpd ? html`<dt>FPD</dt><dd><strong>${fmtDay(c.fpd)}</strong><div class="muted small">First payment date</div></dd>` : ''}
             ${c.loan_amount != null ? html`<dt>Loan amount</dt><dd><strong>AED ${fmtAmount(c.loan_amount)}</strong></dd>` : ''}
             ${c.interest_rate != null ? html`<dt>Interest rate</dt><dd><strong>${c.interest_rate}%</strong></dd>` : ''}
             ${c.full_loan_amount != null ? html`<dt>Full loan amount</dt><dd>AED ${fmtAmount(c.full_loan_amount)}</dd>` : ''}
             ${c.incremental_amount != null ? html`<dt>Incremental amount</dt><dd>AED ${fmtAmount(c.incremental_amount)}</dd>` : ''}
             ${c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
+            ${c.card_fee_type ? html`<dt>Card sourced type</dt><dd><strong>${state.meta.card_fee_types[c.card_fee_type] || c.card_fee_type}</strong></dd>` : ''}
             ${c.amount != null ? html`<dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>` : ''}
           </dl>
           <h2 class="sub">Sales staff</h2>
