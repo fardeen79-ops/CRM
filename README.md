@@ -248,6 +248,48 @@ Every step is recorded in the case's activity timeline. People are notified in-a
 - sales when their case is verified, returned or rejected
 - the processor when a case they handled is sent back or rejected
 
+### Verification calls through a bot
+
+When a calling bot is set up (`CALL_BOT_URL`), processors see **Call with bot** on cases they can verify. The bot phones the customer and asks them to confirm their details. The processor then reviews what came back and saves the verification result as usual.
+
+> The bot never completes, holds or rejects a verification. Its call is logged like any other call, and the processor decides.
+
+1. **Call with bot** picks the case up, like logging a call, and sends the request to the bot service. Only one bot call per case runs at a time. A call with no result after 30 minutes no longer blocks a new one, and a late result for it is refused.
+2. The bot calls the customer and checks up to five details: **full name**, **product applied for**, **employer**, **monthly salary** and the **last four digits of the Emirates ID** (employer, salary and Emirates ID only when they are on the file).
+3. When the bot reports back, the case shows a **Bot call** card: each detail as *Confirmed*, *Did not match* or *Not answered*, the bot's summary, the transcript and a link to the recording. The call counts as a call attempt, appears in the activity history, and the processor is notified, for example "bot call: 1 detail did not match: Employer".
+4. If the bot service refuses the request, or reports that the call failed, the case says so and the processor can try again or call the customer themselves.
+
+Only the result of each check is saved, never the value the customer gave. Sales staff don't see bot calls.
+
+**Connecting a bot.** Any voice-bot or IVR provider works, or a small adapter in front of one. The CRM sends a `POST` to `CALL_BOT_URL`:
+
+```json
+{ "event": "verification_call.request", "call_id": 7, "case_id": 12, "ref": "CRM-000012",
+  "callback_url": "https://crm.example.com/api/bot/calls/3f9c…",
+  "customer": { "name": "Asha Rao", "phone": "0501234567", "alt_phone": null },
+  "checks": [ { "key": "full_name", "label": "Full name", "question": "Please confirm your full name.", "expected": "Asha Rao" },
+              { "key": "eid_last4", "label": "Emirates ID (last 4 digits)", "question": "…", "expected": "5671" } ],
+  "check_results": ["confirmed", "mismatch", "not_answered"],
+  "call_outcomes": ["connected", "no_answer", "busy", "switched_off", "wrong_number", "call_back_later"] }
+```
+
+Any `2xx` answer means the bot accepted the call. The bot then posts to `callback_url`, once with `{"status": "in_progress"}` if it wants to show that the call has started (optional), and once with the result:
+
+```json
+{ "status": "completed", "outcome": "connected",
+  "checks": [ { "key": "full_name", "result": "confirmed" }, { "key": "eid_last4", "result": "mismatch" } ],
+  "summary": "Customer confirmed their name; Emirates ID digits did not match.",
+  "transcript": "Bot: …", "recording_url": "https://…" }
+```
+
+or `{"status": "failed", "error": "number not in service"}`. Checks left out count as not answered.
+
+**Security.**
+- The callback URL holds a random one-time token for that call. A result is accepted once.
+- Set `CALL_BOT_SECRET` to sign both directions. Each request carries `x-crm-signature: sha256=<hex>`, an HMAC-SHA256 of the raw body with the secret. The CRM signs its requests to the bot and refuses results without a valid signature.
+- The request contains the customer's details so the bot can compare answers. Only point `CALL_BOT_URL` at a service your bank has approved to handle them.
+- Set `PUBLIC_URL` to the address the bot can reach the CRM at (for example `https://crm.example.com`). Without it, the callback URL uses the address the processor opened the CRM with.
+
 ### Team-leader webhook
 
 Set `TL_WEBHOOK_URL` to POST a JSON alert every time a case is marked incomplete. The payload includes a `text` field, so a Slack or Microsoft Teams incoming webhook works as-is:
@@ -268,6 +310,9 @@ Set `TL_WEBHOOK_URL` to POST a JSON alert every time a case is marked incomplete
 | `TL_WEBHOOK_URL` | – | Webhook for incomplete-case alerts |
 | `IT_EMAIL` | – | IT department address that approved call recording requests are emailed to |
 | `IT_EMAIL_WEBHOOK_URL` | – | Email relay (Power Automate, Zapier, an SMTP bridge…) that receives `POST {to, subject, text}` and sends it |
+| `CALL_BOT_URL` | – | Calling bot service that places verification calls; turns on **Call with bot** |
+| `CALL_BOT_SECRET` | – | Shared secret for signing bot requests and results (recommended) |
+| `PUBLIC_URL` | – | The CRM's address as the bot reaches it, for callback URLs |
 | `COOKIE_SECURE` | – | Set to `1` when serving over HTTPS |
 
 ## Project layout
@@ -277,6 +322,7 @@ src/
   index.js     entry point (first-run admin, starts server)
   server.js    HTTP routing, auth cookies, JSON API, static files, webhook dispatch
   cases.js     case workflow / state machine, notifications, stats
+  bot.js       verification calls through a calling bot (request, signed results)
   imports.js   bulk upload of users, cases, card activation and targets (CSV parsing, row checks, column guide)
   cycles.js    sales cycles (21st to 20th, UAE time)
   performance.js  targets, achievement per cycle and card activation counts
@@ -299,6 +345,8 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `GET /cases?status=a,b&q=…&assigned=me` | List cases (sales only see their own) |
 | `POST /cases`, `GET /cases/:id`, `PUT /cases/:id` | Create, read, edit |
 | `POST /cases/:id/actions` | `{action, note?, outcome?, reason?}`, where action is one of `claim`, `release`, `log_call`, `complete`, `mark_incomplete`, `return_to_sales`, `reverify`, `reject`, `resubmit` |
+| `POST /cases/:id/actions` with `bot_call` | Asks the calling bot to phone the customer (processing) |
+| `POST /bot/calls/:token` | Result from the calling bot (no session; one-time token, plus signature when `CALL_BOT_SECRET` is set) |
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
 | `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |

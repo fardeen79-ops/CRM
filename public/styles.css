@@ -532,3 +532,4 @@ a.chip:hover { text-decoration: none; filter: brightness(1.05); }
 .card-kpis { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 900px) { .card-kpis { grid-template-columns: repeat(2, 1fr); } }
 .card-kpis + .card th .muted { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.transcript { white-space: pre-wrap; font-size: 13px; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0 0; }

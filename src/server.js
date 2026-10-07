@@ -10,6 +10,7 @@ import { contactDetails, findUser, listUsers, salesProfile } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
 import { cycleOf, uaeDay } from './cycles.js';
+import { makeCallBot } from './bot.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -104,8 +105,10 @@ async function readJson(req, limit = MAX_BODY) {
     chunks.push(chunk);
   }
   if (!size) return {};
+  // Kept for checking signed webhook bodies (bot call results).
+  req.rawBody = Buffer.concat(chunks).toString('utf8');
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return JSON.parse(req.rawBody);
   } catch {
     throw new HttpError(400, 'Invalid JSON body');
   }
@@ -126,7 +129,10 @@ function requireRole(user, ...roles) {
   if (!roles.includes(user.role)) throw new HttpError(403, 'You do not have permission to do that');
 }
 
-function routes(db, dispatch) {
+// The CRM's own address as the caller reached it, for callback URLs when PUBLIC_URL is not set.
+const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http'}://${req.headers.host}`;
+
+function routes(db, dispatch, bot) {
   return [
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
       const result = auth.login(db, body.email, body.password);
@@ -157,6 +163,7 @@ function routes(db, dispatch) {
         recording_statuses: cases.RECORDING_STATUS,
         score_max: cases.SCORE_MAX,
         it_email: cases.config.itEmail,
+        call_bot: cases.config.callBot,
         ocr: ocrAssets(),
         import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS },
         card_statuses: cases.CARD_STATES,
@@ -183,11 +190,21 @@ function routes(db, dispatch) {
       case: cases.updateCase(db, user, Number(params[0]), body),
     })],
 
-    ['POST', /^\/api\/cases\/(\d+)\/actions$/, async ({ user, params, body }) => {
+    ['POST', /^\/api\/cases\/(\d+)\/actions$/, async ({ req, user, params, body }) => {
       const result = cases.applyAction(db, user, Number(params[0]), body);
       dispatch(result.triggers);
+      // Wait for the bot service to accept the call, so a refusal shows on the case straight away.
+      if (result.triggers.some((t) => t.event === 'bot_call.request')) {
+        await bot.deliver(result.triggers, originOf(req));
+        return { case: cases.getCase(db, user, Number(params[0])) };
+      }
       return { case: result.case };
     }],
+
+    // Result of a bot verification call. The token in the URL identifies the call; with
+    // CALL_BOT_SECRET set the body must also be signed (x-crm-signature).
+    ['POST', /^\/api\/bot\/calls\/([a-f0-9]{48})$/, async ({ req, params, body }) =>
+      bot.receive(params[0], req.rawBody || '', req.headers['x-crm-signature'], body), { public: true }],
 
     ['GET', /^\/api\/notifications$/, async ({ user }) => cases.listNotifications(db, user)],
 
@@ -294,9 +311,11 @@ function serveFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null } = {}) {
+export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {} } = {}) {
   cases.config.itEmail = itEmail;
-  const table = routes(db, dispatch);
+  const bot = makeCallBot(db, callBot);
+  cases.config.callBot = bot.enabled;
+  const table = routes(db, dispatch, bot);
 
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

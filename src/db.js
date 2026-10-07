@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS cases (
   -- Amounts actually disbursed, recorded when a loan case is completed (count towards AED targets).
   pl_disbursed_amount  REAL,
   al_disbursed_amount  REAL,
+  -- Latest automated verification call (details in bot_calls).
+  bot_call_status    TEXT,
+  bot_call_at        TEXT,
   core_product       TEXT,
   sales_staff_id     INTEGER REFERENCES users(id),
   sales_staff_name   TEXT,
@@ -156,6 +159,25 @@ CREATE TABLE IF NOT EXISTS targets (
   set_at  TEXT NOT NULL,
   PRIMARY KEY (user_id, cycle, product)
 );
+
+-- Automated verification calls placed by the calling bot. The bot reports back to a callback URL
+-- that carries the call's one-time token. Only the outcome of each check is kept, never the values.
+CREATE TABLE IF NOT EXISTS bot_calls (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id      INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  token        TEXT NOT NULL UNIQUE,
+  status       TEXT NOT NULL, -- requested, in_progress, completed, failed, expired
+  requested_by INTEGER NOT NULL REFERENCES users(id),
+  requested_at TEXT NOT NULL,
+  finished_at  TEXT,
+  outcome      TEXT,
+  checks       TEXT, -- JSON [{key, label, result}]
+  summary      TEXT,
+  transcript   TEXT,
+  recording_url TEXT,
+  error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bot_calls_case ON bot_calls(case_id);
 `;
 
 export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
@@ -187,7 +209,7 @@ const ADDED_COLUMNS = {
   qc_score: 'REAL', recording_decided_by: 'INTEGER REFERENCES users(id)', recording_decided_at: 'TEXT',
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
-  pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL',
+  pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
