@@ -918,7 +918,7 @@ async function viewCaseForm(id) {
         </div>
       </details>
 
-      ${id && c.status === 'completed' ? html`<div class="callout warn" style="margin-top:16px"><strong>Verification is already completed on this file.</strong>Changing the product, loan amount, interest rate, top-up amounts or FPD sends it back to the processing team for a fresh verification. Other details can be changed freely.</div>` : ''}
+      ${id && c.status === 'completed' ? html`<div class="callout warn" style="margin-top:16px"><strong>Verification is already completed on this file.</strong>Changing the product, card or card sourced type, loan amount, interest rate, top-up amounts or FPD sends it back to the processing team for a fresh verification. Other details can be changed freely.</div>` : ''}
       <p class="error" id="form-error" hidden></p>
       <div class="actions" style="margin-top:16px">
         <button class="btn-primary">${id ? 'Save changes' : 'Submit for verification'}</button>

@@ -216,9 +216,9 @@ const PRODUCT_FIELDS = [
 const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name'];
 // Details the processor confirmed with the customer. Changing any of them after verification is
 // completed sends the file back for a fresh verification.
-export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd'];
+export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd'];
 const VERIFIED_FIELD_LABELS = {
-  product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
+  product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', card_fee_type: 'card sourced type', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
   loan_amount: 'loan amount', interest_rate: 'interest rate', full_loan_amount: 'full loan amount', incremental_amount: 'incremental amount', fpd: 'FPD',
 };
 const EDITABLE_FIELDS = [

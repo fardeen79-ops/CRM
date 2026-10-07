@@ -57,7 +57,7 @@ Run the tests with `npm test`.
 
 ### Re-verification after changes
 
-Once a processor has marked verification **Completed**, the details they confirmed with the customer are locked in. If a team leader or sales manager later changes any of them — the **product** (or bundle contents, card, loan type or buy-out bank), the **loan amount**, **interest rate**, top-up amounts or **FPD** — the file goes back to **Awaiting verification** automatically:
+Once a processor has marked verification **Completed**, the details they confirmed with the customer are locked in. If a team leader or sales manager later changes any of them — the **product** (or bundle contents, card, card sourced type, loan type or buy-out bank), the **loan amount**, **interest rate**, top-up amounts or **FPD** — the file goes back to **Awaiting verification** automatically:
 
 - the processor's assignment and call count are cleared, so it rejoins the verification queue as a fresh request;
 - the case timeline records *Sent back for re-verification* with what changed;

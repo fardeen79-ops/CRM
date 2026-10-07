@@ -1147,9 +1147,13 @@ test('changing verified product details after verification sends the file back f
   // It is in the processing queue again and can be verified afresh.
   assert.ok((await proc('GET', '/cases?status=pending_verification')).data.cases.some((c) => c.id === id));
   assert.ok((await proc('GET', `/cases/${id}`)).data.case.allowed_actions.includes('claim'));
-  // Switching the product counts too.
+  // Switching the product counts too, and so does the card sourced type.
   await proc('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Verified again' });
-  r = await lead('PUT', `/cases/${id}`, { product: 'auto_loan', amount: 50000 });
+  r = await lead('PUT', `/cases/${id}`, { product: 'credit_card', credit_card: 'Infinite Credit Card', card_fee_type: 'fyf' });
   assert.equal(r.data.case.status, 'pending_verification');
-  assert.equal(r.data.case.events.filter((e) => e.type === 're_verification').length, 2);
+  await proc('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Verified once more' });
+  r = await lead('PUT', `/cases/${id}`, { card_fee_type: 'ffl' });
+  assert.equal(r.data.case.status, 'pending_verification');
+  assert.equal(r.data.case.events.find((e) => e.type === 're_verification').detail, 'card sourced type');
+  assert.equal(r.data.case.events.filter((e) => e.type === 're_verification').length, 3);
 });
