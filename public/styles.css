@@ -532,3 +532,7 @@ a.chip:hover { text-decoration: none; filter: brightness(1.05); }
 .card-kpis { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 900px) { .card-kpis { grid-template-columns: repeat(2, 1fr); } }
 .card-kpis + .card th .muted { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.callback-row input[type=datetime-local] { max-width: 260px; }
+.quick-picks { margin-top: 6px; }
+.quick-picks .chip { cursor: pointer; font-weight: 500; }
+.quick-picks .chip:hover { border-color: var(--primary); color: var(--primary); }

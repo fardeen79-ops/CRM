@@ -55,6 +55,20 @@ Run the tests with `npm test`.
 | **Business head** | Sees all cases, team stats, sets case status, and approves or declines call recording requests |
 | **Governance** | Marks files for quality check, adds complaint numbers, scores verification calls (0–10) and requests call recordings after verification |
 
+### Scheduled call-backs
+
+When a processor logs a call with the outcome **Call back later**, they must enter the **date and time** the customer asked for (up to 30 days ahead; quick picks for "in 1 hour", "tomorrow 10:00" and so on). The case then shows a *Call-back scheduled* banner with the time and who noted it.
+
+At the set time:
+- the processor on the file gets a **notification** ("Call back now: CRM-000123 …"); if nobody has picked the file up, every processor is alerted;
+- the case rises to the **top of the verification queue** and shows a red *Call back now* chip;
+- the case timeline records *Call-back due*;
+- if `PROCESSING_WEBHOOK_URL` is set, the alert is also posted there (e.g. the processing team's Teams or Slack channel).
+
+Processors have a **Call-backs** page listing every scheduled call-back, soonest first, with a count of due ones in the menu and a *Call-backs due* tile on their dashboard. Logging the next call with any other outcome closes the call-back; so does recording a verification result. A new "call back later" replaces the earlier time.
+
+Alerts are checked every 30 seconds by the server and again whenever cases are read, so they go out at the set time even on a quiet system. Each call-back alerts once.
+
 ### Scanning the Emirates ID
 
 The **Scan Emirates ID** button on the entry form fills in the customer's **first, middle and last name** and **Emirates ID number**. Staff choose which side of the card to scan:
@@ -296,9 +310,9 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | Method & path | Description |
 |---|---|
 | `POST /login`, `POST /logout`, `GET /me` | Session |
-| `GET /cases?status=a,b&q=…&assigned=me` | List cases (sales only see their own) |
+| `GET /cases?status=a,b&q=…&assigned=me&callbacks=all\|due\|upcoming` | List cases (sales only see their own) |
 | `POST /cases`, `GET /cases/:id`, `PUT /cases/:id` | Create, read, edit |
-| `POST /cases/:id/actions` | `{action, note?, outcome?, reason?}`, where action is one of `claim`, `release`, `log_call`, `complete`, `mark_incomplete`, `return_to_sales`, `reverify`, `reject`, `resubmit` |
+| `POST /cases/:id/actions` | `{action, note?, outcome?, reason?, callback_at?}` (`callback_at` is required with `outcome: 'call_back_later'`: an ISO date-time), where action is one of `claim`, `release`, `log_call`, `complete`, `mark_incomplete`, `return_to_sales`, `reverify`, `reject`, `resubmit` |
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
 | `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |

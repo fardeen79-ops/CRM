@@ -20,6 +20,8 @@ export const STATUS = {
 };
 
 export const CALL_OUTCOMES = ['connected', 'no_answer', 'busy', 'switched_off', 'wrong_number', 'call_back_later'];
+// A "call back later" outcome needs the date and time the customer asked for, up to this far ahead.
+export const CALLBACK_MAX_DAYS = 30;
 
 export const INCOMPLETE_REASONS = [
   'customer_unreachable',
@@ -390,7 +392,7 @@ const CASE_SELECT = `
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
          sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
          qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name, ub.name AS urgent_by_name,
-         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name
+         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
   LEFT JOIN users at ON at.id = c.assigned_to
@@ -405,7 +407,8 @@ const CASE_SELECT = `
   LEFT JOIN users ub ON ub.id = c.urgent_by
   LEFT JOIN users cpb ON cpb.id = c.complaint_by
   LEFT JOIN users scb ON scb.id = c.qc_scored_by
-  LEFT JOIN users csb ON csb.id = c.card_status_by`;
+  LEFT JOIN users csb ON csb.id = c.card_status_by
+  LEFT JOIN users cbb ON cbb.id = c.callback_by`;
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
 
@@ -442,6 +445,7 @@ function canView(user, row) {
 
 export function getCase(db, user, id) {
   sweepCardAgeing(db);
+  triggerDueCallbacks(db);
   const row = db.prepare(`${CASE_SELECT} WHERE c.id = ?`).get(id);
   if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
   const events = db
@@ -457,8 +461,9 @@ export function getCase(db, user, id) {
   return out;
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, limit = 200 } = {}) {
   sweepCardAgeing(db);
+  triggerDueCallbacks(db);
   const where = [];
   const params = [];
   // Completed in a sales cycle (21st to 20th), e.g. a target's achievement.
@@ -518,6 +523,13 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
     where.push('c.assigned_to = ?');
     params.push(user.id);
   }
+  // Scheduled call-backs: all of them, only the ones already due, or only the upcoming ones.
+  if (callbacks) {
+    where.push(`c.callback_at IS NOT NULL AND c.status IN (${OPEN_FOR_PROCESSING.map(() => '?').join(',')})`);
+    params.push(...OPEN_FOR_PROCESSING);
+    if (callbacks === 'due') { where.push('c.callback_at <= ?'); params.push(now()); }
+    if (callbacks === 'upcoming') { where.push('c.callback_at > ?'); params.push(now()); }
+  }
   if (q) {
     const term = `%${String(q).trim()}%`;
     const idMatch = String(q).match(/^(?:crm-)?0*(\d+)$/i);
@@ -538,7 +550,7 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
     if (idMatch) params.push(Number(idMatch[1]));
   }
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY ${user.role === 'sales' ? '' : `(c.urgent_flag = 1 AND c.status IN (${STILL_VERIFYING.map((st) => `'${st}'`).join(',')})) DESC, `}c.updated_at DESC LIMIT ?`;
+    ORDER BY ${callbacks ? 'c.callback_at ASC, ' : ''}${user.role === 'sales' ? '' : `(c.urgent_flag = 1 AND c.status IN (${STILL_VERIFYING.map((st) => `'${st}'`).join(',')})) DESC, `}${user.role === 'processing' && !callbacks ? `(c.callback_at IS NOT NULL AND c.callback_at <= '${now()}') DESC, ` : ''}c.updated_at DESC LIMIT ?`;
   params.push(Math.min(Number(limit) || 200, 1000));
   return db.prepare(sql).all(...params).map((row) => present(user, row));
 }
@@ -643,6 +655,44 @@ function verificationActions(user, row) {
  * Applies a workflow action. Returns `{ case, triggers }` where triggers are
  * outbound events (e.g. team-leader alerts) for the caller to dispatch.
  */
+/** The call-back time the customer asked for, as an ISO instant; must be ahead, within the window. */
+function parseCallback(value) {
+  const text = clean(value, 40);
+  if (!text) throw new WorkflowError(400, 'Enter the date and time the customer asked to be called back');
+  const ms = Date.parse(text);
+  if (Number.isNaN(ms)) throw new WorkflowError(400, 'Call-back date and time is not valid');
+  if (ms < Date.now() - 60e3) throw new WorkflowError(400, 'Call-back time must be in the future');
+  if (ms > Date.now() + CALLBACK_MAX_DAYS * 864e5) throw new WorkflowError(400, `Call-back must be within the next ${CALLBACK_MAX_DAYS} days`);
+  return new Date(ms).toISOString();
+}
+
+/**
+ * Alerts processors whose scheduled call-backs are due: the processor on the file, or every
+ * processor when nobody has it. Each call-back is alerted once. Runs on a timer in the server
+ * and before cases are read, so the alert goes out at the set time even on a quiet system.
+ * Returns the triggers for external alerts (webhooks).
+ */
+export function triggerDueCallbacks(db) {
+  const ts = now();
+  const due = db.prepare(`${CASE_SELECT} WHERE c.callback_at IS NOT NULL AND c.callback_at <= ? AND c.callback_notified_at IS NULL
+    AND c.status IN (${OPEN_FOR_PROCESSING.map(() => '?').join(',')})`).all(ts, ...OPEN_FOR_PROCESSING);
+  const triggers = [];
+  for (const row of due) {
+    const ref = caseRef(row.id);
+    const to = row.assigned_to ? [row.assigned_to] : activeUserIds(db, 'processing');
+    notify(db, to, row.id, `Call back now: ${ref} (${row.customer_name}) asked to be called at ${callbackLabel(row.callback_at)}`);
+    db.prepare('UPDATE cases SET callback_notified_at = ? WHERE id = ?').run(ts, row.id);
+    addEvent(db, row.id, null, 'callback_due', { detail: callbackLabel(row.callback_at) });
+    triggers.push({ event: 'callback.due', case_id: row.id, ref, customer_name: row.customer_name, phone: row.phone, callback_at: row.callback_at, processor: row.assigned_to_name || null });
+  }
+  return triggers;
+}
+
+// "Tue 7 Oct, 10:30" in UAE time, for notifications and the timeline.
+export const callbackLabel = (iso) => new Date(iso).toLocaleString('en-GB', {
+  weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Dubai',
+});
+
 export function applyAction(db, user, id, { action, note, outcome, reason, case_status, to, ...extra } = {}) {
   if (CASE_ACTIONS.includes(action)) return applyCaseAction(db, user, id, { action, note, case_status, to, ...extra });
   const rule = ACTIONS[action];
@@ -659,6 +709,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   if (action === 'log_call' && !CALL_OUTCOMES.includes(outcome)) {
     throw new WorkflowError(400, `Call outcome must be one of: ${CALL_OUTCOMES.join(', ')}`);
   }
+  const callbackAt = action === 'log_call' && outcome === 'call_back_later' ? parseCallback(extra.callback_at) : null;
   if (action === 'reject_verification' && reason && !INCOMPLETE_REASONS.includes(reason)) {
     throw new WorkflowError(400, `Reason must be one of: ${INCOMPLETE_REASONS.join(', ')}`);
   }
@@ -687,14 +738,20 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         set.assigned_to = row.assigned_to ?? user.id;
         if (row.status === STATUS.PENDING) set.status = STATUS.IN_VERIFICATION;
         detail = outcome;
+        // The customer's requested time replaces any earlier call-back; any other outcome means
+        // the processor reached (or tried) the customer, so a pending call-back is done.
+        Object.assign(set, callbackAt
+          ? { callback_at: callbackAt, callback_by: user.id, callback_set_at: ts, callback_notified_at: null }
+          : { callback_at: null, callback_by: null, callback_set_at: null, callback_notified_at: null });
+        if (callbackAt) detail = `${outcome} ${callbackAt}`;
         break;
       case 'complete':
-        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts, urgent_flag: 0 });
+        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts, urgent_flag: 0, callback_at: null, callback_notified_at: null });
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) verification completed by ${user.name}`);
         break;
       case 'reject_verification':
         // Verification failing does not change the case status; that stays a separate decision.
-        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, incomplete_reason: reason || null, incomplete_note: note, incomplete_at: ts, urgent_flag: 0 });
+        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, incomplete_reason: reason || null, incomplete_note: note, incomplete_at: ts, urgent_flag: 0, callback_at: null, callback_notified_at: null });
         detail = reason || null;
         notify(db, [ownerId(row), ...activeUserIds(db, 'team_leader')], id,
           `${ref} (${row.customer_name}) verification rejected by ${user.name}: ${note}`);
@@ -705,6 +762,8 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
           incomplete_reason: reason,
           incomplete_note: note,
           incomplete_at: ts,
+          callback_at: null,
+          callback_notified_at: null,
           tl_action: null,
           tl_note: null,
           tl_actioned_by: null,
@@ -958,9 +1017,14 @@ export function stats(db, user) {
     result.edit_requests = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE edit_request_to = ?').get(user.role).n;
   }
   if (user.role === 'processing') {
+    triggerDueCallbacks(db);
     result.my_queue = db
       .prepare('SELECT COUNT(*) AS n FROM cases WHERE assigned_to = ? AND status = ?')
       .get(user.id, STATUS.IN_VERIFICATION).n;
+    const cb = db.prepare(`SELECT SUM(callback_at <= ?) AS due, SUM(callback_at > ?) AS upcoming FROM cases
+      WHERE callback_at IS NOT NULL AND status IN (${OPEN_FOR_PROCESSING.map(() => '?').join(',')}) AND (assigned_to = ? OR assigned_to IS NULL)`)
+      .get(now(), now(), ...OPEN_FOR_PROCESSING, user.id);
+    result.callbacks = { due: cb.due ?? 0, upcoming: cb.upcoming ?? 0 };
   }
   if (user.role !== 'sales') {
     result.governance = db.prepare(

@@ -94,6 +94,12 @@ CREATE TABLE IF NOT EXISTS cases (
   -- Amounts actually disbursed, recorded when a loan case is completed (count towards AED targets).
   pl_disbursed_amount  REAL,
   al_disbursed_amount  REAL,
+  -- Call-back the customer asked for: when (UTC), who scheduled it, and whether the processor
+  -- has been alerted that it is due.
+  callback_at          TEXT,
+  callback_by          INTEGER REFERENCES users(id),
+  callback_set_at      TEXT,
+  callback_notified_at TEXT,
   core_product       TEXT,
   sales_staff_id     INTEGER REFERENCES users(id),
   sales_staff_name   TEXT,
@@ -188,6 +194,7 @@ const ADDED_COLUMNS = {
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
   pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL',
+  callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',

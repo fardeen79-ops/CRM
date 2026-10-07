@@ -51,13 +51,14 @@ const ACTION_LABEL = {
   set_complaint: 'Complaint number added',
   score_quality: 'Verification call scored',
   set_card_status: 'Card activation saved',
+  callback_due: 'Call-back due',
   disbursal: 'Disbursed amount recorded',
   set_disbursal: 'Disbursed amount updated',
   card_status: 'Card activation mapped',
   bulk_upload: 'Added by bulk upload',
 };
 
-const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0 };
+const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0, callbacksDue: 0 };
 const app = document.getElementById('app');
 
 // ---------- helpers ----------
@@ -117,6 +118,20 @@ const ageChip = (c) => {
   const cls = c.card_status === 'out_of_range' ? 'out-range' : (ageBand(d) || AGE_BANDS[AGE_BANDS.length - 1])[2];
   return html`<span class="chip ${cls}" title="Days since the temp end on ${fmtIsoDay(c.case_status_at)}">${d} ${d === 1 ? 'day' : 'days'}</span>`;
 };
+// Scheduled call-backs: the customer's requested time, how far away it is, and whether it is due.
+const fmtWhen = (iso) => new Date(iso).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const callbackDue = (c) => Boolean(c.callback_at) && Date.parse(c.callback_at) <= Date.now();
+const untilText = (iso) => {
+  const mins = Math.round((Date.parse(iso) - Date.now()) / 60000);
+  const abs = Math.abs(mins);
+  const span = abs < 60 ? `${abs} min` : abs < 48 * 60 ? `${Math.round(abs / 60)} h` : `${Math.round(abs / 1440)} days`;
+  return mins < -1 ? `${span} overdue` : mins <= 1 ? 'now' : `in ${span}`;
+};
+const callbackChip = (c) => (c.callback_at
+  ? html`<span class="chip ${callbackDue(c) ? 'bad' : 'warn'}">${callbackDue(c) ? 'Call back now' : 'Call back'} · ${fmtWhen(c.callback_at)}</span>`
+  : '');
+// datetime-local works in the browser's local time; the server stores UTC.
+const toLocalInput = (ms) => new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 const fmtIsoDay = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
 const fmtDate = (iso) => (iso ? new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 const fmtDay = (ymd) => (ymd ? new Date(`${ymd}T00:00:00`).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—');
@@ -216,6 +231,7 @@ async function refreshCounters() {
       state.urgent = s.governance?.urgent ?? 0;
       // Business heads see requests awaiting approval; governance sees ones waiting on IT.
       state.recordings = state.user.role === 'business_head' ? s.governance?.recordings_pending ?? 0 : s.governance?.recordings_with_it ?? 0;
+      state.callbacksDue = s.callbacks?.due ?? 0;
     }
     updateBadges();
   } catch { /* ignore polling errors */ }
@@ -228,7 +244,7 @@ function updateBadges() {
   if (ar) { ar.textContent = state.actionRequired; ar.hidden = !state.actionRequired; }
   const er = document.querySelector('[data-er-count]');
   if (er) { er.textContent = state.editRequests; er.hidden = !state.editRequests; }
-  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings], ['[data-urgent-count]', state.urgent]]) {
+  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings], ['[data-urgent-count]', state.urgent], ['[data-cb-count]', state.callbacksDue]]) {
     const el = document.querySelector(sel);
     if (el) { el.textContent = n; el.hidden = !n; }
   }
@@ -251,6 +267,7 @@ const ICON_PATHS = {
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2 .6 3.5 2.4 3.5 5.5"/>',
   check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
   stamp: '<path d="M9 3h6v6l3 3v3H6v-3l3-3z"/><path d="M5 21h14"/>',
 };
 const icon = (name) => raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`);
@@ -262,7 +279,7 @@ function navGroups() {
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
   const groups = [];
   const work = [['#/', 'Dashboard', 'home']];
-  if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], urgent);
+  if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
   if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests);
   if (r === 'sales_manager') work.push(editRequests);
   if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings]);
@@ -389,6 +406,12 @@ async function route() {
     if ((m = path.match(/^\/cases\/(\d+)\/edit$/))) return await viewCaseForm(Number(m[1]));
     if ((m = path.match(/^\/cases\/(\d+)$/))) return await viewCase(Number(m[1]));
     if (path === '/cases') return await viewCases({ title: state.user.role === 'sales' ? 'My cases' : params.get('assigned') === 'me' ? 'My cases' : 'All cases', params });
+    if (path === '/callbacks') {
+      return await viewCases({
+        title: 'Scheduled call-backs', subtitle: 'Customers who asked to be called back at a set time. You are alerted when each one is due; due call-backs also rise to the top of the verification queue.',
+        params, fixed: { callbacks: 'all' }, cols: ['ref', 'customer', 'phone', 'callback', 'assigned'], empty: 'No call-backs scheduled',
+      });
+    }
     if (path === '/queue') {
       return await viewCases({ title: 'Verification queue', subtitle: 'Call each customer to verify the sourced details, then mark the verification completed, pending or rejected.', params, fixedStatus: 'pending_verification,in_verification' });
     }
@@ -451,7 +474,10 @@ async function viewDashboard() {
   if (r === 'team_leader') verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
   if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0]);
   if (['processing', 'team_leader'].includes(r)) verifyTiles.unshift(['Urgent verification', s.governance.urgent, '#/urgent', s.governance.urgent > 0]);
-  if (r === 'processing') verifyTiles.push(['My open cases', s.my_queue, '#/cases?assigned=me']);
+  if (r === 'processing') {
+    verifyTiles.unshift(['Call-backs due', s.callbacks.due, '#/callbacks', s.callbacks.due > 0, `${s.callbacks.upcoming} upcoming`]);
+    verifyTiles.push(['My open cases', s.my_queue, '#/cases?assigned=me']);
+  }
   verifyTiles.push(
     ['Awaiting verification', by.pending_verification, '#/cases?status=pending_verification'],
     ['In verification', by.in_verification, '#/cases?status=in_verification'],
@@ -590,7 +616,7 @@ const COLS = {
   ref: ['Ref', (c) => html`<strong>${c.ref}</strong>`],
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => c.phone],
-  status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}`],
+  status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}${c.callback_at && state.user.role === 'processing' ? html` ${callbackChip(c)}` : ''}`],
   case_status: ['Case status', (c) => html`${caseBadge(c.case_status)}${c.case_status === 'completed' && completionLabel(c) ? html`<div class="muted small">${completionLabel(c)}</div>` : ''}`],
   sourced: ['Sourced', (c) => html`<span class="small nowrap">${fmtDay(c.sourcing_date)}</span>`],
   cs_note: ['Status note', (c) => html`${c.case_status_note || ''}<div class="muted small">${c.case_status_by_name || ''}</div>`],
@@ -617,6 +643,7 @@ const COLS = {
   waiting: ['Waiting', (c) => ago(c.incomplete_at)],
   tl_note: ['Team leader note', (c) => c.tl_note],
   updated: ['Updated', (c) => html`<span class="small">${fmtDate(c.updated_at)}</span>`],
+  callback: ['Call-back', (c) => html`${callbackChip(c)}<div class="muted small">${c.callback_at ? `${untilText(c.callback_at)} · asked by ${c.callback_by_name || '—'}` : ''}</div>`],
   completed_on: ['Completed', (c) => html`<span class="small nowrap">${fmtIsoDay(c.case_status_at)}</span><div class="muted small">${completionLabel(c)}</div>${disbursedText(c) ? html`<div class="small">${disbursedText(c)}</div>` : ''}`],
   card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${cardDateText(c)}</div>` : ''}${cardAgeDays(c) != null ? html`<div class="small">Ageing ${ageChip(c)}</div>` : ''}`],
 };
@@ -1019,6 +1046,8 @@ async function viewCaseForm(id) {
 // ---------- case detail ----------
 function eventDetail(e) {
   if (e.type === 'edited') return `fields: ${e.detail}`;
+  if (e.type === 'log_call' && e.detail?.startsWith('call_back_later ')) return `Call back later · ${fmtWhen(e.detail.slice(16))}`;
+  if (e.type === 'callback_due') return `customer asked for ${e.detail}`;
   if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);
   if (e.type === 'request_edit' || e.type === 'resolve_edit_request') return `${state.meta.edit_queues[e.detail] || label(e.detail)} queue`;
   if (e.type === 'score_quality') return `${e.detail}/10`;
@@ -1060,11 +1089,19 @@ async function viewCase(id) {
   }
   if (a.has('log_call')) {
     panel.push(html`<h3>Log a call</h3>
-      <form data-form="log_call">
+      <form data-form="log_call" id="log-call-form">
         <div class="field-row"><select name="outcome" required>
           <option value="">Call outcome…</option>
           ${meta.call_outcomes.map((o) => html`<option value="${o}">${label(o)}</option>`)}
         </select></div>
+        <div class="field-row callback-row" id="callback-row" hidden>
+          <label for="callback-at">Call back on <span class="req">*</span></label>
+          <input id="callback-at" type="datetime-local" name="callback_at" min="${toLocalInput(Date.now())}" max="${toLocalInput(Date.now() + meta.callback_max_days * 864e5)}">
+          <div class="chips quick-picks">
+            ${[['In 1 hour', 60], ['In 2 hours', 120], ['Tomorrow 10:00', 'tomorrow-10'], ['Tomorrow 15:00', 'tomorrow-15']].map(([l, v]) => html`<button type="button" class="chip" data-quick="${v}">${l}</button>`)}
+          </div>
+          <p class="muted small">You'll get an alert at this time and the case moves to the top of your queue.</p>
+        </div>
         <div class="field-row"><textarea name="note" placeholder="What did the customer say?"></textarea></div>
         <button>Log call</button>
       </form>`);
@@ -1256,6 +1293,9 @@ async function viewCase(id) {
         <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
+    ${c.callback_at && ['pending_verification', 'in_verification'].includes(c.status) ? html`<div class="callout ${callbackDue(c) ? 'danger' : 'warn'}">
+      <strong>${callbackDue(c) ? 'Call back now' : 'Call-back scheduled'} — ${fmtWhen(c.callback_at)} (${untilText(c.callback_at)})</strong>
+      The customer asked to be called at this time${c.callback_by_name ? `, noted by ${c.callback_by_name}` : ''}. Log the call when you make it; any outcome other than "call back later" closes this reminder.</div>` : ''}
     ${isUrgent(c) ? html`<div class="callout danger"><strong>Urgent verification — flagged by ${c.urgent_by_name} ${ago(c.urgent_at)}</strong>${c.urgent_note}</div>` : ''}
     ${c.case_status === 'applicant_review' ? html`<div class="callout warn"><strong>Applicant review${c.case_status_by_name ? ` — set by ${c.case_status_by_name} ${ago(c.case_status_at)}` : ''}</strong>${c.case_status_note || ''}</div>` : ''}
     ${c.edit_request_to ? html`<div class="callout info"><strong>Edit request in the ${state.meta.edit_queues[c.edit_request_to]} queue — from ${c.edit_request_by_name} ${ago(c.edit_request_at)}</strong>${c.edit_request_note}</div>` : ''}
@@ -1438,6 +1478,31 @@ async function viewCase(id) {
         }
         run({ action, note: formData(f).note }, b);
       }));
+    } else if (kind === 'log_call') {
+      const outcome = f.querySelector('[name=outcome]');
+      const row = f.querySelector('#callback-row');
+      const at = f.querySelector('#callback-at');
+      outcome.onchange = () => {
+        row.hidden = outcome.value !== 'call_back_later';
+        at.required = !row.hidden;
+        if (!row.hidden && !at.value) at.value = toLocalInput(Math.ceil((Date.now() + 3600e3) / 900e3) * 900e3);
+      };
+      f.querySelectorAll('[data-quick]').forEach((b) => (b.onclick = () => {
+        const v = b.dataset.quick;
+        let ms;
+        if (v.startsWith('tomorrow-')) {
+          const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(Number(v.split('-')[1]), 0, 0, 0); ms = d.getTime();
+        } else ms = Math.ceil((Date.now() + Number(v) * 60000) / 300e3) * 300e3;
+        at.value = toLocalInput(ms);
+      }));
+      f.onsubmit = (e) => {
+        e.preventDefault();
+        const data = formData(f);
+        // Send the chosen local time as an instant so the server stores it correctly in any timezone.
+        if (data.outcome === 'call_back_later') data.callback_at = data.callback_at ? new Date(data.callback_at).toISOString() : '';
+        else delete data.callback_at;
+        run({ action: kind, ...data }, f.querySelector('button:not([type=button])'));
+      };
     } else {
       f.onsubmit = (e) => { e.preventDefault(); run({ action: kind, ...formData(f) }, f.querySelector('button')); };
     }

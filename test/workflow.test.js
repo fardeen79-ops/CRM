@@ -6,11 +6,12 @@ import http from 'node:http';
 import { createUser } from '../src/auth.js';
 
 const PASSWORD = 'password123';
-let server, base;
+let server, base, testDb;
 const dispatched = [];
 
 before(async () => {
   const db = openDb(':memory:');
+  testDb = db;
   const ids = {};
   for (const [name, email, role] of [
     ['Manager', 'sm@t.local', 'sales_manager'],
@@ -1048,4 +1049,62 @@ test('an inactive card 90 or more days after its temp end moves to Out of activa
   const inCycle = cases.listCases(db, mis, { card: 'out_of_range', cycle }).length;
   assert.ok(inCycle >= 1);
   assert.equal(perf.targetReport(db, mis, cycle).total.cards.out_of_range, inCycle);
+});
+
+test('a call-back request takes a date and time and alerts the processor when it is due', async () => {
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const proc2 = await login('proc2@t.local');
+  const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  const log = (body) => proc('POST', `/cases/${id}/actions`, { action: 'log_call', ...body });
+  // Call back later needs a time, in the future and within 30 days.
+  assert.match((await log({ outcome: 'call_back_later' })).data.error, /date and time/);
+  assert.match((await log({ outcome: 'call_back_later', callback_at: '2020-01-01T10:00' })).data.error, /future/);
+  assert.match((await log({ outcome: 'call_back_later', callback_at: new Date(Date.now() + 40 * 864e5).toISOString() })).data.error, /30 days/);
+  const when = new Date(Date.now() + 2 * 3600e3);
+  when.setSeconds(0, 0);
+  let r = await log({ outcome: 'call_back_later', callback_at: when.toISOString(), note: 'In a meeting until then' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.case.callback_at, when.toISOString());
+  assert.equal(r.data.case.callback_by_name, 'Pam');
+  assert.equal(r.data.case.events[0].detail, `call_back_later ${when.toISOString()}`);
+
+  // Listed as upcoming for processors; nothing is due yet.
+  const list = async (who, q) => (await who('GET', `/cases?callbacks=${q}`)).data.cases.map((c) => c.id);
+  assert.ok((await list(proc, 'upcoming')).includes(id));
+  assert.ok(!(await list(proc, 'due')).includes(id));
+  const stats = (await proc('GET', '/stats')).data.callbacks;
+  assert.deepEqual([stats.due, stats.upcoming >= 1], [0, true]);
+
+  // When the time arrives the processor on the file is told, once, and the case rises in the queue.
+  const past = new Date(Date.now() - 60e3).toISOString();
+  await proc('POST', `/cases/${id}/actions`, { action: 'release' });
+  r = await log({ outcome: 'call_back_later', callback_at: new Date(Date.now() + 90e3).toISOString() });
+  assert.equal(r.status, 200);
+  // Simulate the time passing by rewinding the scheduled time in the database.
+  const casesMod = await import('../src/cases.js');
+  const db = testDb;
+  db.prepare('UPDATE cases SET callback_at = ? WHERE id = ?').run(past, id);
+  const triggers = casesMod.triggerDueCallbacks(db);
+  assert.equal(triggers.length, 1);
+  assert.equal(triggers[0].event, 'callback.due');
+  assert.equal(triggers[0].ref, `CRM-${String(id).padStart(6, '0')}`);
+  assert.equal(casesMod.triggerDueCallbacks(db).length, 0); // only once
+  const mine = (await proc('GET', '/notifications')).data.items;
+  assert.ok(mine.some((n) => n.case_id === id && /Call back now/.test(n.message)));
+  const theirs = (await proc2('GET', '/notifications')).data.items;
+  assert.ok(!theirs.some((n) => n.case_id === id && /Call back now/.test(n.message)));
+  assert.ok((await list(proc, 'due')).includes(id));
+  assert.equal((await proc('GET', '/stats')).data.callbacks.due >= 1, true);
+  assert.equal((await proc('GET', `/cases?status=in_verification`)).data.cases[0].id, id); // due call-backs first
+  const c = (await proc('GET', `/cases/${id}`)).data.case;
+  assert.ok(c.events.some((e) => e.type === 'callback_due'));
+
+  // Reaching the customer (any other outcome) clears the call-back; so does a verification result.
+  r = await log({ outcome: 'connected', note: 'Details confirmed' });
+  assert.equal(r.data.case.callback_at, null);
+  assert.ok(!(await list(proc, 'all')).includes(id));
+  r = await log({ outcome: 'call_back_later', callback_at: new Date(Date.now() + 3600e3).toISOString() });
+  r = await proc('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Verified' });
+  assert.equal(r.data.case.callback_at, null);
 });

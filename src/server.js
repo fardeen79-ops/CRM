@@ -59,15 +59,22 @@ function post(url, payload, label) {
  * Sends workflow triggers to external services. Fire-and-forget so a slow endpoint never blocks
  * anyone using the CRM.
  * - case.incomplete -> TL_WEBHOOK_URL (e.g. a Slack/Teams incoming webhook)
+ * - callback.due -> PROCESSING_WEBHOOK_URL (the processing team's channel), when a customer's
+ *   requested call-back time arrives
  * - recording.it_request -> IT_EMAIL_WEBHOOK_URL, an email relay (Power Automate, Zapier, an SMTP
  *   bridge...) that receives { to, subject, text } and sends the email to IT.
  */
 export function makeWebhookDispatcher({
   tlUrl = process.env.TL_WEBHOOK_URL,
   emailUrl = process.env.IT_EMAIL_WEBHOOK_URL,
+  processingUrl = process.env.PROCESSING_WEBHOOK_URL,
 } = {}) {
   return (triggers) => {
     for (const t of triggers) {
+      if (t.event === 'callback.due' && processingUrl) {
+        const text = `:telephone_receiver: Call back now: ${t.ref} (${t.customer_name}) asked to be called at ${cases.callbackLabel(t.callback_at)}${t.processor ? ` — ${t.processor}` : ' — unassigned'}`;
+        post(processingUrl, { text, ...t }, `${t.event} for ${t.ref}`);
+      }
       if (t.event === 'case.incomplete' && tlUrl) {
         const text = `:warning: ${t.ref} (${t.customer_name}) verification PENDING, marked by ${t.marked_by} — ${t.reason.replace(/_/g, ' ')}${t.note ? `: ${t.note}` : ''}. Team leader action required.`;
         post(tlUrl, { text, ...t }, `${t.event} for ${t.ref}`);
@@ -156,6 +163,7 @@ function routes(db, dispatch) {
         edit_queues: cases.EDIT_QUEUES,
         recording_statuses: cases.RECORDING_STATUS,
         score_max: cases.SCORE_MAX,
+        callback_max_days: cases.CALLBACK_MAX_DAYS,
         it_email: cases.config.itEmail,
         ocr: ocrAssets(),
         import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS },
@@ -298,7 +306,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   cases.config.itEmail = itEmail;
   const table = routes(db, dispatch);
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
       if (!url.pathname.startsWith('/api/')) {
@@ -331,4 +339,11 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
       if (!res.headersSent) send(res, status, { error: status === 500 ? 'Internal server error' : err.message });
     }
   });
+  // Fire call-back alerts at the scheduled time, even when nobody is using the CRM.
+  const timer = setInterval(() => {
+    try { dispatch(cases.triggerDueCallbacks(db)); } catch (err) { console.error('[callbacks]', err); }
+  }, 30e3);
+  timer.unref();
+  server.on('close', () => clearInterval(timer));
+  return server;
 }
