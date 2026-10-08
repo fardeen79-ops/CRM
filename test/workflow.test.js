@@ -848,7 +848,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
 
   const bad = await mis('POST', '/import/users', { csv: 'Name,Email\nA,a@t.local' });
   assert.equal(bad.status, 400);
-  assert.match(bad.data.error, /missing these columns: Role/);
+  assert.match(bad.data.error, /missing these columns: HRMS code, Role/);
 });
 
 test('bulk upload of cases by sales code, with labels, UAE dates and duplicate App IDs', async () => {

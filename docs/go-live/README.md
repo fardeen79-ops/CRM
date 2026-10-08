@@ -2,10 +2,10 @@
 
 Built from the staff list supplied on 8 October 2026 (`New_HRMS_Code.xlsx`, sheet "Sales Staff", 360 rows). Both files load through **Bulk upload** as the business head or DXB MIS, in this order:
 
-1. **Staff** → `staff-upload.csv` (406 rows: 10 sales managers, 36 team leaders, 360 sales staff). The upload creates leaders first, then staff, and shows a temporary password for every new login. Sales staff sign in with their HRMS code; leaders sign in with the email in the file until an HRMS code is added to their profile.
+1. **Staff** → `staff-upload.csv` (406 rows: 10 sales managers, 36 team leaders, 360 sales staff). **Fill the HRMS code column for the 46 leader rows first**: the code is mandatory for every role and the upload rejects a row without one (and then the sales rows that name that leader). The upload creates leaders first, then staff, and shows a temporary password for every new login. Everyone signs in with their HRMS code.
 2. **Salary targets** → `salary-targets.csv` (66 bands). Then press **Generate from salaries** on the Targets page for the cycle.
 
-Loading both into a scratch copy of the CRM gave: 406 users created, 0 failed; 66 bands saved; targets generated for all 360 sales staff, every one equal to the sheet's Point Target.
+Loading both into a scratch copy of the CRM (with placeholder codes in the leader rows) gave: 406 users created, 0 failed; 66 bands saved; targets generated for all 360 sales staff, every one equal to the sheet's target.
 
 ## How the sheet was mapped
 
@@ -22,17 +22,17 @@ Loading both into a scratch copy of the CRM gave: 406 users created, 0 failed; 6
 | MANAGER | not loaded | Fardeen (DXB) and Noman Najam (AUH) are the two business heads. Create them from the Staff page with the Business head role and their region |
 | LOCATION | Region | DXB or AUH, on every account |
 | Salary | Monthly salary | Drives the targets |
-| Point Target | Salary bands | Reproduced exactly by the bands in `salary-targets.csv`, see below |
+| Point Target | Salary bands | Points for credit cards and auto loans, **AED to disburse for personal loans**. Reproduced exactly by the bands in `salary-targets.csv`, see below |
 
 ## Placeholders to replace
 
 - **Emails** are placeholders: `hrms<code>@derbygroup.local` for staff, `first.last@derbygroup.local` for leaders. Replace them on the Staff page when the real addresses are known. Staff sign in with the HRMS code, so the placeholder does not block anyone.
 - **Mobile and WhatsApp numbers** are blank. WhatsApp alerts are on hold, so nothing needs them yet.
-- **Leaders' HRMS codes** are blank. Add them on the Staff page so leaders can sign in by code.
+- **Leaders' HRMS codes** are blank in the file and must be filled in before the upload.
 
 ## Salary bands
 
-The sheet's Point Target follows the salary in AED 500 steps from 4,000:
+The sheet's target column (points for CC and AL, AED for PL) follows the salary in AED 500 steps from 4,000:
 
 | Product | Target at AED 4,000 to 4,499 | Each further AED 500 of salary |
 |---|---|---|
