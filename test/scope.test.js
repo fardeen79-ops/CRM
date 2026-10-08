@@ -387,6 +387,10 @@ test('reports list card deviations, promotions, approvals waiting and cards sold
   assert.ok(exc.rows.some((r) => r.reason === 'Awaiting approval') || exc.totals.reason.includes('awaiting'));
   assert.ok(!exc.rows.some((r) => r.ref === low.data.case.ref));
   const down = (await gov('GET', '/reports/card_downsell')).data;
+  // The points the file lost against the best card the salary qualified for.
+  const lowRowPts = down.rows.find((r) => r.ref === low.data.case.ref);
+  assert.deepEqual([lowRowPts.points_sold, lowRowPts.points_eligible, lowRowPts.points_lost], [650, 1050, 400]);
+  assert.ok(down.totals.points_lost >= 400);
   const lowRow = down.rows.find((r) => r.ref === low.data.case.ref);
   assert.deepEqual([lowRow.category, lowRow.eligible_category, lowRow.higher_options > 0], ['Mass', 'Super Premium', true]);
   assert.ok(!down.rows.some((r) => r.ref === dev.data.case.ref));

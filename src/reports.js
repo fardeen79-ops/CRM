@@ -5,6 +5,7 @@
 import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
+import { cardProducts } from './credit-cards.js';
 
 const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
@@ -19,7 +20,7 @@ export const REPORTS = {
   governance: { name: 'Governance summary', roles: ['governance', 'business_head'], period: 'files sourced in the period', description: 'Quality checks, urgent flags, recordings, complaints, call scores, DNCR and re-verifications by region.' },
   access: { name: 'Access and reveals', roles: ['governance', 'business_head'], period: 'activity in the period', description: 'Who opened files, which personal details they revealed and which reports they ran.' },
   card_exceptions: { name: 'Card deviations and promotions', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards sold to customers below the card\'s salary requirement: the reason recorded (product deviation or new promotion), who decided, and files still awaiting approval.' },
-  card_downsell: { name: 'Cards sold below eligibility', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards where the customer\'s salary qualified for a higher card category than the one sold.' },
+  card_downsell: { name: 'Cards sold below eligibility', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards where the customer\'s salary qualified for a higher card category than the one sold, with the points earned, the points the best eligible card would have earned, and the points lost.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -366,16 +367,25 @@ function card_exceptions(db, user, { period, region }) {
 function card_downsell(db, user, { period, region }) {
   const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?', 'c.card_higher_options > 0'], [period.from, period.to]);
   const rows = db.prepare(`SELECT c.* FROM cases c ${sql} ORDER BY c.sourcing_date DESC, c.id DESC`).all(...params);
-  const out = rows.map((c) => ({
-    ...caseCells(c), card: c.credit_card || '', category: c.card_category || '', eligible_category: c.card_eligible_category || '', higher_options: c.card_higher_options,
-    verification: STATUS_WORDS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status,
-  }));
+  // Points the file would have earned on the best card the salary qualified for, from the current list.
+  const list = cardProducts().filter((p) => p.points != null && p.min_salary != null);
+  const bestPoints = (salary) => Math.max(0, ...list.filter((p) => p.min_salary <= salary).map((p) => p.points));
+  const out = rows.map((c) => {
+    const eligible = c.salary == null ? null : bestPoints(c.salary);
+    const sold = c.card_points ?? 0;
+    return {
+      ...caseCells(c), card: c.credit_card || '', category: c.card_category || '', eligible_category: c.card_eligible_category || '', higher_options: c.card_higher_options,
+      points_sold: sold, points_eligible: eligible, points_lost: eligible == null ? null : Math.max(0, eligible - sold),
+      verification: STATUS_WORDS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status,
+    };
+  });
   const byStaff = new Map();
-  for (const r of out) byStaff.set(r.sales_staff, (byStaff.get(r.sales_staff) || 0) + 1);
+  for (const r of out) byStaff.set(r.sales_staff, (byStaff.get(r.sales_staff) || 0) + (r.points_lost || 0));
   return {
-    columns: [...CASE_COLS, col('card', 'Card sold', 'text'), col('category', 'Category sold', 'text'), col('eligible_category', 'Eligible for', 'text'), col('higher_options', 'Higher cards available'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text')],
+    columns: [...CASE_COLS, col('card', 'Card sold', 'text'), col('category', 'Category sold', 'text'), col('eligible_category', 'Eligible for', 'text'), col('higher_options', 'Higher cards available'),
+      col('points_sold', 'Points earned'), col('points_eligible', 'Points possible'), col('points_lost', 'Points lost'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text')],
     rows: out,
-    totals: { ref: `${out.length} files`, sales_staff: [...byStaff].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, k]) => `${n} ${k}`).join(' · ') },
+    totals: { ref: `${out.length} files`, points_sold: sum(out, 'points_sold'), points_eligible: sum(out, 'points_eligible'), points_lost: sum(out, 'points_lost'), sales_staff: [...byStaff].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, k]) => `${n} −${k}`).join(' · ') },
   };
 }
 

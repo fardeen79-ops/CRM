@@ -133,7 +133,7 @@ Columns: staff, sourced in the cycle, awaiting verification and verification pen
 | Governance summary | Governance, business head | QC flags, urgent, recordings, complaints, scores, DNCR, re-verifications, read-backs, scans, card deviations, promotions, approvals waiting and cards below eligibility by region |
 | Access and reveals | Governance, business head | Files opened, personal details revealed (by kind) and reports run per user |
 | Card deviations and promotions | MIS, business head, governance, TL, SM, ASM | Cards sold below the salary requirement: the reason, who decided and when, and files still awaiting approval |
-| Cards sold below eligibility | MIS, business head, governance, TL, SM, ASM | Cards where the customer's salary qualified for a higher category, with the category sold and the one eligible |
+| Cards sold below eligibility | MIS, business head, governance, TL, SM, ASM | Cards where the customer's salary qualified for a higher category: category sold and eligible, points earned, points the best eligible card would have earned, and points lost per file and per staff member |
 | Case register (export) | MIS, business head, governance, TL, SM, ASM | One row per file including the card reason and eligibility; phone and ID numbers stay masked |
 
 API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
