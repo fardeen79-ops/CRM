@@ -291,7 +291,7 @@ test('credit card cases must name a card from the list', async () => {
 
   const me = await sales('GET', '/me');
   const cards = me.data.meta.credit_cards.flatMap((f) => f.cards);
-  assert.equal(cards.length, 29);
+  assert.equal(cards.length, 65); // the bank's list
   assert.ok(!cards.some((c) => /Family Total|All Cards/.test(c)));
 });
 
@@ -925,7 +925,7 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   assert.equal(mine.is_current, true);
   assert.ok(mine.days_left >= 1 && mine.days_left <= 31);
   assert.deepEqual(mine.staff[0].target, { credit_card: 5, personal_loan: 1500000 });
-  assert.equal(mine.staff[0].achieved.credit_card, start.credit_card + 1);
+  assert.equal(mine.staff[0].achieved.credit_card, start.credit_card + 1050); // an Infinite card's points
   assert.equal(mine.staff[0].achieved.personal_loan, start.personal_loan + 140000);
   assert.equal(mine.staff[0].cases.personal_loan, before.staff[0].cases.personal_loan + 1);
 
@@ -1324,13 +1324,14 @@ test('a card\'s category is filled from the product list and the list can be rep
   const card = { ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf' };
   let r = await sales('POST', '/cases', card);
   assert.equal(r.status, 201, JSON.stringify(r.data));
-  assert.equal(r.data.case.card_category, 'Signature'); // provisional: the tier in the name
-  assert.equal(r.data.case.card_points, null);
+  assert.equal(r.data.case.card_category, 'Premium'); // from the bank's product list
+  assert.equal(r.data.case.card_points, 800);
+  assert.equal(r.data.case.card_min_salary, 12000);
   const id = r.data.case.id;
-  // The form's list carries the category per card, from the built-in list until one is uploaded.
+  // The form's list carries the category per card, from the bank's list until a newer one is uploaded.
   const me = (await sales('GET', '/me')).data.meta;
   assert.equal(me.card_list_source, 'built_in');
-  assert.equal(me.credit_cards.find((f) => f.family === 'Skywards').cards.find((c) => c.name === 'Skywards Signature Credit Card').category, 'Signature');
+  assert.equal(me.credit_cards.find((f) => f.family === 'Skywards').cards.find((c) => c.name === 'Skywards Signature Credit Card').category, 'Premium');
   // MIS uploads the bank's final list: two cards with their categories and points.
   const csv = 'Card name,Family,Category,Points\nSkywards Signature Credit Card,Skywards,Premium Travel,120\nNew Cashback Credit Card,Cashback,Everyday,40\n,Oops,,\n';
   assert.equal((await lead('POST', '/import/card_products', { csv })).status, 403);
@@ -1353,7 +1354,7 @@ test('a card\'s category is filled from the product list and the list can be rep
   // The earlier file keeps the card it was sourced with; its category was set at the time.
   const old = (await sales('GET', `/cases/${id}`)).data.case;
   assert.equal(old.credit_card, 'Skywards Signature Credit Card');
-  assert.equal(old.card_category, 'Signature');
+  assert.equal(old.card_category, 'Premium');
 });
 
 test('salary-based targets: bands and points are uploaded, targets generated, points achieved', async () => {

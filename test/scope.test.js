@@ -252,18 +252,18 @@ test('a card below the salary requirement needs a reason or team approval; a hig
   const proc = await login('proc-dxb@t.local');
   const sm = await login('sm2@t.local');
   const card = (extra) => ({ customer_name: 'Card Customer', region: 'DXB', phone: '+971 50 111 3333', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Skywards Infinite Credit Card', card_fee_type: 'fyf', ...extra });
-  // The list carries each card's salary requirement; Infinite needs AED 15,000 in the built-in list.
+  // The list carries each card's salary requirement; Skywards Infinite needs AED 30,000 in the bank's list.
   const cards = (await dana('GET', '/me')).data.meta.credit_cards.flatMap((f) => f.cards);
-  assert.equal(cards.find((k) => k.name === 'Skywards Infinite Credit Card').min_salary, 15000);
+  assert.equal(cards.find((k) => k.name === 'Skywards Infinite Credit Card').min_salary, 30000);
   // No salary: refused, with the requirement in the message.
   const noSalary = await dana('POST', '/cases', card({}));
   assert.equal(noSalary.status, 400);
-  assert.match(noSalary.data.error, /salary.*15,000/);
+  assert.match(noSalary.data.error, /salary.*30,000/);
   // Salary meets the requirement: straight to verification.
-  const fine = await dana('POST', '/cases', card({ salary: 20000 }));
+  const fine = await dana('POST', '/cases', card({ salary: 32000 }));
   assert.equal(fine.status, 201, JSON.stringify(fine.data));
   assert.equal(fine.data.case.status, 'pending_verification');
-  assert.equal(fine.data.case.card_min_salary, 15000);
+  assert.equal(fine.data.case.card_min_salary, 30000);
   // Below with a reason: goes for verification, the reason recorded against the sales person.
   const promo = await dana('POST', '/cases', card({ salary: 9000, card_salary_exception: 'promotion', card_exception_note: 'Oct campaign' }));
   assert.equal(promo.status, 201, JSON.stringify(promo.data));
@@ -296,7 +296,7 @@ test('a card below the salary requirement needs a reason or team approval; a hig
   assert.equal(declined.status, 'returned_to_sales');
   // Resubmitting without fixing it goes back to approval; raising the salary clears it.
   assert.equal((await dana('POST', `/cases/${back.data.case.id}/actions`, { action: 'resubmit' })).data.case.status, 'awaiting_approval');
-  assert.equal((await dana('PUT', `/cases/${back.data.case.id}`, { salary: 16000 })).data.case.status, 'pending_verification');
+  assert.equal((await dana('PUT', `/cases/${back.data.case.id}`, { salary: 31000 })).data.case.status, 'pending_verification');
 });
 
 test('auto loans need the car and loan details; tenures are capped at 60 and 48 months', async () => {
@@ -371,11 +371,11 @@ test('reports list card deviations, promotions, approvals waiting and cards sold
   const gov = await login('gov@t.local');
   const tl = await login('tl-auh@t.local');
   const card = (extra) => ({ customer_name: 'Report Card', region: 'DXB', phone: '+971 50 111 6666', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary_bank: 'Mashreq', ...extra });
-  // Titanium needs 5,000; a salary of 20,000 qualifies for higher cards, so this is sold below eligibility.
-  const low = await dana('POST', '/cases', card({ salary: 20000 }));
+  // Titanium needs 5,000; a salary of 32,000 qualifies for higher cards, so this is sold below eligibility.
+  const low = await dana('POST', '/cases', card({ salary: 32000 }));
   assert.equal(low.status, 201, JSON.stringify(low.data));
   assert.ok(low.data.case.card_higher_options > 0);
-  assert.equal(low.data.case.card_eligible_category, 'Infinite');
+  assert.equal(low.data.case.card_eligible_category, 'Super Premium');
   // A deviation on an Infinite card.
   const dev = await dana('POST', '/cases', card({ credit_card: 'Skywards Infinite Credit Card', salary: 9000, card_salary_exception: 'deviation', card_exception_note: 'DEV-77' }));
   assert.equal(dev.status, 201, JSON.stringify(dev.data));
@@ -388,7 +388,7 @@ test('reports list card deviations, promotions, approvals waiting and cards sold
   assert.ok(!exc.rows.some((r) => r.ref === low.data.case.ref));
   const down = (await gov('GET', '/reports/card_downsell')).data;
   const lowRow = down.rows.find((r) => r.ref === low.data.case.ref);
-  assert.deepEqual([lowRow.category, lowRow.eligible_category, lowRow.higher_options > 0], ['Titanium', 'Infinite', true]);
+  assert.deepEqual([lowRow.category, lowRow.eligible_category, lowRow.higher_options > 0], ['Mass', 'Super Premium', true]);
   assert.ok(!down.rows.some((r) => r.ref === dev.data.case.ref));
   // Team leaders see only their team; the sourcing and governance summaries carry the counts.
   const tlView = (await tl('GET', '/reports/card_exceptions')).data;

@@ -150,7 +150,7 @@ When a file includes an **auto loan**, the form asks for the auto loan type (**N
 
 ### Card salary requirement, deviations and team approval
 
-Every card in the product list has a **minimum monthly salary** (an upload column; provisional by tier until the bank's list is loaded). On the form, once a card and the customer's salary are entered:
+Every card in the product list has a **minimum monthly salary** (AED 5,000 for Mass cards, 12,000 to 20,000 for Premium, 25,000 to 30,000 for Super Premium, as in the bank's list). On the form, once a card and the customer's salary are entered:
 
 - **Salary below the requirement:** an error shows with two choices, **Product deviation** or **New promotion** (plus an optional reference). Picking one sends the file straight for verification with the reason recorded against the sales person. Submitting without one, after a confirmation, puts the file in **Awaiting TL/SM approval**: processors do not see it, and the file's team leader, sales manager and ASM are notified. One of them opens the file, records the reason and sends it for verification, or returns it to sales with a note. The sales person can also add the reason themselves while it waits, and a resubmitted or edited file is re-checked.
 - **Salary qualifies for a higher card:** a prompt lists the higher cards the customer is eligible for, with one tap to switch.
@@ -162,7 +162,7 @@ The case page shows the card's requirement, whether the customer meets it, and t
 
 Every credit card has a **family**, a **card category** and, when the bank provides them, **points**. When a sales person chooses a card on the form, the category and points fill in automatically (read-only) and are saved on the file, so later changes to the list do not rewrite old files.
 
-The CRM ships with a built-in list, where the category is provisional (the card's tier from its name, such as Infinite or Signature). MIS or a business head replaces it with the bank's product list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
+The CRM ships with the bank's product list built in: 68 cards in 20 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
 
 ### Targets and sales cycles
 

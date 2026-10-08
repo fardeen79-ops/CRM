@@ -1,46 +1,105 @@
 // The credit card product list: every card staff can choose when a case includes the Credit Card
 // product, with its family, its category and (later) the points it earns the sales person.
 //
-// The built-in list below is the starting point. MIS or a business head uploads the bank's final
-// product list from the Bulk upload page (Card products), which replaces it; cards left out of an
-// upload are retired (kept on old files, no longer offered). Until that upload, the category is
-// provisional: the card's tier taken from its name.
+// The built-in list below is the bank's product list as supplied. MIS or a business head can upload
+// a newer list from the Bulk upload page (Card products), which replaces it; cards left out of an
+// upload are retired (kept on old files, no longer offered).
 
-// Provisional minimum monthly salary (AED) by tier, until the bank's product list is uploaded.
-const MIN_SALARY = { 'World Elite': 25000, Infinite: 15000, World: 12000, Signature: 10000, Platinum: 8000, Elevate: 8000, Titanium: 5000, Inspire: 5000, Standard: 5000 };
-const tier = (name) => {
-  const n = name.toLowerCase();
-  if (n.includes('world elite')) return 'World Elite';
-  if (n.includes('infinite')) return 'Infinite';
-  if (n.includes('signature')) return 'Signature';
-  if (/\bworld\b/.test(n)) return 'World';
-  if (n.includes('platinum')) return 'Platinum';
-  if (n.includes('titanium')) return 'Titanium';
-  if (n.includes('elevate')) return 'Elevate';
-  if (n.includes('inspire')) return 'Inspire';
-  return 'Standard';
-};
-
-const FAMILIES = [
-  ['Core (Platinum/Titanium/Infinite)', ['Infinite Credit Card', 'MasterCard Platinum Credit Card', 'Titanium Credit Card']],
-  ['Darna', ['Darna Select Visa Credit Card', 'Darna Visa Infinite Credit Card', 'Darna Visa Signature Credit Card']],
-  ['Duo Card', ['Diners Club Credit Card']],
-  ['Etihad Guest', ['Etihad Guest Visa Elevate Credit Card', 'Etihad Guest Visa Inspire Credit Card']],
-  ['LuLu', ['LuLu Platinum Mastercard Credit Card', 'LuLu Titanium Mastercard Credit Card']],
-  ['Marriott Bonvoy', ['Marriott Bonvoy World Elite Mastercard Credit Card', 'Marriott Bonvoy World Mastercard Credit Card']],
-  ['Priority Banking', ['PRIORITY BANKING VISA INFINITE CREDIT CARD']],
-  ['Share', ['Share Visa Infinite Credit Card', 'Share Visa Platinum Credit Card', 'Share Visa Signature Credit Card']],
-  ['Skywards', ['Skywards Infinite Credit Card', 'Skywards Signature Credit Card']],
-  ['U By Emaar', ['U By Emaar Family Credit Card', 'U By Emaar Infinite Credit Card', 'U By Emaar Signature Credit Card']],
-  ['Visa Flexi', ['Visa Flexi Credit card']],
-  ['Voyager', ['Voyager World', 'Voyager World Elite']],
-  ['Webshopper', ['Webshopper Credit Card']],
-  ['dnata', ['dnata Platinum Credit Card', 'dnata World Mastercard Credit Card']],
-  ['noon', ['noon One Visa Credit Card']],
+// The bank's card product list (Derby Group's "Card family category" sheet): every card with its
+// family, category (Mass, Premium or Super Premium), the monthly salary it needs and the points it
+// earns the sales person. Names the sheet gives in capitals are shown in title case; a card listed
+// under two spellings that differ only in case or spacing is kept once. Lookups ignore case.
+export const DEFAULT_CARD_PRODUCTS = [
+  // Darna
+  { name: "Darna Select Visa Credit Card", family: "Darna", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "Darna Visa Infinite Credit Card", family: "Darna", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "Darna Visa Signature Credit Card", family: "Darna", category: "Premium", points: 800, min_salary: 12000 },
+  // Diners
+  { name: "Diners Bundle Product", family: "Diners", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Diners Club Credit Card", family: "Diners", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Diners-Bundle", family: "Diners", category: "Premium", points: 800, min_salary: 12000 },
+  // dnata
+  { name: "dnata Mastercard Platinum", family: "dnata", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "dnata Platinum Credit Card", family: "dnata", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "dnata World", family: "dnata", category: "Premium", points: 800, min_salary: 20000 },
+  { name: "dnata World Mastercard Credit Card", family: "dnata", category: "Premium", points: 800, min_salary: 20000 },
+  // Duo
+  { name: "Duo Card", family: "Duo", category: "Premium", points: 800, min_salary: 12000 },
+  // Etihad
+  { name: "Etihad Guest Visa Elevate", family: "Etihad", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "Etihad Guest Visa Elevate Credit Card", family: "Etihad", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "Etihad Guest Visa Inspire", family: "Etihad", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Etihad Guest Visa Inspire Credit Card", family: "Etihad", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Etihad Visa Infinite", family: "Etihad", category: "Super Premium", points: 1050, min_salary: 30000 },
+  // Go4it
+  { name: "Go4it - Gold", family: "Go4it", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "Go4it - Platinum", family: "Go4it", category: "Premium", points: 800, min_salary: 12000 },
+  // Infinite
+  { name: "Infinite Credit Card", family: "Infinite", category: "Super Premium", points: 1050, min_salary: 30000 },
+  // LuLu
+  { name: "LuLu Platinum Mastercard Credit Card", family: "LuLu", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "LuLu Titanium Mastercard", family: "LuLu", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "LuLu Titanium Mastercard Credit Card", family: "LuLu", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "LuLu 247 Platinum Mastercard", family: "LuLu", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "LuLu 247 Platinum Mastercard Credit Card", family: "LuLu", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "LuLu 247 Titanium Mastercard", family: "LuLu", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "LuLu 247 Titanium Mastercard Credit Card", family: "LuLu", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "LuLu Titanium", family: "LuLu", category: "Mass", points: 650, min_salary: 5000 },
+  // Manchester United
+  { name: "Man U Credit Card", family: "Manchester United", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "Manchester United Credit Card", family: "Manchester United", category: "Mass", points: 650, min_salary: 5000 },
+  // Marriott Bonvoy
+  { name: "Marriott Bonvoy World Elite Mastercard", family: "Marriott Bonvoy", category: "Super Premium", points: 1050, min_salary: 25000 },
+  { name: "Marriott Bonvoy World Elite Mastercard Credit Card", family: "Marriott Bonvoy", category: "Super Premium", points: 1050, min_salary: 25000 },
+  { name: "Marriott Bonvoy World Mastercard Credit Card", family: "Marriott Bonvoy", category: "Super Premium", points: 1050, min_salary: 25000 },
+  // Mastercard
+  { name: "MASTERCARD dnata World", family: "Mastercard", category: "Premium", points: 800, min_salary: 20000 },
+  { name: "Mastercard Platinum", family: "Mastercard", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "MasterCard Platinum Credit Card", family: "Mastercard", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Mastercard Titanium", family: "Mastercard", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "Mastercard Titanium-GBP", family: "Mastercard", category: "Mass", points: 650, min_salary: 5000 },
+  // NBD dnata
+  { name: "NBD dnata MC Platinum", family: "NBD dnata", category: "Mass", points: 650, min_salary: 5000 },
+  // noon
+  { name: "noon One Visa Credit Card", family: "noon", category: "Mass", points: 450, min_salary: 5000 },
+  // Priority Banking
+  { name: "Priority Banking Visa Infinite Credit Card", family: "Priority Banking", category: "Super Premium", points: 1050, min_salary: 30000 },
+  // Share
+  { name: "Share Visa Infinite Credit Card", family: "Share", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "Share Visa Platinum Credit Card", family: "Share", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "Share Visa Signature Credit Card", family: "Share", category: "Premium", points: 800, min_salary: 12000 },
+  // Skywards
+  { name: "Skywards Infinite Credit Card", family: "Skywards", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "Skywards Signature Credit Card", family: "Skywards", category: "Premium", points: 800, min_salary: 12000 },
+  // Tamayaz Liv
+  { name: "Tamayaz Liv Platinum", family: "Tamayaz Liv", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "Tamayaz Liv World", family: "Tamayaz Liv", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Liv Cashback", family: "Tamayaz Liv", category: "Mass", points: 650, min_salary: 5000 },
+  // Titanium
+  { name: "Titanium Credit Card", family: "Titanium", category: "Mass", points: 650, min_salary: 5000 },
+  // U By Emaar
+  { name: "U By Emaar Family Credit Card", family: "U By Emaar", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "U By Emaar Infinite Credit Card", family: "U By Emaar", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "U By Emaar Signature Credit Card", family: "U By Emaar", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "U By Emaar Visa Family", family: "U By Emaar", category: "Mass", points: 650, min_salary: 5000 },
+  { name: "U By Emaar Visa Infinite", family: "U By Emaar", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "U By Emaar Visa Signature", family: "U By Emaar", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "U By Emaar Visa Rewards", family: "U By Emaar", category: "Mass", points: 650, min_salary: 5000 },
+  // Visa
+  { name: "Visa Flexi", family: "Visa", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Visa Flexi Credit card", family: "Visa", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Visa Infinite", family: "Visa", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "Visa Skyward Signature", family: "Visa", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Visa Skywards Infinite", family: "Visa", category: "Super Premium", points: 1050, min_salary: 30000 },
+  { name: "Visa Skywards Platinum", family: "Visa", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Visa Skywards Signature", family: "Visa", category: "Premium", points: 800, min_salary: 12000 },
+  // Voyager
+  { name: "Voyager World", family: "Voyager", category: "Premium", points: 800, min_salary: 12000 },
+  { name: "Voyager World Elite", family: "Voyager", category: "Super Premium", points: 1050, min_salary: 30000 },
 ];
 
-/** The built-in list: { name, family, category, points }. */
-export const DEFAULT_CARD_PRODUCTS = FAMILIES.flatMap(([family, names]) => names.map((name) => ({ name, family, category: tier(name), points: null, min_salary: MIN_SALARY[tier(name)] ?? null })));
+/** Card categories from lowest to highest, as the bank ranks them. */
+export const CARD_CATEGORY_ORDER = ['Mass', 'Premium', 'Super Premium'];
 
 let products = DEFAULT_CARD_PRODUCTS;
 let source = 'built_in';
