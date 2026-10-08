@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
   whatsapp_number  TEXT, -- international format, +9715XXXXXXXX
   region           TEXT, -- DXB or AUH: processors verify only their region's files
   asm_id           INTEGER REFERENCES users(id), -- sales staff: their assistant sales manager
-  salary           REAL -- sales staff: monthly salary in AED, which sets their targets
+  salary           REAL, -- sales staff: monthly salary in AED, which sets their targets
+  hrms_code        TEXT -- the bank's HRMS staff code: unique, and the username at sign-in
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -315,7 +316,7 @@ const ADDED_COLUMNS = {
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
-  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)', salary: 'REAL',
+  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)', salary: 'REAL', hrms_code: 'TEXT',
 };
 
 function migrate(db) {
@@ -329,6 +330,7 @@ function migrate(db) {
       sales_manager_id = (SELECT sales_manager_id FROM users WHERE id = cases.sales_staff_id),
       asm_id = (SELECT asm_id FROM users WHERE id = cases.sales_staff_id)
     WHERE team_leader_id IS NULL AND sales_staff_id IS NOT NULL`);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_hrms ON users(hrms_code COLLATE NOCASE)');
   // Cases created before the sourcing date existed were sourced on the day they were entered.
   db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
   // Loans completed before disbursed amounts were recorded: assume the amount on the file.

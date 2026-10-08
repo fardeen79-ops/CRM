@@ -26,6 +26,7 @@ const ROLE_LABELS = {
 // Column guide shared with the page (template download and the help table).
 export const USER_IMPORT_COLUMNS = [
   { key: 'name', header: 'Full name', required: true, example: 'Aisha Khan' },
+  { key: 'hrms_code', header: 'HRMS code', required: true, example: 'EN10234', help: 'The bank\'s staff code. Unique; it is the username at sign-in' },
   { key: 'email', header: 'Email', required: true, example: 'aisha.khan@yourbank.ae' },
   { key: 'role', header: 'Role', required: true, example: 'Sales', allowed: Object.values(ROLE_LABELS) },
   { key: 'mobile_number', header: 'Local mobile', required: true, example: '050 123 4567', help: 'UAE mobile number' },
@@ -430,7 +431,7 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
         }
         const created = createUser(db, input, { requireMobile: true });
         return {
-          id: created.id, label: `${created.name} · ${ROLE_LABELS[role]}`, email: created.email,
+          id: created.id, label: `${created.name} · ${ROLE_LABELS[role]}`, email: created.email, hrms_code: created.hrms_code,
           ...(generated && { temp_password: generated }),
         };
       })));

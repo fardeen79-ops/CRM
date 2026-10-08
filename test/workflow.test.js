@@ -187,13 +187,19 @@ test('only team leaders manage users', async () => {
   const sales = await login('sales@t.local');
   const lead = await login('lead@t.local');
   assert.equal((await sales('GET', '/users')).status, 403);
-  const newUser = { name: 'New', email: 'New@T.local', role: 'processing', password: 'longenough' };
-  // A local mobile number is required; WhatsApp is optional and stored with its country code.
+  const newUser = { name: 'New', email: 'New@T.local', role: 'processing', password: 'longenough', hrms_code: 'en20001' };
+  // A local mobile number and an HRMS code are required; WhatsApp is optional and stored with its country code.
   assert.equal((await lead('POST', '/users', newUser)).status, 400);
+  assert.equal((await lead('POST', '/users', { ...newUser, hrms_code: '', mobile_number: '0501234567' })).status, 400);
   const r = await lead('POST', '/users', { ...newUser, mobile_number: '+971 50 123 4567', whatsapp_number: '050 765 4321' });
   assert.equal(r.status, 201);
-  assert.deepEqual([r.data.user.email, r.data.user.mobile_number, r.data.user.whatsapp_number], ['new@t.local', '0501234567', '+971507654321']);
+  assert.deepEqual([r.data.user.email, r.data.user.mobile_number, r.data.user.whatsapp_number, r.data.user.hrms_code], ['new@t.local', '0501234567', '+971507654321', 'EN20001']);
   assert.equal((await lead('POST', '/users', { ...newUser, mobile_number: '0501234567' })).status, 409);
+  // The HRMS code is unique and is the username at sign-in.
+  assert.equal((await lead('POST', '/users', { ...newUser, email: 'other@t.local', mobile_number: '0501234567', hrms_code: 'EN20001' })).status, 400);
+  const byCode = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'en20001', password: 'longenough' }) });
+  assert.equal(byCode.status, 200);
+  assert.equal((await byCode.json()).user.email, 'new@t.local');
   assert.equal((await lead('POST', '/users', { ...newUser, email: 'x@t.local', mobile_number: '12345' })).status, 400);
   const edited = await lead('PATCH', `/users/${r.data.user.id}`, { whatsapp_number: '+44 7700 900123', email: 'renamed@t.local' });
   assert.deepEqual([edited.data.user.whatsapp_number, edited.data.user.email], ['+447700900123', 'renamed@t.local']);
@@ -626,7 +632,7 @@ test('registering sales staff requires a sales code, team leader and sales manag
   const tl = users.find((u) => u.role === 'team_leader').id;
   const smId = users.find((u) => u.role === 'sales_manager').id;
   const mis = users.find((u) => u.role === 'mis').id;
-  const base = { name: 'New Sales', email: 'ns@t.local', role: 'sales', password: 'longenough', mobile_number: '0501234567' };
+  const base = { name: 'New Sales', email: 'ns@t.local', role: 'sales', password: 'longenough', mobile_number: '0501234567', hrms_code: 'EN30001' };
 
   assert.equal((await lead('POST', '/users', base)).status, 400);
   assert.equal((await lead('POST', '/users', { ...base, sales_code: 'S-900', team_leader_id: mis, sales_manager_id: smId })).status, 400);
@@ -635,7 +641,7 @@ test('registering sales staff requires a sales code, team leader and sales manag
   assert.equal(r.status, 201);
   assert.deepEqual([r.data.user.sales_code, r.data.user.team_leader_name, r.data.user.sales_manager_name], ['S-900', 'Lead', 'Manager']);
   // Other roles don't need (or get) a profile
-  const p = await lead('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', mobile_number: '0501234567', sales_code: 'X-1' });
+  const p = await lead('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', mobile_number: '0501234567', hrms_code: 'EN30002', sales_code: 'X-1' });
   assert.equal(p.data.user.sales_code, null);
 });
 
@@ -786,12 +792,12 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
   const lead = await login('lead@t.local');
   const mis = await login('mis@t.local');
   const csv = [
-    'Full name,Email,Role,Local mobile,WhatsApp number,Sales code,Team leader email,Sales manager email,Temporary password',
-    'Bulk Seller,bulk.seller@t.local,Sales,050 111 2222,,BLK-1,bulk.lead@t.local,sm@t.local,',
-    'Bulk Lead,bulk.lead@t.local,Team Leader,+971501112223,+971501112223,,,,longenough1',
-    'No Phone,nophone@t.local,MIS,,,,,,',
-    'Dup,sales@t.local,MIS,0501112224,,,,,',
-    'Excel,excel@t.local,MIS,9.71501E+11,,,,,',
+    'Full name,HRMS code,Email,Role,Local mobile,WhatsApp number,Sales code,Team leader email,Sales manager email,Temporary password',
+    'Bulk Seller,EN40001,bulk.seller@t.local,Sales,050 111 2222,,BLK-1,bulk.lead@t.local,sm@t.local,',
+    'Bulk Lead,EN40002,bulk.lead@t.local,Team Leader,+971501112223,+971501112223,,,,longenough1',
+    'No Phone,EN40003,nophone@t.local,MIS,,,,,,',
+    'Dup,EN40004,sales@t.local,MIS,0501112224,,,,,',
+    'Excel,EN40005,excel@t.local,MIS,9.71501E+11,,,,,',
   ].join('\r\n');
   // Only MIS and business heads can bulk upload, not even team leaders.
   assert.equal((await lead('POST', '/import/users', { csv })).status, 403);
@@ -811,7 +817,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
   assert.match(done.data.rows[2].error, /mobile number is required/i);
   assert.match(done.data.rows[3].error, /already exists/);
   assert.match(done.data.rows[4].error, /scientific notation/);
-  assert.deepEqual(done.data.rows[4].cells.slice(0, 2), ['Excel', 'excel@t.local']);
+  assert.deepEqual(done.data.rows[4].cells.slice(0, 3), ['Excel', 'EN40005', 'excel@t.local']);
   assert.ok((await users()).includes('bulk.seller@t.local'));
   const login2 = await fetch(`${base}/api/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -821,7 +827,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
 
   const bad = await mis('POST', '/import/users', { csv: 'Name,Email\nA,a@t.local' });
   assert.equal(bad.status, 400);
-  assert.match(bad.data.error, /missing these columns: Role, Local mobile/);
+  assert.match(bad.data.error, /missing these columns: HRMS code, Role, Local mobile/);
 });
 
 test('bulk upload of cases by sales code, with labels, UAE dates and duplicate App IDs', async () => {

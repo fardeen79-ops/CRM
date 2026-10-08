@@ -205,8 +205,8 @@ function renderLogin() {
       <form class="card" id="login-form">
         <div class="brand" style="margin-bottom:16px"><span class="logo">✓</span> Sourcing CRM</div>
         <h1>Sign in</h1>
-        <p class="muted">Sign in with your work email. Your role decides what you see.</p>
-        <div class="field-row"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required autofocus></div>
+        <p class="muted">Sign in with your HRMS code (or work email). Your role decides what you see.</p>
+        <div class="field-row"><label for="email">HRMS code or email</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required autofocus></div>
         <div class="field-row"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
         <button class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
         <p class="error" id="login-error" hidden></p>
@@ -2454,7 +2454,7 @@ function viewBulkUpload(kind) {
           <td class="mono">${x.line}</td>
           <td>${x.ok ? html`<span class="chip good">${r.dry_run ? 'Ready' : words.verb}</span>` : html`<span class="chip bad">Error</span>`}</td>
           <td>${x.ok ? (x.ref ? html`<a href="#/cases/${x.id}"><strong class="mono">${x.ref}</strong></a> ` : '') : ''}${x.ok ? x.label : rowLabel(x.cells)}</td>
-          <td class="small">${x.ok ? (x.temp_password ? html`Temporary password <code>${x.temp_password}</code>` : x.email || '') : html`<span class="error">${x.error}</span>`}</td>
+          <td class="small">${x.ok ? (x.temp_password ? html`${x.hrms_code ? html`Username <code>${x.hrms_code}</code> · ` : ''}Temporary password <code>${x.temp_password}</code>` : x.email || '') : html`<span class="error">${x.error}</span>`}</td>
         </tr>`)}</tbody>
       </table></div>`.s;
     const go = document.getElementById('bulk-go');
@@ -2470,7 +2470,7 @@ function viewBulkUpload(kind) {
     const errs = document.getElementById('bulk-errors');
     if (errs) errs.onclick = () => saveFile(`${kind}-upload-errors.csv`, toCsv([[...r.header, 'Error'], ...failed.map((x) => [...r.header.map((_, i) => x.cells[i] ?? ''), x.error])]));
     const pw = document.getElementById('bulk-passwords');
-    if (pw) pw.onclick = () => saveFile('new-user-sign-in-details.csv', toCsv([['Name and role', 'Email', 'Temporary password'], ...passwords.map((x) => [x.label, x.email, x.temp_password])]));
+    if (pw) pw.onclick = () => saveFile('new-user-sign-in-details.csv', toCsv([['Name and role', 'Username (HRMS code)', 'Email', 'Temporary password'], ...passwords.map((x) => [x.label, x.hrms_code || '', x.email, x.temp_password])]));
   };
 
   checkBtn.onclick = async () => {
@@ -2692,6 +2692,9 @@ async function viewUsers() {
   const contactFields = (u = {}, prefix = 'n') => html`
     <div class="field-row"><label for="${prefix}-name">Full name <span class="req">*</span></label>
       <input id="${prefix}-name" name="name" value="${u.name || ''}" autocomplete="off" required></div>
+    <div class="field-row"><label for="${prefix}-hrms">HRMS code <span class="req">*</span></label>
+      <input id="${prefix}-hrms" name="hrms_code" value="${u.hrms_code || ''}" autocomplete="off" autocapitalize="characters" placeholder="e.g. EN10234" required>
+      <div class="muted small">The bank's staff code. It is this person's username at sign-in.</div></div>
     <div class="field-row"><label for="${prefix}-email">Email address <span class="req">*</span></label>
       <input id="${prefix}-email" name="email" type="email" value="${u.email || ''}" autocomplete="off" required>
       ${prefix === 'nu' ? html`<div class="muted small" id="nu-email-hint" hidden>Suggested from the name. Change it if their address is different.</div>` : ''}</div>
@@ -2717,7 +2720,7 @@ async function viewUsers() {
       <div class="card"><div class="table-wrap"><table class="users-table">
         <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
         <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
-          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}</td>
+          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small">${u.hrms_code ? html`<span class="mono">${u.hrms_code}</span> · ` : html`<span class="lock">No HRMS code</span> · `}<a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
               ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}</div>`

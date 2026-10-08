@@ -33,20 +33,25 @@ export function createUser(db, input, { requireMobile = false } = {}) {
   if (db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(contact.email)) {
     throw new Error(`A user with the email ${contact.email} already exists`);
   }
+  if (contact.hrms_code && db.prepare('SELECT 1 FROM users WHERE hrms_code = ? COLLATE NOCASE').get(contact.hrms_code)) {
+    throw new Error(`HRMS code ${contact.hrms_code} is already used by another user`);
+  }
   const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null, salary: null };
   const region = regionOf(input.region);
   const { lastInsertRowid } = db
-    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary, hrms_code)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(contact.name, contact.email, role, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number,
-      profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, region, profile.salary);
+      profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, region, profile.salary, contact.hrms_code);
   return getUser(db, Number(lastInsertRowid));
 }
 
 export const getUser = findUser;
 
+/** Signs in with the HRMS code (the username) or the email address. */
 export function login(db, email, password) {
-  const user = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(String(email || '').trim());
+  const id = String(email || '').trim();
+  const user = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE OR (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE)').get(id, id);
   if (!user || !user.active || !verifyPassword(String(password || ''), user.password_hash)) return null;
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();

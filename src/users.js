@@ -1,7 +1,7 @@
 // User profiles. Sales staff carry a sales code plus their team leader and sales manager,
 // which pre-fill the "Sales staff" section of every file they source.
 
-export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary,
+export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary, u.hrms_code,
   u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
   tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name`;
 export const USER_FROM = `users u
@@ -106,8 +106,22 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * Name, email, local mobile and WhatsApp for a user. `current` is the existing user when editing,
  * so only the fields being changed need to be sent.
  */
+/** The HRMS staff code: letters, digits and dashes, stored upper-case. It is the username at sign-in. */
+export function hrmsCodeOf(value) {
+  const code = String(value ?? '').trim().toUpperCase();
+  if (!code) return null;
+  if (!/^[A-Z0-9][A-Z0-9-]{1,19}$/.test(code)) throw new Error('HRMS code should be 2–20 letters, digits or dashes');
+  if (/@/.test(code)) throw new Error('HRMS code cannot be an email address');
+  return code;
+}
+
+/** `requireMobile` also requires the HRMS code: both are needed for users added from the Users page or a bulk upload. */
 export function contactDetails(input, { current = null, requireMobile = false } = {}) {
   const out = {};
+  if (!current || 'hrms_code' in input) {
+    out.hrms_code = hrmsCodeOf(input.hrms_code);
+    if (!out.hrms_code && requireMobile) throw new Error('HRMS code is required');
+  }
   if (!current || 'name' in input) {
     out.name = String(input.name ?? '').trim();
     if (!out.name) throw new Error('Full name is required');

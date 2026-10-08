@@ -314,7 +314,7 @@ function routes(db, dispatch, bot) {
       const target = auth.getUser(db, id);
       if (!target) throw new HttpError(404, 'User not found');
       let moved = 0;
-      if (['name', 'email', 'mobile_number', 'whatsapp_number'].some((f) => f in body)) {
+      if (['name', 'email', 'mobile_number', 'whatsapp_number', 'hrms_code'].some((f) => f in body)) {
         let contact;
         try {
           contact = contactDetails(body, { current: target });
@@ -323,6 +323,9 @@ function routes(db, dispatch, bot) {
         }
         if (contact.email && db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(contact.email, id)) {
           throw new HttpError(409, 'A user with that email already exists');
+        }
+        if (contact.hrms_code && db.prepare('SELECT 1 FROM users WHERE hrms_code = ? COLLATE NOCASE AND id != ?').get(contact.hrms_code, id)) {
+          throw new HttpError(409, `HRMS code ${contact.hrms_code} is already used by another user`);
         }
         for (const [field, value] of Object.entries(contact)) db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, id);
       }
