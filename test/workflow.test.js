@@ -280,8 +280,8 @@ test('credit card cases must name a card from the list', async () => {
   assert.ok((await sales('GET', '/cases?q=noon%20One')).data.cases.some((c) => c.id === id));
 
   // Only the card can change; dropping the Credit Card product clears it.
-  r = await sales('PUT', `/cases/${id}`, { credit_card: 'LuLu Platinum Mastercard Credit Card' });
-  assert.equal(r.data.case.credit_card, 'LuLu Platinum Mastercard Credit Card');
+  r = await sales('PUT', `/cases/${id}`, { credit_card: 'LuLu Platinum Mastercard' });
+  assert.equal(r.data.case.credit_card, 'LuLu Platinum Mastercard');
   r = await sales('PUT', `/cases/${id}`, { product: 'personal_loan', personal_loan_type: 'top_up', loan_amount: '1,50,000', interest_rate: 6.5, full_loan_amount: 200000, incremental_amount: 50000 });
   assert.equal(r.data.case.credit_card, null);
 
@@ -291,7 +291,7 @@ test('credit card cases must name a card from the list', async () => {
 
   const me = await sales('GET', '/me');
   const cards = me.data.meta.credit_cards.flatMap((f) => f.cards);
-  assert.equal(cards.length, 65); // the bank's list
+  assert.equal(cards.length, 34); // the bank's list
   assert.ok(!cards.some((c) => /Family Total|All Cards/.test(c)));
 });
 

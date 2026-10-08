@@ -162,7 +162,7 @@ The case page shows the card's requirement, whether the customer meets it, and t
 
 Every credit card has a **family**, a **card category** and, when the bank provides them, **points**. When a sales person chooses a card on the form, the category and points fill in automatically (read-only) and are saved on the file, so later changes to the list do not rewrite old files.
 
-The CRM ships with the bank's product list built in: 68 cards in 20 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
+The CRM ships with the bank's product list built in: 34 cards in 18 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
 
 ### Payouts: what the bank pays per file
 
