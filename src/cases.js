@@ -652,6 +652,13 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
   return db.prepare(sql).all(...params).map((row) => present(user, row));
 }
 
+// The sales person read the number aloud and it matched the box: noted on the timeline.
+const READ_BACK_LABELS = { eid_number: 'Emirates ID', passport_number: 'passport number' };
+function recordReadBack(db, caseId, userId, fields) {
+  const checked = [].concat(fields || []).filter((f) => READ_BACK_LABELS[f]);
+  if (checked.length) addEvent(db, caseId, userId, 'read_back', { detail: `${checked.map((f) => READ_BACK_LABELS[f]).join(' and ')} read aloud and matched` });
+}
+
 export function createCase(db, user, input) {
   return transaction(db, () => getCase(db, user, insertCase(db, user, input)));
 }
@@ -673,6 +680,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   addEvent(db, id, user.id, 'created', { to: STATUS.PENDING, detail: 'sent_to_check' });
   if (bulk) addEvent(db, id, user.id, 'bulk_upload', { detail: 'Added from a bulk upload file' });
   if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
+  recordReadBack(db, id, user.id, input.read_back);
   return id;
 }
 
@@ -705,6 +713,7 @@ export function updateCase(db, user, id, input) {
     );
     addEvent(db, id, user.id, 'edited', { detail: changed.join(', ') });
     if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
+    recordReadBack(db, id, user.id, input.read_back);
     // Verified details changed after verification was completed: the customer must be called again.
     const reverify = row.status === STATUS.COMPLETED ? changed.filter((f) => VERIFIED_FIELDS.includes(f)) : [];
     if (reverify.length) {

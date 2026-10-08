@@ -1,5 +1,6 @@
 // Sourcing CRM — single-page frontend (no build step).
 import { openEidScanner } from './eid-scan.js';
+import { speechSupported, listen, readBackMatches } from './speech.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
 const STATUS_LABEL = {
@@ -45,6 +46,7 @@ const ACTION_LABEL = {
   flag_urgent: 'Flagged for urgent verification',
   clear_urgent: 'Urgent flag removed',
   eid_scan: 'Details filled from Emirates ID scan',
+  read_back: 'Number checked by read-back',
   mark_qc: 'Marked for quality check',
   clear_qc: 'Removed from quality check',
   request_recording: 'Call recording requested',
@@ -769,14 +771,20 @@ async function viewCaseForm(id) {
   // Fields this viewer may not read; they can still type a replacement without seeing the old value.
   const hiddenFields = new Set(c.hidden_fields || []);
   const maskedFields = new Set(id ? c.masked_fields || [] : []);
-  const field = (name, text, { type = 'text', required = false, full = false, placeholder = '', attrs = '', hint = '' } = {}) => {
+  const canSpeak = speechSupported();
+  const micIcon = raw('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>');
+  // `dictate` adds a microphone to type by voice; `readBack` adds a check where the number is read aloud.
+  const field = (name, text, { type = 'text', required = false, full = false, placeholder = '', attrs = '', hint = '', dictate = false, readBack = false } = {}) => {
     const masked = hiddenFields.has(name) || maskedFields.has(name);
+    const mic = canSpeak && dictate ? html`<button type="button" class="mic" data-dictate="${name}" title="Type by voice" aria-label="Dictate ${text}">${micIcon}</button>` : '';
+    const check = canSpeak && readBack ? html`<div class="readback" data-readback="${name}"><button type="button" class="btn-link" data-readback-btn="${name}">${micIcon} Read it back to check</button><span class="readback-status" aria-live="polite"></span></div>` : '';
     return html`
     <div class="${full ? 'full' : ''}">
       <label for="f-${name}">${text}${required ? raw(' <span class="req">*</span>') : ''}${masked ? raw(' <span class="lock">Hidden</span>') : ''}</label>
-      ${type === 'textarea'
+      <div class="${mic ? 'with-mic' : ''}">${type === 'textarea'
         ? html`<textarea id="f-${name}" name="${name}" placeholder="${placeholder}">${c[name] ?? ''}</textarea>`
-        : html`<input id="f-${name}" name="${name}" type="${type}" value="${masked ? '' : c[name] ?? ''}" placeholder="${hiddenFields.has(name) ? 'Hidden. Type a new value only to replace it' : masked ? `${c[name]} — type a new value only to replace it` : placeholder}" ${required && !masked ? raw('required') : ''} ${raw(attrs)} ${masked ? raw('data-masked') : ''}>`}
+        : html`<input id="f-${name}" name="${name}" type="${type}" value="${masked ? '' : c[name] ?? ''}" placeholder="${hiddenFields.has(name) ? 'Hidden. Type a new value only to replace it' : masked ? `${c[name]} — type a new value only to replace it` : placeholder}" ${required && !masked ? raw('required') : ''} ${raw(attrs)} ${masked ? raw('data-masked') : ''}>`}${mic}</div>
+      ${check}
       ${hint ? html`<div class="muted small">${hint}</div>` : ''}
     </div>`;
   };
@@ -817,14 +825,15 @@ async function viewCaseForm(id) {
             Scan Emirates ID
           </button>
         </div>
+        ${canSpeak ? html`<p class="muted small voice-hint">Tap a microphone to type by voice. For the Emirates ID and passport, <b>Read it back to check</b>: read the number aloud and the form confirms it matches what was typed or scanned.</p>` : ''}
         <div id="scan-result"></div>
         <div class="form-grid three">
-          ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"' })}
-          ${field('middle_name', 'Middle name', { attrs: 'autocomplete="off"' })}
-          ${field('last_name', 'Last name', { required: true, attrs: 'autocomplete="off"' })}
+          ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"', dictate: true })}
+          ${field('middle_name', 'Middle name', { attrs: 'autocomplete="off"', dictate: true })}
+          ${field('last_name', 'Last name', { required: true, attrs: 'autocomplete="off"', dictate: true })}
           ${field('phone', 'Mobile number', { type: 'tel', required: true, placeholder: '+971 50 123 4567' })}
-          ${field('eid_number', 'Emirates ID number', { placeholder: '784-YYYY-NNNNNNN-C', attrs: 'inputmode="numeric" pattern="784-?\\d{4}-?\\d{7}-?\\d" title="15 digits starting with 784, e.g. 784-1990-1234567-1"' })}
-          ${field('passport_number', 'Passport number', { attrs: 'pattern="[A-Za-z0-9 ]{5,20}" title="5–20 letters and digits"' })}
+          ${field('eid_number', 'Emirates ID number', { placeholder: '784-YYYY-NNNNNNN-C', attrs: 'inputmode="numeric" pattern="784-?\\d{4}-?\\d{7}-?\\d" title="15 digits starting with 784, e.g. 784-1990-1234567-1"', readBack: true })}
+          ${field('passport_number', 'Passport number', { attrs: 'pattern="[A-Za-z0-9 ]{5,20}" title="5–20 letters and digits"', readBack: true })}
           ${field('email', 'Email address', { type: 'email', placeholder: 'name@example.com', attrs: 'autocomplete="off"' })}
         </div>
       </section>
@@ -832,7 +841,7 @@ async function viewCaseForm(id) {
       <section>
         <h2>Employment</h2>
         <div class="form-grid">
-          ${field('company_name', 'Company name', { placeholder: 'Employer' })}
+          ${field('company_name', 'Company name', { placeholder: 'Employer', dictate: true })}
           ${field('salary', 'Monthly salary (AED)', { type: 'number', attrs: money })}
         </div>
       </section>
@@ -924,10 +933,10 @@ async function viewCaseForm(id) {
         <summary>More details (optional)</summary>
         <div class="form-grid">
           ${field('alt_phone', 'Alternate phone', { type: 'tel' })}
-          ${field('address', 'Address', { full: true })}
-          ${field('city', 'City')}
-          ${field('source', 'Lead source', { placeholder: 'e.g. Referral, Walk-in, Field visit' })}
-          ${field('sales_notes', 'Notes for the processing team', { type: 'textarea', full: true, placeholder: 'Best time to call, language preference, anything to verify…' })}
+          ${field('address', 'Address', { full: true, dictate: true })}
+          ${field('city', 'City', { dictate: true })}
+          ${field('source', 'Lead source', { placeholder: 'e.g. Referral, Walk-in, Field visit', dictate: true })}
+          ${field('sales_notes', 'Notes for the processing team', { type: 'textarea', full: true, placeholder: 'Best time to call, language preference, anything to verify…', dictate: true })}
         </div>
       </details>
 
@@ -1013,6 +1022,66 @@ async function viewCaseForm(id) {
   updateProductFields();
 
   // Emirates ID scan: fills the name and ID number for the sales person to check.
+  // Voice: dictation into a box, and reading an ID number back to check it.
+  const readBackOk = new Set();
+  let stopListening = null;
+  const stopAll = () => { if (stopListening) { stopListening(); stopListening = null; } form.querySelectorAll('.mic.listening').forEach((b) => b.classList.remove('listening')); };
+  form.querySelectorAll('[data-dictate]').forEach((btn) => (btn.onclick = () => {
+    const input = $(`#f-${btn.dataset.dictate}`);
+    if (btn.classList.contains('listening')) return stopAll();
+    stopAll();
+    btn.classList.add('listening');
+    const before = input.value;
+    const isNote = input.tagName === 'TEXTAREA';
+    stopListening = listen({
+      onResult: (text, { final }) => {
+        // Names and places are typed in Title Case; notes keep the sentence as spoken.
+        const spoken = isNote ? text : text.replace(/\b([a-z])/g, (m) => m.toUpperCase());
+        input.value = isNote && before ? `${before.replace(/\s+$/, '')} ${spoken}` : spoken;
+        if (final) { input.dispatchEvent(new Event('input', { bubbles: true })); }
+      },
+      onError: (msg) => toast(msg, true),
+      onEnd: () => { btn.classList.remove('listening'); stopListening = null; },
+    });
+  }));
+  form.querySelectorAll('[data-readback-btn]').forEach((btn) => (btn.onclick = () => {
+    const name = btn.dataset.readbackBtn;
+    const input = $(`#f-${name}`);
+    const status = btn.parentElement.querySelector('.readback-status');
+    const value = input.value.trim();
+    if (!value) { status.textContent = 'Type or scan the number first.'; status.className = 'readback-status muted'; return; }
+    stopAll();
+    btn.classList.add('listening');
+    status.textContent = 'Listening… read the number aloud, digit by digit.';
+    status.className = 'readback-status muted';
+    let heardText = '';
+    stopListening = listen({
+      onResult: (text, { final }) => {
+        heardText = text;
+        const r = readBackMatches(value, text);
+        if (final || r.match) {
+          if (r.match) {
+            readBackOk.add(name);
+            status.textContent = '✓ Matches what you read';
+            status.className = 'readback-status ok';
+            input.classList.add('verified');
+            if (stopListening) stopAll();
+          } else if (final) {
+            readBackOk.delete(name);
+            status.textContent = `✗ Doesn't match. Heard "${r.heard || text}", box has ${r.want}`;
+            status.className = 'readback-status bad';
+            input.classList.remove('verified');
+          }
+        }
+      },
+      onError: (msg) => { status.textContent = msg; status.className = 'readback-status bad'; },
+      onEnd: () => { btn.classList.remove('listening'); stopListening = null; if (!heardText && status.textContent.startsWith('Listening')) { status.textContent = 'Nothing heard. Try again.'; status.className = 'readback-status muted'; } },
+    });
+    // Any change to the number cancels its check.
+    input.addEventListener('input', () => { readBackOk.delete(name); input.classList.remove('verified'); status.textContent = ''; }, { once: true });
+  }));
+  window.addEventListener('hashchange', stopAll, { once: true });
+
   let scanned = false;
   $('#scan-eid').onclick = async () => {
     const result = await openEidScanner(state.meta.ocr);
@@ -1055,6 +1124,7 @@ async function viewCaseForm(id) {
       body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
       delete body.buyout_bank_other;
       if (scanned) body.eid_scanned = scanned;
+      if (readBackOk.size) body.read_back = [...readBackOk];
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
       const reverified = id && c.status === 'completed' && res.case.status === 'pending_verification';

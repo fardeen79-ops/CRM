@@ -592,3 +592,20 @@ main { position: relative; }
   .back-to-list { display: inline; }
   .msg { max-width: 100%; }
 }
+
+/* Voice: dictation microphones and read-back checks */
+.with-mic { display: flex; gap: 6px; align-items: stretch; }
+.with-mic > input, .with-mic > textarea { flex: 1; min-width: 0; }
+.mic { flex: none; width: 40px; padding: 0; display: grid; place-items: center; color: var(--muted); }
+.mic svg { width: 18px; height: 18px; }
+.mic:hover { color: var(--primary); border-color: var(--primary); }
+.mic.listening, .btn-link.listening { color: var(--danger); border-color: var(--danger); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .mic.listening, .btn-link.listening { animation: none; } }
+.readback { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-top: 4px; font-size: 12px; }
+.readback .btn-link { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.readback svg { width: 14px; height: 14px; }
+.readback-status.ok { color: var(--s-done); font-weight: 600; }
+.readback-status.bad { color: var(--danger); }
+input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--s-done); }
+.voice-hint { margin: -4px 0 10px; }

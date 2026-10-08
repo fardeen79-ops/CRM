@@ -1263,3 +1263,13 @@ test('chat: case discussions with @mentions, direct messages, team groups, overs
   assert.equal((await gov('GET', `/conversations/${dm.id}/messages`)).data.items.length, 1);
   assert.equal((await gov('POST', `/conversations/${dm.id}/messages`, { body: 'hello' })).status, 403);
 });
+
+test('a read-back check is recorded on the case timeline', async () => {
+  const sales = await login('sales@t.local');
+  const r = await sales('POST', '/cases', { ...newCase, eid_number: '784-1990-1234567-1', passport_number: 'N1234567', read_back: ['eid_number', 'passport_number', 'bogus'] });
+  assert.equal(r.status, 201);
+  const ev = r.data.case.events.find((e) => e.type === 'read_back');
+  assert.equal(ev.detail, 'Emirates ID and passport number read aloud and matched');
+  const e2 = await sales('PUT', `/cases/${r.data.case.id}`, { passport_number: 'N7654321', read_back: ['passport_number'] });
+  assert.equal(e2.data.case.events[0].detail, 'passport number read aloud and matched');
+});

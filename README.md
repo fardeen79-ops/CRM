@@ -80,6 +80,12 @@ Processors have a **Call-backs** page listing every scheduled call-back, soonest
 
 Alerts are checked every 30 seconds by the server and again whenever cases are read, so they go out at the set time even on a quiet system. Each call-back alerts once.
 
+### Typing by voice and reading numbers back
+
+On the case form, boxes for names, company, address, city, lead source and notes have a **microphone**: tap it and say the words, and they are typed in (names in Title Case; notes are added to what is already there). The browser does the recognition itself (Chrome, Edge and Safari; not Firefox) and nothing is sent to the CRM server. The buttons only appear where speech is available, and the microphone needs permission and HTTPS.
+
+The Emirates ID and passport boxes also have **Read it back to check**: after typing or scanning the number, the sales person reads it aloud, digit by digit (letters as "N" or "November"; "double seven" works), and the form says whether it matches. A match is recorded on the case timeline as *Number checked by read-back*. Changing the number clears the check.
+
 ### Scanning the Emirates ID
 
 The **Scan Emirates ID** button on the entry form fills in the customer's **first, middle and last name** and **Emirates ID number**. Staff choose which side of the card to scan:
@@ -376,7 +382,7 @@ src/
   credit-cards.js  the credit card list shown when Credit Card is selected
   auth.js      users, scrypt password hashing, sessions
   db.js        SQLite schema
-public/        single-page UI (vanilla JS, no build step)
+public/        single-page UI (vanilla JS, no build step); speech.js handles dictation and read-back
 scripts/       demo seed data
 test/          end-to-end API tests (node:test)
 ```
