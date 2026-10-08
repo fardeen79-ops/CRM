@@ -745,4 +745,8 @@ test('sales manager incentives: per-card slabs for card managers, a banded perce
   const plRep = (await mis('GET', `/reports/pl_sm_incentives?cycle=${cycle}`)).data;
   assert.deepEqual([plRep.rows.find((r) => r.manager === 'SM Two').rate, plRep.rows.find((r) => r.manager === 'SM Two').incentive_aed, plRep.rows.some((r) => r.manager === 'SM One')], ['0.0200%', 214, false]);
   assert.equal((await gov('GET', `/reports/sm_incentives?cycle=${cycle}`)).status, 404);
+  // Cards cross-sold by loan staff in the team are added to the card manager's numbers: Amal's Mass card (650 points) under SM One.
+  assert.equal((await mis('PATCH', `/users/${id('amal@t.local')}`, { core_product: 'personal_loan', team_leader_id: id('tl-auh@t.local'), sales_manager_id: id('sm1@t.local') })).status, 200);
+  const x = (await sm1('GET', `/incentives/me?cycle=${cycle}`)).data.teams.find((t) => t.type === 'cc_sales_manager').incentive;
+  assert.deepEqual([x.team_size, x.cards_sold, x.cross_sell_cards, x.points, x.achievement_pct, x.incentive_aed], [1, 4, 1, 2750, 275, 200]);
 });

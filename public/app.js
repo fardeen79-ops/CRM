@@ -2077,13 +2077,13 @@ function smIncentiveCard({ incentive: i, cc_sm_slabs = [], sm_rules: r, conditio
     <div class="card-head"><h2>My team incentive · credit cards · ${i.slab}</h2>
       <span class="chip ${i.aed_per_card ? 'good' : ''}">AED ${i.aed_per_card} per card</span></div>
     <div class="kpis">
-      <div class="kpi"><span class="kpi-label">Team card points</span><span class="kpi-value">${fmtAmount(i.points)}</span><span class="kpi-sub">${i.cards_sold} cards by ${i.team_size} core card staff</span></div>
+      <div class="kpi"><span class="kpi-label">Team card points</span><span class="kpi-value">${fmtAmount(i.points)}</span><span class="kpi-sub">${i.cards_sold} cards by ${i.team_size} core card staff${i.cross_sell_cards ? ` (${i.cross_sell_cards} cross-sold by the rest of the team)` : ''}</span></div>
       <div class="kpi"><span class="kpi-label">Against team target</span><span class="kpi-value">${i.achievement_pct == null ? '—' : `${i.achievement_pct}%`}</span><span class="kpi-sub">combined targets ${fmtAmount(i.combined_target)} points${i.staff_without_target ? ` · ${i.staff_without_target} without a target` : ''}</span></div>
       <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">${i.cards_sold} cards × AED ${i.aed_per_card}</span></div>
     </div>
     <table class="bands"><thead><tr><th>Team achievement</th><th>Per card</th></tr></thead>
       <tbody>${cc_sm_slabs.map((b) => html`<tr class="${b.label === i.slab ? 'on' : ''}"><td>${b.label}</td><td>AED ${b.aed}</td></tr>`)}</tbody></table>
-    <p class="muted small">Every card sold by your core credit card staff on files completed in the cycle pays the slab amount; nothing below ${r.cc_qualify_pct}% of the team's combined card targets.</p>
+    <p class="muted small">Every card sold by your team on files completed in the cycle pays the slab amount, cards cross-sold by loan staff included; nothing below ${r.cc_qualify_pct}% of the team's combined card targets.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
 }

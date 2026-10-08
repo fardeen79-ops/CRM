@@ -318,8 +318,8 @@ export function plTlIncentiveRows(db, cycle, region = null) {
 // sold, by the team's achievement of its combined card targets. A manager of personal loan
 // production earns a percentage of the whole production (core loan staff plus loans cross-sold by
 // the rest of the team, Emirates Islamic buy-outs at 50%) by its achievement of the core staff's
-// combined targets. The bank confirmed the loan grid for card managers who also manage loans; a
-// dedicated core loan manager grid is not verified, so the same grid applies to every manager.
+// combined targets. The loan grid applies to every manager with loan staff (confirmed). Cards
+// cross-sold by the rest of a card manager's team are added to the team's card numbers.
 export const CC_SM_SLABS = [
   { from: 70, to: 79.99, aed: 15 }, { from: 80, to: 99.99, aed: 20 }, { from: 100, to: 109.99, aed: 30 }, { from: 110, to: 124.99, aed: 35 },
   { from: 125, to: 139.99, aed: 40 }, { from: 140, to: 149.99, aed: 45 }, { from: 150, to: Infinity, aed: 50 },
@@ -344,17 +344,26 @@ function plCountedFor(db, staffId, cycle) {
 
 /** A credit card sales manager's or ASM's incentive for a cycle: a flat amount per card by the core card team's achievement. */
 export function ccSmIncentiveFor(db, managerId, role, cycle) {
-  const team = smTeamOf(db, managerId, role, 'credit_card');
-  let combined_target = 0; let staff_without_target = 0; let cards_sold = 0; let points = 0; let files = 0;
+  const everyone = smTeamOf(db, managerId, role);
+  const team = everyone.filter((s) => s.core_product === 'credit_card');
+  const { start, end } = cycleRange(cycle);
+  let combined_target = 0; let staff_without_target = 0; let cards_sold = 0; let points = 0; let files = 0; let cross_sell_cards = 0;
   for (const s of team) {
     const i = incentiveFor(db, s.id, cycle);
     if (i.target == null) staff_without_target++; else combined_target += i.target;
     cards_sold += i.cards_sold; points += i.card_points; files += i.files;
   }
+  // Cards cross-sold by the rest of the team (loan and other staff) count in the card numbers.
+  for (const s of everyone.filter((s) => s.core_product !== 'credit_card')) {
+    for (const c of db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND c.credit_card IS NOT NULL AND ${COMPLETED_IN_SQL}`).all(s.id, start, end)) {
+      if (!includesCard(c)) continue;
+      cross_sell_cards++; cards_sold++; points += achievedBy('credit_card', c);
+    }
+  }
   const achievement_pct = combined_target ? Math.round((points / combined_target) * 1000) / 10 : null;
   const slab = achievement_pct == null ? null : CC_SM_SLABS.find((b) => achievement_pct >= b.from && achievement_pct <= b.to) || null;
   const aed_per_card = slab ? slab.aed : 0;
-  return { cycle, team_size: team.length, staff_without_target, combined_target, points, achievement_pct, slab: slab ? plTlBandLabel(slab) : `Below ${SM_RULES.cc_qualify_pct}%`, cards_sold, aed_per_card, incentive_aed: round2(cards_sold * aed_per_card), files };
+  return { cycle, team_size: team.length, staff_without_target, combined_target, points, achievement_pct, slab: slab ? plTlBandLabel(slab) : `Below ${SM_RULES.cc_qualify_pct}%`, cards_sold, cross_sell_cards, aed_per_card, incentive_aed: round2(cards_sold * aed_per_card), files };
 }
 
 /** A sales manager's or ASM's personal loan incentive for a cycle: a percentage of the team's whole loan production, cross-sell included, by achievement of the core loan staff's targets. */
