@@ -656,3 +656,6 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .buyout-line { display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; align-items: center; margin-top: 8px; }
 .buyout-line [data-bank-other] { grid-column: 2 / span 2; }
 @media (max-width: 760px) { .buyout-line { grid-template-columns: 1fr; } .buyout-line [data-bank-other] { grid-column: auto; } }
+
+.buyout-block .sub-label, .card-check .sub-label { margin-bottom: 6px; }
+.buyout-block .segmented { margin-top: 2px; }
