@@ -270,6 +270,14 @@ CREATE TABLE IF NOT EXISTS auto_loan_points (
   set_at      TEXT NOT NULL
 );
 
+-- What the bank pays per product (overrides the built-in rates in payouts.js).
+CREATE TABLE IF NOT EXISTS payout_rules (
+  key    TEXT PRIMARY KEY,
+  value  REAL NOT NULL,
+  set_by INTEGER REFERENCES users(id),
+  set_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS report_runs (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

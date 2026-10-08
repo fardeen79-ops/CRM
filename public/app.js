@@ -495,7 +495,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|auto_loan_points)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|auto_loan_points|payout_rules)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
@@ -622,6 +622,10 @@ async function viewDashboard() {
     ])}` : ''}
     ${cyc ? html`<h2 class="tiles-head">${cycleName(cyc.cycle)} cycle · ${cycleSpan(cyc.cycle)} · ${cyc.days_left} ${cyc.days_left === 1 ? 'day' : 'days'} left <a class="tiles-link" href="#/targets">${r === 'sales' ? 'My targets' : 'Targets'} →</a></h2>
       ${targetTiles(cyc, cyc.total)}` : ''}
+    ${s.revenue ? html`<h2 class="tiles-head">Payout from the bank · ${cycleName(s.revenue.cycle)} cycle</h2>${tileGrid([
+      ['Earned', `AED ${fmtAmount(s.revenue.completed_aed)}`, '#/reports?report=sourcing&run=1', false, `${s.revenue.completed_files} ${s.revenue.completed_files === 1 ? 'file' : 'files'} completed this cycle`],
+      ['In the pipeline', `AED ${fmtAmount(s.revenue.pipeline_aed)}`, '#/cases', false, `${s.revenue.pipeline_files} open ${s.revenue.pipeline_files === 1 ? 'file' : 'files'}, if all complete`],
+    ])}` : ''}
     ${statusOverview(cs, s.total)}
     ${team && team.nodes.length ? html`<div class="card team-card"><div class="card-head"><h2>${team.levels[0] === 'staff' ? 'My team' : `By ${team.level_labels[team.levels[0]].toLowerCase()}`} · ${cycleName(team.cycle)} cycle</h2><a class="tiles-link" href="#/team">Full team view →</a></div>
       ${teamTable({ ...team, nodes: team.nodes.map((n) => ({ ...n, children: [] })) })}</div>` : ''}
@@ -1683,6 +1687,7 @@ async function viewCase(id) {
           <h2 class="sub">Product</h2>
           <dl class="details">
             ${row('Core product', state.meta.core_products[c.core_product])}
+            ${c.payout ? html`<dt>Agency payout</dt><dd><strong>AED ${fmtAmount(c.payout.total)}</strong>${c.payout.parts.length ? html`<div class="muted small">${c.payout.parts.map((p) => `${p.basis}${p.rate != null ? ` · ${p.rate}% of AED ${fmtAmount(p.amount)}` : ''}: AED ${fmtAmount(p.payout)}`).join(' · ')}</div>` : html`<div class="muted small">No payable product on this file yet</div>`}</dd>` : ''}
             <dt>Product</dt><dd>${c.product === 'bundle'
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
@@ -2539,6 +2544,13 @@ const BULK = {
     template: 'auto-loan-points-template.csv',
     done: ['#/targets', 'Open targets'],
   },
+  payout_rules: {
+    tab: 'Payout rules',
+    title: 'Upload the bank\'s payout rates',
+    lede: 'What the bank pays the agency per product: a flat amount per card by category (Mass, Premium, Super Premium, and noon One on its own rate), a percentage of the loan amount for personal loans (lower when buying out an Emirates Islamic loan) and for auto loans by new or used car. One row per rule you want to change; the others keep their current value. Payouts show on each file for managers and above, on the dashboard and in the sourcing, register and card reports.',
+    template: 'payout-rules-template.csv',
+    done: ['#/reports?report=sourcing&run=1', 'Open the sourcing report'],
+  },
   targets: {
     tab: 'Targets',
     title: 'Upload targets',
@@ -2557,6 +2569,7 @@ const BULK_WORDS = {
   card_products: { one: 'card', many: 'cards', verb: 'Listed', who: 'Card', names: ['cardname'], sep: ' ', after: 'The New case form now offers exactly these cards.', excel: '' },
   target_rules: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['product', 'salaryfromaed'], sep: ' · ', after: 'Press Generate from salaries on the Targets page to apply them.', excel: '' },
   auto_loan_points: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['loanamountfromaed'], sep: ' ', after: 'Auto loan points now use these bands.', excel: '' },
+  payout_rules: { one: 'rule', many: 'rules', verb: 'Saved', who: 'Rule', names: ['rule'], sep: ' ', after: 'Payouts on files, the dashboard and reports now use these rates.', excel: '' },
 };
 
 function viewBulkUpload(kind) {

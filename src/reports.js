@@ -6,6 +6,7 @@ import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CA
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 import { cardProducts } from './credit-cards.js';
+import { payoutFor, cardPayout, bestCardPayout, PAYOUT_ROLES } from './payouts.js';
 
 const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
@@ -68,6 +69,14 @@ const STAFF_SQL = `SELECT u.id, u.name, u.sales_code, tl.name AS team_leader_nam
   FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id`;
 const staffById = (db) => new Map(db.prepare(STAFF_SQL).all().map((s) => [s.id, s]));
 
+// Payout columns are for managers and above; sales staff and processors never see what a file earns.
+function withoutPayout(result, user) {
+  if (PAYOUT_ROLES.includes(user.role)) return result;
+  const keys = result.columns.filter((c) => c.key.startsWith('payout') || c.key.startsWith('revenue')).map((c) => c.key);
+  if (!keys.length) return result;
+  return { ...result, columns: result.columns.filter((c) => !keys.includes(c.key)), rows: result.rows.map((r) => { const o = { ...r }; for (const k of keys) delete o[k]; return o; }), totals: result.totals && Object.fromEntries(Object.entries(result.totals).filter(([k]) => !keys.includes(k))) };
+}
+
 function sourcing(db, user, { period, region }) {
   const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
   const rows = db.prepare(`SELECT c.*, asm.name AS asm_name FROM cases c LEFT JOIN users asm ON asm.id = c.asm_id ${sql}`).all(...params);
@@ -77,7 +86,7 @@ function sourcing(db, user, { period, region }) {
     // One row per sales person per team they filed under, so a team change keeps old files with the old team.
     const id = `${c.sales_staff_id ?? c.created_by}|${c.team_leader_id ?? 0}|${c.sales_manager_id ?? 0}`;
     const s = staff.get(c.sales_staff_id ?? c.created_by) || { name: c.sales_staff_name || 'Unknown' };
-    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, temp_ends: 0, cards_active: 0, loans: 0, deviations: 0, promotions: 0, below_eligibility: 0 });
+    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, revenue_aed: 0, temp_ends: 0, cards_active: 0, loans: 0, deviations: 0, promotions: 0, below_eligibility: 0 });
     const r = by.get(id);
     r.sourced++;
     if ([STATUS.PENDING, STATUS.IN_VERIFICATION].includes(c.status)) r.awaiting++;
@@ -89,6 +98,7 @@ function sourcing(db, user, { period, region }) {
     r[c.case_status] = (r[c.case_status] || 0) + 1;
     if (c.case_status === 'completed') {
       r.disbursed_aed += (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0);
+      r.revenue_aed += payoutFor(c).total;
       if (includesCard(c)) { r.temp_ends++; if (c.card_status === 'active') r.cards_active++; }
     }
     if (caseProducts(c).some((p) => p === 'personal_loan' || p === 'auto_loan')) r.loans++;
@@ -97,13 +107,13 @@ function sourcing(db, user, { period, region }) {
     if (c.card_higher_options > 0) r.below_eligibility++;
   }
   const out = [...by.values()].sort((a, b) => b.sourced - a.sourced || a.staff.localeCompare(b.staff));
-  return {
+  return withoutPayout({
     columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('asm', 'ASM', 'text'),
       col('sourced', 'Sourced'), col('approval', 'Awaiting TL/SM approval'), col('awaiting', 'Awaiting verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales'),
-      col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active'), col('deviations', 'Product deviations'), col('promotions', 'New promotions'), col('below_eligibility', 'Cards below eligibility')],
+      col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('revenue_aed', 'Payout (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active'), col('deviations', 'Product deviations'), col('promotions', 'New promotions'), col('below_eligibility', 'Cards below eligibility')],
     rows: out,
-    totals: Object.fromEntries(['deviations', 'promotions', 'below_eligibility', 'sourced', 'approval', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
-  };
+    totals: Object.fromEntries(['deviations', 'promotions', 'below_eligibility', 'sourced', 'approval', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'revenue_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
+  }, user);
 }
 
 function pipeline(db, user, { period, region }) {
@@ -318,7 +328,7 @@ function register(db, user, { period, region }) {
   const out = rows.slice(0, REGISTER_LIMIT).map((raw) => {
     const c = present(user, raw); // hides and masks personal details exactly as on screen
     return {
-      ref: caseRef(c.id), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '',
+      ref: caseRef(c.id), payout_aed: PAYOUT_ROLES.includes(user.role) ? payoutFor(raw).total : undefined, sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '',
       product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
       card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? c.al_interest_rate ?? null, tenure: c.pl_tenure ?? c.al_tenure ?? null, fpd: c.fpd || '',
       auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
@@ -334,7 +344,7 @@ function register(db, user, { period, region }) {
     columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'), col('city', 'City', 'text'), col('salary_bank', 'Salary bank', 'text'), col('product', 'Product', 'text'), col('core_product', 'Core product', 'text'),
       col('card_fee_type', 'Card sourced type', 'text'), col('card_reason', 'Card sold as', 'text'), col('eligible_category', 'Eligible for higher', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest / ROI %', 'rate'), col('tenure', 'Tenure (months)'), col('fpd', 'FPD', 'date'), col('auto_loan_type', 'Auto loan type', 'text'), col('car', 'Car', 'text'), col('dealer', 'Dealer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
       col('verification', 'Verification', 'text'), col('verification_reason', 'Reason', 'text'), col('processor', 'Processor', 'text'), col('verified_at', 'Verified at', 'datetime'), col('case_status', 'Case status', 'text'), col('case_status_at', 'Case status at', 'datetime'), col('disbursed_aed', 'Disbursed (AED)', 'aed'),
-      col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text')],
+      col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text'), ...(PAYOUT_ROLES.includes(user.role) ? [col('payout_aed', 'Payout (AED)', 'aed')] : [])],
     rows: out,
     totals: { ref: `${out.length} files`, disbursed_aed: sum(out, 'disbursed_aed') },
     truncated,
@@ -373,20 +383,24 @@ function card_downsell(db, user, { period, region }) {
   const out = rows.map((c) => {
     const eligible = c.salary == null ? null : bestPoints(c.salary);
     const sold = c.card_points ?? 0;
+    const paid = cardPayout(c.card_category, c.credit_card) ?? 0;
+    const possible = c.salary == null ? null : bestCardPayout(c.salary);
     return {
       ...caseCells(c), card: c.credit_card || '', category: c.card_category || '', eligible_category: c.card_eligible_category || '', higher_options: c.card_higher_options,
       points_sold: sold, points_eligible: eligible, points_lost: eligible == null ? null : Math.max(0, eligible - sold),
+      payout_earned: paid, payout_possible: possible, payout_lost: possible == null ? null : Math.max(0, possible - paid),
       verification: STATUS_WORDS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status,
     };
   });
   const byStaff = new Map();
   for (const r of out) byStaff.set(r.sales_staff, (byStaff.get(r.sales_staff) || 0) + (r.points_lost || 0));
-  return {
+  return withoutPayout({
     columns: [...CASE_COLS, col('card', 'Card sold', 'text'), col('category', 'Category sold', 'text'), col('eligible_category', 'Eligible for', 'text'), col('higher_options', 'Higher cards available'),
-      col('points_sold', 'Points earned'), col('points_eligible', 'Points possible'), col('points_lost', 'Points lost'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text')],
+      col('points_sold', 'Points earned'), col('points_eligible', 'Points possible'), col('points_lost', 'Points lost'),
+      col('payout_earned', 'Payout earned (AED)', 'aed'), col('payout_possible', 'Payout possible (AED)', 'aed'), col('payout_lost', 'Payout lost (AED)', 'aed'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text')],
     rows: out,
-    totals: { ref: `${out.length} files`, points_sold: sum(out, 'points_sold'), points_eligible: sum(out, 'points_eligible'), points_lost: sum(out, 'points_lost'), sales_staff: [...byStaff].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, k]) => `${n} −${k}`).join(' · ') },
-  };
+    totals: { ref: `${out.length} files`, points_sold: sum(out, 'points_sold'), points_eligible: sum(out, 'points_eligible'), points_lost: sum(out, 'points_lost'), payout_earned: sum(out, 'payout_earned'), payout_possible: sum(out, 'payout_possible'), payout_lost: sum(out, 'payout_lost'), sales_staff: [...byStaff].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, k]) => `${n} −${k}`).join(' · ') },
+  }, user);
 }
 
 const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell };

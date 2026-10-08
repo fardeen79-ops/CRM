@@ -403,3 +403,62 @@ test('reports list card deviations, promotions, approvals waiting and cards sold
   assert.ok(govRow.deviations >= 1 && govRow.below_eligibility >= 1);
   assert.deepEqual((await mis('GET', '/reports')).data.reports.map((r) => r.key).filter((k) => k.startsWith('card_')), ['card_exceptions', 'card_downsell']);
 });
+
+test('payouts: what the bank pays per file, for managers and above, in reports and on the dashboard', async () => {
+  const dana = await login('dana@t.local');
+  const tl = await login('tl-auh@t.local');
+  const mis = await login('mis@t.local');
+  const proc = await login('proc-dxb@t.local');
+  const card = (extra) => ({ customer_name: 'Payout Card', region: 'DXB', phone: '+971 50 111 7777', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary: 32000, ...extra });
+  const mass = (await dana('POST', '/cases', card({}))).data.case;
+  assert.equal(mass.payout, undefined); // sales staff never see it
+  const seen = (await mis('GET', `/cases/${mass.id}`)).data.case.payout;
+  assert.equal(seen.total, 1400);
+  assert.equal((await tl('GET', `/cases/${mass.id}`)).data.case.payout.total, 1400);
+  assert.equal((await proc('GET', `/cases/${mass.id}`)).data.case.payout, undefined);
+  const noon = (await dana('POST', '/cases', card({ credit_card: 'noon One Visa Credit Card' }))).data.case;
+  assert.equal((await mis('GET', `/cases/${noon.id}`)).data.case.payout.total, 1100);
+  const premium = (await dana('POST', '/cases', card({ credit_card: 'Skywards Signature Credit Card' }))).data.case;
+  assert.equal((await mis('GET', `/cases/${premium.id}`)).data.case.payout.total, 2000);
+  // Personal loans: 3% of the amount, 1.5% when buying out an Emirates Islamic loan.
+  const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  const pl = { customer_name: 'Payout Loan', region: 'DXB', phone: '+971 50 111 8888', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd };
+  const fresh = (await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no' })).data.case;
+  assert.equal((await mis('GET', `/cases/${fresh.id}`)).data.case.payout.total, 3000);
+  const eib = (await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Emirates Islamic', amount: 100000 }] })).data.case;
+  assert.equal(eib.status !== undefined, true);
+  const eibPay = (await mis('GET', `/cases/${eib.id}`)).data.case.payout;
+  assert.equal(eibPay.total, 1500);
+  assert.match(eibPay.parts[0].basis, /Emirates Islamic/);
+  const other = (await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Mashreq', amount: 100000 }] })).data.case;
+  assert.equal((await mis('GET', `/cases/${other.id}`)).data.case.payout.total, 3000);
+  // Auto loans: 1.75% used, 0.70% new.
+  const used = (await dana('POST', '/cases', file('Payout Used'))).data.case;
+  assert.equal((await mis('GET', `/cases/${used.id}`)).data.case.payout.total, 875);
+  const brandNew = (await dana('POST', '/cases', { ...file('Payout New'), auto_loan_type: 'new', car_year: 2026 })).data.case;
+  assert.equal((await mis('GET', `/cases/${brandNew.id}`)).data.case.payout.total, 350);
+  // Reports: the down-sell report prices the lost upgrade; the sourcing and register reports carry payout for managers only.
+  const down = (await mis('GET', '/reports/card_downsell')).data;
+  const row = down.rows.find((r) => r.ref === mass.ref);
+  assert.deepEqual([row.payout_earned, row.payout_possible, row.payout_lost], [1400, 2600, 1200]);
+  assert.ok(down.totals.payout_lost >= 1200);
+  assert.ok((await mis('GET', '/reports/sourcing')).data.columns.some((c) => c.key === 'revenue_aed'));
+  const ds = await dana('GET', '/reports/sourcing');
+  assert.ok(ds.status !== 200 || !ds.data.columns.some((c) => c.key === 'revenue_aed'));
+  assert.ok((await mis('GET', '/reports/register')).data.rows.some((r) => r.ref === mass.ref && r.payout_aed === 1400));
+  const dd = await dana('GET', '/reports/card_downsell');
+  assert.ok(dd.status !== 200 || !dd.data.columns.some((c) => c.key.startsWith('payout')));
+  // Dashboard: revenue earned this cycle and in the pipeline, for managers and above.
+  const stats = (await mis('GET', '/stats')).data;
+  assert.ok(stats.revenue.pipeline_aed >= 1400 + 1100 + 2000 + 3000 + 1500 + 3000 + 875 + 350);
+  assert.equal((await dana('GET', '/stats')).data.revenue, undefined);
+  // MIS can change a rate by upload; a team leader cannot.
+  assert.equal((await tl('POST', '/import/payout_rules', { csv: 'Rule,Value\ncard:Mass,1500\n' })).status, 403);
+  const up = (await mis('POST', '/import/payout_rules', { csv: 'Rule,Value\ncard:Mass,1500\nMass card (AED per card),1500\nnonsense,1\n' })).data;
+  assert.equal(up.ok, 2);
+  assert.equal(up.failed, 1);
+  assert.equal((await mis('GET', `/cases/${mass.id}`)).data.case.payout.total, 1500);
+  assert.equal((await mis('GET', '/me')).data.meta.payout_rates['card:Mass'], 1500);
+  assert.equal((await mis('POST', '/import/payout_rules', { csv: 'Rule,Value\ncard:Mass,1400\n' })).data.ok, 1);
+  assert.equal((await mis('GET', `/cases/${mass.id}`)).data.case.payout.total, 1400);
+});

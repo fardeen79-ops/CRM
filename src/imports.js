@@ -9,6 +9,7 @@ import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
 import { BANKS } from './banks.js';
+import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules } from './payouts.js';
 
 export const MAX_ROWS = 1000;
 // Only MIS and business heads can bulk upload, for users and cases alike.
@@ -114,6 +115,11 @@ export const AUTO_LOAN_POINTS_IMPORT_COLUMNS = [
   { key: 'amount_from', header: 'Loan amount from (AED)', required: true, example: '0', help: 'Lowest disbursed amount in the band, inclusive' },
   { key: 'amount_to', header: 'Loan amount to (AED)', required: true, example: '99999', help: 'Highest disbursed amount in the band, inclusive' },
   { key: 'points', header: 'Points', required: true, example: '1', help: 'Points an auto loan in this band earns' },
+];
+
+export const PAYOUT_RULE_IMPORT_COLUMNS = [
+  { key: 'rule', header: 'Rule', required: true, example: 'card:Mass', help: `One of: ${PAYOUT_KEYS.join(', ')} (the rule's name as shown on the Payout rules page also works)` },
+  { key: 'value', header: 'Value', required: true, example: '1400', help: 'AED per card for the card rules; percent of the loan amount for the loan rules (3 = 3%)' },
 ];
 
 export const TARGET_IMPORT_COLUMNS = [
@@ -427,6 +433,30 @@ export function importAutoLoanPoints(db, user, csv, { dryRun = false } = {}) {
     }
     return parsed;
   });
+  return summarize(header, unknown, results, dryRun);
+}
+
+/** Replaces the bank's payout rates: one row per rule, the rest keep their current value. */
+export function importPayoutRules(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user);
+  const { header, records, unknown } = readFile(csv, PAYOUT_RULE_IMPORT_COLUMNS);
+  const ts = new Date().toISOString();
+  const results = run(db, dryRun, () => {
+    const parsed = records.map((record) => rowResult(record, () => {
+      const v = record.values;
+      const text = String(v.rule ?? '').trim();
+      const key = PAYOUT_KEYS.find((k) => k.toLowerCase() === text.toLowerCase()) || PAYOUT_KEYS.find((k) => PAYOUT_LABELS[k].toLowerCase() === text.toLowerCase());
+      if (!key) throw new Error(`Unknown rule: ${text}. Use one of ${PAYOUT_KEYS.join(', ')}`);
+      const value = money(v.value, 'Value');
+      if (key.endsWith('_pct') && value > 100) throw new Error('A percentage rule cannot be above 100');
+      return { key, value, line: record.line, label: PAYOUT_LABELS[key], email: key.endsWith('_pct') ? `${value}%` : `AED ${value.toLocaleString('en-US')}` };
+    }));
+    for (const r of parsed.filter((r) => r.ok)) {
+      db.prepare('INSERT INTO payout_rules (key, value, set_by, set_at) VALUES (?, ?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, set_by = excluded.set_by, set_at = excluded.set_at').run(r.key, r.value, user.id, ts);
+    }
+    return parsed;
+  });
+  loadPayoutRules(db);
   return summarize(header, unknown, results, dryRun);
 }
 

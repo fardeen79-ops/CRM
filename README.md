@@ -164,6 +164,22 @@ Every credit card has a **family**, a **card category** and, when the bank provi
 
 The CRM ships with the bank's product list built in: 68 cards in 20 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
 
+### Payouts: what the bank pays per file
+
+Every file carries the revenue it earns the agency, from the bank's payout rates. Managers (team leader, ASM, sales manager), MIS, business heads and governance see it on the case page (**Agency payout**, with the working), on the dashboard (**Payout from the bank**: earned on files completed this cycle, and what the open pipeline would earn) and in the reports: the sourcing report gains a **Payout (AED)** column, the case register a payout per file, and **Cards sold below eligibility** prices the lost upgrade (**Payout earned / possible / lost**). Sales staff and processors never see payouts.
+
+| Rule | Built-in rate |
+|---|---|
+| Mass card | AED 1,400 per card (noon One Visa: AED 1,100) |
+| Premium card | AED 2,000 per card |
+| Super Premium card | AED 2,600 per card |
+| Personal loan | 3% of the amount (disbursed once completed, else sourced) |
+| Personal loan buying out an Emirates Islamic loan | 1.5% of the amount |
+| Auto loan, new car | 0.70% of the amount |
+| Auto loan, used car | 1.75% of the amount |
+
+MIS or a business head changes any rate from **Bulk upload → Payout rules** (`Rule,Value`; rules named as above or by key, e.g. `card:Mass`, `personal_loan_pct`). `GET /api/me` reports `payout_rates` and `payout_source`.
+
 ### Targets and sales cycles
 
 **Sales cycle.** A cycle runs from the **21st of one month to the 20th of the next** and is named after the month it ends in, so 21 May – 20 June is the **June cycle**. Dates are UAE dates.
