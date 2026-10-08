@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS cases (
   middle_name        TEXT,
   last_name          TEXT,
   company_name       TEXT,
+  salary_bank        TEXT, -- the bank the customer's salary is currently transferred to
   salary             REAL,
   eid_number         TEXT,
   passport_number    TEXT,
@@ -335,7 +336,7 @@ const ADDED_COLUMNS = {
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
   pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
-  card_fee_type: 'TEXT', fpd: 'TEXT', card_category: 'TEXT', card_points: 'REAL',
+  card_fee_type: 'TEXT', fpd: 'TEXT', card_category: 'TEXT', card_points: 'REAL', salary_bank: 'TEXT',
   pl_tenure: 'INTEGER', pl_buyouts: 'TEXT', secondary_buyout: 'TEXT', auto_loan_type: 'TEXT', car_make: 'TEXT', car_model: 'TEXT', car_year: 'INTEGER', dealer_details: 'TEXT', al_lead_source: 'TEXT', al_interest_rate: 'REAL', al_tenure: 'INTEGER',
   card_min_salary: 'REAL', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',

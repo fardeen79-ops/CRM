@@ -876,6 +876,15 @@ async function viewCaseForm(id) {
         <div class="form-grid">
           ${field('company_name', 'Company name', { placeholder: 'Employer', dictate: true })}
           ${field('salary', 'Monthly salary (AED)', { type: 'number', attrs: money })}
+          <div>
+            <label for="f-salary_bank">Salary transferred to <span class="req">*</span></label>
+            <select id="f-salary_bank" name="salary_bank" required>
+              <option value="">Choose the customer's salary bank…</option>
+              ${state.meta.banks.map((g) => html`<optgroup label="${g.group}">${g.banks.map((b) => html`<option value="${b}" ${c.salary_bank === b ? raw('selected') : ''}>${b}</option>`)}</optgroup>`)}
+              <option value="${OTHER_BANK}" ${c.salary_bank && !listedBanks.includes(c.salary_bank) ? raw('selected') : ''}>Other bank (type the name)</option>
+            </select>
+            <input id="f-salary_bank_other" name="salary_bank_other" placeholder="Bank name" aria-label="Other salary bank" value="${c.salary_bank && !listedBanks.includes(c.salary_bank) ? c.salary_bank : ''}" ${c.salary_bank && !listedBanks.includes(c.salary_bank) ? '' : raw('hidden disabled')} style="margin-top:6px">
+          </div>
         </div>
       </section>
 
@@ -1133,6 +1142,9 @@ async function viewCaseForm(id) {
   boxes.forEach((b) => (b.onchange = updateProductFields));
   loanRadios.forEach((r) => (r.onchange = updateProductFields));
   secondaryRadios.forEach((r) => (r.onchange = updateProductFields));
+  const salaryBank = $('#f-salary_bank');
+  const salaryBankOther = $('#f-salary_bank_other');
+  salaryBank.onchange = () => { const other = salaryBank.value === OTHER_BANK; salaryBankOther.hidden = !other; salaryBankOther.disabled = !other; salaryBankOther.required = other; if (other) salaryBankOther.focus(); };
   // Buyout builders: what the loan buys out, as rows of kind, bank and amount; cards ask how many.
   const bankOptions = (chosen) => html`<option value="">Bank…</option>${state.meta.banks.map((g) => html`<optgroup label="${g.group}">${g.banks.map((b) => html`<option value="${b}" ${chosen === b ? raw('selected') : ''}>${b}</option>`)}</optgroup>`)}<option value="${OTHER_BANK}" ${chosen && !listedBanks.includes(chosen) ? raw('selected') : ''}>Other bank (type the name)</option>`;
   const builders = {};
@@ -1320,6 +1332,8 @@ async function viewCaseForm(id) {
       // Leave hidden values untouched unless a replacement was typed.
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.pl_buyouts = collectBuyouts();
+      body.salary_bank = body.salary_bank === OTHER_BANK ? body.salary_bank_other?.trim() : body.salary_bank ?? null;
+      delete body.salary_bank_other;
       if (scanned) body.eid_scanned = scanned;
       if (readBackOk.size) body.read_back = [...readBackOk];
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
@@ -1652,6 +1666,7 @@ async function viewCase(id) {
             ${row('Passport number', c.passport_number, true, 'passport_number')}
             ${row('Company', c.company_name, false, 'company_name')}
             ${row('Monthly salary', c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
+            ${c.salary_bank ? html`<dt>Salary transferred to</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
             ${row('Bidaya ID', c.bidaya_id, true)}
             ${row('App ID', c.app_id, true)}
             ${row('Email', c.email)}

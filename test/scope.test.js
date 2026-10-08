@@ -351,3 +351,11 @@ test('fresh loans confirm secondary buyouts; buy-out loans list the primary buyo
   const stray = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'mortgage', bank: 'ADCB', amount: 1 }] });
   assert.deepEqual(stray.data.case.pl_buyouts, []);
 });
+
+test('the salary transfer bank is saved on the file', async () => {
+  const dana = await login('dana@t.local');
+  const r = await dana('POST', '/cases', { ...file('Salary bank'), salary_bank: 'Emirates NBD' });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.case.salary_bank, 'Emirates NBD');
+  assert.equal((await dana('PUT', `/cases/${r.data.case.id}`, { salary_bank: 'Some Other Bank' })).data.case.salary_bank, 'Some Other Bank');
+});

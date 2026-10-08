@@ -272,6 +272,9 @@ The API fields are `region`, `core_product` and, for team leaders and sales mana
 
 ### Customer details
 
+The Employment section also records the bank the customer's **salary is currently transferred to**, chosen from the bank list (with an Other option), required on the form; it shows on the case page and in the register export, and is a column in the cases bulk upload.
+
+
 The case form groups the customer's details:
 
 - **Customer:** first, middle and last name, mobile number, Emirates ID and passport number.

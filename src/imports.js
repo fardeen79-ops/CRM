@@ -55,6 +55,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'alt_phone', header: 'Alternate phone', example: '' },
   { key: 'email', header: 'Customer email', example: 'customer@example.com' },
   { key: 'company_name', header: 'Company name', example: 'Emirates Logistics LLC' },
+  { key: 'salary_bank', header: 'Salary transfer bank', example: 'Emirates NBD', help: 'The bank the salary is currently transferred to' },
   { key: 'salary', header: 'Salary', example: '25000', help: 'Monthly, AED' },
   { key: 'eid_number', header: 'Emirates ID', example: '784-1990-1234567-1', help: 'Keep the dashes so Excel treats it as text' },
   { key: 'passport_number', header: 'Passport number', example: 'N1234567' },
@@ -258,6 +259,7 @@ function caseInput(v) {
       : '',
     credit_card: v.credit_card ? cardProduct(v.credit_card)?.name || v.credit_card : '',
     buyout_bank: v.buyout_bank ? BANK_BY_NORM.get(norm(v.buyout_bank)) || v.buyout_bank : '',
+    salary_bank: v.salary_bank ? BANK_BY_NORM.get(norm(v.salary_bank)) || v.salary_bank : '',
     pl_buyouts: parseBuyoutsColumn(v.buyouts), secondary_buyout: v.secondary_buyout,
   };
   if (!input.sourcing_date) throw new Error('Sourcing date is required');
