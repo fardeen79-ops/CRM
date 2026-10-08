@@ -66,8 +66,16 @@ const ACTION_LABEL = {
   bulk_upload: 'Added by bulk upload',
 };
 
-const state = { user: null, meta: null, unread: 0, unreadMessages: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0, callbacksDue: 0 };
+const state = { user: null, meta: null, region: '', unread: 0, unreadMessages: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0, callbacksDue: 0 };
 const app = document.getElementById('app');
+
+// Roles that see every file can narrow the whole app to one region (DXB or AUH).
+const REGION_ROLES = ['business_head', 'mis', 'governance'];
+const canPickRegion = () => Boolean(state.user) && REGION_ROLES.includes(state.user.role);
+const loadRegion = () => { try { state.region = localStorage.getItem('crm-region') || ''; } catch { state.region = ''; } };
+const saveRegion = (r) => { state.region = r; try { r ? localStorage.setItem('crm-region', r) : localStorage.removeItem('crm-region'); } catch { /* storage blocked */ } };
+// Reads that follow the region view when one is chosen.
+const REGION_PATHS = /^\/(cases|stats|targets|hierarchy|reports\/)/;
 
 // ---------- helpers ----------
 const esc = (v) =>
@@ -159,6 +167,7 @@ function ago(iso) {
 
 async function api(path, { method = 'GET', body } = {}) {
   if (method !== 'GET') body ??= {};
+  if (method === 'GET' && state.region && canPickRegion() && REGION_PATHS.test(path) && !/[?&]region=/.test(path)) path += `${path.includes('?') ? '&' : '?'}region=${state.region}`;
   const res = await fetch(`/api${path}`, {
     method,
     headers: body ? { 'content-type': 'application/json' } : {},
@@ -222,6 +231,7 @@ async function boot() {
     const me = await api('/me');
     state.user = me.user;
     state.meta = me.meta;
+    loadRegion();
   } catch {
     return;
   }
@@ -265,6 +275,8 @@ function updateBadges() {
 // ---------- shell ----------
 // Sidebar icons (24px stroke icons, drawn with currentColor).
 const ICON_PATHS = {
+  tree: '<rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="15" width="6" height="4" rx="1"/><rect x="15" y="15" width="6" height="4" rx="1"/><path d="M12 7v4M6 15v-4h12v4"/>',
+  report: '<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 17v-4M12 17v-7M15 17v-2"/>',
   home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
   queue: '<path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h4M8 17h4"/>',
   urgent: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/>',
@@ -312,7 +324,9 @@ function navGroups() {
 
   const perf = [];
   if (['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'].includes(r)) perf.push(['#/targets', r === 'sales' ? 'My targets' : 'Targets', 'target']);
+  if (['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r)) perf.push(['#/team', 'Team view', 'tree']);
   if (r === 'mis' || r === 'business_head') perf.push(['#/cards', 'Card activation', 'card']);
+  if (state.meta.reports?.length) perf.push(['#/reports', 'Reports', 'report']);
   if (perf.length) groups.push(['Performance', perf]);
 
   const admin = [];
@@ -360,6 +374,9 @@ function shell(content) {
           <button class="menu-btn" id="menu-btn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
           <a class="brand mobile-brand" href="#/"><span class="logo">✓</span> Sourcing CRM</a>
           <div class="topbar-title">${ROLE_LABEL[state.user.role]} workspace</div>
+          ${canPickRegion() ? html`<div class="segmented region-switch" role="radiogroup" aria-label="Region view">
+            ${[['', 'All regions'], ...Object.keys(state.meta.regions).map((k) => [k, k])].map(([k, l]) => html`<label><input type="radio" name="region-view" value="${k}" ${state.region === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+          </div>` : ''}
           <button class="bell" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot" ${state.unread ? '' : 'hidden'}>${state.unread}</span></button>
         </header>
         <div id="notif-panel"></div>
@@ -373,6 +390,7 @@ function shell(content) {
     renderLogin();
   };
   document.getElementById('bell').onclick = toggleNotifications;
+  app.querySelectorAll('[name=region-view]').forEach((i) => (i.onchange = () => { saveRegion(i.value); route(); }));
   paintWatermark();
   // Phones and narrow windows: the sidebar slides in over the page.
   const sidebar = document.getElementById('sidebar');
@@ -473,6 +491,8 @@ async function route() {
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
+    if (path === '/team') return await viewTeam(params);
+    if (path === '/reports') return await viewReports(params);
     if (path === '/cards') return await viewCards(params);
     shell(html`<div class="card empty">Page not found</div>`);
   } catch (err) {
@@ -485,7 +505,8 @@ async function viewDashboard() {
   const r = effRole();
   // Targets for the current sales cycle, for the people who have them.
   const hasTargets = ['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'].includes(r);
-  const [s, cyc] = await Promise.all([api('/stats'), hasTargets ? api('/targets') : null]);
+  const hasTeam = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
+  const [s, cyc, team] = await Promise.all([api('/stats'), hasTargets ? api('/targets') : null, hasTeam ? api('/hierarchy').catch(() => null) : null]);
   const by = s.by_status;
   const cs = s.by_case_status;
   const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
@@ -571,7 +592,7 @@ async function viewDashboard() {
   shell(html`
     <div class="page-head dash-head">
       <div>
-        <div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · ${ROLE_LABEL[r]}</div>
+        <div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · ${ROLE_LABEL[state.user.role]}${state.region ? ` · ${state.meta.regions[state.region]}` : canPickRegion() ? ' · All regions' : ''}</div>
         <h1>Hello, ${state.user.name.split(' ')[0]}</h1>
         <p class="muted lede">${intro}</p>
       </div>
@@ -593,6 +614,8 @@ async function viewDashboard() {
     ${cyc ? html`<h2 class="tiles-head">${cycleName(cyc.cycle)} cycle · ${cycleSpan(cyc.cycle)} · ${cyc.days_left} ${cyc.days_left === 1 ? 'day' : 'days'} left <a class="tiles-link" href="#/targets">${r === 'sales' ? 'My targets' : 'Targets'} →</a></h2>
       ${targetTiles(cyc, cyc.total)}` : ''}
     ${statusOverview(cs, s.total)}
+    ${team && team.nodes.length ? html`<div class="card team-card"><div class="card-head"><h2>${team.level_labels[team.levels[0]]}s · ${cycleName(team.cycle)} cycle</h2><a class="tiles-link" href="#/team">Full team view →</a></div>
+      ${teamTable({ ...team, nodes: team.nodes.map((n) => ({ ...n, children: [] })) })}</div>` : ''}
     <h2 class="tiles-head">Verification</h2>
     ${tileGrid(verifyTiles)}
     ${oversight ? html`<div class="grid two-col"><div>${main}</div><div>${teamTables}</div></div>` : main}`);
@@ -2399,6 +2422,185 @@ function viewBulkUpload(kind) {
       checkBtn.textContent = 'Check file';
     }
   };
+}
+
+// ---------- team view: the sales hierarchy rolled up at every level ----------
+const KPI_COLS = [['sourced', 'Sourced'], ['awaiting', 'Awaiting verification'], ['verification_pending', 'Verification pending'], ['verified', 'Verified'], ['completed', 'Completed'], ['disbursed_aed', 'Disbursed (AED)']];
+const regionLabel = () => (state.region ? ` · ${state.region}` : '');
+
+/** The tree as table rows: each level indented, groups expandable, staff rows linking to their cases. */
+function teamRows(nodes, rep, depth = 0, parent = '') {
+  return nodes.map((n, i) => {
+    const id = `${parent}${i}`;
+    const k = n.kpis;
+    const group = n.level !== 'staff';
+    const loans = (k.achieved.personal_loan || 0) + (k.achieved.auto_loan || 0);
+    const loanTarget = k.target.personal_loan != null || k.target.auto_loan != null ? (k.target.personal_loan || 0) + (k.target.auto_loan || 0) : null;
+    const row = html`<tr class="team-row level-${n.level}" data-node="${id}" data-parent="${parent}" ${group ? raw('data-open="1"') : raw(`data-href="#/cases?cycle=${rep.cycle}&staff=${n.id}"`)} style="--depth:${depth}">
+      <td><div class="team-name">${group ? html`<button class="tree-toggle" type="button" aria-expanded="true" aria-label="Collapse ${n.name}">▾</button>` : html`<span class="tree-leaf"></span>`}
+        <div><strong>${n.name}</strong><div class="muted small">${rep.level_labels[n.level]}${n.sales_code ? html` · <span class="mono">${n.sales_code}</span>` : ''}${n.level === 'staff' && n.region ? ` · ${n.region}` : ''}${n.active === 0 ? ' · disabled' : ''}</div></div></div></td>
+      <td>${k.staff}</td>
+      ${KPI_COLS.map(([key]) => html`<td>${key === 'disbursed_aed' ? (k[key] ? fmtAedShort(k[key]) : '—') : k[key]}</td>`)}
+      <td>${meter(k.achieved.credit_card || 0, k.target.credit_card ?? null, { compact: true })}</td>
+      <td>${meter(loans, loanTarget, { compact: true, unit: 'aed' })}</td>
+      <td class="small">${k.cards.active}/${k.cards.temp_end}${k.cards.temp_end ? html` <span class="muted">(${activationRate(k.cards)}%)</span>` : ''}</td>
+    </tr>`;
+    return html`${row}${group ? teamRows(n.children, rep, depth + 1, `${id}.`) : ''}`;
+  });
+}
+
+function teamTable(rep) {
+  return html`<div class="table-wrap"><table class="team-table">
+    <thead><tr><th>${rep.level_labels[rep.levels[0]]}</th><th>Staff</th>${KPI_COLS.map(([, l]) => html`<th>${l}</th>`)}<th>Credit cards vs target</th><th>Loans vs target (AED)</th><th>Cards active</th></tr></thead>
+    <tbody>${teamRows(rep.nodes, rep)}</tbody>
+    ${rep.nodes.length > 1 ? html`<tfoot><tr><td><strong>Total</strong></td><td>${rep.total.staff}</td>${KPI_COLS.map(([key]) => html`<td>${key === 'disbursed_aed' ? (rep.total[key] ? fmtAedShort(rep.total[key]) : '—') : rep.total[key]}</td>`)}
+      <td>${meter(rep.total.achieved.credit_card || 0, rep.total.target.credit_card ?? null, { compact: true })}</td><td>${meter((rep.total.achieved.personal_loan || 0) + (rep.total.achieved.auto_loan || 0), rep.total.target.personal_loan != null || rep.total.target.auto_loan != null ? (rep.total.target.personal_loan || 0) + (rep.total.target.auto_loan || 0) : null, { compact: true, unit: 'aed' })}</td><td class="small">${rep.total.cards.active}/${rep.total.cards.temp_end}</td></tr></tfoot>` : ''}
+  </table></div>`;
+}
+
+function wireTree(root) {
+  root.querySelectorAll('.tree-toggle').forEach((btn) => (btn.onclick = (e) => {
+    e.stopPropagation();
+    const tr = btn.closest('tr');
+    const open = tr.dataset.open !== '1';
+    tr.dataset.open = open ? '1' : '0';
+    btn.textContent = open ? '▾' : '▸';
+    btn.setAttribute('aria-expanded', String(open));
+    const prefix = `${tr.dataset.node}.`;
+    root.querySelectorAll('tr[data-node]').forEach((row) => {
+      if (!row.dataset.node.startsWith(prefix)) return;
+      // A row shows when every group above it is open.
+      let show = open;
+      let p = row.dataset.parent;
+      while (show && p) { const parent = root.querySelector(`tr[data-node="${p.slice(0, -1)}"]`); show = parent?.dataset.open === '1'; p = parent?.dataset.parent; }
+      row.hidden = !show;
+    });
+  }));
+}
+
+async function viewTeam(params) {
+  const cycle = params.get('cycle') || state.meta.current_cycle;
+  const rep = await api(`/hierarchy?cycle=${encodeURIComponent(cycle)}`);
+  const r = effRole();
+  const top = rep.level_labels[rep.levels[0]];
+  const t = rep.total;
+  shell(html`
+    <div class="page-head">
+      <div>
+        <div class="eyebrow">Sales cycle · ${cycleSpan(rep.cycle)}${rep.is_current ? ` · ${rep.days_left} ${rep.days_left === 1 ? 'day' : 'days'} left` : ''}${regionLabel()}</div>
+        <h1>Team view — ${cycleName(rep.cycle)}</h1>
+        <p class="muted lede">Every level of the hierarchy you oversee, ${rep.levels.map((l) => rep.level_labels[l].toLowerCase()).join(' → ')}, with the numbers added up at each level. Sourced counts files entered in the cycle; completed and disbursed count case status set to Completed in the cycle; awaiting and pending are open right now. Select a sales person to see their completed cases.</p>
+      </div>
+      <div class="cycle-nav">
+        <a class="btn" href="#/team?cycle=${shiftCycle(rep.cycle, -1)}" aria-label="Previous cycle">‹ ${cycleName(shiftCycle(rep.cycle, -1)).split(' ')[0]}</a>
+        ${rep.is_current ? '' : html`<a class="btn" href="#/team">Current cycle</a>`}
+        <a class="btn" href="#/team?cycle=${shiftCycle(rep.cycle, 1)}" aria-label="Next cycle">${cycleName(shiftCycle(rep.cycle, 1)).split(' ')[0]} ›</a>
+      </div>
+    </div>
+    <div class="kpis team-kpis">
+      ${[['Sales staff', t.staff, ''], ['Sourced', t.sourced, 'in this cycle'], ['Awaiting verification', t.awaiting, 'open now'], ['Verification pending', t.verification_pending, 'open now', t.verification_pending > 0], ['Verified', t.verified, 'in this cycle'], ['Completed', t.completed, 'case status, this cycle'], ['Disbursed', t.disbursed_aed ? fmtAedShort(t.disbursed_aed) : 'AED 0', 'loans, this cycle'], ['Cards active', `${t.cards.active}/${t.cards.temp_end}`, t.cards.temp_end ? `${activationRate(t.cards)}% of temp ends` : 'no temp ends']]
+        .map(([l, v, sub, alert]) => html`<div class="kpi ${alert ? 'kpi-alert' : ''}"><span class="kpi-label">${l}</span><span class="kpi-value">${v}</span><span class="kpi-sub">${sub}</span></div>`)}
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>By ${top.toLowerCase()}</h2><div class="actions"><a class="btn" href="#/targets?cycle=${rep.cycle}">Targets</a>${state.meta.reports?.length ? html`<a class="btn" href="#/reports?report=sourcing&cycle=${rep.cycle}">Run a report</a>` : ''}</div></div>
+      ${rep.nodes.length ? teamTable(rep) : html`<div class="empty">No sales staff ${['team_leader', 'sales_manager'].includes(r) ? 'report to you yet' : 'yet'}${state.region ? ` in ${state.region}` : ''}</div>`}
+    </div>`);
+  bindRows();
+  wireTree(app);
+}
+
+// ---------- reports ----------
+const fmtCell = (v, unit) => {
+  if (v == null || v === '') return html`<span class="muted">—</span>`;
+  if (unit === 'aed') return fmtAed(v);
+  if (unit === 'pct') return `${v}%`;
+  if (unit === 'hours') return `${v} h`;
+  if (unit === 'days') return `${v} d`;
+  if (unit === 'date') return fmtDay(v);
+  if (unit === 'datetime') return fmtDate(v);
+  if (unit === 'role') return ROLE_LABEL[v] || v;
+  if (unit === 'count') return Number(v).toLocaleString();
+  return v;
+};
+
+async function viewReports(params) {
+  const list = state.meta.reports || [];
+  if (!list.length) { shell(html`<div class="card empty">Reports are not available for your role</div>`); return; }
+  const key = list.some((r) => r.key === params.get('report')) ? params.get('report') : list[0].key;
+  const def = list.find((r) => r.key === key);
+  const period = params.get('from') ? 'dates' : 'cycle';
+  const cycle = params.get('cycle') || state.meta.current_cycle;
+  const region = params.get('region') ?? state.region ?? '';
+  const cycles = Array.from({ length: 12 }, (_, i) => shiftCycle(state.meta.current_cycle, -i));
+  const run = params.get('run') === '1';
+  const query = new URLSearchParams(period === 'dates' ? { from: params.get('from'), to: params.get('to') } : { cycle });
+  if (canPickRegion() && region) query.set('region', region);
+  let rep = null;
+  let error = '';
+  if (run) {
+    try { rep = await api(`/reports/${key}?${query}`); } catch (ex) { error = ex.message; }
+  }
+  const table = rep && html`<div class="table-wrap"><table class="report-table">
+    <thead><tr>${rep.columns.map((c) => html`<th class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${c.label}</th>`)}</tr></thead>
+    <tbody>${rep.rows.map((row) => html`<tr>${rep.columns.map((c) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${fmtCell(row[c.key], c.unit)}</td>`)}</tr>`)}</tbody>
+    ${rep.totals && rep.rows.length ? html`<tfoot><tr>${rep.columns.map((c, i) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${i === 0 && rep.totals[c.key] === undefined ? 'Total' : rep.totals[c.key] === undefined ? '' : fmtCell(rep.totals[c.key], c.unit)}</td>`)}</tr></tfoot>` : ''}
+  </table></div>`;
+
+  shell(html`
+    <div class="page-head"><div><h1>Reports</h1><p class="muted lede">Pick a report and a period, run it on screen, then download it as a spreadsheet. Reports cover ${{ team_leader: 'your team', sales_manager: 'your teams' }[effRole()] || (state.region ? `the ${state.region} region` : 'all regions')}; personal details stay masked.</p></div></div>
+    <div class="grid report-grid">
+      <form class="card report-form" id="report-form">
+        <div class="field-row"><label for="rp-report">Report</label>
+          <select id="rp-report" name="report">${list.map((r) => html`<option value="${r.key}" ${r.key === key ? raw('selected') : ''}>${r.name}</option>`)}</select>
+          <div class="muted small" id="rp-desc">${def.description} Period: ${def.period}.</div></div>
+        <div class="field-row"><label>Period</label>
+          <div class="segmented two-up"><label><input type="radio" name="period" value="cycle" ${period === 'cycle' ? raw('checked') : ''}><span>Sales cycle</span></label><label><input type="radio" name="period" value="dates" ${period === 'dates' ? raw('checked') : ''}><span>Dates</span></label></div></div>
+        <div class="field-row" id="rp-cycle-row" ${period === 'dates' ? raw('hidden') : ''}><label for="rp-cycle">Cycle</label>
+          <select id="rp-cycle" name="cycle">${cycles.map((c) => html`<option value="${c}" ${c === cycle ? raw('selected') : ''}>${cycleName(c)} (${cycleSpan(c)})</option>`)}</select></div>
+        <div class="form-grid two" id="rp-dates-row" ${period === 'dates' ? '' : raw('hidden')}>
+          <div><label for="rp-from">From</label><input id="rp-from" name="from" type="date" value="${params.get('from') || ''}"></div>
+          <div><label for="rp-to">To</label><input id="rp-to" name="to" type="date" value="${params.get('to') || todayLocal()}"></div>
+        </div>
+        ${canPickRegion() ? html`<div class="field-row"><label for="rp-region">Region</label>
+          <select id="rp-region" name="region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${k === region ? raw('selected') : ''}>${l}</option>`)}</select></div>` : ''}
+        <div class="actions"><button class="btn-primary">Run report</button>${rep ? html`<a class="btn" id="rp-csv" href="/api/reports/${key}?${query}&format=csv" download>Download CSV</a>` : ''}</div>
+      </form>
+      <div class="card report-result">
+        ${error ? html`<p class="error">${error}</p>` : ''}
+        ${rep ? html`<div class="card-head"><div><h2>${rep.name}</h2><p class="muted small" style="margin:0">${rep.period}${rep.region ? ` · ${rep.region}` : ''} · ${rep.rows.length} ${rep.rows.length === 1 ? 'row' : 'rows'}${rep.truncated ? ' (first 5,000 shown)' : ''} · ${rep.scope}</p></div></div>
+          ${rep.rows.length ? table : html`<div class="empty">Nothing in this period</div>`}` : html`<div class="empty">Choose a report and press Run</div>`}
+      </div>
+    </div>
+    ${(await recentRuns())}`);
+  const form = document.getElementById('report-form');
+  const sync = () => {
+    const d = list.find((r) => r.key === form.report.value);
+    document.getElementById('rp-desc').textContent = `${d.description} Period: ${d.period}.`;
+    const dates = form.period.value === 'dates';
+    document.getElementById('rp-cycle-row').hidden = dates;
+    document.getElementById('rp-dates-row').hidden = !dates;
+  };
+  form.report.onchange = sync;
+  form.querySelectorAll('[name=period]').forEach((i) => (i.onchange = sync));
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const v = formData(form);
+    const p = new URLSearchParams({ report: v.report, run: '1' });
+    if (v.period === 'dates') { p.set('from', v.from); p.set('to', v.to); } else p.set('cycle', v.cycle);
+    if (canPickRegion()) { p.set('region', v.region || ''); if (!v.region) p.delete('region'); }
+    go(`#/reports?${p}`);
+  };
+  // The CSV link needs the session cookie, which a plain download carries; the demo intercepts it.
+  const csv = document.getElementById('rp-csv');
+  if (csv && window.__crmDownloadCsv) csv.onclick = (e) => { e.preventDefault(); window.__crmDownloadCsv(csv.getAttribute('href')); };
+
+  async function recentRuns() {
+    if (!['governance', 'business_head', 'mis'].includes(state.user.role)) return '';
+    const { recent } = await api('/reports');
+    if (!recent.length) return '';
+    return html`<div class="card"><h2>Recent report runs</h2><p class="muted small">Who ran which report; also in the Access and reveals report.</p>
+      ${miniTable(['When', 'Who', 'Report', 'Period'], recent.slice(0, 15).map((r) => [fmtDate(r.at), `${r.user_name} (${ROLE_LABEL[r.user_role] || r.user_role})`, r.name, `${r.filters.period || ''}${r.filters.region ? ` · ${r.filters.region}` : ''}`]))}</div>`;
+  }
 }
 
 // ---------- users (team leader) ----------

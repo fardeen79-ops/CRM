@@ -9,6 +9,7 @@ import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
+import * as reports from './reports.js';
 import * as chat from './chat.js';
 import { cycleOf, uaeDay } from './cycles.js';
 import { makeCallBot } from './bot.js';
@@ -185,11 +186,29 @@ function routes(db, dispatch, bot) {
         card_range_days: cases.CARD_RANGE_DAYS,
         card_mappers: cases.CARD_MAPPERS,
         current_cycle: cycleOf(uaeDay()),
+        reports: reports.reportsFor(user),
+        hierarchy_levels: performance.LEVEL_LABELS,
         import_max_rows: imports.MAX_ROWS,
       },
     })],
 
-    ['GET', /^\/api\/stats$/, async ({ user }) => cases.stats(db, user)],
+    ['GET', /^\/api\/stats$/, async ({ user, query }) => cases.stats(db, user, { region: query.get('region') })],
+
+    // The sales hierarchy for a cycle, rolled up at every level the viewer may see (?cycle=&region=).
+    ['GET', /^\/api\/hierarchy$/, async ({ user, query }) => performance.hierarchy(db, user, { cycle: query.get('cycle'), region: query.get('region') })],
+
+    // Reports: the list for this role, then one report as JSON or CSV (?cycle= or ?from=&to=, ?region=, ?format=csv).
+    ['GET', /^\/api\/reports$/, async ({ user }) => ({
+      reports: reports.reportsFor(user),
+      recent: ['governance', 'business_head', 'mis'].includes(user.role) ? reports.recentRuns(db) : [],
+    })],
+    ['GET', /^\/api\/reports\/([a-z_]+)$/, async ({ user, params, query, res }) => {
+      const report = reports.runReport(db, user, params[0], Object.fromEntries(query));
+      if (query.get('format') !== 'csv') return report;
+      const name = `${report.key}-${report.from}-to-${report.to}${report.region ? `-${report.region}` : ''}.csv`;
+      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${name}"`, 'cache-control': 'no-store' });
+      res.end(reports.toCsv(report));
+    }],
 
     ['GET', /^\/api\/cases$/, async ({ user, query }) => ({
       cases: cases.listCases(db, user, Object.fromEntries(query)),
@@ -278,7 +297,7 @@ function routes(db, dispatch, bot) {
     ['POST', /^\/api\/import\/targets$/, async ({ user, body }) => imports.importTargets(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     // Targets and achievement for a sales cycle (?cycle=2026-06, default the current one).
-    ['GET', /^\/api\/targets$/, async ({ user, query }) => performance.targetReport(db, user, query.get('cycle'))],
+    ['GET', /^\/api\/targets$/, async ({ user, query }) => performance.targetReport(db, user, query.get('cycle'), { region: query.get('region') })],
     ['PUT', /^\/api\/targets$/, async ({ user, body }) => performance.saveTargets(db, user, body)],
 
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],

@@ -113,3 +113,56 @@ test('MIS and governance see every file; the region is saved and editable on a u
   const users = (await tl('GET', '/users')).data.users;
   assert.equal(users.find((u) => u.email === 'dana@t.local').asm_name, 'ASM One');
 });
+
+test('region view, hierarchy and reports follow the viewer\'s scope', async () => {
+  const bh = await login('mis@t.local');
+  const tl = await login('tl-dxb@t.local');
+  const gov = await login('gov@t.local');
+  const sales = await login('dana@t.local');
+  // A business head or MIS can narrow lists and counts to one region.
+  assert.equal((await bh('GET', '/cases?region=AUH')).data.cases.length, 1);
+  assert.equal((await bh('GET', '/stats?region=AUH')).data.total, 1);
+  assert.equal((await bh('GET', '/stats')).data.total, 4);
+  // The hierarchy: region → sales manager → team leader → staff for MIS; staff only for a team leader.
+  const h = (await bh('GET', '/hierarchy')).data;
+  assert.deepEqual(h.levels, ['region', 'sales_manager', 'team_leader', 'staff']);
+  assert.deepEqual(h.nodes.map((n) => n.name), ['AUH', 'DXB']);
+  assert.equal(h.nodes[1].children[0].children[0].children[0].name, 'Dana');
+  assert.equal(h.total.sourced, 4);
+  const onlyAuh = (await bh('GET', '/hierarchy?region=AUH')).data;
+  assert.deepEqual(onlyAuh.nodes.map((n) => n.name), ['AUH']);
+  const tlView = (await tl('GET', '/hierarchy')).data;
+  assert.deepEqual(tlView.levels, ['staff']);
+  assert.deepEqual(tlView.nodes.map((n) => n.name), ['Dana']);
+  assert.equal((await sales('GET', '/hierarchy')).data.nodes.length, 1);
+  // Reports: the list depends on the role, the rows on the scope.
+  const misList = (await bh('GET', '/reports')).data.reports.map((r) => r.key);
+  assert.ok(misList.includes('sourcing') && misList.includes('cards') && !misList.includes('governance'));
+  const govList = (await gov('GET', '/reports')).data.reports.map((r) => r.key);
+  assert.ok(govList.includes('governance') && govList.includes('access') && !govList.includes('targets'));
+  assert.equal((await tl('GET', '/reports/governance')).status, 404);
+  const all = (await bh('GET', '/reports/sourcing')).data;
+  assert.deepEqual(all.rows.map((r) => r.staff).sort(), ['Amal', 'Dana']);
+  assert.equal(all.totals.sourced, 4);
+  const mine = (await tl('GET', '/reports/sourcing')).data;
+  assert.deepEqual(mine.rows.map((r) => r.staff), ['Dana']);
+  const auh = (await bh('GET', '/reports/pipeline?region=AUH')).data;
+  assert.equal(auh.totals.files, 1);
+  assert.equal((await bh('GET', '/reports/pipeline?region=SHJ')).status, 400);
+  assert.equal((await bh('GET', '/reports/targets?from=2026-01-01&to=2026-01-31')).status, 400);
+  const dated = (await bh('GET', '/reports/register?from=2026-01-01&to=2026-12-31')).data;
+  assert.equal(dated.rows.length, 4);
+  assert.match(dated.rows[0].phone, /•/); // personal details stay masked in exports
+  // CSV download, and the run shows up for governance.
+  const csv = await fetch(`${base}/api/reports/register?format=csv`, { headers: { cookie: (await loginCookie('mis@t.local')) } });
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get('content-type'), /text\/csv/);
+  assert.match(await csv.text(), /^﻿Ref,Sourced,Region/);
+  const access = (await gov('GET', '/reports/access')).data;
+  assert.ok(access.rows.some((r) => r.user === 'Mira' && r.reports_run >= 3));
+});
+
+async function loginCookie(email) {
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  return res.headers.get('set-cookie').split(';')[0];
+}

@@ -106,6 +106,36 @@ The **Scan Emirates ID** button on the entry form fills in the customer's **firs
   - **Scanner files:** by default they load from the jsDelivr CDN (about 7 MB the first time, then cached). To serve them from the CRM instead, which most banks will want, run `npm run setup:ocr` once and restart. It saves them under `public/vendor/tesseract/`.
   - **Testing:** the scanner was tested with made-up sample cards drawn to resemble the current Emirates ID. The front reader finds fields by their English labels ("Name", "ID Number", "Date of Birth", "Expiry Date"), so try it on real cards, including older designs, before rolling it out.
 
+### Region view, team view and reports
+
+**Region view.** Business heads, MIS and governance see every file. A switch in the top bar narrows the whole app to one region, DXB or AUH: the dashboard, case lists, targets, the team view and reports all follow it until it is set back to All regions. The choice is remembered in the browser.
+
+**Team view** (`#/team`) is the dashboard for every level of the hierarchy. It shows the sales cycle's numbers rolled up at each level the viewer oversees, region → sales manager → team leader → sales staff, with groups that expand and collapse:
+
+| Viewer | Sees |
+|--------|------|
+| Business head, MIS, governance | Regions, then sales managers, team leaders and staff |
+| Sales manager, assistant sales manager | Their team leaders and staff |
+| Team leader | Their sales staff |
+| Sales | Themselves |
+
+Columns: staff, sourced in the cycle, awaiting verification and verification pending (open now), verified and completed in the cycle, AED disbursed, credit cards and loans against target, cards active. The dashboard carries the top level of the same table.
+
+**Reports** (`#/reports`) run on screen and download as CSV for Excel. Each covers the viewer's scope (a team leader's team, a regional processor's region) and a period: a sales cycle or two dates (up to 400 days), optionally one region. Every run is recorded.
+
+| Report | Who | Rows |
+|--------|-----|------|
+| Sourcing by sales staff | MIS, business head, TL, SM, ASM | Files sourced per sales person, verification results, case outcomes, AED disbursed, temp ends |
+| Pipeline by region and product | MIS, business head, governance | Where files sourced in the period stand, by region and core product |
+| Verification team productivity | MIS, business head, governance | Calls, connect rate, results marked, hours from sourcing to verified, QC average per processor |
+| Target achievement | MIS, business head, TL, SM, ASM | Target, achieved and % per product per sales person for a cycle |
+| Card activation and ageing | MIS, business head | Temp ends, active/inactive/out of range, activation % and ageing buckets per sales person |
+| Governance summary | Governance, business head | QC flags, urgent, recordings, complaints, scores, DNCR, re-verifications, read-backs and scans by region |
+| Access and reveals | Governance, business head | Files opened, personal details revealed (by kind) and reports run per user |
+| Case register (export) | MIS, business head, governance, TL, SM, ASM | One row per file; phone and ID numbers stay masked |
+
+API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
+
 ### Targets and sales cycles
 
 **Sales cycle.** A cycle runs from the **21st of one month to the 20th of the next** and is named after the month it ends in, so 21 May – 20 June is the **June cycle**. Dates are UAE dates.

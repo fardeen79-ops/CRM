@@ -510,7 +510,7 @@ export function maskValue(field, value) {
 }
 
 // Strips sensitive fields the viewer may not see, before anything leaves the server.
-function present(user, row, { reveal = [] } = {}) {
+export function present(user, row, { reveal = [] } = {}) {
   const out = withRef(row);
   if (!out) return out;
   if (user.role === 'sales') for (const f of GOVERNANCE_FIELDS) delete out[f];
@@ -593,11 +593,16 @@ export function getCase(db, user, id) {
   return out;
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, region, limit = 200 } = {}) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
   const where = [];
   const params = [];
+  // A region view: business heads, MIS and governance narrowing everything to DXB or AUH.
+  if (REGIONS[String(region || '').toUpperCase()]) {
+    where.push('c.region = ?');
+    params.push(String(region).toUpperCase());
+  }
   // Completed in a sales cycle (21st to 20th), e.g. a target's achievement.
   if (isCycle(cycle)) {
     const { start, end } = cycleRange(cycle);
@@ -1176,10 +1181,12 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
   return { case: getCase(db, user, id), triggers };
 }
 
-export function stats(db, user) {
+export function stats(db, user, { region } = {}) {
   const sc = caseScope(user);
-  const scope = sc ? `WHERE ${sc.sql}` : '';
-  const params = sc ? sc.params : [];
+  const clauses = sc ? [sc.sql] : [];
+  const params = sc ? [...sc.params] : [];
+  if (REGIONS[String(region || '').toUpperCase()]) { clauses.push('c.region = ?'); params.push(String(region).toUpperCase()); }
+  const scope = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   const byStatus = Object.fromEntries(Object.values(STATUS).map((s) => [s, 0]));
   for (const r of db.prepare(`SELECT status, COUNT(*) AS n FROM cases c ${scope} GROUP BY status`).all(...params)) {
     byStatus[r.status] = r.n;

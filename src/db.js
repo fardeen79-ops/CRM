@@ -200,6 +200,14 @@ CREATE TABLE IF NOT EXISTS access_log (
 CREATE INDEX IF NOT EXISTS idx_access_log_case ON access_log(case_id, id);
 CREATE INDEX IF NOT EXISTS idx_access_log_user ON access_log(user_id, id);
 
+CREATE TABLE IF NOT EXISTS report_runs (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  report  TEXT NOT NULL,
+  filters TEXT,
+  at      TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS targets (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   cycle   TEXT NOT NULL,
