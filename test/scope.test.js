@@ -157,7 +157,7 @@ test('region view, hierarchy and reports follow the viewer\'s scope', async () =
   const csv = await fetch(`${base}/api/reports/register?format=csv`, { headers: { cookie: (await loginCookie('mis@t.local')) } });
   assert.equal(csv.status, 200);
   assert.match(csv.headers.get('content-type'), /text\/csv/);
-  assert.match(await csv.text(), /^﻿Ref,Sourced,Region/);
+  assert.match((await csv.text()).replace(/^\uFEFF/, ''), /^Ref,Sourced,Region/);
   const access = (await gov('GET', '/reports/access')).data;
   assert.ok(access.rows.some((r) => r.user === 'Mira' && r.reports_run >= 3));
 });
