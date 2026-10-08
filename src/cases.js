@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { transaction } from './db.js';
-import { CREDIT_CARD_NAMES } from './credit-cards.js';
+import { cardNames, cardProduct } from './credit-cards.js';
 import { findUser } from './users.js';
 import { cycleRange, isCycle, uaeDay } from './cycles.js';
 import { unreadCount as chatUnread } from './chat.js';
@@ -249,10 +249,18 @@ const VERIFIED_FIELD_LABELS = {
   product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', card_fee_type: 'card sourced type', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
   loan_amount: 'loan amount', interest_rate: 'interest rate', full_loan_amount: 'full loan amount', incremental_amount: 'incremental amount', fpd: 'FPD',
 };
+// The card's category and points, copied from the product list when the card is chosen.
+const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points'];
 const EDITABLE_FIELDS = [
   ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'region', 'core_product',
-  ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS,
+  ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS, ...CARD_SNAPSHOT_FIELDS,
 ];
+/** Category and points for the card on a file (null when it has no card). */
+const cardSnapshot = (data) => {
+  if (!('credit_card' in data)) return {};
+  const p = data.credit_card ? cardProduct(data.credit_card) : null;
+  return { card_category: p?.category ?? null, card_points: p?.points ?? null };
+};
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -334,8 +342,9 @@ function validateProduct(input, current, out) {
   if (includes('credit_card')) {
     const card = clean(pick('credit_card'));
     if (!card) throw new WorkflowError(400, 'Choose which credit card the customer wants');
-    if (!CREDIT_CARD_NAMES.has(card)) throw new WorkflowError(400, `Unknown credit card: ${card}`);
-    out.credit_card = card;
+    const product = cardProduct(card);
+    if (!product) throw new WorkflowError(400, `Unknown credit card: ${card}`);
+    out.credit_card = product.name;
     const fee = clean(pick('card_fee_type'));
     if (!CARD_FEE_TYPES[fee]) throw new WorkflowError(400, 'Choose the card sourced type: FYF, Full fee or FFL');
     out.card_fee_type = fee;
@@ -738,6 +747,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
     if (staffRegion) input = { ...input, region: staffRegion };
   }
   const data = validateCaseInput(input);
+  Object.assign(data, cardSnapshot(data));
   // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
   const ts = now();
@@ -768,6 +778,7 @@ export function updateCase(db, user, id, input) {
   if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   if (!canEdit(user, row)) throw new WorkflowError(403, 'This case can no longer be edited');
   const data = validateCaseInput(input, { partial: true, current: row });
+  Object.assign(data, cardSnapshot(data));
   if ('sales_staff_id' in input && Number(input.sales_staff_id) !== row.sales_staff_id) {
     if (!EDITOR_ROLES.includes(user.role)) throw new WorkflowError(403, 'Only a team leader or sales manager can change the sales staff on a file');
     if (!inTeam(db, user, input.sales_staff_id)) throw new WorkflowError(403, 'You can only move a file to sales staff in your own team');

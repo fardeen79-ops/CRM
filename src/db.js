@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS cases (
   -- has been alerted that it is due.
   -- Card fee arrangement the customer was sold, and a personal loan's first payment date.
   card_fee_type        TEXT,
+  card_category        TEXT, -- from the product list when the card was chosen
+  card_points          REAL,
   fpd                  TEXT,
   callback_at          TEXT,
   callback_by          INTEGER REFERENCES users(id),
@@ -205,6 +207,18 @@ CREATE TABLE IF NOT EXISTS access_log (
 CREATE INDEX IF NOT EXISTS idx_access_log_case ON access_log(case_id, id);
 CREATE INDEX IF NOT EXISTS idx_access_log_user ON access_log(user_id, id);
 
+-- The bank's credit card product list, uploaded by MIS or a business head (see credit-cards.js).
+CREATE TABLE IF NOT EXISTS card_products (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  family     TEXT NOT NULL,
+  category   TEXT NOT NULL,
+  points     REAL,
+  active     INTEGER NOT NULL DEFAULT 1,
+  updated_by INTEGER REFERENCES users(id),
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS report_runs (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -274,7 +288,7 @@ const ADDED_COLUMNS = {
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
   pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
-  card_fee_type: 'TEXT', fpd: 'TEXT',
+  card_fee_type: 'TEXT', fpd: 'TEXT', card_category: 'TEXT', card_points: 'REAL',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {

@@ -7,7 +7,7 @@ import { ROLES, createUser, tempPassword } from './auth.js';
 import { PRODUCTS, PERSONAL_LOAN_TYPES, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
 import { setTargetsFor, TARGET_UNITS } from './performance.js';
 import { parseCycle } from './cycles.js';
-import { CREDIT_CARD_NAMES } from './credit-cards.js';
+import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
 import { BANKS } from './banks.js';
 
 export const MAX_ROWS = 1000;
@@ -75,6 +75,13 @@ export const CARD_IMPORT_COLUMNS = [
   { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference, App ID or Emirates ID of a completed credit card case' },
   { key: 'card_status', header: 'Card status', required: true, example: 'Active', allowed: Object.values(CARD_STATUS) },
   { key: 'activation_date', header: 'Status date', example: '15/06/2026', help: 'Date activated (Active) or inactive since (Inactive). DD/MM/YYYY or YYYY-MM-DD; blank means today' },
+];
+
+export const CARD_PRODUCT_IMPORT_COLUMNS = [
+  { key: 'name', header: 'Card name', required: true, example: 'Skywards Signature Credit Card', help: 'As it should appear in the drop-down. Must be unique' },
+  { key: 'family', header: 'Family', required: true, example: 'Skywards', help: 'Groups the cards in the drop-down' },
+  { key: 'category', header: 'Card category', required: true, example: 'Signature', help: 'Shown on the form when the card is chosen, and saved on each file' },
+  { key: 'points', header: 'Points', example: '', help: 'Optional. Points the card earns the sales person; a number' },
 ];
 
 export const TARGET_IMPORT_COLUMNS = [
@@ -164,7 +171,6 @@ function choose(value, options, label) {
 
 const REGION_NAMES = { DXB: 'DXB', AUH: 'AUH' };
 const REGION_ALIASES = { dubai: 'DXB', abudhabi: 'AUH' };
-const CARD_BY_NORM = new Map([...CREDIT_CARD_NAMES].map((c) => [norm(c), c]));
 const BANK_BY_NORM = new Map(BANKS.flatMap((g) => g.banks).map((b) => [norm(b), b]));
 
 /** A date as YYYY-MM-DD from YYYY-MM-DD, DD/MM/YYYY (UAE order) or an Excel date serial. */
@@ -208,7 +214,7 @@ function caseInput(v) {
     bundle_products: product === 'bundle'
       ? String(v.bundle_products || '').split(/[;,|/+]/).map((p) => p.trim()).filter(Boolean).map((p) => choose(p, PRODUCTS, 'Bundle product'))
       : '',
-    credit_card: v.credit_card ? CARD_BY_NORM.get(norm(v.credit_card)) || v.credit_card : '',
+    credit_card: v.credit_card ? cardProduct(v.credit_card)?.name || v.credit_card : '',
     buyout_bank: v.buyout_bank ? BANK_BY_NORM.get(norm(v.buyout_bank)) || v.buyout_bank : '',
   };
   if (!input.sourcing_date) throw new Error('Sourcing date is required');
@@ -250,6 +256,52 @@ function rowResult(record, fn) {
   } catch (err) {
     return { line: record.line, ok: false, error: err.message, cells: record.cells };
   }
+}
+
+/**
+ * Replaces the credit card product list with a CSV file. Cards not in the file are retired: they
+ * stay on the files that already have them but are no longer offered. Files that already have a
+ * card keep the category saved on them.
+ */
+export function importCardProducts(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user);
+  const { header, records, unknown } = readFile(csv, CARD_PRODUCT_IMPORT_COLUMNS);
+  const seen = new Map();
+  const ts = new Date().toISOString();
+  const results = run(db, dryRun, () => {
+    const out = records.map((record) => rowResult(record, () => savepoint(db, () => {
+      const v = record.values;
+      const name = v.name.trim().replace(/\s+/g, ' ');
+      if (!name) throw new Error('Card name is required');
+      const key = norm(name);
+      if (seen.has(key)) throw new Error(`${name} is already on line ${seen.get(key)}`);
+      seen.set(key, record.line);
+      const family = v.family.trim();
+      const category = v.category.trim();
+      if (!family) throw new Error('Family is required');
+      if (!category) throw new Error('Card category is required');
+      let points = null;
+      if (String(v.points ?? '').trim() !== '') {
+        points = Number(String(v.points).replace(/,/g, ''));
+        if (!Number.isFinite(points) || points < 0) throw new Error(`Points must be a number: ${v.points}`);
+      }
+      db.prepare(`INSERT INTO card_products (name, family, category, points, active, updated_by, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT (name) DO UPDATE SET family = excluded.family, category = excluded.category, points = excluded.points, active = 1, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+        .run(name, family, category, points, user.id, ts);
+      return { label: `${name} · ${category}`, email: `${family}${points != null ? ` · ${points} points` : ''}` };
+    })));
+    // Only a file with at least one good row replaces the list; cards it leaves out are retired.
+    if (out.some((r) => r.ok)) {
+      const kept = out.filter((r) => r.ok).map((r) => r.label.split(' · ')[0]);
+      db.prepare(`UPDATE card_products SET active = 0, updated_at = ? WHERE name NOT IN (${kept.map(() => '?').join(',')})`).run(ts, ...kept);
+    }
+    return out;
+  });
+  if (!dryRun) {
+    loadCardProducts(db);
+    backfillCardCategories(db);
+  }
+  return { ...summarize(header, unknown, results, dryRun), offered: cardProducts().length };
 }
 
 /** Adds users from a CSV file. Team leaders and sales managers in the file are added before sales staff. */

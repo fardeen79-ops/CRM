@@ -487,7 +487,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if ((m = path.match(/^\/import\/(users|cases|cards|targets)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
@@ -943,9 +943,14 @@ async function viewCaseForm(id) {
             <select id="f-credit_card" name="credit_card" required disabled>
               <option value="">Choose a card…</option>
               ${state.meta.credit_cards.map((f) => html`<optgroup label="${f.family}">
-                ${f.cards.map((card) => html`<option value="${card}" ${c.credit_card === card ? raw('selected') : ''}>${card}</option>`)}
+                ${f.cards.map((card) => html`<option value="${card.name}" data-category="${card.category}" data-points="${card.points ?? ''}" ${c.credit_card === card.name ? raw('selected') : ''}>${card.name}</option>`)}
               </optgroup>`)}
+              ${c.credit_card && !state.meta.credit_cards.some((f) => f.cards.some((card) => card.name === c.credit_card)) ? html`<option value="${c.credit_card}" data-category="${c.card_category || ''}" selected>${c.credit_card} (retired)</option>` : ''}
             </select>
+            <div class="form-grid two" style="margin-top:12px">
+              <div><label for="f-card_category">Card category</label><input id="f-card_category" value="${c.card_category || ''}" readonly placeholder="From the card chosen" tabindex="-1"></div>
+              <div><label for="f-card_points">Points</label><input id="f-card_points" value="${c.card_points ?? ''}" readonly placeholder="Not set yet" tabindex="-1"></div>
+            </div>
             <div class="sub-label" style="margin-top:12px">Card sourced type <span class="req">*</span></div>
             <div class="segmented three-up">
               ${Object.entries(state.meta.card_fee_types).map(([k, l]) => html`<label><input type="radio" name="card_fee_type" value="${k}" required disabled ${c.card_fee_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
@@ -987,6 +992,14 @@ async function viewCaseForm(id) {
   const bankOther = $('#f-buyout_bank_other');
   const cardField = $('#card-field');
   const cardSelect = $('#f-credit_card');
+  // The category and points come from the product list for the card chosen; staff do not type them.
+  const syncCard = () => {
+    const opt = cardSelect.selectedOptions[0];
+    $('#f-card_category').value = opt?.dataset.category || '';
+    $('#f-card_points').value = opt?.dataset.points || '';
+  };
+  cardSelect.onchange = syncCard;
+  syncCard();
   const fullAmount = $('#f-full_loan_amount');
   const increment = $('#f-incremental_amount');
 
@@ -1501,6 +1514,7 @@ async function viewCase(id) {
             ${c.incremental_amount != null ? html`<dt>Incremental amount</dt><dd>AED ${fmtAmount(c.incremental_amount)}</dd>` : ''}
             ${c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
+            ${c.card_category ? html`<dt>Card category</dt><dd><strong>${c.card_category}</strong>${c.card_points != null ? html` <span class="muted">· ${c.card_points} points</span>` : ''}</dd>` : ''}
             ${c.card_fee_type ? html`<dt>Card sourced type</dt><dd><strong>${state.meta.card_fee_types[c.card_fee_type] || c.card_fee_type}</strong></dd>` : ''}
             ${c.amount != null ? html`<dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>` : ''}
           </dl>
@@ -2266,6 +2280,13 @@ const BULK = {
     template: 'card-activation-template.csv',
     done: ['#/cards', 'View card activation'],
   },
+  card_products: {
+    tab: 'Card products',
+    title: 'Upload the credit card product list',
+    lede: 'Replace the list of credit cards offered on the New case form with the bank\'s product list: one row per card with its family, card category and, when known, points. Cards left out of the file are retired: they stay on existing files but are no longer offered. The category fills in on the form when a card is chosen and is saved on each file.',
+    template: 'card-products-template.csv',
+    done: ['#/cases/new', 'Open the New case form'],
+  },
   targets: {
     tab: 'Targets',
     title: 'Upload targets',
@@ -2281,6 +2302,7 @@ const BULK_WORDS = {
   users: { one: 'user', many: 'users', verb: 'Added', who: 'User', names: ['fullname', 'email'], sep: ' · ', after: 'They can sign in now.', excel: 'phone' },
   cards: { one: 'card', many: 'cards', verb: 'Mapped', who: 'Case', names: ['reference'], sep: ' ', after: 'Activation now shows on each case and in the sales staff\'s numbers.', excel: 'Reference (App ID and Emirates ID)' },
   targets: { one: 'target row', many: 'target rows', verb: 'Saved', who: 'Sales staff', names: ['salescode', 'cycle'], sep: ' · ', after: 'Staff see them on their Targets page.', excel: '' },
+  card_products: { one: 'card', many: 'cards', verb: 'Listed', who: 'Card', names: ['cardname'], sep: ' ', after: 'The New case form now offers exactly these cards.', excel: '' },
 };
 
 function viewBulkUpload(kind) {

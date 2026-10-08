@@ -136,6 +136,12 @@ Columns: staff, sourced in the cycle, awaiting verification and verification pen
 
 API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
 
+### Credit card product list and card category
+
+Every credit card has a **family**, a **card category** and, when the bank provides them, **points**. When a sales person chooses a card on the form, the category and points fill in automatically (read-only) and are saved on the file, so later changes to the list do not rewrite old files.
+
+The CRM ships with a built-in list, where the category is provisional (the card's tier from its name, such as Infinite or Signature). MIS or a business head replaces it with the bank's product list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
+
 ### Targets and sales cycles
 
 **Sales cycle.** A cycle runs from the **21st of one month to the 20th of the next** and is named after the month it ends in, so 21 May – 20 June is the **June cycle**. Dates are UAE dates.

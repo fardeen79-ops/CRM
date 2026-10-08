@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as auth from './auth.js';
 import * as cases from './cases.js';
-import { CREDIT_CARDS } from './credit-cards.js';
+import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf } from './users.js';
 import * as imports from './imports.js';
@@ -161,7 +161,8 @@ function routes(db, dispatch, bot) {
         call_outcomes: cases.CALL_OUTCOMES,
         incomplete_reasons: cases.INCOMPLETE_REASONS,
         products: cases.PRODUCTS,
-        credit_cards: CREDIT_CARDS,
+        credit_cards: cardFamilies(),
+        card_list_source: cardProductSource(),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         card_fee_types: cases.CARD_FEE_TYPES,
         masked_fields: cases.MASKED_FIELDS,
@@ -181,7 +182,7 @@ function routes(db, dispatch, bot) {
         it_email: cases.config.itEmail,
         call_bot: cases.config.callBot,
         ocr: ocrAssets(),
-        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS },
+        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS },
         card_statuses: cases.CARD_STATES,
         card_range_days: cases.CARD_RANGE_DAYS,
         card_mappers: cases.CARD_MAPPERS,
@@ -294,6 +295,7 @@ function routes(db, dispatch, bot) {
     ['POST', /^\/api\/import\/users$/, async ({ user, body }) => imports.importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     ['POST', /^\/api\/import\/cards$/, async ({ user, body }) => imports.importCards(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+    ['POST', /^\/api\/import\/card_products$/, async ({ user, body }) => imports.importCardProducts(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
     ['POST', /^\/api\/import\/targets$/, async ({ user, body }) => imports.importTargets(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     // Targets and achievement for a sales cycle (?cycle=2026-06, default the current one).
@@ -374,6 +376,8 @@ function serveFile(res, file) {
 
 export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {} } = {}) {
   cases.config.itEmail = itEmail;
+  loadCardProducts(db);
+  backfillCardCategories(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;
   const table = routes(db, dispatch, bot);

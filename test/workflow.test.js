@@ -1273,3 +1273,42 @@ test('a read-back check is recorded on the case timeline', async () => {
   const e2 = await sales('PUT', `/cases/${r.data.case.id}`, { passport_number: 'N7654321', read_back: ['passport_number'] });
   assert.equal(e2.data.case.events[0].detail, 'passport number read aloud and matched');
 });
+
+test('a card\'s category is filled from the product list and the list can be replaced by upload', async () => {
+  const sales = await login('sales@t.local');
+  const mis = await login('mis@t.local');
+  const lead = await login('lead@t.local');
+  const card = { ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf' };
+  let r = await sales('POST', '/cases', card);
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.case.card_category, 'Signature'); // provisional: the tier in the name
+  assert.equal(r.data.case.card_points, null);
+  const id = r.data.case.id;
+  // The form's list carries the category per card, from the built-in list until one is uploaded.
+  const me = (await sales('GET', '/me')).data.meta;
+  assert.equal(me.card_list_source, 'built_in');
+  assert.equal(me.credit_cards.find((f) => f.family === 'Skywards').cards.find((c) => c.name === 'Skywards Signature Credit Card').category, 'Signature');
+  // MIS uploads the bank's final list: two cards with their categories and points.
+  const csv = 'Card name,Family,Category,Points\nSkywards Signature Credit Card,Skywards,Premium Travel,120\nNew Cashback Credit Card,Cashback,Everyday,40\n,Oops,,\n';
+  assert.equal((await lead('POST', '/import/card_products', { csv })).status, 403);
+  const preview = (await mis('POST', '/import/card_products', { csv, dry_run: true })).data;
+  assert.deepEqual(preview.rows.map((x) => x.ok), [true, true, false]);
+  assert.equal((await sales('GET', '/me')).data.meta.card_list_source, 'built_in'); // a preview changes nothing
+  const done = (await mis('POST', '/import/card_products', { csv })).data;
+  assert.equal(done.ok, 2);
+  assert.equal(done.offered, 2);
+  const after = (await sales('GET', '/me')).data.meta;
+  assert.equal(after.card_list_source, 'uploaded');
+  assert.deepEqual(after.credit_cards.map((f) => f.family).sort(), ['Cashback', 'Skywards']);
+  // A new file with an uploaded card gets its category and points; a retired card is refused.
+  r = await sales('POST', '/cases', { ...card, credit_card: 'new cashback credit card' });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.case.credit_card, 'New Cashback Credit Card');
+  assert.equal(r.data.case.card_category, 'Everyday');
+  assert.equal(r.data.case.card_points, 40);
+  assert.equal((await sales('POST', '/cases', { ...card, credit_card: 'Skywards Infinite Credit Card' })).status, 400);
+  // The earlier file keeps the card it was sourced with; its category was set at the time.
+  const old = (await sales('GET', `/cases/${id}`)).data.case;
+  assert.equal(old.credit_card, 'Skywards Signature Credit Card');
+  assert.equal(old.card_category, 'Signature');
+});
