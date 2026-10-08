@@ -176,7 +176,7 @@ What a credit card sales person earns on the points they make beyond their card 
 - **Excess** = points beyond the credit card target for the cycle.
 - **Rate**: **AED 1.25 per excess point** when at least **33% of the cards sold are Premium or Super Premium**, or at least **AED 50,000 of personal loans** (counted amount) were cross-sold; otherwise **AED 0.70**.
 
-**Personal loan sales staff** earn a percentage of the cycle's disbursed production, on the whole amount, by band: 0.40% from AED 600K, 0.55% from 750K, 0.75% from 1M, 0.90% from 1.25M, 1.10% from 1.5M, 1.20% from 2M; nothing below AED 600K. An Emirates Islamic buy-out counts at 50% of its disbursed amount. Their **My targets** page shows production, band, rate, the amount and how much more reaches the next band; the business head and DXB MIS run the **Personal loan incentives** report per cycle.
+**Personal loan sales staff** earn a percentage of the cycle's disbursed production, on the whole amount, by band: 0.40% from AED 600K, 0.55% from 750K, 0.75% from 1M, 0.90% from 1.25M, 1.10% from 1.5M, 1.20% from 2M; nothing below AED 600K. An Emirates Islamic buy-out counts at 50% of its disbursed amount, and a **top-up counts 70% of its incremental amount** (both schemes). Their **My targets** page shows production, band, rate, the amount and how much more reaches the next band; the business head and DXB MIS run the **Personal loan incentives** report per cycle.
 
 The band rate applies to the whole production, not slab by slab (confirmed). **Pending:** the cross-sell incentive for personal loan staff (what they earn on cards or other products sold alongside) is still to be defined.
 

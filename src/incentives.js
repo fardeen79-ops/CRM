@@ -16,6 +16,7 @@ export const INCENTIVE_RULES = {
   cross_sell_aed: 50000, // personal loans cross-sold (counted amount) that qualify on their own
   pl_aed_per_point: 100, // AED 50,000 of personal loans = 500 points
   eib_buyout_share: 50, // % of an Emirates Islamic buy-out's disbursed amount that counts
+  topup_share: 70, // % of a top-up's incremental amount that counts
   next_cycle_minimum_pct: 60, // paid only if the staff member achieves at least this much of target in the next cycle
 };
 /** Conditions every incentive is subject to, shown wherever an incentive amount is shown. */
@@ -44,20 +45,21 @@ export function plIncentiveFor(db, staffId, cycle) {
   const { start, end } = cycleRange(cycle);
   const rows = db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end);
   const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'personal_loan'").get(staffId, cycle)?.target ?? null;
-  let loans = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0;
+  let loans = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
-    if (!caseProducts(c).includes('personal_loan') || !(c.pl_disbursed_amount > 0)) continue;
-    const eib = isEibBuyout(c);
+    const loan = countedLoan(c);
+    if (!loan) continue;
     loans++;
-    pl_disbursed += c.pl_disbursed_amount;
-    pl_counted += eib ? (c.pl_disbursed_amount * INCENTIVE_RULES.eib_buyout_share) / 100 : c.pl_disbursed_amount;
-    if (eib) eib_loans++;
+    pl_disbursed += loan.disbursed;
+    pl_counted += loan.counted;
+    if (loan.kind === 'eib') eib_loans++;
+    if (loan.kind === 'top_up') top_ups++;
   }
   const band = PL_INCENTIVE_BANDS.find((b) => pl_counted >= b.from && pl_counted <= b.to) || null;
   const rate_pct = band ? band.rate : 0;
   const next = band ? PL_INCENTIVE_BANDS[PL_INCENTIVE_BANDS.indexOf(band) + 1] || null : PL_INCENTIVE_BANDS[0];
   return {
-    cycle, target, loans, eib_loans, pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
+    cycle, target, loans, eib_loans, top_ups, pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
     band: band ? plBandLabel(band) : `Below ${aedK(PL_INCENTIVE_BANDS[0].from)}`, rate_pct, incentive_aed: round2((pl_counted * rate_pct) / 100),
     next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length,
   };
@@ -66,23 +68,35 @@ export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell'
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+/** What a completed personal loan counts for incentives: top-ups 70% of the incremental amount, Emirates Islamic buy-outs 50%, else the amount disbursed. */
+export function countedLoan(c) {
+  if (!caseProducts(c).includes('personal_loan') || !(c.pl_disbursed_amount > 0)) return null;
+  if (c.personal_loan_type === 'top_up') {
+    const base = c.incremental_amount ?? c.pl_disbursed_amount;
+    return { kind: 'top_up', disbursed: c.pl_disbursed_amount, counted: (base * INCENTIVE_RULES.topup_share) / 100 };
+  }
+  if (isEibBuyout(c)) return { kind: 'eib', disbursed: c.pl_disbursed_amount, counted: (c.pl_disbursed_amount * INCENTIVE_RULES.eib_buyout_share) / 100 };
+  return { kind: 'other', disbursed: c.pl_disbursed_amount, counted: c.pl_disbursed_amount };
+}
+
 /** One staff member's incentive for a cycle, from their completed files and card target. */
 export function incentiveFor(db, staffId, cycle) {
   const { start, end } = cycleRange(cycle);
   const rows = db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end);
   const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'credit_card'").get(staffId, cycle)?.target ?? null;
-  let cards_sold = 0; let premium_cards = 0; let card_points = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0;
+  let cards_sold = 0; let premium_cards = 0; let card_points = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
     if (includesCard(c) && c.credit_card) {
       cards_sold++;
       card_points += achievedBy('credit_card', c);
       if (PREMIUM_CATEGORIES.includes(c.card_category)) premium_cards++;
     }
-    if (caseProducts(c).includes('personal_loan') && c.pl_disbursed_amount > 0) {
-      const eib = isEibBuyout(c);
-      pl_disbursed += c.pl_disbursed_amount;
-      pl_counted += eib ? (c.pl_disbursed_amount * INCENTIVE_RULES.eib_buyout_share) / 100 : c.pl_disbursed_amount;
-      if (eib) eib_loans++;
+    const loan = countedLoan(c);
+    if (loan) {
+      pl_disbursed += loan.disbursed;
+      pl_counted += loan.counted;
+      if (loan.kind === 'eib') eib_loans++;
+      if (loan.kind === 'top_up') top_ups++;
     }
   }
   const pl_points = round2(pl_counted / INCENTIVE_RULES.pl_aed_per_point);
@@ -95,7 +109,7 @@ export function incentiveFor(db, staffId, cycle) {
   const excess_points = target == null ? null : Math.max(0, round2(total_points - target));
   const incentive_aed = excess_points == null ? null : round2(excess_points * rate);
   return {
-    cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, eib_loans, pl_points, total_points,
+    cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, eib_loans, top_ups, pl_points, total_points,
     excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, incentive_aed, files: rows.length,
   };
 }

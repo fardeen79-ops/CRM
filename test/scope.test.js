@@ -587,9 +587,14 @@ test('personal loan incentives: a banded percentage of the cycle\'s production, 
   assert.equal((await complete(eib.id, { pl_disbursed_amount: 600000 })).status, 200);
   mine = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
   assert.deepEqual([mine.pl_disbursed, mine.pl_counted, mine.eib_loans, mine.band, mine.rate_pct, mine.incentive_aed], [1300000, 1000000, 1, 'AED 1M to AED 1.25M', 0.75, 7500]);
+  // A top-up counts 70% of its incremental amount: 100,000 more on a 300,000 loan adds 70,000 (production 1,070,000, still 0.75% = 8,025).
+  const topUp = (await pl('PL Inc 4', { personal_loan_type: 'top_up', full_loan_amount: 300000, incremental_amount: 100000 })).data.case;
+  assert.equal((await complete(topUp.id, { pl_disbursed_amount: 300000 })).status, 200);
+  mine = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([mine.top_ups, mine.pl_counted, mine.incentive_aed], [1, 1070000, 8025]);
   const rep = (await mis('GET', `/reports/pl_incentives?cycle=${cycle}`)).data;
   const row = rep.rows.find((r) => r.staff === 'Amal');
-  assert.deepEqual([row.incentive_aed, row.rate, row.band], [7500, '0.75%', 'AED 1M to AED 1.25M']);
+  assert.deepEqual([row.incentive_aed, row.rate, row.band, row.top_ups], [8025, '0.75%', 'AED 1M to AED 1.25M', 1]);
   assert.match(rep.note, /60% of target in the next sales cycle/);
   assert.equal((await gov('GET', `/reports/pl_incentives?cycle=${cycle}`)).status, 404);
 });
