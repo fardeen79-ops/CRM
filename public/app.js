@@ -539,10 +539,10 @@ async function viewDashboard() {
   }[r];
 
   const teamTables = oversight ? html`
-    <div class="card"><h2>Processing team</h2>
+    <div class="card"><h2>Processing team <span class="muted small">all time</span></h2>
       ${miniTable(['Name', 'Calls', 'Verified', 'Pending', 'Rejected', 'QC avg'], s.processors.map((p) => [p.name, p.calls, p.completed, p.incomplete, p.rejected, p.qc_avg != null ? raw(`<span class="chip ${scoreClass(p.qc_avg)}">${p.qc_avg}</span>`) : '—']))}
     </div>
-    <div class="card"><h2>Sales team</h2>
+    <div class="card"><h2>Sales team <span class="muted small">all time</span></h2>
       ${miniTable(['Name', 'Sourced', 'Verified'], s.sales.map((p) => [p.name, p.sourced, p.completed]))}
     </div>` : '';
 

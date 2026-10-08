@@ -11,7 +11,7 @@ const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
 
 /** The reports, who may run them, and how the period applies. */
 export const REPORTS = {
-  sourcing: { name: 'Sourcing by sales staff', roles: [...ALL, ...MANAGERS], period: 'files sourced in the period', description: 'Files sourced per sales person, how their verification went, case outcomes and amounts disbursed.' },
+  sourcing: { name: 'Sourcing by sales staff', roles: [...ALL, ...MANAGERS], period: 'files sourced in the period', description: 'Files sourced per sales person and where each of those files stands now: verification, case status, amounts disbursed.' },
   pipeline: { name: 'Pipeline by region and product', roles: [...ALL, 'governance'], period: 'files sourced in the period', description: 'Where every file sourced in the period stands now, by region and core product.' },
   verification: { name: 'Verification team productivity', roles: [...ALL, 'governance'], period: 'calls and results logged in the period', description: 'Calls logged, results marked and turnaround per processor.' },
   targets: { name: 'Target achievement', roles: [...ALL, ...MANAGERS], period: 'a whole sales cycle', description: 'Target against achievement per sales person for a cycle, by product.' },
@@ -297,6 +297,7 @@ function access(db, user, { period, region }) {
   };
 }
 
+const VERIFICATION_LABELS = { pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
 const REGISTER_LIMIT = 5000;
 function register(db, user, { period, region }) {
   sweepCardAgeing(db);
@@ -310,7 +311,7 @@ function register(db, user, { period, region }) {
       product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
       card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? null, fpd: c.fpd || '',
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',
-      verification: c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || '',
+      verification: VERIFICATION_LABELS[c.status] || c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || '',
       case_status: CASE_STATUS[c.case_status] || c.case_status, case_status_at: c.case_status_at || '', disbursed_aed: (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0) || null,
       card_status: c.card_status ? CARD_STATES[c.card_status] : (c.case_status === 'completed' && includesCard(c) ? 'Not mapped' : ''), card_date: c.card_activation_date || '',
       qc_score: c.qc_score ?? null, complaint: c.complaint_number || '', source: c.source || '',
