@@ -168,6 +168,16 @@ The CRM ships with the bank's product list built in: 34 cards in 18 families, ea
 
 `docs/go-live/` holds the upload files built from the agency's staff list (`staff-upload.csv`, `salary-targets.csv`) and a README on how the sheet was mapped and which placeholders to replace. Rules that came from that list: a sales person's **team leader may be a sales manager or ASM who leads the team directly**; the **sales manager is optional** (a team can report to the business head); **targets follow the core product** (a credit card seller gets only the card target, multi-product staff get every product with a band); and in the staff upload the **HRMS code is required for every role, leaders included**, while the **mobile number is optional**.
 
+### Credit card incentives
+
+What a credit card sales person earns on the points they make beyond their card target in a sales cycle, from completed files only:
+
+- **Points** = card points (each card's points from the product list) + personal loan points, where **AED 50,000 of personal loans disbursed = 500 points** (AED 100 per point) and a loan **buying out an Emirates Islamic loan counts at 50%** of its disbursed amount.
+- **Excess** = points beyond the credit card target for the cycle.
+- **Rate**: **AED 1.25 per excess point** when at least **33% of the cards sold are Premium or Super Premium**, or at least **AED 50,000 of personal loans** (counted amount) were cross-sold; otherwise **AED 0.70**.
+
+Sales staff whose core product is credit cards see their own working on **My targets** (points, excess, which criterion they meet, incentive so far). The business head and DXB MIS run the **Credit card incentives** report for a cycle (one row per card seller with every input and the amount; totals and how many are on the higher rate). Nobody else sees incentives. The rates live in `src/incentives.js`.
+
 ### Payouts: what the bank pays per file
 
 Every file carries the revenue it earns the agency, from the bank's payout rates. **Only the business head and MIS staff whose region is DXB** see it (never sales staff, processors, team leaders, ASMs, sales managers, governance or MIS in AUH): on the case page (**Agency payout**, with the working), on the dashboard (**Payout from the bank**: earned on files completed this cycle, and what the open pipeline would earn) and in the reports: the sourcing report gains a **Payout (AED)** column, the case register a payout per file, and **Cards sold below eligibility** prices the lost upgrade (**Payout earned / possible / lost**). Everyone else gets no payout fields, no revenue tiles and no payout columns, and cannot open or use the Payout rules upload.

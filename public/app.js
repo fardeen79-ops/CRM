@@ -2040,6 +2040,25 @@ const activationRate = (cards) => (cards.temp_end ? Math.round((cards.active / c
 const unitSuffix = (unit) => (unit === 'aed' ? ' (AED)' : unit === 'points' ? ' (points)' : '');
 
 /** Product tiles and the card activation tile for one person or a whole team. */
+// A credit card sales person's incentive for the cycle: points beyond target, the rate earned and why.
+function incentiveCard({ incentive: i, rules }) {
+  const met = i.criterion !== 'none';
+  return html`<div class="card incentive">
+    <div class="card-head"><h2>My incentive · ${i.criterion_label === 'Neither' ? 'standard rate' : 'higher rate'}</h2>
+      <span class="chip ${met ? 'good' : ''}">AED ${i.rate.toFixed(2)} per excess point</span></div>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Points this cycle</span><span class="kpi-value">${fmtAmount(i.total_points)}</span><span class="kpi-sub">${fmtAmount(i.card_points)} from cards · ${fmtAmount(i.pl_points)} from personal loans</span></div>
+      <div class="kpi"><span class="kpi-label">Excess over target</span><span class="kpi-value">${i.excess_points == null ? '—' : fmtAmount(i.excess_points)}</span><span class="kpi-sub">${i.target == null ? 'no card target set for this cycle' : `target ${fmtAmount(i.target)} points`}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">${i.incentive_aed == null ? '—' : `AED ${fmtAmount(i.incentive_aed)}`}</span><span class="kpi-sub">${i.excess_points ? `${fmtAmount(i.excess_points)} × AED ${i.rate.toFixed(2)}` : 'earned once points pass the target'}</span></div>
+    </div>
+    <ul class="checklist">
+      <li>${i.criterion === 'mix' ? '✓' : '○'} Premium mix: ${i.premium_cards} of ${i.cards_sold} cards Premium or above (${i.mix_pct}% · needs ${rules.mix_share}%)</li>
+      <li>${i.criterion === 'cross_sell' || i.pl_counted >= rules.cross_sell_aed ? '✓' : '○'} Cross-sell: AED ${fmtAmount(i.pl_counted)} of personal loans counted (needs AED ${fmtAmount(rules.cross_sell_aed)}${i.eib_loans ? `; Emirates Islamic buy-outs count at ${rules.eib_buyout_share}%` : ''})</li>
+    </ul>
+    <p class="muted small">Meet either and excess points pay AED ${rules.rate_high.toFixed(2)} each, otherwise AED ${rules.rate_low.toFixed(2)}. Personal loans count AED ${rules.pl_aed_per_point} per point. Only completed files in the cycle count.</p>
+  </div>`;
+}
+
 function targetTiles(rep, block) {
   const products = Object.entries(rep.products);
   const cards = block.cards;
@@ -2070,6 +2089,7 @@ async function viewTargets(cycleParam) {
   const cycle = cycleParam || state.meta.current_cycle;
   const rep = await api(`/targets?cycle=${encodeURIComponent(cycle)}`);
   const r = effRole();
+  const mine = r === 'sales' ? await api(`/incentives/me?cycle=${encodeURIComponent(cycle)}`).catch(() => null) : null;
   const products = Object.entries(rep.products);
   const scopeTitle = { sales: 'My targets', team_leader: 'My team', sales_manager: 'My team' }[r] || 'All sales staff';
   const casesLink = (staffId) => `#/cases?cycle=${rep.cycle}${staffId ? `&staff=${staffId}` : ''}`;
@@ -2119,6 +2139,7 @@ async function viewTargets(cycleParam) {
     <h2 class="tiles-head">${r === 'sales' ? 'Achieved against target' : `${scopeTitle} · ${rep.staff.length} sales staff`}</h2>
     ${targetTiles(rep, rep.total)}
     ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
+    ${mine?.incentive ? incentiveCard(mine) : ''}
     ${groupTable('By team leader', rep.by_team_leader)}
     ${groupTable('By sales manager', rep.by_sales_manager)}
     ${r !== 'sales' ? html`<div class="card" id="staff-card">

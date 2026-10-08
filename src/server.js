@@ -6,6 +6,7 @@ import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
+import { myIncentive, INCENTIVE_RULES } from './incentives.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -168,6 +169,7 @@ function routes(db, dispatch, bot) {
         credit_cards: cardFamilies(),
         card_list_source: cardProductSource(),
         can_see_payout: canSeePayout(user),
+        incentive_rules: INCENTIVE_RULES,
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
@@ -312,6 +314,7 @@ function routes(db, dispatch, bot) {
 
     // Targets and achievement for a sales cycle (?cycle=2026-06, default the current one).
     ['GET', /^\/api\/targets$/, async ({ user, query }) => performance.targetReport(db, user, query.get('cycle'), { region: query.get('region') })],
+    ['GET', /^\/api\/incentives\/me$/, async ({ user, query }) => myIncentive(db, user, query.get('cycle'))],
     ['PUT', /^\/api\/targets$/, async ({ user, body }) => performance.saveTargets(db, user, body)],
     // Sets every sales person's targets for a cycle from their salary and the salary-band rules.
     ['POST', /^\/api\/targets\/generate$/, async ({ user, body }) => performance.generateTargets(db, user, body.cycle)],

@@ -7,6 +7,7 @@ import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
+import { incentiveRows, INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
@@ -22,10 +23,11 @@ export const REPORTS = {
   access: { name: 'Access and reveals', roles: ['governance', 'business_head'], period: 'activity in the period', description: 'Who opened files, which personal details they revealed and which reports they ran.' },
   card_exceptions: { name: 'Card deviations and promotions', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards sold to customers below the card\'s salary requirement: the reason recorded (product deviation or new promotion), who decided, and files still awaiting approval.' },
   card_downsell: { name: 'Cards sold below eligibility', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards where the customer\'s salary qualified for a higher card category than the one sold, with the points earned, the points the best eligible card would have earned, and the points lost.' },
+  incentives: { name: 'Credit card incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each credit card sales person earns on points beyond target: AED 1.25 per excess point with at least 33% Premium or Super Premium cards or AED 50,000 of personal loans cross-sold, else AED 0.70. Personal loans count AED 100 per point; an Emirates Islamic buy-out counts at half. Runs for a sales cycle only.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
-export const reportsFor = (user) => Object.entries(REPORTS).filter(([, r]) => r.roles.includes(user.role)).map(([key, r]) => ({ key, ...r, roles: undefined }));
+export const reportsFor = (user) => Object.entries(REPORTS).filter(([, r]) => r.roles.includes(user.role) && (!r.only || r.only(user))).map(([key, r]) => ({ key, ...r, roles: undefined, only: undefined }));
 
 /** The period: a sales cycle (default the current one) or from/to dates. */
 export function periodOf({ cycle, from, to } = {}) {
@@ -403,12 +405,25 @@ function card_downsell(db, user, { period, region }) {
   }, user);
 }
 
-const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell };
+function incentives(db, user, { period, region }) {
+  if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
+  const rows = incentiveRows(db, period.cycle, region);
+  return {
+    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+      col('target', 'Card target (points)', 'points'), col('cards_sold', 'Cards sold'), col('premium_cards', 'Premium or above'), col('mix_pct', 'Premium mix', 'pct'), col('card_points', 'Card points', 'points'),
+      col('pl_disbursed', 'PL disbursed (AED)', 'aed'), col('pl_counted', 'PL counted (AED)', 'aed'), col('pl_points', 'PL points', 'points'), col('total_points', 'Total points', 'points'), col('excess_points', 'Excess points', 'points'),
+      col('criterion', 'Criterion met', 'text'), col('rate', 'Rate per point', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed')],
+    rows,
+    totals: { staff: `${rows.length} staff`, cards_sold: sum(rows, 'cards_sold'), premium_cards: sum(rows, 'premium_cards'), card_points: sum(rows, 'card_points'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), pl_points: sum(rows, 'pl_points'), total_points: sum(rows, 'total_points'), excess_points: sum(rows, 'excess_points'), incentive_aed: sum(rows, 'incentive_aed'), criterion: `${rows.filter((r) => r.rate === `AED ${INCENTIVE_RULES.rate_high.toFixed(2)}`).length} at the higher rate` },
+  };
+}
+
+const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
   const def = REPORTS[key];
-  if (!def || !def.roles.includes(user.role)) throw new WorkflowError(404, 'Report not found');
+  if (!def || !def.roles.includes(user.role) || (def.only && !def.only(user))) throw new WorkflowError(404, 'Report not found');
   const period = periodOf(filters);
   const region = reportRegion(filters.region);
   const result = RUNNERS[key](db, user, { period, region });

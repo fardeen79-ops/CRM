@@ -517,3 +517,47 @@ test('staff master shapes from the real list: a manager leading a team, a team w
   assert.deepEqual(t('No Manager'), { auto_loan: 3200 });
   assert.deepEqual(t('Multi Seller'), { credit_card: 9050, personal_loan: 700000, auto_loan: 5600 });
 });
+
+test('credit card incentives: points beyond target at AED 1.25 with the premium mix or cross-sell, else AED 0.70', async () => {
+  const dana = await login('dana@t.local');
+  const amal = await login('amal@t.local');
+  const mis = await login('mis@t.local');
+  const misAuh = await login('mis-auh@t.local');
+  const gov = await login('gov@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  const ids = Object.fromEntries((await mis('GET', '/users')).data.users.map((u) => [u.email, u.id]));
+  for (const email of ['dana@t.local', 'amal@t.local']) assert.equal((await mis('PATCH', `/users/${ids[email]}`, { core_product: 'credit_card' })).status, 200);
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: ids['dana@t.local'], credit_card: 1000 }, { user_id: ids['amal@t.local'], credit_card: 100 }] })).status, 200);
+  const complete = (id, extra = {}) => mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', ...extra });
+  const card = (who, name, extra) => who('POST', '/cases', { customer_name: name, region: 'DXB', phone: '+971 50 111 9999', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary: 32000, ...extra });
+  // Dana: two Mass cards (650 each) and one Premium (800) = 2,100 points, 33.3% premium mix.
+  for (const [name, extra] of [['Inc Mass 1', {}], ['Inc Mass 2', {}], ['Inc Premium', { credit_card: 'Skywards Signature Credit Card' }]]) {
+    const c = (await card(dana, name, extra)).data.case; assert.equal((await complete(c.id)).status, 200, name);
+  }
+  // Plus a fresh loan of 100,000 (1,000 points) and an Emirates Islamic buy-out of 100,000 (counts 50,000 = 500 points).
+  const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  const pl = (extra) => dana('POST', '/cases', { customer_name: 'Inc Loan', region: 'DXB', phone: '+971 50 111 9998', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd, secondary_buyout: 'no', ...extra });
+  const fresh = (await pl({ personal_loan_type: 'fresh' })).data.case; assert.equal((await complete(fresh.id, { pl_disbursed_amount: 100000 })).status, 200);
+  const eib = (await pl({ personal_loan_type: 'buy_out', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Emirates Islamic', amount: 100000 }] })).data.case;
+  assert.equal((await complete(eib.id, { pl_disbursed_amount: 100000 })).status, 200);
+  const mine = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([mine.cards_sold, mine.premium_cards, mine.mix_pct, mine.card_points], [3, 1, 33.3, 2100]);
+  assert.deepEqual([mine.pl_disbursed, mine.pl_counted, mine.eib_loans, mine.pl_points], [200000, 150000, 1, 1500]);
+  assert.deepEqual([mine.total_points, mine.target, mine.excess_points, mine.criterion, mine.rate, mine.incentive_aed], [3600, 1000, 2600, 'mix', 1.25, 3250]);
+  // Amal: one Mass card, no premium mix and no cross-sell: the lower rate.
+  const a = (await card(amal, 'Inc Amal', { region: 'AUH' })).data.case; assert.equal((await complete(a.id)).status, 200);
+  const his = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([his.total_points, his.excess_points, his.criterion, his.rate, his.incentive_aed], [650, 550, 'none', 0.7, 385]);
+  // The report: business head or DXB MIS only, per cycle.
+  const rep = (await mis('GET', `/reports/incentives?cycle=${cycle}`)).data;
+  const row = rep.rows.find((r) => r.staff === 'Dana');
+  assert.deepEqual([row.incentive_aed, row.criterion, row.rate], [3250, 'Premium mix', 'AED 1.25']);
+  assert.equal(rep.rows.find((r) => r.staff === 'Amal').incentive_aed, 385);
+  assert.ok(rep.totals.incentive_aed >= 3635);
+  assert.equal((await mis('GET', `/reports/incentives?region=AUH&cycle=${cycle}`)).data.rows.some((r) => r.staff === 'Dana'), false);
+  assert.equal((await mis('GET', '/reports/incentives?from=2026-01-01&to=2026-01-31')).status, 400);
+  assert.equal((await misAuh('GET', `/reports/incentives?cycle=${cycle}`)).status, 404);
+  assert.equal((await gov('GET', `/reports/incentives?cycle=${cycle}`)).status, 404);
+  assert.ok(!(await misAuh('GET', '/reports')).data.reports.some((r) => r.key === 'incentives'));
+  assert.equal((await gov('GET', `/incentives/me?cycle=${cycle}`)).status, 403);
+});
