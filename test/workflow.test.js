@@ -1196,3 +1196,70 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   assert.equal(log[0].ref, `CRM-${String(id).padStart(6, '0')}`);
   assert.ok((await gov('GET', '/access-log')).data.items.length >= log.length);
 });
+
+test('chat: case discussions with @mentions, direct messages, team groups, oversight and the personal-data flag', async () => {
+  const sales = await login('sales@t.local');
+  const sid = await login('sales2@t.local');
+  const proc = await login('proc@t.local');
+  const lead = await login('lead@t.local');
+  const gov = await login('gov@t.local');
+  const id = (await sales('POST', '/cases', newCase)).data.case.id;
+
+  // Case discussion: anyone who can see the case can post; a mention notifies that person.
+  let r = await proc('POST', `/cases/${id}/messages`, { body: '@Sally can you confirm the employer name?' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.message.user_name, 'Pam');
+  assert.equal((await sid('GET', `/cases/${id}/messages`)).status, 404); // not Sid's case
+  const thread = (await sales('GET', `/cases/${id}/messages`)).data.items;
+  assert.deepEqual(thread.map((m) => m.body), ['@Sally can you confirm the employer name?']);
+  assert.match((await sales('GET', '/notifications')).data.items[0].message, /Pam mentioned you on CRM-/);
+  assert.equal((await proc('POST', `/cases/${id}/messages`, { body: '   ' })).status, 400);
+  // Personal data in a message is posted but flagged.
+  r = await sales('POST', `/cases/${id}/messages`, { body: 'EID is 784-1990-1234567-1' });
+  assert.equal(r.data.message.flagged, 1);
+  assert.equal((await sales('POST', `/cases/${id}/messages`, { body: 'Employer confirmed, Acme LLC' })).data.message.flagged, 0);
+
+  // Groups are built from the users: everyone, processing, and each team leader's team.
+  const mine = (await sales('GET', '/conversations')).data;
+  assert.equal(mine.overseer, false);
+  const names = mine.items.map((c) => c.name).sort();
+  assert.deepEqual(names, ['Everyone', 'Team Lead']);
+  const team = mine.items.find((c) => c.name === 'Team Lead');
+  assert.ok(team.members.some((m) => m.name === 'Manager')); // the sales manager is in the team group
+  assert.ok(!(await proc('GET', '/conversations')).data.items.some((c) => c.name === 'Team Lead'));
+  assert.ok((await proc('GET', '/conversations')).data.items.some((c) => c.name === 'Processing team'));
+
+  // Direct messages: start one, the other side is notified, unread counts move, reading clears them.
+  const colleagues = (await sales('GET', '/colleagues')).data.users;
+  const pamId = colleagues.find((u) => u.name === 'Pam').id;
+  const dm = (await sales('POST', '/conversations/direct', { user_id: pamId })).data.conversation;
+  assert.equal(dm.kind, 'dm');
+  assert.equal((await sales('POST', '/conversations/direct', { user_id: pamId })).data.conversation.id, dm.id); // same one again
+  r = await sales('POST', `/conversations/${dm.id}/messages`, { body: 'Hi Pam, can you call Asha today?' });
+  assert.equal(r.status, 201);
+  assert.match((await proc('GET', '/notifications')).data.items[0].message, /Message from Sally/);
+  assert.equal((await proc('GET', '/notifications')).data.items[0].link, `#/messages/${dm.id}`);
+  assert.equal((await proc('GET', '/notifications')).data.unread_messages, 1);
+  assert.equal((await proc('GET', '/conversations')).data.items.find((c) => c.id === dm.id).unread, 1);
+  const read = (await proc('GET', `/conversations/${dm.id}/messages`)).data;
+  assert.equal(read.items.length, 1);
+  assert.equal(read.conversation.other_user.name, 'Sally');
+  assert.equal((await proc('GET', '/notifications')).data.unread_messages, 0);
+  assert.equal((await sid('GET', `/conversations/${dm.id}/messages`)).status, 404); // not a member
+
+  // Group mentions alert only the people named; the author can edit briefly.
+  const everyone = mine.items.find((c) => c.name === 'Everyone');
+  r = await lead('POST', `/conversations/${everyone.id}/messages`, { body: 'Targets updated. @Pam please check the queue.' });
+  assert.match((await proc('GET', '/notifications')).data.items[0].message, /Everyone from Lead/);
+  assert.ok(!/Everyone from Lead/.test((await sales('GET', '/notifications')).data.items[0].message));
+  const edited = await lead('POST', `/messages/${r.data.message.id}/edit`, { body: 'Targets updated. @Pam please check the queue today.' });
+  assert.ok(edited.data.message.edited_at);
+  assert.equal((await sales('POST', `/messages/${r.data.message.id}/edit`, { body: 'x' })).status, 404); // not theirs
+
+  // Governance reads every conversation, but can post only where it is a member.
+  const all = (await gov('GET', '/conversations')).data;
+  assert.equal(all.overseer, true);
+  assert.ok(all.items.some((c) => c.id === dm.id));
+  assert.equal((await gov('GET', `/conversations/${dm.id}/messages`)).data.items.length, 1);
+  assert.equal((await gov('POST', `/conversations/${dm.id}/messages`, { body: 'hello' })).status, 403);
+});

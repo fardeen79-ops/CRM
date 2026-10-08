@@ -3,6 +3,7 @@ import { transaction } from './db.js';
 import { CREDIT_CARD_NAMES } from './credit-cards.js';
 import { findUser } from './users.js';
 import { cycleRange, isCycle, uaeDay } from './cycles.js';
+import { unreadCount as chatUnread } from './chat.js';
 
 export class WorkflowError extends Error {
   constructor(status, message) {
@@ -413,9 +414,9 @@ export function addEvent(db, caseId, userId, type, { from = null, to = null, det
   ).run(caseId, userId, type, from, to, detail, note, now());
 }
 
-export function notify(db, userIds, caseId, message) {
-  const stmt = db.prepare('INSERT INTO notifications (user_id, case_id, message, created_at) VALUES (?, ?, ?, ?)');
-  for (const id of new Set(userIds.filter(Boolean))) stmt.run(id, caseId, message, now());
+export function notify(db, userIds, caseId, message, link = null) {
+  const stmt = db.prepare('INSERT INTO notifications (user_id, case_id, message, link, created_at) VALUES (?, ?, ?, ?, ?)');
+  for (const id of new Set(userIds.filter(Boolean))) stmt.run(id, caseId, message, link, now());
 }
 
 const activeUserIds = (db, role) =>
@@ -1190,7 +1191,7 @@ export function listNotifications(db, user) {
     .all(user.id)
     .map((n) => ({ ...n, ref: n.case_id ? caseRef(n.case_id) : null }));
   const unread = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND is_read = 0').get(user.id).n;
-  return { unread, items };
+  return { unread, items, unread_messages: chatUnread(db, user) };
 }
 
 export function markNotificationsRead(db, user, ids) {

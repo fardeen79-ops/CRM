@@ -62,7 +62,7 @@ const ACTION_LABEL = {
   bulk_upload: 'Added by bulk upload',
 };
 
-const state = { user: null, meta: null, unread: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0, callbacksDue: 0 };
+const state = { user: null, meta: null, unread: 0, unreadMessages: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0, callbacksDue: 0 };
 const app = document.getElementById('app');
 
 // ---------- helpers ----------
@@ -230,6 +230,7 @@ async function refreshCounters() {
   try {
     const n = await api('/notifications');
     state.unread = n.unread;
+    state.unreadMessages = n.unread_messages ?? 0;
     if (['team_leader', 'sales_manager', 'governance', 'business_head', 'processing'].includes(state.user.role)) {
       const s = await api('/stats');
       state.actionRequired = s.by_status.incomplete;
@@ -251,7 +252,7 @@ function updateBadges() {
   if (ar) { ar.textContent = state.actionRequired; ar.hidden = !state.actionRequired; }
   const er = document.querySelector('[data-er-count]');
   if (er) { er.textContent = state.editRequests; er.hidden = !state.editRequests; }
-  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings], ['[data-urgent-count]', state.urgent], ['[data-cb-count]', state.callbacksDue]]) {
+  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings], ['[data-urgent-count]', state.urgent], ['[data-cb-count]', state.callbacksDue], ['[data-msg-count]', state.unreadMessages]]) {
     const el = document.querySelector(sel);
     if (el) { el.textContent = n; el.hidden = !n; }
   }
@@ -277,6 +278,7 @@ const ICON_PATHS = {
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
   stamp: '<path d="M9 3h6v6l3 3v3H6v-3l3-3z"/><path d="M5 21h14"/>',
   eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="3"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4V5z"/>',
 };
 const icon = (name) => raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`);
 
@@ -294,6 +296,7 @@ function navGroups() {
   if (r === 'governance') {
     work.push(urgent, ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc], ['#/recordings', 'Recordings', 'mic', 'data-rec-count', state.recordings]);
   }
+  work.push(['#/messages', 'Messages', 'chat', 'data-msg-count', state.unreadMessages]);
   groups.push(['', work]);
 
   const cases = [];
@@ -322,6 +325,7 @@ function activeHref(hrefs) {
   if (hrefs.includes(current)) return current;
   const path = current.split('?')[0];
   if (path.startsWith('#/import/')) return hrefs.find((h) => h.startsWith('#/import/'));
+  if (path.startsWith('#/messages')) return '#/messages';
   return hrefs.find((h) => h === path) || (path.startsWith('#/cases/') && !path.endsWith('/new') ? hrefs.find((h) => h === '#/cases') : null);
 }
 
@@ -388,7 +392,7 @@ async function toggleNotifications() {
     <div class="dropdown">
       <div class="head"><strong>Notifications</strong><button class="btn-link" id="mark-all">Mark all read</button></div>
       ${items.length ? items.map((n) => html`
-        <a class="item ${n.is_read ? '' : 'unread'}" href="${n.case_id ? `#/cases/${n.case_id}` : '#/'}" data-id="${n.id}">
+        <a class="item ${n.is_read ? '' : 'unread'}" href="${n.case_id ? `#/cases/${n.case_id}` : n.link || '#/'}" data-id="${n.id}">
           <div>${n.message}</div><div class="muted small">${fmtDate(n.created_at)}</div>
         </a>`) : html`<div class="empty">No notifications yet</div>`}
     </div>`.s;
@@ -463,6 +467,7 @@ async function route() {
     if (path === '/users') return await viewUsers();
     if ((m = path.match(/^\/import\/(users|cases|cards|targets)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
+    if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
     if (path === '/cards') return await viewCards(params);
     shell(html`<div class="card empty">Page not found</div>`);
@@ -1435,6 +1440,12 @@ async function viewCase(id) {
           </div>` : ''}
         </div>` : ''}
         ${c.bot_call ? botCallCard(c.bot_call) : ''}
+        <div class="card" id="discussion">
+          <h2>Discussion</h2>
+          <p class="muted small">Talk about this file with everyone who can see it. Type @ and a colleague's name to alert them. Keep customers' ID and phone numbers out of messages; they are on the file.</p>
+          <div class="thread" id="case-thread"><div class="muted small">Loading…</div></div>
+          ${composer('case-composer', 'Write a message about this file…')}
+        </div>
         <div class="card">
           <h2>Activity</h2>
           <ul class="timeline">
@@ -1507,6 +1518,7 @@ async function viewCase(id) {
   const onHide = () => { if (document.visibilityState === 'hidden') rehideAll(); };
   document.addEventListener('visibilitychange', onHide);
   window.addEventListener('hashchange', () => document.removeEventListener('visibilitychange', onHide), { once: true });
+  mountThread({ list: document.getElementById('case-thread'), form: document.getElementById('case-composer'), url: `/cases/${id}/messages` });
   document.getElementById('back-link').onclick = (e) => {
     if (history.length > 1) { e.preventDefault(); history.back(); }
   };
@@ -1901,6 +1913,162 @@ async function viewCards(params) {
       viewCards(params);
     } catch (ex) { toast(ex.message, true); b.disabled = false; }
   }));
+}
+
+// ---------- chat: case discussions, direct messages and groups ----------
+const composer = (formId, placeholder) => html`<form class="composer" id="${formId}">
+  <textarea name="body" rows="2" placeholder="${placeholder}" maxlength="4000" required></textarea>
+  <button class="btn-primary">Send</button>
+</form>`;
+
+// Message text with @mentions and CRM references turned into links; everything else escaped.
+function messageHtml(text) {
+  const parts = [];
+  const re = /(CRM-\d{6})|(@[A-Za-z][A-Za-z' -]{0,40}?)(?=[\s,.!?:;)]|$)/g;
+  let last = 0; let m;
+  while ((m = re.exec(text))) {
+    parts.push(esc(text.slice(last, m.index)));
+    if (m[1]) parts.push(`<a href="#/cases/${Number(m[1].slice(4))}" class="mono">${m[1]}</a>`);
+    else parts.push(`<span class="mention">${esc(m[2])}</span>`);
+    last = m.index + m[0].length;
+  }
+  parts.push(esc(text.slice(last)));
+  return raw(parts.join(''));
+}
+
+const messageRow = (m) => {
+  const mine = m.user_id === state.user.id;
+  const editable = mine && Date.now() - Date.parse(m.created_at) < state.meta.chat_edit_minutes * 60e3;
+  return html`<div class="msg ${mine ? 'mine' : ''}" data-msg="${m.id}">
+    <div class="msg-head"><strong>${mine ? 'You' : m.user_name}</strong> <span class="muted small">${ROLE_LABEL[m.user_role] || ''} · ${ago(m.created_at)}${m.edited_at ? ' · edited' : ''}</span>
+      ${m.flagged ? html` <span class="chip bad" title="Looks like an ID or phone number. Personal data belongs on the file, not in chat.">Personal data</span>` : ''}
+      ${editable ? html` <button type="button" class="btn-link small" data-edit="${m.id}">Edit</button>` : ''}</div>
+    <div class="msg-body">${messageHtml(m.body)}</div>
+  </div>`;
+};
+
+/**
+ * Renders a thread into `list`, posts from `form`, and polls for new messages while the page is
+ * open. Works for a case discussion and a conversation alike.
+ */
+function mountThread({ list, form, url, onPosted }) {
+  let lastId = 0;
+  let timer;
+  const append = (items, { scroll = true } = {}) => {
+    if (!items.length) return;
+    if (lastId === 0) list.innerHTML = '';
+    for (const m of items) { list.insertAdjacentHTML('beforeend', messageRow(m).s); lastId = Math.max(lastId, m.id); }
+    wireEdits();
+    if (scroll) list.scrollTop = list.scrollHeight;
+  };
+  const load = async () => {
+    try {
+      const { items } = await api(`${url}?after=${lastId}`);
+      if (lastId === 0 && !items.length) list.innerHTML = '<div class="muted small empty-thread">No messages yet.</div>';
+      append(items);
+    } catch (ex) { if (lastId === 0) list.innerHTML = `<div class="error">${esc(ex.message)}</div>`; }
+  };
+  const wireEdits = () => list.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => {
+    const row = b.closest('.msg');
+    const body = row.querySelector('.msg-body');
+    const current = body.textContent;
+    body.innerHTML = html`<form class="composer inline"><textarea rows="2" maxlength="4000" required>${current}</textarea><button class="btn-primary">Save</button><button type="button" data-cancel>Cancel</button></form>`.s;
+    const f = body.querySelector('form');
+    f.querySelector('[data-cancel]').onclick = () => { body.innerHTML = messageHtml(current).s; };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const { message } = await api(`/messages/${b.dataset.edit}/edit`, { method: 'POST', body: { body: f.querySelector('textarea').value } });
+        row.outerHTML = messageRow(message).s;
+        wireEdits();
+      } catch (ex) { toast(ex.message, true); }
+    };
+  }));
+  // Read-only viewers (governance reading a conversation they are not in) have no composer.
+  const ta0 = form?.querySelector('textarea');
+  if (ta0) form.onsubmit = async (e) => {
+    e.preventDefault();
+    const ta = form.querySelector('textarea');
+    const text = ta.value.trim();
+    if (!text) return;
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    try {
+      const { message } = await api(url, { method: 'POST', body: { body: text } });
+      ta.value = '';
+      if (list.querySelector('.empty-thread')) list.innerHTML = '';
+      append([message]);
+      onPosted?.(message);
+    } catch (ex) { toast(ex.message, true); }
+    btn.disabled = false;
+  };
+  // Enter sends; Shift+Enter makes a new line.
+  ta0?.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+  load();
+  timer = setInterval(() => { if (!list.isConnected) return clearInterval(timer); if (document.visibilityState === 'visible') load(); }, 5000);
+  window.addEventListener('hashchange', () => clearInterval(timer), { once: true });
+}
+
+async function viewMessages(conversationId, params) {
+  const { items, overseer } = await api('/conversations');
+  const current = conversationId ? items.find((c) => c.id === conversationId) : null;
+  const initials = (name) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  const groups = items.filter((c) => c.kind === 'group');
+  const dms = items.filter((c) => c.kind === 'dm');
+  const convRow = (c) => html`<a class="conv ${c.id === conversationId ? 'active' : ''}" href="#/messages/${c.id}">
+    <span class="avatar ${c.kind}">${c.kind === 'group' ? '#' : initials(c.name)}</span>
+    <span class="conv-main"><span class="conv-name">${c.name}${c.member ? '' : html` <span class="muted small">(read only)</span>`}</span>
+      <span class="conv-last muted small">${c.last_message ? `${c.last_message.user_name.split(' ')[0]}: ${c.last_message.body.slice(0, 60)}` : c.kind === 'group' ? `${c.members.length} members` : 'No messages yet'}</span></span>
+    ${c.unread ? html`<span class="count">${c.unread}</span>` : ''}
+  </a>`;
+
+  shell(html`
+    <div class="page-head">
+      <div><h1>Messages</h1><p class="muted lede">Direct messages with colleagues and your team groups. ${overseer ? 'As governance or business head you can read every conversation; you can post only in your own.' : 'Governance and the business head can read all conversations, so keep them about work.'} Customers' ID and phone numbers belong on the file, not in chat.</p></div>
+      <button class="btn-primary" id="new-dm">New message</button>
+    </div>
+    <div class="chat-layout ${current ? 'has-thread' : ''}">
+      <aside class="card conv-list">
+        <div id="dm-picker" hidden><label for="dm-user" class="small">Message a colleague</label><select id="dm-user"><option value="">Choose…</option></select></div>
+        ${groups.length ? html`<div class="nav-title">Groups</div>${groups.map(convRow)}` : ''}
+        <div class="nav-title">Direct messages</div>
+        ${dms.length ? dms.map(convRow) : html`<p class="muted small" style="padding:4px 10px">No direct messages yet. Use <b>New message</b>.</p>`}
+      </aside>
+      <section class="card thread-pane">
+        ${current ? html`
+          <div class="thread-head">
+            <a class="small back-to-list" href="#/messages">← All conversations</a>
+            <h2>${current.name}</h2>
+            <div class="muted small">${current.kind === 'group' ? `${current.members.length} members: ${current.members.map((m) => m.name).join(', ')}` : `${ROLE_LABEL[current.other_user?.role] || ''}`}</div>
+          </div>
+          <div class="thread" id="conv-thread"><div class="muted small">Loading…</div></div>
+          ${current.member ? composer('conv-composer', `Message ${current.name}…`) : html`<p class="muted small">You can read this conversation but only its members can post in it.</p>`}`
+          : html`<div class="empty">Choose a conversation, or start a new message.</div>`}
+      </section>
+    </div>`);
+
+  const picker = document.getElementById('dm-picker');
+  const select = document.getElementById('dm-user');
+  document.getElementById('new-dm').onclick = async () => {
+    picker.hidden = !picker.hidden;
+    if (select.options.length === 1) {
+      const { users } = await api('/colleagues');
+      for (const u of users) select.insertAdjacentHTML('beforeend', html`<option value="${u.id}">${u.name} · ${ROLE_LABEL[u.role] || u.role}</option>`.s);
+    }
+    select.focus();
+  };
+  select.onchange = async () => {
+    if (!select.value) return;
+    try {
+      const { conversation } = await api('/conversations/direct', { method: 'POST', body: { user_id: Number(select.value) } });
+      go(`#/messages/${conversation.id}`);
+    } catch (ex) { toast(ex.message, true); }
+  };
+  if (current) {
+    const form = document.getElementById('conv-composer');
+    mountThread({ list: document.getElementById('conv-thread'), form, url: `/conversations/${current.id}/messages`, onPosted: refreshCounters });
+    setTimeout(refreshCounters, 600);
+  }
 }
 
 // ---------- privacy: watermark and access log ----------

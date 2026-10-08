@@ -233,6 +233,15 @@ While a file is in **Applicant review**, the sales person who sourced it can't e
 
 Each file also has a **sourcing date**, which defaults to today and can't be in the future.
 
+### Chat: case discussions, direct messages and groups
+
+- **Discussion on every case.** Everyone who can see a file can post in its *Discussion* panel (sales staff see only their own files). Type `@` and a colleague's name to alert them; they get a notification linking to the case. Messages update every few seconds while the page is open.
+- **Messages page.** Direct messages between any two colleagues (**New message**) and automatic groups: *Everyone*, *Processing team*, and one per team leader (the team leader, their sales staff and their sales managers). Groups follow the Users page, so membership updates itself. Direct messages notify the other person; in groups only the people `@mentioned` are notified. Unread counts show in the menu.
+- **Kept, not deleted.** A message can be edited by its author for 5 minutes (marked *edited*); nothing can be deleted.
+- **Oversight.** Governance and the business head can read every conversation, and can post only in the ones they belong to. The Messages page says so.
+- **Personal data stays on the file.** A message that looks like it holds an Emirates ID or phone number is posted but marked *Personal data*, so the habit is visible to governance. `CRM-000123` in a message becomes a link to the case.
+- API: `GET/POST /cases/:id/messages`, `GET /conversations`, `GET /colleagues`, `POST /conversations/direct {user_id}`, `GET/POST /conversations/:id/messages`, `POST /messages/:id/edit`.
+
 ### Privacy controls: masking, watermark and access log
 
 A web page cannot stop screenshots or photos of the screen, so the CRM limits what a capture would show and makes it traceable:
@@ -359,6 +368,7 @@ src/
   server.js    HTTP routing, auth cookies, JSON API, static files, webhook dispatch
   cases.js     case workflow / state machine, notifications, stats
   bot.js       verification calls through a calling bot (request, signed results)
+  chat.js      case discussions, direct messages, groups, mentions
   imports.js   bulk upload of users, cases, card activation and targets (CSV parsing, row checks, column guide)
   cycles.js    sales cycles (21st to 20th, UAE time)
   performance.js  targets, achievement per cycle and card activation counts

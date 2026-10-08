@@ -9,6 +9,7 @@ import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
+import * as chat from './chat.js';
 import { cycleOf, uaeDay } from './cycles.js';
 import { makeCallBot } from './bot.js';
 
@@ -163,6 +164,8 @@ function routes(db, dispatch, bot) {
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         card_fee_types: cases.CARD_FEE_TYPES,
         masked_fields: cases.MASKED_FIELDS,
+        chat_overseers: chat.CHAT_OVERSEERS,
+        chat_edit_minutes: chat.EDIT_WINDOW_MINUTES,
         banks: BANKS,
         case_statuses: cases.CASE_STATUS,
         regions: cases.REGIONS,
@@ -202,6 +205,15 @@ function routes(db, dispatch, bot) {
 
     // Full value of a masked personal detail (?fields=phone,eid_number); every reveal is logged.
     ['GET', /^\/api\/cases\/(\d+)\/reveal$/, async ({ user, params, query }) => cases.revealFields(db, user, Number(params[0]), query.get('fields'))],
+    // Chat: case discussions, direct messages and groups.
+    ['GET', /^\/api\/cases\/(\d+)\/messages$/, async ({ user, params, query }) => chat.listCaseMessages(db, user, Number(params[0]), Object.fromEntries(query))],
+    ['POST', /^\/api\/cases\/(\d+)\/messages$/, async ({ user, params, body, res }) => send(res, 201, { message: chat.postCaseMessage(db, user, Number(params[0]), body.body) })],
+    ['GET', /^\/api\/conversations$/, async ({ user }) => chat.listConversations(db, user)],
+    ['GET', /^\/api\/colleagues$/, async ({ user }) => chat.listColleagues(db, user)],
+    ['POST', /^\/api\/conversations\/direct$/, async ({ user, body }) => ({ conversation: chat.openDirect(db, user, body.user_id) })],
+    ['GET', /^\/api\/conversations\/(\d+)\/messages$/, async ({ user, params, query }) => chat.listMessages(db, user, Number(params[0]), Object.fromEntries(query))],
+    ['POST', /^\/api\/conversations\/(\d+)\/messages$/, async ({ user, params, body, res }) => send(res, 201, { message: chat.postMessage(db, user, Number(params[0]), body.body) })],
+    ['POST', /^\/api\/messages\/(\d+)\/edit$/, async ({ user, params, body }) => ({ message: chat.editMessage(db, user, Number(params[0]), body.body) })],
     ['GET', /^\/api\/access-log$/, async ({ user, query }) => cases.listAccessLog(db, user, Object.fromEntries(query))],
 
     ['PUT', /^\/api\/cases\/(\d+)$/, async ({ user, params, body }) => ({

@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   case_id    INTEGER REFERENCES cases(id) ON DELETE CASCADE,
   message    TEXT NOT NULL,
+  link       TEXT,                     -- where the notification opens, when not a case
   is_read    INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -159,6 +160,33 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_r
 
 -- Monthly targets per sales person and product. A cycle runs from the 21st to the 20th and is
 -- named after the month it ends in ('2026-06' = 21 May to 20 June).
+-- Chat: a discussion per case (case_id) and conversations (direct messages and automatic groups).
+CREATE TABLE IF NOT EXISTS conversations (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,            -- 'dm' or 'group'
+  name       TEXT,
+  group_key  TEXT UNIQUE,              -- 'all', 'processing', 'team:<team leader id>'
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS conversation_members (
+  conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_id    INTEGER,
+  PRIMARY KEY (conversation_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS messages (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id         INTEGER REFERENCES cases(id) ON DELETE CASCADE,
+  conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
+  user_id         INTEGER NOT NULL REFERENCES users(id),
+  body            TEXT NOT NULL,
+  flagged         INTEGER NOT NULL DEFAULT 0,  -- looks like it holds personal data
+  created_at      TEXT NOT NULL,
+  edited_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_case ON messages(case_id, id);
+CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, id);
+
 -- Who looked at a customer's personal data: each reveal of a masked value, and each case opened.
 CREATE TABLE IF NOT EXISTS access_log (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -239,6 +267,7 @@ const ADDED_USER_COLUMNS = {
 };
 
 function migrate(db) {
+  if (!db.prepare('PRAGMA table_info(notifications)').all().some((c) => c.name === 'link')) db.exec('ALTER TABLE notifications ADD COLUMN link TEXT');
   const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
   for (const [name, type] of Object.entries(ADDED_COLUMNS)) {
     if (!cols.includes(name)) db.exec(`ALTER TABLE cases ADD COLUMN ${name} ${type}`);
