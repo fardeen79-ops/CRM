@@ -631,6 +631,9 @@ const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.p
 
 // Personal details that only some people may see once a file is submitted.
 export const SENSITIVE_FIELDS = ['company_name', 'salary', 'eid_number', 'passport_number'];
+// What sales staff can no longer see on a file once it is submitted: the customer's phone numbers.
+// They type a replacement if a number is wrong; the processors do the calling.
+export const SALES_HIDDEN_FIELDS = ['phone', 'alt_phone'];
 
 // Verification states in which processors still need the personal details: before and during the
 // call, and while verification is Pending (it may come back to them).
@@ -665,6 +668,7 @@ export function present(user, row, { reveal = [] } = {}) {
   if (!out) return out;
   if (user.role === 'sales') for (const f of GOVERNANCE_FIELDS) delete out[f];
   out.hidden_fields = canViewSensitive(user, row) ? [] : SENSITIVE_FIELDS;
+  if (user.role === 'sales') out.hidden_fields = [...out.hidden_fields, ...SALES_HIDDEN_FIELDS];
   for (const f of out.hidden_fields) out[f] = null;
   out.masked_fields = MASKED_FIELDS.filter((f) => out[f] != null && !out.hidden_fields.includes(f) && !reveal.includes(f));
   for (const f of out.masked_fields) out[f] = maskValue(f, out[f]);
@@ -841,9 +845,10 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
     } else if (user.role !== 'team_leader') {
       sensitiveClause = ` OR ${sensitive}`;
     }
-    where.push(`(c.customer_name LIKE ? OR c.phone LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?
-      OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${user.role === 'sales' ? '' : ' OR c.complaint_number LIKE ?'}${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(...Array(user.role === 'sales' ? 10 : 11).fill(term));
+    // Sales staff cannot search by phone number or complaint number: neither is shown to them.
+    where.push(`(c.customer_name LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?
+      OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${user.role === 'sales' ? '' : ' OR c.phone LIKE ? OR c.complaint_number LIKE ?'}${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(...Array(user.role === 'sales' ? 9 : 11).fill(term));
     if (user.role === 'processing') params.push(...PROCESSOR_SENSITIVE_STATUSES);
     if (sensitiveClause) params.push(...Array(4).fill(term));
     if (idMatch) params.push(Number(idMatch[1]));

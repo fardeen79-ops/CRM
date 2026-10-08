@@ -140,7 +140,8 @@ test('full workflow: source → verify incomplete → TL returns → sales resub
   assert.ok(salesNotes.data.items.some((n) => /returned to you/.test(n.message)));
   r = await sales('PUT', `/cases/${id}`, { phone: '+91 90000 00000' });
   assert.equal(r.status, 200);
-  assert.equal(r.data.case.phone, '+•• ••••• •0000'); // masked on screen; see the privacy test for reveals
+  assert.equal(r.data.case.phone, null); // hidden from sales once submitted; see the privacy test
+  assert.ok(r.data.case.hidden_fields.includes('phone'));
   r = await sales('POST', `/cases/${id}/actions`, { action: 'resubmit' });
   assert.equal(r.data.case.status, 'pending_verification');
   assert.equal(r.data.case.assigned_to, null);
@@ -554,7 +555,7 @@ test('team leaders never see company, salary, Emirates ID or passport; processor
   const hidden = { company_name: null, salary: null, eid_number: null, passport_number: null, hidden: ['company_name', 'salary', 'eid_number', 'passport_number'] };
 
   // Sales staff see the company name but can no longer reveal the masked identifiers they typed.
-  assert.deepEqual(await fields(sales), { ...shown, salary: null, eid_number: null, passport_number: null });
+  assert.deepEqual(await fields(sales), { ...shown, salary: null, eid_number: null, passport_number: null, hidden: ['phone', 'alt_phone'] });
   assert.deepEqual(await fields(sm), shown);
   assert.deepEqual(await fields(mis), shown);
   assert.deepEqual(await fields(bh), shown);
@@ -1207,6 +1208,15 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   // Lists are masked too, and search still finds the full value.
   const listed = (await proc('GET', '/cases?q=4821736')).data.cases.find((x) => x.id === id);
   assert.equal(listed.eid_number, '784-••••-••••736-2');
+  // Sales staff do not see the phone numbers at all once the file is submitted, and cannot search by them.
+  const salesView = (await sales('GET', `/cases/${id}`)).data.case;
+  assert.deepEqual([salesView.phone, salesView.alt_phone], [null, null]);
+  assert.ok(salesView.hidden_fields.includes('phone') && salesView.hidden_fields.includes('alt_phone'));
+  assert.ok(!(await sales('GET', '/cases?q=4567')).data.cases.some((c) => c.id === id));
+  assert.ok((await proc('GET', '/cases?q=4567')).data.cases.some((c) => c.id === id));
+  // An edit by sales that leaves the hidden phone untouched keeps the number on the file.
+  assert.equal((await sales('PUT', `/cases/${id}`, { city: 'Sharjah' })).status, 200);
+  assert.deepEqual((await proc('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
   // A team leader cannot reveal what is hidden for their role, but can reveal the phone.
   assert.equal((await lead('GET', `/cases/${id}/reveal?fields=eid_number`)).status, 403);
   assert.deepEqual((await lead('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
