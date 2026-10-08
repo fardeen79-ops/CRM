@@ -321,3 +321,33 @@ test('auto loans need the car and loan details; tenures are capped at 60 and 48 
   assert.equal((await dana('POST', '/cases', { ...pl, pl_tenure: 49 })).status, 400);
   assert.equal((await dana('POST', '/cases', { ...pl, pl_tenure: 48 })).data.case.pl_tenure, 48);
 });
+
+test('fresh loans confirm secondary buyouts; buy-out loans list the primary buyout and any secondary ones', async () => {
+  const dana = await login('dana@t.local');
+  const pl = { customer_name: 'Buyout Customer', region: 'DXB', phone: '+971 50 111 5555', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 200000, interest_rate: 6, pl_tenure: 48, fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) };
+  // Fresh: no secondary buyouts.
+  const none = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no' });
+  assert.equal(none.status, 201, JSON.stringify(none.data));
+  assert.deepEqual([none.data.case.secondary_buyout, none.data.case.pl_buyouts], ['no', []]);
+  // Fresh with secondary buyouts: two cards (bank and limit each) and a mortgage.
+  const list = [{ role: 'secondary', kind: 'credit_card', bank: 'Mashreq', amount: 20000 }, { role: 'secondary', kind: 'credit_card', bank: 'FAB', amount: 15000 }, { role: 'secondary', kind: 'mortgage', bank: 'ADCB', amount: 900000 }];
+  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes' })).status, 400);
+  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'credit_card', bank: '', amount: 5000 }] })).status, 400);
+  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'boat', bank: 'FAB', amount: 5000 }] })).status, 400);
+  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'maybe' })).status, 400);
+  const fresh = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: list });
+  assert.equal(fresh.status, 201, JSON.stringify(fresh.data));
+  assert.equal(fresh.data.case.pl_buyouts.length, 3);
+  assert.equal(fresh.data.case.pl_buyouts.filter((b) => b.kind === 'credit_card').length, 2);
+  // Answering No drops any secondary entries that were sent.
+  const dropped = await dana('PUT', `/cases/${fresh.data.case.id}`, { secondary_buyout: 'no', pl_buyouts: list });
+  assert.deepEqual(dropped.data.case.pl_buyouts, []);
+  // Buy-out: the primary buyout is required and names the bank the loan is bought out from.
+  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no' })).status, 400);
+  const buy = await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'yes', pl_buyouts: [{ role: 'primary', kind: 'non_stl_loan', bank: 'RAKBANK', amount: 180000 }, { role: 'secondary', kind: 'auto_loan', bank: 'Emirates NBD', amount: 60000 }] });
+  assert.equal(buy.status, 201, JSON.stringify(buy.data));
+  assert.deepEqual([buy.data.case.buyout_bank, buy.data.case.product_label, buy.data.case.pl_buyouts.length], ['RAKBANK', 'Personal Loan (Buy Out from RAKBANK)', 2]);
+  // A primary entry on a fresh loan is ignored; the bulk upload format reads into the same list.
+  const stray = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'mortgage', bank: 'ADCB', amount: 1 }] });
+  assert.deepEqual(stray.data.case.pl_buyouts, []);
+});

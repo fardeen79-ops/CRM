@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -66,7 +66,9 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'card_fee_type', header: 'Card sourced type', example: '', help: 'For credit cards', allowed: ['FYF', 'Full fee', 'FFL'] },
   { key: 'personal_loan_type', header: 'Personal loan type', example: 'Top Up', allowed: Object.values(PERSONAL_LOAN_TYPES) },
   { key: 'fpd', header: 'FPD', example: '05/11/2026', help: 'Personal loan first payment date, DD/MM/YYYY' },
-  { key: 'buyout_bank', header: 'Buy-out bank', example: '', help: 'For Buy Out' },
+  { key: 'buyout_bank', header: 'Buy-out bank', example: '', help: 'For Buy Out: the primary buyout bank when Buyouts is left blank' },
+  { key: 'buyouts', header: 'Buyouts', example: '', help: 'Primary|Non-STL loan|RAKBANK|120000; Secondary|Credit card|FAB|15000 — role, kind (Credit card, Non-STL loan, Auto loan, Mortgage), bank, amount or card limit; entries separated by ;' },
+  { key: 'secondary_buyout', header: 'Secondary buyout', example: '', allowed: ['Yes', 'No'], help: 'Fresh and Buy Out loans: whether there are secondary buyouts' },
   { key: 'loan_amount', header: 'Loan amount', example: '150000', help: 'Personal loan' },
   { key: 'interest_rate', header: 'Interest rate', example: '6.5', help: 'Personal loan, % a year' },
   { key: 'pl_tenure', header: 'PL tenure (months)', example: '48', help: 'Personal loan, up to 48' },
@@ -202,6 +204,16 @@ const REGION_NAMES = { DXB: 'DXB', AUH: 'AUH' };
 const REGION_ALIASES = { dubai: 'DXB', abudhabi: 'AUH' };
 const BANK_BY_NORM = new Map(BANKS.flatMap((g) => g.banks).map((b) => [norm(b), b]));
 
+/** "Primary|Credit card|FAB|15000; Secondary|Mortgage|ADCB|900000" → the list the form sends. */
+function parseBuyoutsColumn(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return [];
+  return t.split(';').map((e) => e.trim()).filter(Boolean).map((e) => {
+    const [role, kind, bank, amount] = e.split('|').map((x) => x.trim());
+    return { role: choose(role, { primary: 'Primary', secondary: 'Secondary' }, 'Buyout role'), kind: choose(kind, BUYOUT_KINDS, 'Buyout kind'), bank: bank ? BANK_BY_NORM.get(norm(bank)) || bank : '', amount };
+  });
+}
+
 /** A date as YYYY-MM-DD from YYYY-MM-DD, DD/MM/YYYY (UAE order) or an Excel date serial. */
 export function parseDate(value, label = 'Sourcing date') {
   const v = String(value ?? '').trim();
@@ -246,6 +258,7 @@ function caseInput(v) {
       : '',
     credit_card: v.credit_card ? cardProduct(v.credit_card)?.name || v.credit_card : '',
     buyout_bank: v.buyout_bank ? BANK_BY_NORM.get(norm(v.buyout_bank)) || v.buyout_bank : '',
+    pl_buyouts: parseBuyoutsColumn(v.buyouts), secondary_buyout: v.secondary_buyout,
   };
   if (!input.sourcing_date) throw new Error('Sourcing date is required');
   delete input.sales_code;

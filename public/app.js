@@ -96,6 +96,8 @@ const html = (strings, ...vals) =>
 const SPECIAL_LABEL = { customer_in_dncr: 'Customer in DNCR (Do Not Call Register)' };
 const label = (s) => SPECIAL_LABEL[s] || String(s || '').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const isDncr = (c) => c.incomplete_reason === 'customer_in_dncr' && ['incomplete', 'rejected', 'returned_to_sales'].includes(c.status);
+/** Buyout entries on the case page: cards numbered, loans with their bank and amount. */
+const buyoutList = (list) => html`<ul class="bundle-list">${list.map((b, i) => html`<li><strong>${state.meta.buyout_kinds[b.kind] || b.kind}</strong>${b.kind === 'credit_card' ? ` ${list.filter((x) => x.kind === 'credit_card').indexOf(b) + 1}` : ''} · ${b.bank} · AED ${fmtAmount(b.amount)}${b.kind === 'credit_card' ? ' limit' : ''}</li>`)}<li class="muted small">Total AED ${fmtAmount(list.reduce((n, b) => n + Number(b.amount || 0), 0))}</li></ul>`;
 const badge = (status) => html`<span class="badge st-${status}">${STATUS_LABEL[status] || status}</span>`;
 // Call-quality score bands (out of 10): 8.5+ good, 7–8.4 fair, below 7 needs attention.
 const scoreClass = (n) => (n >= 8.5 ? 'good' : n >= 7 ? 'fair' : 'bad');
@@ -799,7 +801,6 @@ async function viewCaseForm(id) {
   const profileGap = r === 'sales' && !id && (!me.sales_code || !me.team_leader_name || !me.sales_manager_name);
   const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
   const listedBanks = state.meta.banks.flatMap((g) => g.banks);
-  const otherBank = Boolean(c.buyout_bank) && !listedBanks.includes(c.buyout_bank);
   // Fields this viewer may not read; they can still type a replacement without seeing the old value.
   const hiddenFields = new Set(c.hidden_fields || []);
   const maskedFields = new Set(id ? c.masked_fields || [] : []);
@@ -933,17 +934,20 @@ async function viewCaseForm(id) {
               ${field('full_loan_amount', 'Full loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-topup', hint: 'Total loan after the top up' })}
               ${field('incremental_amount', 'Incremental amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-topup', hint: 'New money added by the top up' })}
             </div>
-            <div id="bank-field" class="bank-field" hidden>
-              <label for="f-buyout_bank">Buying out from which bank? <span class="req">*</span></label>
-              <select id="f-buyout_bank" name="buyout_bank" required disabled>
-                <option value="">Choose a bank…</option>
-                ${state.meta.banks.map((g) => html`<optgroup label="${g.group}">
-                  ${g.banks.map((b) => html`<option value="${b}" ${c.buyout_bank === b ? raw('selected') : ''}>${b}</option>`)}
-                </optgroup>`)}
-                <option value="${OTHER_BANK}" ${otherBank ? raw('selected') : ''}>Other bank (type the name)</option>
-              </select>
-              <input id="f-buyout_bank_other" name="buyout_bank_other" placeholder="Bank name" aria-label="Other bank name" value="${otherBank ? c.buyout_bank : ''}" required disabled hidden>
+            <div id="primary-buyout" class="buyout-block" hidden>
+              <div class="sub-label">Primary buyout <span class="req">*</span></div>
+              <p class="muted small" style="margin:0 0 8px">What this loan buys out: the liability, the bank and the amount (for cards, each card's limit).</p>
+              <div data-builder="primary"></div>
             </div>
+            <div id="secondary-buyout" class="buyout-block" hidden>
+              <div class="sub-label">Any secondary buyouts? <span class="req">*</span></div>
+              <div class="segmented two-up" role="radiogroup" aria-label="Secondary buyouts">
+                <label><input type="radio" name="secondary_buyout" value="yes" required disabled ${c.secondary_buyout === 'yes' ? raw('checked') : ''}><span>Yes</span></label>
+                <label><input type="radio" name="secondary_buyout" value="no" required disabled ${c.secondary_buyout === 'no' ? raw('checked') : ''}><span>No</span></label>
+              </div>
+              <div data-builder="secondary" style="margin-top:10px" hidden></div>
+            </div>
+            <input type="hidden" name="pl_buyouts" id="f-pl_buyouts">
           </fieldset>
           <fieldset class="full product-detail" id="auto-field" hidden>
             <legend>Auto loan</legend>
@@ -1014,8 +1018,9 @@ async function viewCaseForm(id) {
   const loanRadios = [...loanField.querySelectorAll('input[type=radio]')];
   const topupFields = $('#topup-fields');
   const bankField = $('#bank-field');
-  const bankSelect = $('#f-buyout_bank');
-  const bankOther = $('#f-buyout_bank_other');
+  const primaryBlock = $('#primary-buyout');
+  const secondaryBlock = $('#secondary-buyout');
+  const secondaryRadios = [...form.querySelectorAll('input[name=secondary_buyout]')];
   const cardField = $('#card-field');
   const autoField = $('#auto-field');
   const cardSelect = $('#f-credit_card');
@@ -1088,9 +1093,10 @@ async function viewCaseForm(id) {
     form.querySelectorAll('[data-pl]').forEach((i) => (i.disabled = loanField.hidden));
     topupFields.hidden = loanField.hidden || loanType !== 'top_up';
     form.querySelectorAll('[data-topup]').forEach((i) => (i.disabled = topupFields.hidden));
-    bankField.hidden = loanField.hidden || loanType !== 'buy_out';
-    bankSelect.disabled = bankField.hidden;
-    bankOther.hidden = bankOther.disabled = bankField.hidden || bankSelect.value !== OTHER_BANK;
+    primaryBlock.hidden = loanField.hidden || loanType !== 'buy_out';
+    secondaryBlock.hidden = loanField.hidden || !['fresh', 'buy_out'].includes(loanType);
+    secondaryRadios.forEach((r) => (r.disabled = secondaryBlock.hidden));
+    secondaryBlock.querySelector('[data-builder]').hidden = secondaryBlock.hidden || !secondaryRadios.some((r) => r.checked && r.value === 'yes');
     autoField.hidden = !includes('auto_loan');
     autoField.querySelectorAll('input[name=auto_loan_type]').forEach((r) => (r.disabled = autoField.hidden));
     form.querySelectorAll('[data-al]').forEach((i) => (i.disabled = autoField.hidden));
@@ -1126,7 +1132,62 @@ async function viewCaseForm(id) {
   }
   boxes.forEach((b) => (b.onchange = updateProductFields));
   loanRadios.forEach((r) => (r.onchange = updateProductFields));
-  bankSelect.onchange = () => { updateProductFields(); if (!bankOther.hidden) bankOther.focus(); };
+  secondaryRadios.forEach((r) => (r.onchange = updateProductFields));
+  // Buyout builders: what the loan buys out, as rows of kind, bank and amount; cards ask how many.
+  const bankOptions = (chosen) => html`<option value="">Bank…</option>${state.meta.banks.map((g) => html`<optgroup label="${g.group}">${g.banks.map((b) => html`<option value="${b}" ${chosen === b ? raw('selected') : ''}>${b}</option>`)}</optgroup>`)}<option value="${OTHER_BANK}" ${chosen && !listedBanks.includes(chosen) ? raw('selected') : ''}>Other bank (type the name)</option>`;
+  const builders = {};
+  for (const role of ['primary', 'secondary']) {
+    const host = form.querySelector(`[data-builder="${role}"]`);
+    // Existing entries: cards of the same role group into one card entry, the rest one entry each.
+    const existing = (c.pl_buyouts || []).filter((b) => b.role === role);
+    const entries = [];
+    const cards = existing.filter((b) => b.kind === 'credit_card');
+    if (cards.length) entries.push({ kind: 'credit_card', cards: cards.map((b) => ({ bank: b.bank, amount: b.amount })) });
+    for (const b of existing.filter((b) => b.kind !== 'credit_card')) entries.push({ kind: b.kind, bank: b.bank, amount: b.amount });
+    builders[role] = entries;
+    const render = () => {
+      const rows = entries.map((e, i) => html`<div class="buyout-row" data-i="${i}">
+        <div class="buyout-head">
+          <select data-kind aria-label="What is being bought out"><option value="">What is bought out…</option>${Object.entries(state.meta.buyout_kinds).map(([k, l]) => html`<option value="${k}" ${e.kind === k ? raw('selected') : ''}>${l}</option>`)}</select>
+          ${e.kind === 'credit_card' ? html`<label class="small">How many cards? <input type="number" min="1" max="10" step="1" data-count value="${e.cards?.length || 1}" style="width:70px"></label>` : ''}
+          <button type="button" class="btn-link" data-remove title="Remove">Remove</button>
+        </div>
+        ${e.kind === 'credit_card'
+          ? html`${(e.cards || [{}]).map((card, j) => html`<div class="buyout-line" data-j="${j}"><span class="muted small">Card ${j + 1}</span><select data-bank aria-label="Card ${j + 1} bank">${bankOptions(card.bank)}</select><input data-bank-other placeholder="Bank name" value="${card.bank && !listedBanks.includes(card.bank) ? card.bank : ''}" ${card.bank && !listedBanks.includes(card.bank) ? '' : raw('hidden')}><input type="number" data-amount inputmode="decimal" min="0" step="any" placeholder="Card limit (AED)" value="${card.amount ?? ''}" aria-label="Card ${j + 1} limit"></div>`)}`
+          : e.kind ? html`<div class="buyout-line"><select data-bank aria-label="Bank">${bankOptions(e.bank)}</select><input data-bank-other placeholder="Bank name" value="${e.bank && !listedBanks.includes(e.bank) ? e.bank : ''}" ${e.bank && !listedBanks.includes(e.bank) ? '' : raw('hidden')}><input type="number" data-amount inputmode="decimal" min="0" step="any" placeholder="${e.kind === 'mortgage' ? 'Outstanding (AED)' : 'Loan amount (AED)'}" value="${e.amount ?? ''}" aria-label="Amount"></div>` : ''}
+      </div>`);
+      host.innerHTML = html`${rows}<button type="button" class="btn" data-add>+ Add ${entries.length ? 'another' : 'a'} ${role} buyout</button>`.s;
+      host.querySelector('[data-add]').onclick = () => { entries.push({ kind: '' }); render(); };
+      host.querySelectorAll('.buyout-row').forEach((rowEl) => {
+        const e = entries[Number(rowEl.dataset.i)];
+        rowEl.querySelector('[data-remove]').onclick = () => { entries.splice(Number(rowEl.dataset.i), 1); render(); };
+        rowEl.querySelector('[data-kind]').onchange = (ev) => { e.kind = ev.target.value; if (e.kind === 'credit_card' && !e.cards) e.cards = [{}]; render(); };
+        rowEl.querySelector('[data-count]')?.addEventListener('change', (ev) => { const n = Math.max(1, Math.min(10, Number(ev.target.value) || 1)); e.cards = Array.from({ length: n }, (_, j) => e.cards?.[j] || {}); render(); });
+        rowEl.querySelectorAll('.buyout-line').forEach((line) => {
+          const target = e.kind === 'credit_card' ? e.cards[Number(line.dataset.j)] : e;
+          const sel = line.querySelector('[data-bank]'); const other = line.querySelector('[data-bank-other]'); const amt = line.querySelector('[data-amount]');
+          sel.onchange = () => { other.hidden = sel.value !== OTHER_BANK; target.bank = sel.value === OTHER_BANK ? other.value.trim() : sel.value; if (!other.hidden) other.focus(); };
+          other.oninput = () => { target.bank = other.value.trim(); };
+          amt.oninput = () => { target.amount = amt.value; };
+        });
+      });
+    };
+    render();
+  }
+  // Flattens the builders into the list the server stores: one entry per card, one per loan.
+  const collectBuyouts = () => {
+    const out = [];
+    for (const role of ['primary', 'secondary']) {
+      if (role === 'primary' && primaryBlock.hidden) continue;
+      if (role === 'secondary' && (secondaryBlock.hidden || !secondaryRadios.some((r) => r.checked && r.value === 'yes'))) continue;
+      for (const e of builders[role]) {
+        if (!e.kind) continue;
+        if (e.kind === 'credit_card') for (const card of e.cards || []) out.push({ role, kind: 'credit_card', bank: card.bank || '', amount: card.amount ?? '' });
+        else out.push({ role, kind: e.kind, bank: e.bank || '', amount: e.amount ?? '' });
+      }
+    }
+    return out;
+  };
   fullAmount.oninput = increment.oninput = checkIncrement;
   // Show the Emirates ID in its usual 784-YYYY-NNNNNNN-C layout once typed.
   const eid = $('#f-eid_number');
@@ -1258,8 +1319,7 @@ async function viewCaseForm(id) {
       for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;
       // Leave hidden values untouched unless a replacement was typed.
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
-      body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
-      delete body.buyout_bank_other;
+      body.pl_buyouts = collectBuyouts();
       if (scanned) body.eid_scanned = scanned;
       if (readBackOk.size) body.read_back = [...readBackOk];
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
@@ -1610,7 +1670,8 @@ async function viewCase(id) {
             ${c.pl_tenure != null ? html`<dt>PL tenure</dt><dd><strong>${c.pl_tenure} months</strong></dd>` : ''}
             ${c.full_loan_amount != null ? html`<dt>Full loan amount</dt><dd>AED ${fmtAmount(c.full_loan_amount)}</dd>` : ''}
             ${c.incremental_amount != null ? html`<dt>Incremental amount</dt><dd>AED ${fmtAmount(c.incremental_amount)}</dd>` : ''}
-            ${c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
+            ${c.pl_buyouts?.some((b) => b.role === 'primary') ? html`<dt>Primary buyout</dt><dd>${buyoutList(c.pl_buyouts.filter((b) => b.role === 'primary'))}</dd>` : c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
+            ${c.secondary_buyout ? html`<dt>Secondary buyouts</dt><dd>${c.secondary_buyout === 'yes' ? buyoutList(c.pl_buyouts.filter((b) => b.role === 'secondary')) : html`<span class="muted">None, confirmed by sales</span>`}</dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             ${c.card_category ? html`<dt>Card category</dt><dd><strong>${c.card_category}</strong>${c.card_points != null ? html` <span class="muted">· ${c.card_points} points</span>` : ''}</dd>` : ''}
             ${c.credit_card && c.card_min_salary != null ? html`<dt>Salary check</dt><dd>Card needs AED ${fmtAmount(c.card_min_salary)} a month · ${c.card_salary_exception || c.status === 'awaiting_approval' ? html`<span class="chip bad">Customer below requirement</span>` : html`<span class="chip good">Customer meets requirement</span>`}</dd>` : ''}

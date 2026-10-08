@@ -136,6 +136,12 @@ Columns: staff, sourced in the cycle, awaiting verification and verification pen
 
 API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
 
+### Buyouts on a personal loan
+
+A **fresh** loan asks the sales person to confirm whether there are any **secondary buyouts**, Yes or No. A **buy-out** loan first asks for the **primary buyout**, what is being bought out, and then the same secondary question. Each buyout entry is a credit card, a non-STL loan, an auto loan or a mortgage with the bank it is held at and the amount: for credit cards the form asks how many cards and takes each card's bank and limit; for loans and mortgages the bank and the outstanding amount. The case page lists the primary and secondary buyouts with a total, and the sales person's No is recorded as confirmed.
+
+API: `pl_buyouts` is a list of `{ role: primary|secondary, kind, bank, amount }` and `secondary_buyout` is `yes` or `no`; a buy-out with only `buyout_bank` is treated as a primary non-STL loan buyout. The cases bulk upload takes a **Buyouts** column (`Primary|Non-STL loan|RAKBANK|120000; Secondary|Credit card|FAB|15000`) and a **Secondary buyout** column.
+
 ### Auto loan details and loan tenures
 
 When a file includes an **auto loan**, the form asks for the auto loan type (**New** or **Used**), car make, model and year (1990 to next year), the loan amount, **ROI** (% a year), **tenure** (whole months, up to 60), dealer details (optional) and the lead source. A **personal loan** also needs a **tenure** of up to 48 months. All of these show on the case page and in the case register export, are columns in the cases bulk upload, and changing any of them after verification sends the file back for re-verification.

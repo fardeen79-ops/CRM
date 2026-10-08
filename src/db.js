@@ -107,6 +107,9 @@ CREATE TABLE IF NOT EXISTS cases (
   card_fee_type        TEXT,
   -- Personal loan tenure (months, up to 48) and the auto loan details.
   pl_tenure            INTEGER,
+  -- Liabilities bought out with a personal loan: JSON list of { role: primary|secondary, kind, bank, amount }.
+  pl_buyouts           TEXT,
+  secondary_buyout     TEXT, -- yes or no: the sales person confirmed whether there are secondary buyouts
   auto_loan_type       TEXT, -- new or used
   car_make             TEXT,
   car_model            TEXT,
@@ -333,7 +336,7 @@ const ADDED_COLUMNS = {
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
   pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
   card_fee_type: 'TEXT', fpd: 'TEXT', card_category: 'TEXT', card_points: 'REAL',
-  pl_tenure: 'INTEGER', auto_loan_type: 'TEXT', car_make: 'TEXT', car_model: 'TEXT', car_year: 'INTEGER', dealer_details: 'TEXT', al_lead_source: 'TEXT', al_interest_rate: 'REAL', al_tenure: 'INTEGER',
+  pl_tenure: 'INTEGER', pl_buyouts: 'TEXT', secondary_buyout: 'TEXT', auto_loan_type: 'TEXT', car_make: 'TEXT', car_model: 'TEXT', car_year: 'INTEGER', dealer_details: 'TEXT', al_lead_source: 'TEXT', al_interest_rate: 'REAL', al_tenure: 'INTEGER',
   card_min_salary: 'REAL', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
 };

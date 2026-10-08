@@ -648,3 +648,11 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .card-check .chips { display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%; }
 .card-check .chip { white-space: normal; text-align: left; max-width: 100%; line-height: 1.3; }
 .card-check { overflow-wrap: anywhere; }
+
+.buyout-block { margin-top: 12px; }
+.buyout-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: var(--surface); }
+.buyout-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.buyout-head select { flex: 1; min-width: 180px; }
+.buyout-line { display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; align-items: center; margin-top: 8px; }
+.buyout-line [data-bank-other] { grid-column: 2 / span 2; }
+@media (max-width: 760px) { .buyout-line { grid-template-columns: 1fr; } .buyout-line [data-bank-other] { grid-column: auto; } }

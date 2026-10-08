@@ -60,6 +60,9 @@ export const FPD_MAX_DAYS = 365;
 export const PL_TENURE_MAX = 48;
 export const AL_TENURE_MAX = 60;
 export const AUTO_LOAN_TYPES = { new: 'New', used: 'Used' };
+// What a personal loan buys out: a liability the customer already has.
+export const BUYOUT_KINDS = { credit_card: 'Credit card', non_stl_loan: 'Non-STL loan', auto_loan: 'Auto loan', mortgage: 'Mortgage' };
+export const BUYOUT_ROLES = ['primary', 'secondary'];
 
 // A completed case is a temp end for credit cards and a disbursal for loans. After a card's temp
 // end, MIS maps whether the card was activated.
@@ -253,18 +256,18 @@ const TEXT_FIELDS = {
 const PRODUCT_FIELDS = [
   'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank',
   'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
-  'pl_tenure', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure',
+  'pl_buyouts', 'secondary_buyout', 'pl_tenure', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure',
 ];
 // Snapshot of the sales person's profile, copied onto the file when it is sourced.
 const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name', 'team_leader_id', 'sales_manager_id', 'asm_id'];
 // Details the processor confirmed with the customer. Changing any of them after verification is
 // completed sends the file back for a fresh verification.
 export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
-  'pl_tenure', 'amount', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'al_interest_rate', 'al_tenure'];
+  'pl_buyouts', 'secondary_buyout', 'pl_tenure', 'amount', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'al_interest_rate', 'al_tenure'];
 const VERIFIED_FIELD_LABELS = {
   product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', card_fee_type: 'card sourced type', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
   loan_amount: 'loan amount', interest_rate: 'interest rate', full_loan_amount: 'full loan amount', incremental_amount: 'incremental amount', fpd: 'FPD',
-  pl_tenure: 'personal loan tenure', amount: 'auto loan amount', auto_loan_type: 'auto loan type', car_make: 'car make', car_model: 'car model', car_year: 'car year', al_interest_rate: 'auto loan ROI', al_tenure: 'auto loan tenure',
+  pl_buyouts: 'buyout details', secondary_buyout: 'secondary buyout', pl_tenure: 'personal loan tenure', amount: 'auto loan amount', auto_loan_type: 'auto loan type', car_make: 'car make', car_model: 'car model', car_year: 'car year', al_interest_rate: 'auto loan ROI', al_tenure: 'auto loan tenure',
 };
 // The card's category and points, copied from the product list when the card is chosen.
 const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points', 'card_min_salary'];
@@ -298,6 +301,30 @@ function clean(value, max = 500) {
   if (value === undefined || value === null) return null;
   const s = String(value).trim();
   return s ? s.slice(0, max) : null;
+}
+
+/**
+ * The liabilities a personal loan buys out, as sent by the form (an array or its JSON): each has a
+ * role (primary or secondary), a kind, the bank and the amount (a card's limit, a loan's balance).
+ */
+function parseBuyouts(value) {
+  if (value == null || value === '') return [];
+  let list = value;
+  if (typeof value === 'string') {
+    try { list = JSON.parse(value); } catch { throw new WorkflowError(400, 'Buyout details are not readable'); }
+  }
+  if (!Array.isArray(list)) throw new WorkflowError(400, 'Buyout details should be a list');
+  if (list.length > 20) throw new WorkflowError(400, 'At most 20 buyout entries');
+  return list.map((b, i) => {
+    const role = clean(b?.role, 20);
+    const kind = clean(b?.kind, 30);
+    const bank = clean(b?.bank, 200);
+    if (!BUYOUT_ROLES.includes(role)) throw new WorkflowError(400, `Buyout ${i + 1}: primary or secondary?`);
+    if (!BUYOUT_KINDS[kind]) throw new WorkflowError(400, `Buyout ${i + 1}: choose credit card, non-STL loan, auto loan or mortgage`);
+    if (!bank) throw new WorkflowError(400, `Buyout ${i + 1} (${BUYOUT_KINDS[kind]}): name the bank`);
+    const amount = parseNumber(b?.amount, `Buyout ${i + 1} (${BUYOUT_KINDS[kind]}) ${kind === 'credit_card' ? 'card limit' : 'amount'}`, { required: true, positive: true });
+    return { role, kind, bank, amount };
+  });
 }
 
 /** A loan tenure in whole months, 1 up to the product's maximum. */
@@ -342,7 +369,7 @@ function validateProduct(input, current, out) {
   Object.assign(out, {
     personal_loan_type: null, buyout_bank: null,
     loan_amount: null, interest_rate: null, full_loan_amount: null, incremental_amount: null, fpd: null,
-    pl_tenure: null, auto_loan_type: null, car_make: null, car_model: null, car_year: null, dealer_details: null, al_lead_source: null, al_interest_rate: null, al_tenure: null,
+    pl_tenure: null, pl_buyouts: null, secondary_buyout: null, auto_loan_type: null, car_make: null, car_model: null, car_year: null, dealer_details: null, al_lead_source: null, al_interest_rate: null, al_tenure: null,
   });
   if (includes('personal_loan')) {
     const type = clean(pick('personal_loan_type'));
@@ -359,12 +386,34 @@ function validateProduct(input, current, out) {
     out.loan_amount = parseNumber(pick('loan_amount'), 'Loan amount', { required: true, positive: true });
     out.interest_rate = parseNumber(pick('interest_rate'), 'Interest rate', { required: true, max: 100 });
     out.pl_tenure = parseTenure(pick('pl_tenure'), PL_TENURE_MAX, 'Personal loan tenure');
+    // Buyouts: a buy-out loan names what it buys out (the primary buyout); fresh and buy-out loans
+    // both confirm whether there are secondary buyouts and list them.
+    const buyouts = parseBuyouts(pick('pl_buyouts'));
     if (type === 'buy_out') {
-      // Any bank name is accepted so a lender missing from the list never blocks a case.
-      const bank = clean(pick('buyout_bank'), 200);
-      if (!bank) throw new WorkflowError(400, 'Choose which bank the loan is being bought out from');
-      out.buyout_bank = bank;
+      let primary = buyouts.filter((b) => b.role === 'primary');
+      // A bank sent on its own (older clients, bulk upload, a quick edit) renames the primary buyout's bank.
+      const bankOnly = 'buyout_bank' in input && !('pl_buyouts' in input) ? clean(input.buyout_bank, 200) : null;
+      if (primary.length && bankOnly) primary = [{ ...primary[0], bank: bankOnly }, ...primary.slice(1)];
+      if (!primary.length) {
+        // Older clients and the bulk upload name only the bank: that is the primary buyout of a loan.
+        const bank = clean(pick('buyout_bank'), 200);
+        if (!bank) throw new WorkflowError(400, 'Add the primary buyout: what is being bought out, from which bank and for how much');
+        primary = [{ role: 'primary', kind: 'non_stl_loan', bank, amount: out.loan_amount }];
+      }
+      out.buyout_bank = primary[0].bank;
+      buyouts.splice(0, buyouts.length, ...primary, ...buyouts.filter((b) => b.role === 'secondary'));
+    } else {
+      for (let i = buyouts.length - 1; i >= 0; i--) if (buyouts[i].role === 'primary') buyouts.splice(i, 1);
     }
+    if (type === 'fresh' || type === 'buy_out') {
+      const answer = clean(pick('secondary_buyout'), 3)?.toLowerCase() ?? null;
+      const secondary = buyouts.filter((b) => b.role === 'secondary');
+      if (answer && !['yes', 'no'].includes(answer)) throw new WorkflowError(400, 'Secondary buyouts: answer Yes or No');
+      out.secondary_buyout = answer ?? (secondary.length ? 'yes' : 'no');
+      if (out.secondary_buyout === 'yes' && !secondary.length) throw new WorkflowError(400, 'Add at least one secondary buyout, or answer No');
+      if (out.secondary_buyout === 'no') for (let i = buyouts.length - 1; i >= 0; i--) if (buyouts[i].role === 'secondary') buyouts.splice(i, 1);
+    }
+    out.pl_buyouts = buyouts.length ? JSON.stringify(buyouts) : null;
     if (type === 'top_up') {
       out.full_loan_amount = parseNumber(pick('full_loan_amount'), 'Full loan amount', { required: true, positive: true });
       out.incremental_amount = parseNumber(pick('incremental_amount'), 'Incremental amount', { required: true, positive: true });
@@ -566,7 +615,8 @@ const CASE_SELECT = `
   LEFT JOIN users cbb ON cbb.id = c.callback_by
   LEFT JOIN users ceb ON ceb.id = c.card_exception_by`;
 
-const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
+const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
+const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.parse(text); } catch { return []; } };
 
 // Personal details that only some people may see once a file is submitted.
 export const SENSITIVE_FIELDS = ['company_name', 'salary', 'eid_number', 'passport_number'];
