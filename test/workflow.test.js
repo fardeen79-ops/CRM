@@ -361,10 +361,14 @@ test('customer identity fields and personal loan amounts are captured and valida
   const c = r.data.case;
   assert.equal(c.customer_name, 'Mohammed Ali Rahman');
   assert.equal(c.eid_number, '784-••••-••••567-1');
-  assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=eid_number`)).data.values.eid_number, '784-1990-1234567-1');
+  // Once submitted, sales staff cannot uncover the masked values; a processor can.
+  assert.equal(c.can_reveal, false);
+  assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=eid_number`)).status, 403);
+  const procView = await login('proc@t.local');
+  assert.equal((await procView('GET', `/cases/${c.id}/reveal?fields=eid_number`)).data.values.eid_number, '784-1990-1234567-1');
   assert.equal(c.passport_number, 'N•••••67');
   assert.equal(c.salary, 'AED ••,•••');
-  assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=salary`)).data.values.salary, 25000);
+  assert.equal((await procView('GET', `/cases/${c.id}/reveal?fields=salary`)).data.values.salary, 25000);
   assert.equal(c.loan_amount, 120000);
   assert.equal(c.interest_rate, 5.99);
   assert.equal(c.full_loan_amount, null);
@@ -549,7 +553,8 @@ test('team leaders never see company, salary, Emirates ID or passport; processor
   const shown = { ...secret, hidden: [] };
   const hidden = { company_name: null, salary: null, eid_number: null, passport_number: null, hidden: ['company_name', 'salary', 'eid_number', 'passport_number'] };
 
-  assert.deepEqual(await fields(sales), shown);
+  // Sales staff see the company name but can no longer reveal the masked identifiers they typed.
+  assert.deepEqual(await fields(sales), { ...shown, salary: null, eid_number: null, passport_number: null });
   assert.deepEqual(await fields(sm), shown);
   assert.deepEqual(await fields(mis), shown);
   assert.deepEqual(await fields(bh), shown);

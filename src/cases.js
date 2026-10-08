@@ -668,8 +668,12 @@ export function present(user, row, { reveal = [] } = {}) {
   for (const f of out.hidden_fields) out[f] = null;
   out.masked_fields = MASKED_FIELDS.filter((f) => out[f] != null && !out.hidden_fields.includes(f) && !reveal.includes(f));
   for (const f of out.masked_fields) out[f] = maskValue(f, out[f]);
+  out.can_reveal = canReveal(user);
   return out;
 }
+
+/** Sales staff cannot uncover masked personal details once a file is submitted; they can only type a replacement. */
+export const canReveal = (user) => user.role !== 'sales';
 
 /** Records that a user looked at personal data; repeats within a few minutes are not logged twice. */
 export function logAccess(db, user, caseId, what) {
@@ -684,6 +688,7 @@ export function logAccess(db, user, caseId, what) {
 export function revealFields(db, user, id, fields) {
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
   if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
+  if (!canReveal(user)) throw new WorkflowError(403, 'Sales staff cannot reveal personal details after submission');
   const wanted = [...new Set(String(fields || '').split(',').map((f) => f.trim()).filter((f) => MASKED_FIELDS.includes(f)))];
   if (!wanted.length) throw new WorkflowError(400, `Choose which to reveal: ${MASKED_FIELDS.join(', ')}`);
   const hidden = canViewSensitive(user, row) ? [] : SENSITIVE_FIELDS;

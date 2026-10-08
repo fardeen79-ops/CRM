@@ -1386,13 +1386,16 @@ async function viewCase(id) {
   // A detail row; ID-style values use a monospace face so digits are easy to read back on a call.
   const hiddenFields = new Set(c.hidden_fields || []);
   const maskedFields = new Set(c.masked_fields || []);
+  // Sales staff see the masks but get no Reveal button: the server refuses their reveals too.
+  const canReveal = c.can_reveal !== false;
+  const revealBtn = (field, label) => (canReveal ? html` <button type="button" class="btn-link reveal" data-reveal="${field}">${label}</button>` : '');
   const row = (dt, value, mono = false, field = null) => (field && hiddenFields.has(field)
     ? html`<dt>${dt}</dt><dd><span class="lock">Hidden</span></dd>`
     : field && maskedFields.has(field)
-      ? html`<dt>${dt}</dt><dd class="${mono ? 'mono' : ''}"><span data-masked-value="${field}">${value}</span> <button type="button" class="btn-link reveal" data-reveal="${field}">Reveal</button></dd>`
+      ? html`<dt>${dt}</dt><dd class="${mono ? 'mono' : ''}"><span data-masked-value="${field}">${value}</span>${revealBtn(field, 'Reveal')}</dd>`
       : html`<dt>${dt}</dt><dd class="${mono && value ? 'mono' : ''}">${value || '—'}</dd>`);
   const phoneRow = (dt, field) => (maskedFields.has(field)
-    ? html`<dt>${dt}</dt><dd><span class="phone-link" data-masked-value="${field}">${c[field]}</span> <button type="button" class="btn-link reveal" data-reveal="${field}">Reveal to call</button></dd>`
+    ? html`<dt>${dt}</dt><dd><span class="phone-link" data-masked-value="${field}">${c[field]}</span>${revealBtn(field, 'Reveal to call')}</dd>`
     : html`<dt>${dt}</dt><dd><a class="phone-link" href="tel:${String(c[field]).replace(/[^\d+]/g, '')}">${c[field]}</a></dd>`);
   const a = new Set(c.allowed_actions);
   const meta = state.meta;
@@ -1660,7 +1663,8 @@ async function viewCase(id) {
         <div class="card">
           <h2>Customer</h2>
           ${hiddenFields.size ? html`<p class="muted small">Company, salary, Emirates ID and passport details are hidden for your role${state.user.role === 'processing' ? ' once verification is completed or rejected' : ''}.</p>` : ''}
-          ${maskedFields.size ? html`<p class="muted small privacy-note">Personal identifiers are masked. Reveal only what you need; each reveal is recorded against your name, and revealed values hide again after ${Math.round((window.__crmRehideMs || 180000) / 60000)} minutes or when you leave the page. <button type="button" class="btn-link" id="reveal-all">Reveal all</button></p>` : ''}
+          ${maskedFields.size && !canReveal ? html`<p class="muted small privacy-note">Personal identifiers are masked once a file is submitted and cannot be revealed by sales staff. To correct one, edit the file and type the new value.</p>` : ''}
+          ${maskedFields.size && canReveal ? html`<p class="muted small privacy-note">Personal identifiers are masked. Reveal only what you need; each reveal is recorded against your name, and revealed values hide again after ${Math.round((window.__crmRehideMs || 180000) / 60000)} minutes or when you leave the page. <button type="button" class="btn-link" id="reveal-all">Reveal all</button></p>` : ''}
           <dl class="details">
             ${phoneRow('Mobile', 'phone')}
             ${c.alt_phone ? phoneRow('Alternate phone', 'alt_phone') : ''}
