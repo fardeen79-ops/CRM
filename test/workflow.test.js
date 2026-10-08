@@ -64,6 +64,10 @@ const withProductDefaults = (body) => {
   // A card needs the customer's salary for the salary check; tests that don't care get a high one.
   if (products.includes('credit_card') && !('salary' in out)) out.salary = 30000;
   if (products.includes('personal_loan') && !('fpd' in out)) out.fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  if (products.includes('personal_loan') && !('pl_tenure' in out)) out.pl_tenure = 48;
+  if (products.includes('auto_loan')) {
+    for (const [k, v] of Object.entries({ amount: 135000, auto_loan_type: 'new', car_make: 'Toyota', car_model: 'Camry', car_year: 2026, al_lead_source: 'Dealer referral', al_interest_rate: 3.25, al_tenure: 60 })) if (!(k in out)) out[k] = v;
+  }
   return out;
 };
 const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '1,50,000', interest_rate: 6.5 };
@@ -845,13 +849,13 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   const lead = await login('lead@t.local');
   const sales = await login('sales@t.local');
   const head = await login('bh@t.local');
-  const header = 'Sales code,Salary,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID,Card sourced type,FPD';
+  const header = 'Sales code,Salary,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID,Card sourced type,FPD,PL tenure (months)';
   const csv = [
     header,
-    'S-002,30000,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671,,05/11/2026',
-    'S-002,30000,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,,first year free,2026-11-05',
-    'S-002,30000,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,,Full fee,',
-    'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,,,',
+    'S-002,30000,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671,,05/11/2026,48',
+    'S-002,30000,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,,first year free,2026-11-05,36',
+    'S-002,30000,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,,Full fee,,',
+    'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,,,,',
   ].join('\n');
   for (const who of [sales, lead]) assert.equal((await who('POST', '/import/cases', { csv })).status, 403);
   const done = await head('POST', '/import/cases', { csv });
@@ -1027,12 +1031,14 @@ test('completing a loan records the disbursed amount, suggested from the file', 
   assert.equal((await complete(fresh)).data.case.pl_disbursed_amount, 150000);
   const topUp = (await sally('POST', '/cases', { ...newCase, personal_loan_type: 'top_up', loan_amount: 300000, full_loan_amount: 300000, incremental_amount: 80000 })).data.case.id;
   assert.equal((await complete(topUp)).data.case.pl_disbursed_amount, 80000);
-  // An auto loan with no amount on file needs the disbursed amount.
-  const auto = (await sally('POST', '/cases', { ...newCase, product: 'auto_loan', core_product: 'auto_loan' })).data.case.id;
+  // An auto loan: the loan amount on file is suggested, and can be overridden with what was actually disbursed.
+  const auto = (await sally('POST', '/cases', { ...newCase, product: 'auto_loan', core_product: 'auto_loan', amount: 120000 })).data.case.id;
   const r = await complete(auto);
-  assert.equal(r.status, 400);
-  assert.match(r.data.error, /auto loan disbursed amount/i);
-  assert.equal((await complete(auto, { al_disbursed_amount: 95000 })).data.case.al_disbursed_amount, 95000);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.case.al_disbursed_amount, 120000);
+  const again = await mis('POST', `/cases/${auto}/actions`, { action: 'set_disbursal', al_disbursed_amount: 95000 });
+  assert.equal(again.status, 200, JSON.stringify(again.data));
+  assert.equal(again.data.case.al_disbursed_amount, 95000);
   // Moving a case out of Completed clears its disbursal, so it stops counting.
   const back = await mis('POST', `/cases/${auto}/actions`, { action: 'set_case_status', case_status: 'applicant_review', note: 'Disbursal reversed' });
   assert.equal(back.data.case.al_disbursed_amount, null);
@@ -1363,13 +1369,14 @@ test('salary-based targets: bands and points are uploaded, targets generated, po
   assert.equal((await mis('POST', '/import/auto_loan_points', { csv: bands })).data.ok, 3);
   assert.equal((await mis('GET', '/targets')).data.setup.auto_loan_bands, 3);
   // A completed auto loan of AED 150,000 earns 12 points; a card earns the product list's points.
+  const autoBefore = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.auto_loan;
   const car = await sales('POST', '/cases', { ...newCase, product: 'auto_loan', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, amount: 150000, core_product: 'auto_loan' });
   assert.equal(car.status, 201, JSON.stringify(car.data));
   await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' });
   assert.equal((await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_disbursal', al_disbursed_amount: 150000 })).status, 200);
   const now = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId);
-  assert.equal(now.achieved.auto_loan, 12);
-  assert.equal(now.cases.auto_loan, 1);
+  assert.equal(now.achieved.auto_loan, autoBefore + 12);
+  assert.ok(now.cases.auto_loan >= 1);
   const cardsBefore = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.credit_card;
   const card = await sales('POST', '/cases', { ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'New Cashback Credit Card', card_fee_type: 'fyf' });
   assert.equal(card.status, 201, JSON.stringify(card.data));

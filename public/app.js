@@ -927,6 +927,7 @@ async function viewCaseForm(id) {
               ${field('loan_amount', 'Loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-pl' })}
               ${field('interest_rate', 'Interest rate (%)', { type: 'number', required: true, placeholder: 'e.g. 5.99', attrs: 'inputmode="decimal" min="0" max="100" step="0.01" disabled data-pl' })}
               ${field('fpd', 'FPD (first payment date)', { type: 'date', required: true, attrs: 'disabled data-pl', hint: 'When the first instalment is due' })}
+              ${field('pl_tenure', 'Tenure (months)', { type: 'number', required: true, placeholder: `up to ${state.meta.tenure_max.personal_loan}`, attrs: `inputmode="numeric" min="1" max="${state.meta.tenure_max.personal_loan}" step="1" disabled data-pl` })}
             </div>
             <div class="form-grid" id="topup-fields" hidden>
               ${field('full_loan_amount', 'Full loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-topup', hint: 'Total loan after the top up' })}
@@ -942,6 +943,23 @@ async function viewCaseForm(id) {
                 <option value="${OTHER_BANK}" ${otherBank ? raw('selected') : ''}>Other bank (type the name)</option>
               </select>
               <input id="f-buyout_bank_other" name="buyout_bank_other" placeholder="Bank name" aria-label="Other bank name" value="${otherBank ? c.buyout_bank : ''}" required disabled hidden>
+            </div>
+          </fieldset>
+          <fieldset class="full product-detail" id="auto-field" hidden>
+            <legend>Auto loan</legend>
+            <div class="sub-label">Auto loan type <span class="req">*</span></div>
+            <div class="segmented two-up">
+              ${Object.entries(state.meta.auto_loan_types).map(([k, l]) => html`<label><input type="radio" name="auto_loan_type" value="${k}" required disabled ${c.auto_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+            </div>
+            <div class="form-grid three" style="margin-top:12px">
+              ${field('car_make', 'Car make', { required: true, placeholder: 'e.g. Toyota', attrs: 'disabled data-al', dictate: true })}
+              ${field('car_model', 'Car model', { required: true, placeholder: 'e.g. Land Cruiser', attrs: 'disabled data-al', dictate: true })}
+              ${field('car_year', 'Car year', { type: 'number', required: true, placeholder: String(new Date().getFullYear()), attrs: `inputmode="numeric" min="1990" max="${new Date().getFullYear() + 1}" step="1" disabled data-al` })}
+              ${field('amount', 'Loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-al' })}
+              ${field('al_interest_rate', 'ROI (%)', { type: 'number', required: true, placeholder: 'e.g. 3.25', attrs: 'inputmode="decimal" min="0" max="100" step="0.01" disabled data-al' })}
+              ${field('al_tenure', 'Tenure (months)', { type: 'number', required: true, placeholder: `up to ${state.meta.tenure_max.auto_loan}`, attrs: `inputmode="numeric" min="1" max="${state.meta.tenure_max.auto_loan}" step="1" disabled data-al` })}
+              ${field('dealer_details', 'Dealer details', { placeholder: 'Dealer name, branch, contact', attrs: 'disabled data-al', dictate: true })}
+              ${field('al_lead_source', 'Lead source', { required: true, placeholder: 'e.g. Dealer referral, Walk-in', attrs: 'disabled data-al', dictate: true })}
             </div>
           </fieldset>
           <fieldset class="full product-detail" id="card-field" hidden>
@@ -978,7 +996,7 @@ async function viewCaseForm(id) {
         </div>
       </details>
 
-      ${id && c.status === 'completed' ? html`<div class="callout warn" style="margin-top:16px"><strong>Verification is already completed on this file.</strong>Changing the product, card or card sourced type, loan amount, interest rate, top-up amounts or FPD sends it back to the processing team for a fresh verification. Other details can be changed freely.</div>` : ''}
+      ${id && c.status === 'completed' ? html`<div class="callout warn" style="margin-top:16px"><strong>Verification is already completed on this file.</strong>Changing the product, card or card sourced type, loan amount, interest rate, tenure, top-up amounts, FPD or the car and auto loan details sends it back to the processing team for a fresh verification. Other details can be changed freely.</div>` : ''}
       <p class="error" id="form-error" hidden></p>
       <div class="actions" style="margin-top:16px">
         <button class="btn-primary">${id ? 'Save changes' : 'Submit for verification'}</button>
@@ -999,6 +1017,7 @@ async function viewCaseForm(id) {
   const bankSelect = $('#f-buyout_bank');
   const bankOther = $('#f-buyout_bank_other');
   const cardField = $('#card-field');
+  const autoField = $('#auto-field');
   const cardSelect = $('#f-credit_card');
   // The category and points come from the product list for the card chosen; staff do not type them.
   const syncCard = () => {
@@ -1072,6 +1091,9 @@ async function viewCaseForm(id) {
     bankField.hidden = loanField.hidden || loanType !== 'buy_out';
     bankSelect.disabled = bankField.hidden;
     bankOther.hidden = bankOther.disabled = bankField.hidden || bankSelect.value !== OTHER_BANK;
+    autoField.hidden = !includes('auto_loan');
+    autoField.querySelectorAll('input[name=auto_loan_type]').forEach((r) => (r.disabled = autoField.hidden));
+    form.querySelectorAll('[data-al]').forEach((i) => (i.disabled = autoField.hidden));
     cardField.hidden = !includes('credit_card');
     cardSelect.disabled = cardField.hidden;
     cardField.querySelectorAll('input[name=card_fee_type]').forEach((r) => (r.disabled = cardField.hidden));
@@ -1233,7 +1255,7 @@ async function viewCaseForm(id) {
       const body = formData(form);
       if (check?.dataset.state === 'below' && !('card_salary_exception' in body)) body.card_salary_exception = '';
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
-      for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd']) body[f] ??= null;
+      for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;
       // Leave hidden values untouched unless a replacement was typed.
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.buyout_bank = body.buyout_bank === OTHER_BANK ? body.buyout_bank_other?.trim() : body.buyout_bank ?? null;
@@ -1585,6 +1607,7 @@ async function viewCase(id) {
             ${c.fpd ? html`<dt>FPD</dt><dd><strong>${fmtDay(c.fpd)}</strong><div class="muted small">First payment date</div></dd>` : ''}
             ${c.loan_amount != null ? html`<dt>Loan amount</dt><dd><strong>AED ${fmtAmount(c.loan_amount)}</strong></dd>` : ''}
             ${c.interest_rate != null ? html`<dt>Interest rate</dt><dd><strong>${c.interest_rate}%</strong></dd>` : ''}
+            ${c.pl_tenure != null ? html`<dt>PL tenure</dt><dd><strong>${c.pl_tenure} months</strong></dd>` : ''}
             ${c.full_loan_amount != null ? html`<dt>Full loan amount</dt><dd>AED ${fmtAmount(c.full_loan_amount)}</dd>` : ''}
             ${c.incremental_amount != null ? html`<dt>Incremental amount</dt><dd>AED ${fmtAmount(c.incremental_amount)}</dd>` : ''}
             ${c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
@@ -1593,7 +1616,8 @@ async function viewCase(id) {
             ${c.credit_card && c.card_min_salary != null ? html`<dt>Salary check</dt><dd>Card needs AED ${fmtAmount(c.card_min_salary)} a month · ${c.card_salary_exception || c.status === 'awaiting_approval' ? html`<span class="chip bad">Customer below requirement</span>` : html`<span class="chip good">Customer meets requirement</span>`}</dd>` : ''}
             ${c.card_salary_exception ? html`<dt>Sold as</dt><dd><strong>${state.meta.card_exceptions[c.card_salary_exception] || c.card_salary_exception}</strong><div class="muted small">by ${c.card_exception_by_name || '—'} on ${fmtDate(c.card_exception_at)}${c.card_exception_note ? ` · ${c.card_exception_note}` : ''}</div></dd>` : ''}
             ${c.card_fee_type ? html`<dt>Card sourced type</dt><dd><strong>${state.meta.card_fee_types[c.card_fee_type] || c.card_fee_type}</strong></dd>` : ''}
-            ${c.amount != null ? html`<dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>` : ''}
+            ${c.auto_loan_type ? html`<dt>Auto loan</dt><dd><strong>${state.meta.auto_loan_types[c.auto_loan_type] || c.auto_loan_type} car</strong> · ${[c.car_make, c.car_model, c.car_year].filter(Boolean).join(' ')}${c.dealer_details ? html`<div class="muted small">Dealer: ${c.dealer_details}</div>` : ''}${c.al_lead_source ? html`<div class="muted small">Lead source: ${c.al_lead_source}</div>` : ''}</dd>` : ''}
+            ${c.amount != null ? html`<dt>Auto loan amount</dt><dd><strong>AED ${fmtAmount(c.amount)}</strong>${c.al_interest_rate != null ? html` · ROI ${c.al_interest_rate}%` : ''}${c.al_tenure != null ? html` · ${c.al_tenure} months` : ''}</dd>` : ''}
           </dl>
           <h2 class="sub">Sales staff</h2>
           <dl class="details">

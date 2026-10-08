@@ -167,6 +167,8 @@ function routes(db, dispatch, bot) {
         credit_cards: cardFamilies(),
         card_list_source: cardProductSource(),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
+        auto_loan_types: cases.AUTO_LOAN_TYPES,
+        tenure_max: { personal_loan: cases.PL_TENURE_MAX, auto_loan: cases.AL_TENURE_MAX },
         card_fee_types: cases.CARD_FEE_TYPES,
         card_exceptions: cases.CARD_EXCEPTIONS,
         masked_fields: cases.MASKED_FIELDS,

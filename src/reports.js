@@ -310,7 +310,8 @@ function register(db, user, { period, region }) {
     return {
       ref: caseRef(c.id), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '',
       product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
-      card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? null, fpd: c.fpd || '',
+      card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? c.al_interest_rate ?? null, tenure: c.pl_tenure ?? c.al_tenure ?? null, fpd: c.fpd || '',
+      auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',
       verification: VERIFICATION_LABELS[c.status] || c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || '',
       case_status: CASE_STATUS[c.case_status] || c.case_status, case_status_at: c.case_status_at || '', disbursed_aed: (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0) || null,
@@ -320,7 +321,7 @@ function register(db, user, { period, region }) {
   });
   return {
     columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'), col('city', 'City', 'text'), col('product', 'Product', 'text'), col('core_product', 'Core product', 'text'),
-      col('card_fee_type', 'Card sourced type', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest %', 'rate'), col('fpd', 'FPD', 'date'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
+      col('card_fee_type', 'Card sourced type', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest / ROI %', 'rate'), col('tenure', 'Tenure (months)'), col('fpd', 'FPD', 'date'), col('auto_loan_type', 'Auto loan type', 'text'), col('car', 'Car', 'text'), col('dealer', 'Dealer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
       col('verification', 'Verification', 'text'), col('verification_reason', 'Reason', 'text'), col('processor', 'Processor', 'text'), col('verified_at', 'Verified at', 'datetime'), col('case_status', 'Case status', 'text'), col('case_status_at', 'Case status at', 'datetime'), col('disbursed_aed', 'Disbursed (AED)', 'aed'),
       col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text')],
     rows: out,

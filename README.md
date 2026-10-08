@@ -136,6 +136,10 @@ Columns: staff, sourced in the cycle, awaiting verification and verification pen
 
 API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
 
+### Auto loan details and loan tenures
+
+When a file includes an **auto loan**, the form asks for the auto loan type (**New** or **Used**), car make, model and year (1990 to next year), the loan amount, **ROI** (% a year), **tenure** (whole months, up to 60), dealer details (optional) and the lead source. A **personal loan** also needs a **tenure** of up to 48 months. All of these show on the case page and in the case register export, are columns in the cases bulk upload, and changing any of them after verification sends the file back for re-verification.
+
 ### Card salary requirement, deviations and team approval
 
 Every card in the product list has a **minimum monthly salary** (an upload column; provisional by tier until the bank's list is loaded). On the form, once a card and the customer's salary are entered:

@@ -43,7 +43,7 @@ async function login(email) {
     return { status: r.status, data: await r.json() };
   };
 }
-const file = (name, region = 'DXB') => ({ customer_name: name, region, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan' });
+const file = (name, region = 'DXB') => ({ customer_name: name, region, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan', auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 4, al_tenure: 48 });
 const names = (list) => list.map((c) => c.customer_name).sort();
 
 test('a file starts in the sales person\'s region but can name any region', async () => {
@@ -297,4 +297,27 @@ test('a card below the salary requirement needs a reason or team approval; a hig
   // Resubmitting without fixing it goes back to approval; raising the salary clears it.
   assert.equal((await dana('POST', `/cases/${back.data.case.id}/actions`, { action: 'resubmit' })).data.case.status, 'awaiting_approval');
   assert.equal((await dana('PUT', `/cases/${back.data.case.id}`, { salary: 16000 })).data.case.status, 'pending_verification');
+});
+
+test('auto loans need the car and loan details; tenures are capped at 60 and 48 months', async () => {
+  const dana = await login('dana@t.local');
+  const base = file('Car buyer');
+  const bad = async (patch, re) => { const r = await dana('POST', '/cases', { ...base, ...patch }); assert.equal(r.status, 400, JSON.stringify(r.data)); assert.match(r.data.error, re); };
+  await bad({ auto_loan_type: '' }, /New or Used/);
+  await bad({ car_make: '' }, /car make/i);
+  await bad({ car_year: 1980 }, /Car year/);
+  await bad({ car_year: 2025.5 }, /whole year/);
+  await bad({ al_lead_source: '' }, /lead source/i);
+  await bad({ al_interest_rate: '' }, /ROI/);
+  await bad({ al_tenure: 61 }, /tenure.*60/i);
+  await bad({ al_tenure: 0 }, /tenure/i);
+  await bad({ amount: '' }, /amount/i);
+  const ok = await dana('POST', '/cases', { ...base, dealer_details: 'Arabian Automobiles, Deira' });
+  assert.equal(ok.status, 201, JSON.stringify(ok.data));
+  assert.deepEqual([ok.data.case.auto_loan_type, ok.data.case.car_make, ok.data.case.car_year, ok.data.case.al_tenure, ok.data.case.dealer_details], ['used', 'Nissan', 2023, 48, 'Arabian Automobiles, Deira']);
+  // Personal loans need a tenure of at most 48 months.
+  const pl = { customer_name: 'Loan buyer', region: 'DXB', phone: '+971 50 111 4444', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 100000, interest_rate: 6, fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) };
+  assert.equal((await dana('POST', '/cases', pl)).status, 400);
+  assert.equal((await dana('POST', '/cases', { ...pl, pl_tenure: 49 })).status, 400);
+  assert.equal((await dana('POST', '/cases', { ...pl, pl_tenure: 48 })).data.case.pl_tenure, 48);
 });

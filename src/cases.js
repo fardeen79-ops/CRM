@@ -56,6 +56,10 @@ export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh
 export const CARD_FEE_TYPES = { fyf: 'FYF (first year free)', full_fee: 'Full fee', ffl: 'FFL (free for life)' };
 // A personal loan's FPD (first payment date) can be this far after the sourcing date.
 export const FPD_MAX_DAYS = 365;
+// Loan tenures in months, and the auto loan types.
+export const PL_TENURE_MAX = 48;
+export const AL_TENURE_MAX = 60;
+export const AUTO_LOAN_TYPES = { new: 'New', used: 'Used' };
 
 // A completed case is a temp end for credit cards and a disbursal for loans. After a card's temp
 // end, MIS maps whether the card was activated.
@@ -249,15 +253,18 @@ const TEXT_FIELDS = {
 const PRODUCT_FIELDS = [
   'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank',
   'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
+  'pl_tenure', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure',
 ];
 // Snapshot of the sales person's profile, copied onto the file when it is sourced.
 const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name', 'team_leader_id', 'sales_manager_id', 'asm_id'];
 // Details the processor confirmed with the customer. Changing any of them after verification is
 // completed sends the file back for a fresh verification.
-export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd'];
+export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
+  'pl_tenure', 'amount', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'al_interest_rate', 'al_tenure'];
 const VERIFIED_FIELD_LABELS = {
   product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', card_fee_type: 'card sourced type', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
   loan_amount: 'loan amount', interest_rate: 'interest rate', full_loan_amount: 'full loan amount', incremental_amount: 'incremental amount', fpd: 'FPD',
+  pl_tenure: 'personal loan tenure', amount: 'auto loan amount', auto_loan_type: 'auto loan type', car_make: 'car make', car_model: 'car model', car_year: 'car year', al_interest_rate: 'auto loan ROI', al_tenure: 'auto loan tenure',
 };
 // The card's category and points, copied from the product list when the card is chosen.
 const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points', 'card_min_salary'];
@@ -291,6 +298,13 @@ function clean(value, max = 500) {
   if (value === undefined || value === null) return null;
   const s = String(value).trim();
   return s ? s.slice(0, max) : null;
+}
+
+/** A loan tenure in whole months, 1 up to the product's maximum. */
+function parseTenure(value, max, label) {
+  const n = parseNumber(value, label, { required: true, min: 1, max });
+  if (!Number.isInteger(n)) throw new WorkflowError(400, `${label} must be a whole number of months, up to ${max}`);
+  return n;
 }
 
 function parseNumber(value, label, { required = false, min = 0, max = Infinity, positive = false } = {}) {
@@ -328,6 +342,7 @@ function validateProduct(input, current, out) {
   Object.assign(out, {
     personal_loan_type: null, buyout_bank: null,
     loan_amount: null, interest_rate: null, full_loan_amount: null, incremental_amount: null, fpd: null,
+    pl_tenure: null, auto_loan_type: null, car_make: null, car_model: null, car_year: null, dealer_details: null, al_lead_source: null, al_interest_rate: null, al_tenure: null,
   });
   if (includes('personal_loan')) {
     const type = clean(pick('personal_loan_type'));
@@ -343,6 +358,7 @@ function validateProduct(input, current, out) {
     out.fpd = fpd;
     out.loan_amount = parseNumber(pick('loan_amount'), 'Loan amount', { required: true, positive: true });
     out.interest_rate = parseNumber(pick('interest_rate'), 'Interest rate', { required: true, max: 100 });
+    out.pl_tenure = parseTenure(pick('pl_tenure'), PL_TENURE_MAX, 'Personal loan tenure');
     if (type === 'buy_out') {
       // Any bank name is accepted so a lender missing from the list never blocks a case.
       const bank = clean(pick('buyout_bank'), 200);
@@ -356,6 +372,25 @@ function validateProduct(input, current, out) {
         throw new WorkflowError(400, 'Incremental amount cannot be more than the full loan amount');
       }
     }
+  }
+
+  if (includes('auto_loan')) {
+    const type = clean(pick('auto_loan_type'));
+    if (!AUTO_LOAN_TYPES[type]) throw new WorkflowError(400, 'Choose the auto loan type: New or Used');
+    out.auto_loan_type = type;
+    out.amount = parseNumber(pick('amount'), 'Auto loan amount', { required: true, positive: true });
+    out.car_make = clean(pick('car_make'), 100);
+    out.car_model = clean(pick('car_model'), 100);
+    if (!out.car_make) throw new WorkflowError(400, 'Enter the car make');
+    if (!out.car_model) throw new WorkflowError(400, 'Enter the car model');
+    const year = parseNumber(pick('car_year'), 'Car year', { required: true, min: 1990, max: new Date().getUTCFullYear() + 1 });
+    if (!Number.isInteger(year)) throw new WorkflowError(400, 'Car year must be a whole year, e.g. 2025');
+    out.car_year = year;
+    out.dealer_details = clean(pick('dealer_details'), 300);
+    out.al_lead_source = clean(pick('al_lead_source'), 200);
+    if (!out.al_lead_source) throw new WorkflowError(400, 'Enter the lead source for the auto loan');
+    out.al_interest_rate = parseNumber(pick('al_interest_rate'), 'Auto loan ROI', { required: true, max: 100 });
+    out.al_tenure = parseTenure(pick('al_tenure'), AL_TENURE_MAX, 'Auto loan tenure');
   }
 
   out.credit_card = null;

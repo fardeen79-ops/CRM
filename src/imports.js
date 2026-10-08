@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -69,8 +69,18 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'buyout_bank', header: 'Buy-out bank', example: '', help: 'For Buy Out' },
   { key: 'loan_amount', header: 'Loan amount', example: '150000', help: 'Personal loan' },
   { key: 'interest_rate', header: 'Interest rate', example: '6.5', help: 'Personal loan, % a year' },
+  { key: 'pl_tenure', header: 'PL tenure (months)', example: '48', help: 'Personal loan, up to 48' },
   { key: 'full_loan_amount', header: 'Full loan amount', example: '250000', help: 'Top Up' },
   { key: 'incremental_amount', header: 'Incremental amount', example: '100000', help: 'Top Up' },
+  { key: 'amount', header: 'Auto loan amount', example: '', help: 'Auto loan, AED' },
+  { key: 'auto_loan_type', header: 'Auto loan type', example: '', allowed: ['New', 'Used'], help: 'Auto loan' },
+  { key: 'car_make', header: 'Car make', example: '', help: 'Auto loan' },
+  { key: 'car_model', header: 'Car model', example: '', help: 'Auto loan' },
+  { key: 'car_year', header: 'Car year', example: '', help: 'Auto loan' },
+  { key: 'dealer_details', header: 'Dealer details', example: '', help: 'Auto loan, optional' },
+  { key: 'al_lead_source', header: 'Auto loan lead source', example: '', help: 'Auto loan' },
+  { key: 'al_interest_rate', header: 'Auto loan ROI', example: '', help: 'Auto loan, % a year' },
+  { key: 'al_tenure', header: 'Auto loan tenure (months)', example: '', help: 'Auto loan, up to 60' },
   { key: 'city', header: 'City', example: 'Dubai' },
   { key: 'source', header: 'Lead source', example: '' },
   { key: 'sales_notes', header: 'Notes', example: '' },
@@ -230,6 +240,7 @@ function caseInput(v) {
     personal_loan_type: choose(v.personal_loan_type, PERSONAL_LOAN_TYPES, 'Personal loan type'),
     card_fee_type: choose({ firstyearfree: 'fyf', freeforlife: 'ffl', fullannualfee: 'full_fee' }[norm(v.card_fee_type)] || v.card_fee_type, { fyf: 'FYF', full_fee: 'Full fee', ffl: 'FFL' }, 'Card sourced type'),
     fpd: v.fpd ? parseDate(v.fpd, 'FPD') : '',
+    pl_tenure: v.pl_tenure, amount: v.amount, auto_loan_type: v.auto_loan_type ? choose(v.auto_loan_type, AUTO_LOAN_TYPES, 'Auto loan type') : '', car_make: v.car_make, car_model: v.car_model, car_year: v.car_year, dealer_details: v.dealer_details, al_lead_source: v.al_lead_source, al_interest_rate: v.al_interest_rate, al_tenure: v.al_tenure,
     bundle_products: product === 'bundle'
       ? String(v.bundle_products || '').split(/[;,|/+]/).map((p) => p.trim()).filter(Boolean).map((p) => choose(p, PRODUCTS, 'Bundle product'))
       : '',
