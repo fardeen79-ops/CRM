@@ -350,6 +350,10 @@ Set `TL_WEBHOOK_URL` to POST a JSON alert every time a case is marked incomplete
   "reason": "incorrect_details", "note": "…", "marked_by": "Pam", "at": "2026-10-06T08:00:00.000Z" }
 ```
 
+## Deploying to a server
+
+See [`deploy/DEPLOY.md`](deploy/DEPLOY.md): Docker (`deploy/Dockerfile`, `deploy/docker-compose.yml`) or systemd (`deploy/sourcing-crm.service`), an nginx HTTPS example, an environment file template and a nightly backup script.
+
 ## Configuration
 
 | Variable | Default | Purpose |

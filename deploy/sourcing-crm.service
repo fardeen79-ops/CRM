@@ -1,0 +1,23 @@
+# systemd unit for running without Docker: copy to /etc/systemd/system/sourcing-crm.service
+[Unit]
+Description=Sourcing CRM
+After=network.target
+
+[Service]
+Type=simple
+User=crm
+Group=crm
+WorkingDirectory=/opt/sourcing-crm
+EnvironmentFile=/etc/sourcing-crm.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning src/index.js
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sourcing-crm
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
