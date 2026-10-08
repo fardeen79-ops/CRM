@@ -2576,6 +2576,7 @@ function viewBulkUpload(kind) {
   const cfg = BULK[kind];
   const words = BULK_WORDS[kind];
   if (!BULK_ROLES.includes(state.user.role)) throw new Error('Only MIS and business heads can bulk upload');
+  if (kind === 'payout_rules' && !state.meta.can_see_payout) { shell(html`<div class="card empty">Payout rates are for the business head and DXB MIS only</div>`); return; }
   const columns = state.meta.import_columns[kind];
   const required = (c) => c.required;
   let file = null;
@@ -2583,7 +2584,7 @@ function viewBulkUpload(kind) {
   shell(html`
     <div class="page-head">
       <div><h1>${cfg.title}</h1><p class="muted lede">${cfg.lede}</p></div>
-      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
+      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).filter(([k]) => k !== 'payout_rules' || state.meta.can_see_payout).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
     </div>
     <div class="bulk-steps">
       <section class="card">

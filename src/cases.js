@@ -4,7 +4,7 @@ import { cardNames, cardProduct, higherCards } from './credit-cards.js';
 import { findUser } from './users.js';
 import { cycleRange, isCycle, uaeDay, cycleOf } from './cycles.js';
 import { unreadCount as chatUnread } from './chat.js';
-import { payoutFor, PAYOUT_ROLES } from './payouts.js';
+import { payoutFor, canSeePayout } from './payouts.js';
 
 export class WorkflowError extends Error {
   constructor(status, message) {
@@ -674,8 +674,8 @@ export function present(user, row, { reveal = [] } = {}) {
   out.masked_fields = MASKED_FIELDS.filter((f) => out[f] != null && !out.hidden_fields.includes(f) && !reveal.includes(f));
   for (const f of out.masked_fields) out[f] = maskValue(f, out[f]);
   out.can_reveal = canReveal(user);
-  // What the file earns the agency: managers and above only.
-  if (PAYOUT_ROLES.includes(user.role)) out.payout = payoutFor(row);
+  // What the file earns the agency: the business head and DXB MIS only.
+  if (canSeePayout(user)) out.payout = payoutFor(row);
   return out;
 }
 
@@ -1464,7 +1464,7 @@ export function stats(db, user, { region } = {}) {
       )
       .all(...(TEAM_FIELDS[user.role] ? [user.id] : []));
   }
-  if (PAYOUT_ROLES.includes(user.role)) {
+  if (canSeePayout(user)) {
     // Revenue: what completed files earned this cycle, and what the open pipeline would earn.
     const cycle = cycleOf(uaeDay());
     const { start, end } = cycleRange(cycle);

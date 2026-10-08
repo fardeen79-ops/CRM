@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
-import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS } from './payouts.js';
+import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -167,7 +167,8 @@ function routes(db, dispatch, bot) {
         products: cases.PRODUCTS,
         credit_cards: cardFamilies(),
         card_list_source: cardProductSource(),
-        payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource(),
+        can_see_payout: canSeePayout(user),
+        ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
         buyout_kinds: cases.BUYOUT_KINDS,

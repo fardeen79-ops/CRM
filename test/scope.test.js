@@ -21,7 +21,8 @@ before(async () => {
   add('Proc Dubai', 'proc-dxb@t.local', 'processing', { region: 'DXB' });
   add('Proc Abu Dhabi', 'proc-auh@t.local', 'processing', { region: 'AUH' });
   add('Proc Anywhere', 'proc-all@t.local', 'processing');
-  add('Mira', 'mis@t.local', 'mis');
+  add('Mira', 'mis@t.local', 'mis', { region: 'DXB' });
+  add('Mina', 'mis-auh@t.local', 'mis', { region: 'AUH' });
   add('Gina', 'gov@t.local', 'governance');
   add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', team_leader_id: ids['tl-dxb@t.local'], sales_manager_id: ids['sm1@t.local'], asm_id: ids['asm1@t.local'] });
   add('Amal', 'amal@t.local', 'sales', { region: 'AUH', sales_code: 'A-1', team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm2@t.local'] });
@@ -404,18 +405,26 @@ test('reports list card deviations, promotions, approvals waiting and cards sold
   assert.deepEqual((await mis('GET', '/reports')).data.reports.map((r) => r.key).filter((k) => k.startsWith('card_')), ['card_exceptions', 'card_downsell']);
 });
 
-test('payouts: what the bank pays per file, for managers and above, in reports and on the dashboard', async () => {
+test('payouts: what the bank pays per file, for the business head and DXB MIS only, in reports and on the dashboard', async () => {
   const dana = await login('dana@t.local');
-  const tl = await login('tl-auh@t.local');
+  const tl = await login('tl-dxb@t.local');
   const mis = await login('mis@t.local');
+  const misAuh = await login('mis-auh@t.local');
+  const gov = await login('gov@t.local');
+  const sm = await login('sm1@t.local');
   const proc = await login('proc-dxb@t.local');
   const card = (extra) => ({ customer_name: 'Payout Card', region: 'DXB', phone: '+971 50 111 7777', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary: 32000, ...extra });
   const mass = (await dana('POST', '/cases', card({}))).data.case;
   assert.equal(mass.payout, undefined); // sales staff never see it
   const seen = (await mis('GET', `/cases/${mass.id}`)).data.case.payout;
   assert.equal(seen.total, 1400);
-  assert.equal((await tl('GET', `/cases/${mass.id}`)).data.case.payout.total, 1400);
-  assert.equal((await proc('GET', `/cases/${mass.id}`)).data.case.payout, undefined);
+  // Nobody else: not team leaders, sales managers, governance, processors or MIS outside Dubai.
+  for (const who of [tl, sm, gov, proc, misAuh]) { const r = await who('GET', `/cases/${mass.id}`); if (r.status === 200) assert.equal(r.data.case.payout, undefined); }
+  assert.equal((await gov('GET', `/cases/${mass.id}`)).data.case.payout, undefined); // governance sees the file, not the payout
+  assert.equal((await misAuh('GET', '/me')).data.meta.payout_rates, undefined);
+  assert.equal((await misAuh('GET', '/stats')).data.revenue, undefined);
+  assert.ok(!(await gov('GET', '/reports/card_downsell')).data.columns.some((c) => c.key.startsWith('payout')));
+  assert.ok(!(await tl('GET', '/reports/sourcing')).data.columns.some((c) => c.key === 'revenue_aed'));
   const noon = (await dana('POST', '/cases', card({ credit_card: 'noon One Visa Credit Card' }))).data.case;
   assert.equal((await mis('GET', `/cases/${noon.id}`)).data.case.payout.total, 1100);
   const premium = (await dana('POST', '/cases', card({ credit_card: 'Skywards Signature Credit Card' }))).data.case;
@@ -452,8 +461,9 @@ test('payouts: what the bank pays per file, for managers and above, in reports a
   const stats = (await mis('GET', '/stats')).data;
   assert.ok(stats.revenue.pipeline_aed >= 1400 + 1100 + 2000 + 3000 + 1500 + 3000 + 875 + 350);
   assert.equal((await dana('GET', '/stats')).data.revenue, undefined);
-  // MIS can change a rate by upload; a team leader cannot.
+  // DXB MIS can change a rate by upload; a team leader or AUH MIS cannot.
   assert.equal((await tl('POST', '/import/payout_rules', { csv: 'Rule,Value\ncard:Mass,1500\n' })).status, 403);
+  assert.equal((await misAuh('POST', '/import/payout_rules', { csv: 'Rule,Value\ncard:Mass,1500\n' })).status, 403);
   const up = (await mis('POST', '/import/payout_rules', { csv: 'Rule,Value\ncard:Mass,1500\nMass card (AED per card),1500\nnonsense,1\n' })).data;
   assert.equal(up.ok, 2);
   assert.equal(up.failed, 1);

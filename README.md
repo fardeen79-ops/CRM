@@ -166,7 +166,7 @@ The CRM ships with the bank's product list built in: 68 cards in 20 families, ea
 
 ### Payouts: what the bank pays per file
 
-Every file carries the revenue it earns the agency, from the bank's payout rates. Managers (team leader, ASM, sales manager), MIS, business heads and governance see it on the case page (**Agency payout**, with the working), on the dashboard (**Payout from the bank**: earned on files completed this cycle, and what the open pipeline would earn) and in the reports: the sourcing report gains a **Payout (AED)** column, the case register a payout per file, and **Cards sold below eligibility** prices the lost upgrade (**Payout earned / possible / lost**). Sales staff and processors never see payouts.
+Every file carries the revenue it earns the agency, from the bank's payout rates. **Only the business head and MIS staff whose region is DXB** see it (never sales staff, processors, team leaders, ASMs, sales managers, governance or MIS in AUH): on the case page (**Agency payout**, with the working), on the dashboard (**Payout from the bank**: earned on files completed this cycle, and what the open pipeline would earn) and in the reports: the sourcing report gains a **Payout (AED)** column, the case register a payout per file, and **Cards sold below eligibility** prices the lost upgrade (**Payout earned / possible / lost**). Everyone else gets no payout fields, no revenue tiles and no payout columns, and cannot open or use the Payout rules upload.
 
 | Rule | Built-in rate |
 |---|---|
@@ -178,7 +178,7 @@ Every file carries the revenue it earns the agency, from the bank's payout rates
 | Auto loan, new car | 0.70% of the amount |
 | Auto loan, used car | 1.75% of the amount |
 
-MIS or a business head changes any rate from **Bulk upload → Payout rules** (`Rule,Value`; rules named as above or by key, e.g. `card:Mass`, `personal_loan_pct`). `GET /api/me` reports `payout_rates` and `payout_source`.
+The business head or DXB MIS changes any rate from **Bulk upload → Payout rules** (`Rule,Value`; rules named as above or by key, e.g. `card:Mass`, `personal_loan_pct`). `GET /api/me` reports `payout_rates` and `payout_source`.
 
 ### Targets and sales cycles
 

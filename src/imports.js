@@ -9,7 +9,7 @@ import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
 import { BANKS } from './banks.js';
-import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules } from './payouts.js';
+import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
 
 export const MAX_ROWS = 1000;
 // Only MIS and business heads can bulk upload, for users and cases alike.
@@ -439,6 +439,7 @@ export function importAutoLoanPoints(db, user, csv, { dryRun = false } = {}) {
 /** Replaces the bank's payout rates: one row per rule, the rest keep their current value. */
 export function importPayoutRules(db, user, csv, { dryRun = false } = {}) {
   requireBulkRole(user);
+  if (!canSeePayout(user)) throw new WorkflowError(403, 'Only the business head or DXB MIS can change payout rates');
   const { header, records, unknown } = readFile(csv, PAYOUT_RULE_IMPORT_COLUMNS);
   const ts = new Date().toISOString();
   const results = run(db, dryRun, () => {

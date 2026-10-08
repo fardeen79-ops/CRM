@@ -30,8 +30,9 @@ export const PAYOUT_LABELS = {
   auto_loan_used_pct: 'Auto loan, used car (% of amount)',
 };
 
-// Who may see what a file earns: managers and above, never sales staff or processors.
-export const PAYOUT_ROLES = ['team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'governance'];
+// Who may see what a file earns: the business head, and MIS staff in Dubai. Nobody else: not sales
+// staff, processors, team leaders, sales managers, ASMs, governance or MIS in Abu Dhabi.
+export const canSeePayout = (user) => user.role === 'business_head' || (user.role === 'mis' && String(user.region || '').toUpperCase() === 'DXB');
 
 let payoutRates = { ...PAYOUT_DEFAULTS };
 let payoutSrc = 'built_in';
