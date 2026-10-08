@@ -69,7 +69,7 @@ export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell'
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-// Auto loan sales staff: the loan's points are its disbursed amount at the bank's payout rate (new and
+// Core auto loan sales staff only (core product auto_loan): the loan's points are its disbursed amount at the bank's payout rate (new and
 // used car loans 0.80%, algo loans 0.25%, low-payout non-algo loans nothing). Points beyond the staff
 // member's auto loan target pay AED 1.10 each once new and used car disbursal in the cycle reaches
 // AED 250,000, otherwise AED 0.60 each. Algo loans earn points but do not count towards the AED 250,000.
