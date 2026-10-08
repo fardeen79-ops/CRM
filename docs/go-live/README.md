@@ -44,5 +44,6 @@ The sheet's target column (points for CC and AL, AED for PL) follows the salary 
 
 ## Still needed
 
+- The **cross-sell incentive for personal loan sales staff** (not yet defined; the PL production bands and the card scheme are in).
 - The **auto loan points table** (points per loan by amount band), so auto loan achievement counts in points against the targets above. Until then each auto loan counts 1 point.
 - The ASM distinction, if any of the SM / ASM names are ASMs rather than sales managers.
