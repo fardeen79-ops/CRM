@@ -608,7 +608,7 @@ test('auto loan incentives: points at the payout rate, excess over target, AED 1
   const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
   const danaId = (await mis('GET', '/users')).data.users.find((u) => u.email === 'dana@t.local').id;
   assert.equal((await mis('PATCH', `/users/${danaId}`, { core_product: 'auto_loan' })).status, 200);
-  // The bank's worked example: threshold 2,000 points.
+  // The worked example from the structure: threshold 2,000 points.
   assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: danaId, auto_loan: 2000 }] })).status, 200);
   const complete = (id, extra = {}) => mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', ...extra });
   // Earlier tests completed auto loans for Dana in this cycle: work from that baseline.
@@ -630,7 +630,7 @@ test('auto loan incentives: points at the payout rate, excess over target, AED 1
   assert.equal((await complete(used.id, { al_disbursed_amount: 300000 })).status, 200);
   mine = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
   assert.deepEqual([mine.points, mine.excess_points, mine.full_payout_met, mine.multiplier, mine.incentive_aed], [b.points + 4000, b.points + 2000, true, 1.1, (b.points + 2000) * 1.1]);
-  // An algo loan of 100,000 earns 250 points but does not count towards the 250,000: 2,250 excess × 1.10 = AED 2,475 (the bank's example).
+  // An algo loan of 100,000 earns 250 points but does not count towards the 250,000: 2,250 excess × 1.10 = AED 2,475 (the structure's example).
   const algo = (await al('AL Inc 3', { amount: 100000 })).data.case;
   assert.equal((await complete(algo.id, { al_disbursed_amount: 100000, al_payout_class: 'algo' })).status, 200);
   mine = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
@@ -670,7 +670,7 @@ test('credit card team leader incentives: team card points beyond 75% of combine
   const i = mine.teams[0].incentive;
   assert.deepEqual([i.team_size, i.combined_target, i.threshold, i.points, i.excess_points, i.mix_pct, i.criterion, i.rate], [1, 1000, 750, 2100, 1350, 33.3, 'mix', 0.3]);
   assert.deepEqual([i.core_aed, i.cross_sell_aed, i.cross_sell_incentive_aed, i.incentive_aed], [405, 200000, 300, 705]);
-  // The bank's example: 100,000 combined targets, 95,000 points, 20,000 excess at AED 0.30 = 6,000.
+  // The structure's example: 100,000 combined targets, 95,000 points, 20,000 excess at AED 0.30 = 6,000.
   assert.equal(Math.max(0, 95000 - (100000 * mine.tl_rules.threshold_share) / 100) * mine.tl_rules.rate_high, 6000);
   // A leader with no core card staff has nothing to show; the report lists leaders of core card staff only.
   const amalId = (await mis('GET', '/users')).data.users.find((u) => u.email === 'amal@t.local').id;
@@ -733,7 +733,7 @@ test('sales manager incentives: per-card slabs for card managers, a banded perce
   const cc = mine.teams.find((t) => t.type === 'cc_sales_manager');
   assert.deepEqual([cc.incentive.team_size, cc.incentive.combined_target, cc.incentive.points, cc.incentive.achievement_pct, cc.incentive.slab, cc.incentive.cards_sold, cc.incentive.aed_per_card, cc.incentive.incentive_aed], [1, 1000, 2100, 210, '150% and above', 3, 50, 150]);
   assert.equal((await asm('GET', `/incentives/me?cycle=${cycle}`)).data.teams.find((t) => t.type === 'cc_sales_manager').incentive.incentive_aed, 150);
-  // The bank's example: 120% achievement with 500 cards pays AED 35 each.
+  // The structure's example: 120% achievement with 500 cards pays AED 35 each.
   assert.equal(500 * mine.cc_sm_slabs.find((s) => s.label === '110% to 124.99%').aed, 17500);
   // SM One has no core loan staff: no loan block, and Dana's AED 200,000 of cross-sold loans has no target to count against.
   assert.equal(mine.teams.some((t) => t.type === 'pl_sales_manager'), false);

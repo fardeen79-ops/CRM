@@ -18,7 +18,7 @@ export const TARGET_PRODUCTS = Object.fromEntries(['credit_card', 'personal_loan
 export const TARGET_UNITS = { credit_card: 'points', personal_loan: 'aed', auto_loan: 'points', accounts: 'count' };
 
 /** What one completed file adds to a product's achievement. */
-// What the bank pays out on an auto loan, as a % of the amount disbursed; a loan's points are its
+// The incentive structure's rate for an auto loan, as a % of the amount disbursed; a loan's points are its
 // disbursed amount at this rate (AED 200,000 new car at 0.80% = 1,600 points).
 export const AUTO_LOAN_POINT_RATES = { new: 0.8, used: 0.8, algo: 0.25, low: 0 };
 export const autoLoanRate = (row) => (row.al_payout_class && row.al_payout_class !== 'full' ? AUTO_LOAN_POINT_RATES[row.al_payout_class] ?? 0 : AUTO_LOAN_POINT_RATES[row.auto_loan_type] ?? AUTO_LOAN_POINT_RATES.used);

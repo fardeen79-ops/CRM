@@ -2040,7 +2040,7 @@ function setupSummary(s) {
     Object.keys(s.salary_bands).length ? `Salary bands loaded: ${bands}.` : 'No salary bands yet: upload them from Bulk upload → Salary targets.',
     `${s.staff_with_salary} of ${s.staff} sales staff have a salary on their profile.`,
     s.card_points_set ? 'Card points come from the product list.' : 'Card points not loaded yet: each card counts 1 point until the product list has points.',
-    `Auto loan points: the amount disbursed at the bank's payout rate (new and used ${s.auto_loan_rates.new.toFixed(2)}%, algo ${s.auto_loan_rates.algo.toFixed(2)}%, low-payout non-algo nil).`,
+    `Auto loan points: the amount disbursed at the scheme's rate for its class (new and used ${s.auto_loan_rates.new.toFixed(2)}%, algo ${s.auto_loan_rates.algo.toFixed(2)}%, low-payout non-algo nil).`,
   ].join(' ');
 }
 
@@ -2160,7 +2160,7 @@ function alIncentiveCard({ incentive: i, al_rules: r, conditions = [] }) {
     <ul class="checklist">
       <li>${i.full_payout_met ? '✓' : '○'} New and used car disbursal: AED ${fmtAmount(i.full_payout_aed)} of AED ${fmtAmount(r.full_payout_aed)}${i.full_payout_met ? '' : ` (AED ${fmtAmount(i.short_by)} more for AED ${r.multiplier_high.toFixed(2)} a point)`}${i.algo_aed ? ` · algo loans (AED ${fmtAmount(i.algo_aed)}) earn points but do not count here` : ''}</li>
     </ul>
-    <p class="muted small">A loan's points are its disbursed amount at the bank's payout rate: new and used car loans ${r.rates_pct.new.toFixed(2)}%, algo loans ${r.rates_pct.algo.toFixed(2)}%, low-payout non-algo loans nil. Points beyond target pay AED ${r.multiplier_high.toFixed(2)} each once new and used disbursal reaches AED ${fmtAmount(r.full_payout_aed)} in the cycle, otherwise AED ${r.multiplier_low.toFixed(2)}. Only loans on files completed in the cycle count.</p>
+    <p class="muted small">A loan's points are its disbursed amount at the scheme's rate for its class: new and used car loans ${r.rates_pct.new.toFixed(2)}%, algo loans ${r.rates_pct.algo.toFixed(2)}%, low-payout non-algo loans nil. Points beyond target pay AED ${r.multiplier_high.toFixed(2)} each once new and used disbursal reaches AED ${fmtAmount(r.full_payout_aed)} in the cycle, otherwise AED ${r.multiplier_low.toFixed(2)}. Only loans on files completed in the cycle count.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
 }
