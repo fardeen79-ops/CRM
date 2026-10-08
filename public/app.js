@@ -2041,7 +2041,7 @@ const unitSuffix = (unit) => (unit === 'aed' ? ' (AED)' : unit === 'points' ? ' 
 
 /** Product tiles and the card activation tile for one person or a whole team. */
 // A credit card sales person's incentive for the cycle: points beyond target, the rate earned and why.
-function incentiveCard({ incentive: i, rules }) {
+function incentiveCard({ incentive: i, rules, conditions = [] }) {
   const met = i.criterion !== 'none';
   return html`<div class="card incentive">
     <div class="card-head"><h2>My incentive · ${i.criterion_label === 'Neither' ? 'standard rate' : 'higher rate'}</h2>
@@ -2056,6 +2056,7 @@ function incentiveCard({ incentive: i, rules }) {
       <li>${i.criterion === 'cross_sell' || i.pl_counted >= rules.cross_sell_aed ? '✓' : '○'} Cross-sell: AED ${fmtAmount(i.pl_counted)} of personal loans counted (needs AED ${fmtAmount(rules.cross_sell_aed)}${i.eib_loans ? `; Emirates Islamic buy-outs count at ${rules.eib_buyout_share}%` : ''})</li>
     </ul>
     <p class="muted small">Meet either and excess points pay AED ${rules.rate_high.toFixed(2)} each, otherwise AED ${rules.rate_low.toFixed(2)}. Personal loans count AED ${rules.pl_aed_per_point} per point. Only completed files in the cycle count.</p>
+    ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
 }
 
@@ -2854,7 +2855,8 @@ async function viewReports(params) {
     <thead><tr>${rep.columns.map((c) => html`<th class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${c.label}</th>`)}</tr></thead>
     <tbody>${rep.rows.map((row) => html`<tr>${rep.columns.map((c) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${fmtCell(row[c.key], c.unit)}</td>`)}</tr>`)}</tbody>
     ${rep.totals && rep.rows.length ? html`<tfoot><tr>${rep.columns.map((c, i) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${i === 0 && rep.totals[c.key] === undefined ? 'Total' : rep.totals[c.key] === undefined ? '' : fmtCell(rep.totals[c.key], c.unit)}</td>`)}</tr></tfoot>` : ''}
-  </table></div>`;
+  </table>
+    ${rep.note ? html`<p class="callout warn report-note"><strong>Conditions.</strong> ${rep.note}</p>` : ''}</div>`;
 
   shell(html`
     <div class="page-head"><div><h1>Reports</h1><p class="muted lede">Pick a report and a period, run it on screen, then download it as a spreadsheet. Reports cover ${{ team_leader: 'your team', sales_manager: 'your teams' }[effRole()] || (state.region ? `the ${state.region} region` : 'all regions')}; personal details stay masked.</p></div></div>

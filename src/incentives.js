@@ -16,7 +16,13 @@ export const INCENTIVE_RULES = {
   cross_sell_aed: 50000, // personal loans cross-sold (counted amount) that qualify on their own
   pl_aed_per_point: 100, // AED 50,000 of personal loans = 500 points
   eib_buyout_share: 50, // % of an Emirates Islamic buy-out's disbursed amount that counts
+  next_cycle_minimum_pct: 60, // paid only if the staff member achieves at least this much of target in the next cycle
 };
+/** Conditions every incentive is subject to, shown wherever an incentive amount is shown. */
+export const INCENTIVE_CONDITIONS = [
+  `All incentives are subject to achieving a minimum of ${INCENTIVE_RULES.next_cycle_minimum_pct}% of target in the next sales cycle.`,
+  'All incentives are subject to the bank\'s data cut finalisation.',
+];
 export const PREMIUM_CATEGORIES = ['Premium', 'Super Premium'];
 export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell', none: 'Neither' };
 
@@ -62,8 +68,8 @@ export function myIncentive(db, user, cycle) {
   cycle = cycle ? String(cycle) : cycleOf(uaeDay());
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const me = db.prepare('SELECT core_product FROM users WHERE id = ?').get(user.id);
-  if (me?.core_product !== 'credit_card') return { cycle, label: cycleLabel(cycle), incentive: null, rules: INCENTIVE_RULES };
-  return { cycle, label: cycleLabel(cycle), incentive: incentiveFor(db, user.id, cycle), rules: INCENTIVE_RULES };
+  if (me?.core_product !== 'credit_card') return { cycle, label: cycleLabel(cycle), incentive: null, rules: INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS };
+  return { cycle, label: cycleLabel(cycle), incentive: incentiveFor(db, user.id, cycle), rules: INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS };
 }
 
 /** Every credit card sales person's incentive for the cycle, as report rows. */
