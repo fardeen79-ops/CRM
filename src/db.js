@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS users (
   team_leader_id   INTEGER REFERENCES users(id),
   sales_manager_id INTEGER REFERENCES users(id),
   mobile_number    TEXT, -- UAE local mobile, stored as 05XXXXXXXX
-  whatsapp_number  TEXT  -- international format, +9715XXXXXXXX
+  whatsapp_number  TEXT, -- international format, +9715XXXXXXXX
+  region           TEXT, -- DXB or AUH: processors verify only their region's files
+  asm_id           INTEGER REFERENCES users(id) -- sales staff: their assistant sales manager
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -263,7 +265,7 @@ const ADDED_COLUMNS = {
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
-  mobile_number: 'TEXT', whatsapp_number: 'TEXT',
+  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)',
 };
 
 function migrate(db) {

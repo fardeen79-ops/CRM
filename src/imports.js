@@ -19,7 +19,7 @@ function requireBulkRole(user) {
 }
 
 const ROLE_LABELS = {
-  sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader', sales_manager: 'Sales Manager',
+  sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader', asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager',
   mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
 };
 
@@ -30,9 +30,11 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'role', header: 'Role', required: true, example: 'Sales', allowed: Object.values(ROLE_LABELS) },
   { key: 'mobile_number', header: 'Local mobile', required: true, example: '050 123 4567', help: 'UAE mobile number' },
   { key: 'whatsapp_number', header: 'WhatsApp number', example: '+971 50 123 4567', help: 'With country code; a UAE number without one gets +971' },
+  { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: 'DXB or AUH. Processors then see only that region\'s files; sales staff\'s files default to it' },
   { key: 'sales_code', header: 'Sales code', example: 'DXB-S-021', help: 'Sales staff only. Must be unique' },
   { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader, or one added earlier in this file' },
   { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only. An active sales manager, or one added earlier in this file' },
+  { key: 'asm_email', header: 'Assistant sales manager email', example: '', help: 'Sales staff only, optional. An active assistant sales manager' },
   { key: 'password', header: 'Temporary password', example: '', help: 'Optional, 8+ characters. Left blank, one is generated and shown after the upload' },
 ];
 
@@ -282,6 +284,7 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
         if (role === 'sales') {
           input.team_leader_id = manager('team_leader_email', 'team_leader', 'Team leader');
           input.sales_manager_id = manager('sales_manager_email', 'sales_manager', 'Sales manager');
+          if (v.asm_email) input.asm_id = manager('asm_email', 'asm', 'Assistant sales manager');
         }
         const created = createUser(db, input, { requireMobile: true });
         return {

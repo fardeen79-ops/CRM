@@ -198,7 +198,7 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 
 ### Sales staff, region and core product
 
-When a team leader registers a sales person on the **Users** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users. A team leader can change these later with **Edit**.
+When a team leader registers a sales person on the **Users** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users, and optionally an **assistant sales manager**. A team leader can change these later with **Edit**.
 
 At the top of every file, the **Sales staff** section shows the sales person's full name, sales code, team leader and sales manager:
 
@@ -255,6 +255,21 @@ A web page cannot stop screenshots or photos of the screen, so the CRM limits wh
 - **Masked identifiers.** Emirates ID, passport, phone numbers and salary are masked on every screen (`784-••••-••••567-1`, `Z•••••36`, `+••• •• ••• 4567`, `AED ••,•••`) until someone clicks **Reveal** on the case page (**Reveal to call** turns a mobile number into a dial link). **Reveal all** uncovers everything at once. Revealed values **hide again after 3 minutes**, and at once when the tab is hidden or the page is left. The mask is applied by the server, so the full value never reaches the browser until it is revealed. Search still works on full values. On the edit form a masked value stays as it is unless a new one is typed.
 - **Access log.** Every reveal, and every opening of a case, is recorded with who, what and when (repeats within five minutes count once). Governance, MIS and business heads see it on **Access log**, filterable by staff, customer or CRM ref, and can open it for one case with `#/access-log?case=ID`. The API is `GET /cases/:id/reveal?fields=phone,eid_number` and `GET /access-log?case=&limit=`.
 - **Watermark.** Every screen carries a faint repeating stamp of the signed-in user's name, sales code or role, and the time, refreshed each minute, so a leaked screenshot or photo can be traced to the session it came from. It prints darker.
+
+### Who sees which files
+
+Each role sees only the files that concern them. The server applies this to lists, search, the dashboard counts, case discussions, direct links and targets alike.
+
+| Role | Sees |
+|------|------|
+| Sales | Their own files |
+| Team leader | Files of the sales staff whose team leader they are, plus any they entered themselves |
+| Assistant sales manager (ASM) | Files of the sales staff mapped to them as ASM |
+| Sales manager | Files of the sales staff mapped to them as sales manager |
+| Processor with a **region** | Files in that region (`DXB` or `AUH`) and files with no region |
+| Processor without a region, MIS, business head, governance | Everything |
+
+A **region** can be set on any user on the Users page or in the users bulk upload. For a processor it limits what they see; for a sales person it pre-fills the region on their new files, which can still be changed. Team leaders, sales managers and ASMs pick sales staff only from their own team when entering a file, and may only move a file to staff in their team. An ASM has the same powers as a sales manager (entering files, edit requests, case status) over their own team; sales staff get an optional **Assistant sales manager** in their profile.
 
 ### Personal details: who can see them
 

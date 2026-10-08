@@ -6,7 +6,7 @@ import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { CREDIT_CARDS } from './credit-cards.js';
 import { BANKS } from './banks.js';
-import { contactDetails, findUser, listUsers, salesProfile } from './users.js';
+import { contactDetails, findUser, listUsers, salesProfile, regionOf } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
 import * as chat from './chat.js';
@@ -169,6 +169,8 @@ function routes(db, dispatch, bot) {
         banks: BANKS,
         case_statuses: cases.CASE_STATUS,
         regions: cases.REGIONS,
+        roles: auth.ROLES,
+        manager_roles: cases.MANAGER_ROLES,
         core_products: cases.CORE_PRODUCTS,
         settable_case_statuses: cases.SETTABLE_CASE_STATUSES,
         edit_queues: cases.EDIT_QUEUES,
@@ -248,12 +250,13 @@ function routes(db, dispatch, bot) {
       return { users: listUsers(db) };
     }],
 
-    // Sales people a team leader or sales manager can enter a file for, with their profile.
+    // Sales people in the viewer's own team, for entering a file on their behalf.
     ['GET', /^\/api\/sales-staff$/, async ({ user }) => {
-      requireRole(user, 'team_leader', 'sales_manager');
+      requireRole(user, 'team_leader', 'sales_manager', 'asm');
+      const field = cases.TEAM_FIELDS[user.role];
       return {
-        staff: listUsers(db, { role: 'sales' }).map(({ id, name, sales_code, team_leader_name, sales_manager_name }) =>
-          ({ id, name, sales_code, team_leader_name, sales_manager_name })),
+        staff: listUsers(db, { role: 'sales' }).filter((u) => u[field] === user.id).map(({ id, name, sales_code, team_leader_name, sales_manager_name, region }) =>
+          ({ id, name, sales_code, team_leader_name, sales_manager_name, region })),
       };
     }],
 
@@ -297,7 +300,14 @@ function routes(db, dispatch, bot) {
         }
         for (const [field, value] of Object.entries(contact)) db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, id);
       }
-      if (['sales_code', 'team_leader_id', 'sales_manager_id'].some((f) => f in body)) {
+      if ('region' in body) {
+        try {
+          db.prepare('UPDATE users SET region = ? WHERE id = ?').run(regionOf(body.region), id);
+        } catch (err) {
+          throw new HttpError(400, err.message);
+        }
+      }
+      if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id'].some((f) => f in body)) {
         if (target.role !== 'sales') throw new HttpError(400, 'Only sales staff have a sales code, team leader and sales manager');
         let profile;
         try {
@@ -305,8 +315,8 @@ function routes(db, dispatch, bot) {
         } catch (err) {
           throw new HttpError(400, err.message);
         }
-        db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ? WHERE id = ?')
-          .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, id);
+        db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ? WHERE id = ?')
+          .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, id);
       }
       if ('active' in body) {
         if (id === user.id && !body.active) throw new HttpError(400, 'You cannot deactivate your own account');

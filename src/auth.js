@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
-import { contactDetails, findUser, salesProfile } from './users.js';
+import { contactDetails, findUser, salesProfile, regionOf } from './users.js';
 
 const SESSION_DAYS = 7;
-export const ROLES = ['sales', 'processing', 'team_leader', 'sales_manager', 'mis', 'business_head', 'governance'];
+export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'governance'];
 
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -33,12 +33,13 @@ export function createUser(db, input, { requireMobile = false } = {}) {
   if (db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(contact.email)) {
     throw new Error(`A user with the email ${contact.email} already exists`);
   }
-  const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null };
+  const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null };
+  const region = regionOf(input.region);
   const { lastInsertRowid } = db
-    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(contact.name, contact.email, role, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number,
-      profile.sales_code, profile.team_leader_id, profile.sales_manager_id);
+      profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, region);
   return getUser(db, Number(lastInsertRowid));
 }
 
@@ -57,7 +58,7 @@ export function userForToken(db, token) {
   if (!token) return null;
   const row = db
     .prepare(
-      `SELECT u.id, u.name, u.email, u.role, u.active FROM sessions s
+      `SELECT u.id, u.name, u.email, u.role, u.active, u.region FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`
     )

@@ -1,12 +1,23 @@
 // User profiles. Sales staff carry a sales code plus their team leader and sales manager,
 // which pre-fill the "Sales staff" section of every file they source.
 
-export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at,
-  u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id,
-  tl.name AS team_leader_name, sm.name AS sales_manager_name`;
+export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region,
+  u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
+  tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name`;
 export const USER_FROM = `users u
   LEFT JOIN users tl ON tl.id = u.team_leader_id
-  LEFT JOIN users sm ON sm.id = u.sales_manager_id`;
+  LEFT JOIN users sm ON sm.id = u.sales_manager_id
+  LEFT JOIN users asm ON asm.id = u.asm_id`;
+
+// Where a user works. Sales staff's files default to their region; processors with a region
+// see only that region's files. Blank means no restriction.
+export const USER_REGIONS = { DXB: 'DXB (Dubai)', AUH: 'AUH (Abu Dhabi)' };
+export function regionOf(value) {
+  const region = String(value ?? '').trim().toUpperCase();
+  if (!region) return null;
+  if (!USER_REGIONS[region]) throw new Error('Region must be DXB or AUH');
+  return region;
+}
 
 export function findUser(db, id) {
   return db.prepare(`SELECT ${USER_COLUMNS} FROM ${USER_FROM} WHERE u.id = ?`).get(id) || null;
@@ -29,8 +40,9 @@ export function salesProfile(db, input, current = null) {
   const clash = db.prepare('SELECT id FROM users WHERE sales_code = ? AND id != ?').get(code, current?.id ?? 0);
   if (clash) throw new Error(`Sales code ${code} is already used by another user`);
 
-  const manager = (field, role, label) => {
+  const manager = (field, role, label, { optional = false } = {}) => {
     const id = Number(pick(field));
+    if (!id && optional) return null;
     const row = id ? db.prepare('SELECT id FROM users WHERE id = ? AND role = ? AND active = 1').get(id, role) : null;
     if (!row) throw new Error(`Choose the ${label} for this sales staff member`);
     return id;
@@ -39,6 +51,8 @@ export function salesProfile(db, input, current = null) {
     sales_code: code,
     team_leader_id: manager('team_leader_id', 'team_leader', 'team leader'),
     sales_manager_id: manager('sales_manager_id', 'sales_manager', 'sales manager'),
+    // Optional: an assistant sales manager between the team leader and the sales manager.
+    asm_id: manager('asm_id', 'asm', 'assistant sales manager', { optional: true }),
   };
 }
 

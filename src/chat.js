@@ -2,7 +2,7 @@
 // automatic groups (each team leader's team, the processing team, everyone). Messages are kept
 // for good (edits allowed for a few minutes, no deleting) and governance and the business head can
 // read any conversation. @mentions notify the person named.
-import { caseRef, notify, WorkflowError } from './cases.js';
+import { caseRef, caseScope, notify, WorkflowError } from './cases.js';
 
 export const EDIT_WINDOW_MINUTES = 5;
 export const MAX_MESSAGE = 4000;
@@ -44,9 +44,10 @@ const MESSAGE_SELECT = `SELECT m.id, m.case_id, m.conversation_id, m.user_id, m.
   FROM messages m JOIN users u ON u.id = m.user_id`;
 
 function canSeeCase(db, user, caseId) {
-  const row = db.prepare('SELECT id, created_by, sales_staff_id, customer_name FROM cases WHERE id = ?').get(caseId);
+  const scope = caseScope(user);
+  const row = db.prepare(`SELECT c.id, c.created_by, c.sales_staff_id, c.customer_name FROM cases c WHERE c.id = ?${scope ? ` AND ${scope.sql}` : ''}`)
+    .get(caseId, ...(scope ? scope.params : []));
   if (!row) throw new WorkflowError(404, 'Case not found');
-  if (user.role === 'sales' && row.created_by !== user.id && row.sales_staff_id !== user.id) throw new WorkflowError(404, 'Case not found');
   return row;
 }
 
@@ -83,12 +84,12 @@ export function syncGroups(db) {
     for (const id of memberIds) if (!current.has(id)) db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(conv.id, id);
     for (const id of current) if (!memberIds.has(id)) db.prepare('DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?').run(conv.id, id);
   };
-  const users = db.prepare('SELECT id, name, role, team_leader_id, sales_manager_id FROM users WHERE active = 1').all();
+  const users = db.prepare('SELECT id, name, role, team_leader_id, sales_manager_id, asm_id FROM users WHERE active = 1').all();
   ensure('all', 'Everyone', new Set(users.map((u) => u.id)));
   ensure('processing', 'Processing team', new Set(users.filter((u) => u.role === 'processing').map((u) => u.id)));
   for (const tl of users.filter((u) => u.role === 'team_leader')) {
     const team = users.filter((u) => u.id === tl.id || u.team_leader_id === tl.id);
-    const managers = new Set(team.map((u) => u.sales_manager_id).filter(Boolean));
+    const managers = new Set(team.flatMap((u) => [u.sales_manager_id, u.asm_id]).filter(Boolean));
     ensure(`team:${tl.id}`, `Team ${tl.name.split(/\s+/)[0]}`, new Set([...team.map((u) => u.id), ...managers]));
   }
 }

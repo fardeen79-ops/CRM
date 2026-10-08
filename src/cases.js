@@ -106,10 +106,33 @@ export const CASE_STATUS = {
 };
 export const SETTABLE_CASE_STATUSES = ['applicant_review', 'completed', 'rejected'];
 // Processors only mark the verification result; they never change the case status.
-export const CASE_STATUS_ROLES = ['team_leader', 'mis', 'sales_manager', 'business_head'];
+export const CASE_STATUS_ROLES = ['team_leader', 'mis', 'sales_manager', 'asm', 'business_head'];
+// Sales managers and assistant sales managers have the same powers over their own teams' files.
+export const MANAGER_ROLES = ['sales_manager', 'asm'];
+/** The edit-request queue a user works: assistant sales managers work the sales manager queue. */
+export const queueRole = (user) => (user.role === 'asm' ? 'sales_manager' : user.role);
+
+/**
+ * SQL limiting files to the ones this user may see, or null for everyone's. Sales staff see their
+ * own; team leaders, sales managers and assistant sales managers see their teams'; processors with
+ * a region see that region's files (and files with no region). MIS, business heads and governance
+ * see all.
+ */
+export function caseScope(user, c = 'c') {
+  const own = `${c}.created_by = ?`;
+  const team = (field) => ({ sql: `(${own} OR ${c}.sales_staff_id IN (SELECT id FROM users WHERE ${field} = ?))`, params: [user.id, user.id] });
+  switch (user.role) {
+    case 'sales': return { sql: `(${own} OR ${c}.sales_staff_id = ?)`, params: [user.id, user.id] };
+    case 'processing': return user.region ? { sql: `(${c}.region = ? OR ${c}.region IS NULL)`, params: [user.region] } : null;
+    case 'team_leader': return team('team_leader_id');
+    case 'sales_manager': return team('sales_manager_id');
+    case 'asm': return team('asm_id');
+    default: return null;
+  }
+}
 // Where a sales person can send a case in Applicant review to have its details corrected.
 export const EDIT_QUEUES = { team_leader: 'Team Leader', sales_manager: 'Sales Manager' };
-const EDITOR_ROLES = ['team_leader', 'sales_manager'];
+const EDITOR_ROLES = ['team_leader', 'sales_manager', 'asm'];
 // Governance: quality checks, call recordings, complaint numbers and call-quality scores.
 const GOVERNANCE_ACTIONS = [
   'mark_qc', 'clear_qc', 'set_complaint', 'score_quality', 'flag_urgent', 'clear_urgent',
@@ -404,6 +427,15 @@ function salesStaffSnapshot(db, staffId) {
   };
 }
 
+/** Is this sales person in the viewer's team? Always true for roles that see everyone. */
+export function inTeam(db, user, staffId) {
+  const field = TEAM_FIELDS[user.role];
+  if (!field) return true;
+  return findUser(db, Number(staffId))?.[field] === user.id;
+}
+// Which users column links a sales person to each kind of manager.
+export const TEAM_FIELDS = { team_leader: 'team_leader_id', sales_manager: 'sales_manager_id', asm: 'asm_id' };
+
 // The sales person a file belongs to: the one named on it, or whoever entered it before that existed.
 const ownerId = (row) => row.sales_staff_id ?? row.created_by;
 const isOwner = (user, row) => row.created_by === user.id || row.sales_staff_id === user.id;
@@ -501,7 +533,7 @@ export function logAccess(db, user, caseId, what) {
 /** Full values of masked fields for one case, each reveal logged against the user. */
 export function revealFields(db, user, id, fields) {
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
-  if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
+  if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   const wanted = [...new Set(String(fields || '').split(',').map((f) => f.trim()).filter((f) => MASKED_FIELDS.includes(f)))];
   if (!wanted.length) throw new WorkflowError(400, `Choose which to reveal: ${MASKED_FIELDS.join(', ')}`);
   const hidden = canViewSensitive(user, row) ? [] : SENSITIVE_FIELDS;
@@ -526,8 +558,11 @@ export function listAccessLog(db, user, { case: caseId, limit = 300 } = {}) {
   return { items: rows.map((r) => ({ ...r, ref: caseRef(r.case_id) })) };
 }
 
-function canView(user, row) {
-  return user.role !== 'sales' || isOwner(user, row);
+function canView(db, user, row) {
+  const scope = caseScope(user);
+  if (!scope) return true;
+  if (user.role === 'sales') return isOwner(user, row);
+  return Boolean(db.prepare(`SELECT 1 FROM cases c WHERE c.id = ? AND ${scope.sql}`).get(row.id, ...scope.params));
 }
 
 function latestBotCall(db, caseId) {
@@ -543,7 +578,7 @@ export function getCase(db, user, id) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
   const row = db.prepare(`${CASE_SELECT} WHERE c.id = ?`).get(id);
-  if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
+  if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   const events = db
     .prepare(
       `SELECT e.*, u.name AS user_name, u.role AS user_role FROM case_events e
@@ -581,9 +616,10 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
     where.push('c.sales_staff_id = ?');
     params.push(Number(staff));
   }
-  if (user.role === 'sales') {
-    where.push('(c.created_by = ? OR c.sales_staff_id = ?)');
-    params.push(user.id, user.id);
+  const scope = caseScope(user);
+  if (scope) {
+    where.push(scope.sql);
+    params.push(...scope.params);
   }
   if (status) {
     const statuses = String(status).split(',').filter((s) => Object.values(STATUS).includes(s));
@@ -602,7 +638,7 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
   if (edit_requests === 'mine') {
     // Team leaders and sales managers each work the edit requests addressed to their queue.
     where.push('c.edit_request_to = ?');
-    params.push(user.role);
+    params.push(queueRole(user));
   }
   if (user.role !== 'sales') {
     if (qc === '1') where.push('c.qc_flag = 1');
@@ -666,8 +702,13 @@ export function createCase(db, user, input) {
 /** Validates and inserts a new file, returning its id. The caller runs it inside a transaction. */
 export function insertCase(db, user, input, { bulk = false } = {}) {
   // MIS and business heads add files only by bulk upload (see imports.js), naming the sales person.
-  const canAdd = ['sales', 'team_leader', 'sales_manager'].includes(user.role) || (bulk && ['mis', 'business_head'].includes(user.role));
+  const canAdd = ['sales', 'team_leader', ...MANAGER_ROLES].includes(user.role) || (bulk && ['mis', 'business_head'].includes(user.role));
   if (!canAdd) throw new WorkflowError(403, 'Only sales staff can add sourcing data');
+  // A file's region defaults to the sales person's own region.
+  if (!String(input.region ?? '').trim()) {
+    const staffRegion = findUser(db, Number(user.role === 'sales' ? user.id : input.sales_staff_id))?.region;
+    if (staffRegion) input = { ...input, region: staffRegion };
+  }
   const data = validateCaseInput(input);
   // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
@@ -696,11 +737,12 @@ function canEdit(user, row) {
 
 export function updateCase(db, user, id, input) {
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
-  if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
+  if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   if (!canEdit(user, row)) throw new WorkflowError(403, 'This case can no longer be edited');
   const data = validateCaseInput(input, { partial: true, current: row });
   if ('sales_staff_id' in input && Number(input.sales_staff_id) !== row.sales_staff_id) {
     if (!EDITOR_ROLES.includes(user.role)) throw new WorkflowError(403, 'Only a team leader or sales manager can change the sales staff on a file');
+    if (!inTeam(db, user, input.sales_staff_id)) throw new WorkflowError(403, 'You can only move a file to sales staff in your own team');
     Object.assign(data, salesStaffSnapshot(db, input.sales_staff_id));
   }
   const changed = Object.keys(data).filter((f) => (data[f] ?? null) !== (row[f] ?? null));
@@ -819,7 +861,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   const rule = ACTIONS[action];
   if (!rule) throw new WorkflowError(400, `Unknown action: ${action}`);
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
-  if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
+  if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   if (!rule.roles.includes(user.role)) throw new WorkflowError(403, 'Your role cannot perform this action');
   if (!allowedActions(user, row).includes(action)) {
     throw new WorkflowError(409, `Action "${action}" is not allowed while the case is ${row.status.replace(/_/g, ' ')}`);
@@ -1015,7 +1057,7 @@ export function setCardStatus(db, user, row, { card_status, activation_date } = 
 function applyCaseAction(db, user, id, { action, note, case_status, to, recording_ref, complaint_number, score, card_status, activation_date, ...extra }) {
   const triggers = [];
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
-  if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
+  if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   if (!allowedCaseActions(user, row).includes(action)) throw new WorkflowError(403, 'Your role cannot do that on this case');
   note = clean(note, 2000);
   const ref = caseRef(id);
@@ -1135,19 +1177,20 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
 }
 
 export function stats(db, user) {
-  const scope = user.role === 'sales' ? 'WHERE (created_by = ? OR sales_staff_id = ?)' : '';
-  const params = user.role === 'sales' ? [user.id, user.id] : [];
+  const sc = caseScope(user);
+  const scope = sc ? `WHERE ${sc.sql}` : '';
+  const params = sc ? sc.params : [];
   const byStatus = Object.fromEntries(Object.values(STATUS).map((s) => [s, 0]));
-  for (const r of db.prepare(`SELECT status, COUNT(*) AS n FROM cases ${scope} GROUP BY status`).all(...params)) {
+  for (const r of db.prepare(`SELECT status, COUNT(*) AS n FROM cases c ${scope} GROUP BY status`).all(...params)) {
     byStatus[r.status] = r.n;
   }
   const byCaseStatus = Object.fromEntries(Object.keys(CASE_STATUS).map((s) => [s, 0]));
-  for (const r of db.prepare(`SELECT case_status, COUNT(*) AS n FROM cases ${scope} GROUP BY case_status`).all(...params)) {
+  for (const r of db.prepare(`SELECT case_status, COUNT(*) AS n FROM cases c ${scope} GROUP BY case_status`).all(...params)) {
     byCaseStatus[r.case_status] = r.n;
   }
   const result = { by_status: byStatus, by_case_status: byCaseStatus, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
   if (EDITOR_ROLES.includes(user.role)) {
-    result.edit_requests = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE edit_request_to = ?').get(user.role).n;
+    result.edit_requests = db.prepare(`SELECT COUNT(*) AS n FROM cases c WHERE edit_request_to = ? ${scope.replace('WHERE', 'AND')}`).get(queueRole(user), ...params).n;
   }
   if (user.role === 'processing') {
     triggerDueCallbacks(db);
@@ -1168,7 +1211,7 @@ export function stats(db, user) {
     ).get();
     for (const k of Object.keys(result.governance)) result.governance[k] ??= 0;
   }
-  if (['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(user.role)) {
+  if (['team_leader', ...MANAGER_ROLES, 'mis', 'business_head', 'governance'].includes(user.role)) {
     result.processors = db
       .prepare(
         `SELECT u.name,
@@ -1187,9 +1230,9 @@ export function stats(db, user) {
         `SELECT u.name, COUNT(c.id) AS sourced,
            SUM(CASE WHEN c.status = 'completed' THEN 1 ELSE 0 END) AS completed
          FROM users u LEFT JOIN cases c ON COALESCE(c.sales_staff_id, c.created_by) = u.id
-         WHERE u.role = 'sales' GROUP BY u.id ORDER BY u.name`
+         WHERE u.role = 'sales' ${TEAM_FIELDS[user.role] ? `AND u.${TEAM_FIELDS[user.role]} = ?` : ''} GROUP BY u.id ORDER BY u.name`
       )
-      .all();
+      .all(...(TEAM_FIELDS[user.role] ? [user.id] : []));
   }
   return result;
 }

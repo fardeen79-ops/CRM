@@ -20,8 +20,10 @@ const CASE_STATUS_LABEL = {
 const OTHER_BANK = '__other';
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
-  sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
+  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
 };
+// Assistant sales managers use the same screens as sales managers, over their own teams.
+const effRole = () => (state.user.role === 'asm' ? 'sales_manager' : state.user.role);
 const ACTION_LABEL = {
   created: 'Case created',
   edited: 'Details edited',
@@ -233,7 +235,7 @@ async function refreshCounters() {
     const n = await api('/notifications');
     state.unread = n.unread;
     state.unreadMessages = n.unread_messages ?? 0;
-    if (['team_leader', 'sales_manager', 'governance', 'business_head', 'processing'].includes(state.user.role)) {
+    if (['team_leader', 'sales_manager', 'asm', 'governance', 'business_head', 'processing'].includes(state.user.role)) {
       const s = await api('/stats');
       state.actionRequired = s.by_status.incomplete;
       state.editRequests = s.edit_requests;
@@ -286,7 +288,7 @@ const icon = (name) => raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" str
 
 /** The sidebar for the signed-in role: groups of [href, label, icon, count attribute, count]. */
 function navGroups() {
-  const r = state.user.role;
+  const r = effRole();
   const urgent = ['#/urgent', 'Urgent', 'urgent', 'data-urgent-count', state.urgent];
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
   const groups = [];
@@ -480,7 +482,7 @@ async function route() {
 
 // ---------- dashboard ----------
 async function viewDashboard() {
-  const r = state.user.role;
+  const r = effRole();
   // Targets for the current sales cycle, for the people who have them.
   const hasTargets = ['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'].includes(r);
   const [s, cyc] = await Promise.all([api('/stats'), hasTargets ? api('/targets') : null]);
@@ -698,7 +700,7 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     fixedCols ||= ['ref', 'customer', 'source_by', 'completed_on', 'card'];
   }
 
-  const r = state.user.role;
+  const r = effRole();
   let cols = fixedCols || ['ref', 'customer', 'sourced', 'region', 'case_status', 'status', 'source_by', 'assigned', 'updated'];
   if (!fixedCols && r === 'sales') cols = ['ref', 'customer', 'sourced', 'region', 'case_status', 'status', 'updated'];
   if (fixedStatus === 'incomplete') cols = ['ref', 'customer', 'phone', 'reason', 'by', 'source_by', 'waiting'];
@@ -756,7 +758,7 @@ async function viewCaseForm(id) {
     c.middle_name = parts.join(' ');
   }
   const products = state.meta.products;
-  const r = state.user.role;
+  const r = effRole();
   // Sales staff file as themselves; team leaders and sales managers pick who sourced the file.
   const pickStaff = r === 'team_leader' || r === 'sales_manager';
   const staffList = pickStaff ? (await api('/sales-staff')).staff : [];
@@ -854,7 +856,7 @@ async function viewCaseForm(id) {
             <label for="f-region">Region <span class="req">*</span></label>
             <select id="f-region" name="region" required>
               <option value="">Choose…</option>
-              ${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${c.region === k ? raw('selected') : ''}>${l}</option>`)}
+              ${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${(c.region || (!id && staffNow?.region)) === k ? raw('selected') : ''}>${l}</option>`)}
             </select>
           </div>
           ${field('bidaya_id', 'Bidaya ID')}
@@ -1007,6 +1009,7 @@ async function viewCaseForm(id) {
       $('#f-sales_code').value = st.sales_code || '';
       $('#f-team_leader_name').value = st.team_leader_name || '';
       $('#f-sales_manager_name').value = st.sales_manager_name || '';
+      if (!id && st.region) $('#f-region').value = st.region;
     };
   }
   boxes.forEach((b) => (b.onchange = updateProductFields));
@@ -1814,7 +1817,7 @@ function targetTiles(rep, block) {
 async function viewTargets(cycleParam) {
   const cycle = cycleParam || state.meta.current_cycle;
   const rep = await api(`/targets?cycle=${encodeURIComponent(cycle)}`);
-  const r = state.user.role;
+  const r = effRole();
   const products = Object.entries(rep.products);
   const scopeTitle = { sales: 'My targets', team_leader: 'My team', sales_manager: 'My team' }[r] || 'All sales staff';
   const casesLink = (staffId) => `#/cases?cycle=${rep.cycle}${staffId ? `&staff=${staffId}` : ''}`;
@@ -2403,6 +2406,7 @@ async function viewUsers() {
   const { users } = await api('/users');
   const leaders = users.filter((u) => u.role === 'team_leader' && u.active);
   const managers = users.filter((u) => u.role === 'sales_manager' && u.active);
+  const asms = users.filter((u) => u.role === 'asm' && u.active);
   const options = (list, selected) => list.map((u) => html`<option value="${u.id}" ${u.id === selected ? raw('selected') : ''}>${u.name}</option>`);
   // Sales code, team leader and sales manager; these pre-fill the Sales staff section of every file.
   const profileFields = (u = {}, prefix = 'n') => html`
@@ -2411,7 +2415,9 @@ async function viewUsers() {
     <div class="field-row"><label for="${prefix}-tl">Team leader <span class="req">*</span></label>
       <select id="${prefix}-tl" name="team_leader_id" required><option value="">Choose…</option>${options(leaders, u.team_leader_id)}</select></div>
     <div class="field-row"><label for="${prefix}-sm">Sales manager <span class="req">*</span></label>
-      <select id="${prefix}-sm" name="sales_manager_id" required><option value="">Choose…</option>${options(managers, u.sales_manager_id)}</select></div>`;
+      <select id="${prefix}-sm" name="sales_manager_id" required><option value="">Choose…</option>${options(managers, u.sales_manager_id)}</select></div>
+    <div class="field-row"><label for="${prefix}-asm">Assistant sales manager</label>
+      <select id="${prefix}-asm" name="asm_id"><option value="">None</option>${options(asms, u.asm_id)}</select></div>`;
 
   // Email, local mobile and WhatsApp for any user.
   const contactFields = (u = {}, prefix = 'n') => html`
@@ -2424,21 +2430,24 @@ async function viewUsers() {
       <input id="${prefix}-mobile" name="mobile_number" type="tel" inputmode="tel" value="${fmtMobile(u.mobile_number)}" placeholder="050 123 4567" required></div>
     <div class="field-row"><label for="${prefix}-wa">WhatsApp number</label>
       <input id="${prefix}-wa" name="whatsapp_number" type="tel" inputmode="tel" value="${u.whatsapp_number || ''}" placeholder="+971 50 123 4567">
-      <label class="check small wa-same"><input type="checkbox" data-wa-same> Same as local mobile</label></div>`;
+      <label class="check small wa-same"><input type="checkbox" data-wa-same> Same as local mobile</label></div>
+    <div class="field-row"><label for="${prefix}-region">Region</label>
+      <select id="${prefix}-region" name="region"><option value="">Not set</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${u.region === k ? raw('selected') : ''}>${l}</option>`)}</select>
+      <div class="muted small">Processors see only their region's files. Sales staff's new files default to it.</div></div>`;
   const contactCell = (u) => html`${u.mobile_number ? html`<div class="mono">${fmtMobile(u.mobile_number)}</div>` : html`<span class="muted">—</span>`}
     ${u.whatsapp_number ? html`<a class="wa" href="https://wa.me/${u.whatsapp_number.slice(1)}" target="_blank" rel="noopener" title="Open a WhatsApp chat">WhatsApp ${u.whatsapp_number}</a>` : ''}`;
 
   shell(html`
-    <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processors, team leaders, sales managers, MIS and business heads. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
+    <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processors, team leaders, assistant sales managers, sales managers, MIS and business heads. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
 </div>
     <div class="grid two-col">
       <div class="card"><div class="table-wrap"><table class="users-table">
         <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
         <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
-          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}</td>
+          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
-              ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}</div>`
+              ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}</div>`
               : html`<span class="lock">Incomplete</span>`)
             : html`<span class="muted">—</span>`}</td>
           <td><div class="actions">

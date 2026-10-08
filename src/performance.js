@@ -15,7 +15,7 @@ export const TARGET_PRODUCTS = Object.fromEntries(['credit_card', 'personal_loan
 export const TARGET_UNITS = { credit_card: 'count', personal_loan: 'aed', auto_loan: 'aed', accounts: 'count' };
 // Who sets targets and maps card activation.
 export const TARGET_SETTERS = ['mis', 'business_head'];
-const VIEWERS = ['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'];
+const VIEWERS = ['sales', 'team_leader', 'sales_manager', 'asm', 'mis', 'business_head'];
 /** Sales staff whose numbers this user may see. */
 function staffInScope(db, user) {
   if (!VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Targets are for sales staff, team leaders, sales managers, MIS and business heads');
@@ -27,6 +27,7 @@ function staffInScope(db, user) {
   if (user.role === 'sales') return db.prepare(`${base} AND u.id = ?`).all(user.id);
   if (user.role === 'team_leader') return db.prepare(`${base} AND u.team_leader_id = ?${order}`).all(user.id);
   if (user.role === 'sales_manager') return db.prepare(`${base} AND u.sales_manager_id = ?${order}`).all(user.id);
+  if (user.role === 'asm') return db.prepare(`${base} AND u.asm_id = ?${order}`).all(user.id);
   return db.prepare(`${base}${order}`).all();
 }
 
@@ -107,7 +108,7 @@ export function targetReport(db, user, cycle) {
     staff: rows,
     total: rollup(rows),
   };
-  if (['sales_manager', 'mis', 'business_head'].includes(user.role)) result.by_team_leader = groupBy('team_leader_id', 'team_leader_name');
+  if (['sales_manager', 'asm', 'mis', 'business_head'].includes(user.role)) result.by_team_leader = groupBy('team_leader_id', 'team_leader_name');
   if (['mis', 'business_head'].includes(user.role)) result.by_sales_manager = groupBy('sales_manager_id', 'sales_manager_name');
   return result;
 }
