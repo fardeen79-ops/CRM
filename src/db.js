@@ -124,6 +124,9 @@ CREATE TABLE IF NOT EXISTS cases (
   -- The card's salary requirement when it was chosen, and the deviation/promotion decision when
   -- the customer's salary was below it (by the sales person, or a TL/SM/ASM on approval).
   card_min_salary      REAL,
+  -- Higher cards the customer's salary qualified for when this card was chosen, and the best category.
+  card_higher_options  INTEGER,
+  card_eligible_category TEXT,
   card_salary_exception TEXT,
   card_exception_by    INTEGER REFERENCES users(id),
   card_exception_at    TEXT,
@@ -338,7 +341,7 @@ const ADDED_COLUMNS = {
   pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
   card_fee_type: 'TEXT', fpd: 'TEXT', card_category: 'TEXT', card_points: 'REAL', salary_bank: 'TEXT',
   pl_tenure: 'INTEGER', pl_buyouts: 'TEXT', secondary_buyout: 'TEXT', auto_loan_type: 'TEXT', car_make: 'TEXT', car_model: 'TEXT', car_year: 'INTEGER', dealer_details: 'TEXT', al_lead_source: 'TEXT', al_interest_rate: 'REAL', al_tenure: 'INTEGER',
-  card_min_salary: 'REAL', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
+  card_min_salary: 'REAL', card_higher_options: 'INTEGER', card_eligible_category: 'TEXT', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {

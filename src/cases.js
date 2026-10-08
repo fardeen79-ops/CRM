@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { transaction } from './db.js';
-import { cardNames, cardProduct } from './credit-cards.js';
+import { cardNames, cardProduct, higherCards } from './credit-cards.js';
 import { findUser } from './users.js';
 import { cycleRange, isCycle, uaeDay } from './cycles.js';
 import { unreadCount as chatUnread } from './chat.js';
@@ -275,7 +275,7 @@ const VERIFIED_FIELD_LABELS = {
 const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points', 'card_min_salary'];
 const EDITABLE_FIELDS = [
   ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'region', 'core_product',
-  ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS, ...CARD_SNAPSHOT_FIELDS,
+  ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS, ...CARD_SNAPSHOT_FIELDS, 'card_higher_options', 'card_eligible_category',
 ];
 /** Category and points for the card on a file (null when it has no card). */
 const cardSnapshot = (data) => {
@@ -283,6 +283,12 @@ const cardSnapshot = (data) => {
   const p = data.credit_card ? cardProduct(data.credit_card) : null;
   return { card_category: p?.category ?? null, card_points: p?.points ?? null, card_min_salary: p?.min_salary ?? null };
 };
+/** Higher cards the salary qualifies for than the one chosen: the "sold below eligibility" snapshot. */
+export function cardEligibility(row) {
+  if (!row.credit_card || row.salary == null) return { card_higher_options: row.credit_card ? 0 : null, card_eligible_category: null };
+  const higher = higherCards(row.salary, cardProduct(row.credit_card));
+  return { card_higher_options: higher.length, card_eligible_category: higher[0]?.category ?? null };
+}
 /** Is the customer's salary below the chosen card's requirement? */
 export const cardBelowSalary = (row) => row.credit_card != null && row.card_min_salary != null && row.salary != null && row.salary < row.card_min_salary;
 /** The reason chosen for selling a card below its requirement, or null; a bad value is refused. */
@@ -860,6 +866,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   }
   const data = validateCaseInput(input);
   Object.assign(data, cardSnapshot(data));
+  Object.assign(data, cardEligibility(data));
   if (data.credit_card && data.card_min_salary != null && data.salary == null) throw new WorkflowError(400, `Enter the customer's monthly salary: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}`);
   // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
@@ -904,6 +911,7 @@ export function updateCase(db, user, id, input) {
   if (!canEdit(user, row)) throw new WorkflowError(403, 'This case can no longer be edited');
   const data = validateCaseInput(input, { partial: true, current: row });
   Object.assign(data, cardSnapshot(data));
+  if ('credit_card' in data || 'salary' in data) Object.assign(data, cardEligibility({ ...row, ...data }));
   if ('sales_staff_id' in input && Number(input.sales_staff_id) !== row.sales_staff_id) {
     if (!EDITOR_ROLES.includes(user.role)) throw new WorkflowError(403, 'Only a team leader or sales manager can change the sales staff on a file');
     if (!inTeam(db, user, input.sales_staff_id)) throw new WorkflowError(403, 'You can only move a file to sales staff in your own team');

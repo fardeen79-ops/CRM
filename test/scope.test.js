@@ -364,3 +364,38 @@ test('the salary transfer bank is saved on the file', async () => {
   assert.equal(r.data.case.salary_bank, 'Emirates NBD');
   assert.equal((await dana('PUT', `/cases/${r.data.case.id}`, { salary_bank: 'Some Other Bank' })).data.case.salary_bank, 'Some Other Bank');
 });
+
+test('reports list card deviations, promotions, approvals waiting and cards sold below eligibility', async () => {
+  const dana = await login('dana@t.local');
+  const mis = await login('mis@t.local');
+  const gov = await login('gov@t.local');
+  const tl = await login('tl-auh@t.local');
+  const card = (extra) => ({ customer_name: 'Report Card', region: 'DXB', phone: '+971 50 111 6666', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary_bank: 'Mashreq', ...extra });
+  // Titanium needs 5,000; a salary of 20,000 qualifies for higher cards, so this is sold below eligibility.
+  const low = await dana('POST', '/cases', card({ salary: 20000 }));
+  assert.equal(low.status, 201, JSON.stringify(low.data));
+  assert.ok(low.data.case.card_higher_options > 0);
+  assert.equal(low.data.case.card_eligible_category, 'Infinite');
+  // A deviation on an Infinite card.
+  const dev = await dana('POST', '/cases', card({ credit_card: 'Skywards Infinite Credit Card', salary: 9000, card_salary_exception: 'deviation', card_exception_note: 'DEV-77' }));
+  assert.equal(dev.status, 201, JSON.stringify(dev.data));
+  assert.equal(dev.data.case.card_higher_options, 0);
+  const exc = (await mis('GET', '/reports/card_exceptions')).data;
+  const devRow = exc.rows.find((r) => r.ref === dev.data.case.ref);
+  assert.deepEqual([devRow.reason, devRow.decided_by, devRow.note, devRow.card], ['Product deviation', 'Dana (sales)', 'DEV-77', 'Skywards Infinite Credit Card']);
+  assert.ok(exc.rows.some((r) => r.reason === 'New promotion'));
+  assert.ok(exc.rows.some((r) => r.reason === 'Awaiting approval') || exc.totals.reason.includes('awaiting'));
+  assert.ok(!exc.rows.some((r) => r.ref === low.data.case.ref));
+  const down = (await gov('GET', '/reports/card_downsell')).data;
+  const lowRow = down.rows.find((r) => r.ref === low.data.case.ref);
+  assert.deepEqual([lowRow.category, lowRow.eligible_category, lowRow.higher_options > 0], ['Titanium', 'Infinite', true]);
+  assert.ok(!down.rows.some((r) => r.ref === dev.data.case.ref));
+  // Team leaders see only their team; the sourcing and governance summaries carry the counts.
+  const tlView = (await tl('GET', '/reports/card_exceptions')).data;
+  assert.ok(tlView.rows.every((r) => r.team_leader === 'TL Abu Dhabi'));
+  const srcRow = (await mis('GET', '/reports/sourcing')).data.rows.find((r) => r.staff === 'Dana' && r.team_leader === 'TL Abu Dhabi');
+  assert.ok(srcRow.deviations >= 1 && srcRow.below_eligibility >= 1);
+  const govRow = (await gov('GET', '/reports/governance')).data.rows.find((r) => r.region === 'DXB');
+  assert.ok(govRow.deviations >= 1 && govRow.below_eligibility >= 1);
+  assert.deepEqual((await mis('GET', '/reports')).data.reports.map((r) => r.key).filter((k) => k.startsWith('card_')), ['card_exceptions', 'card_downsell']);
+});

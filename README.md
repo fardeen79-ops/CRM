@@ -125,14 +125,16 @@ Columns: staff, sourced in the cycle, awaiting verification and verification pen
 
 | Report | Who | Rows |
 |--------|-----|------|
-| Sourcing by sales staff | MIS, business head, TL, SM, ASM | Files sourced per sales person, verification results, case outcomes, AED disbursed, temp ends |
+| Sourcing by sales staff | MIS, business head, TL, SM, ASM | Files sourced per sales person, verification results, case outcomes, AED disbursed, temp ends, deviations, promotions and cards below eligibility |
 | Pipeline by region and product | MIS, business head, governance | Where files sourced in the period stand, by region and core product |
 | Verification team productivity | MIS, business head, governance | Calls, connect rate, results marked, hours from sourcing to verified, QC average per processor |
 | Target achievement | MIS, business head, TL, SM, ASM | Target, achieved and % per product per sales person for a cycle |
 | Card activation and ageing | MIS, business head | Temp ends, active/inactive/out of range, activation % and ageing buckets per sales person |
-| Governance summary | Governance, business head | QC flags, urgent, recordings, complaints, scores, DNCR, re-verifications, read-backs and scans by region |
+| Governance summary | Governance, business head | QC flags, urgent, recordings, complaints, scores, DNCR, re-verifications, read-backs, scans, card deviations, promotions, approvals waiting and cards below eligibility by region |
 | Access and reveals | Governance, business head | Files opened, personal details revealed (by kind) and reports run per user |
-| Case register (export) | MIS, business head, governance, TL, SM, ASM | One row per file; phone and ID numbers stay masked |
+| Card deviations and promotions | MIS, business head, governance, TL, SM, ASM | Cards sold below the salary requirement: the reason, who decided and when, and files still awaiting approval |
+| Cards sold below eligibility | MIS, business head, governance, TL, SM, ASM | Cards where the customer's salary qualified for a higher category, with the category sold and the one eligible |
+| Case register (export) | MIS, business head, governance, TL, SM, ASM | One row per file including the card reason and eligibility; phone and ID numbers stay masked |
 
 API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
 

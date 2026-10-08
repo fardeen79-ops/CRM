@@ -84,6 +84,11 @@ export function higherCards(salary, chosen) {
 export function backfillCardCategories(db) {
   for (const row of db.prepare('SELECT id, credit_card FROM cases WHERE credit_card IS NOT NULL AND card_category IS NULL').all()) {
     const p = cardProduct(row.credit_card);
-    if (p) db.prepare('UPDATE cases SET card_category = ?, card_points = ? WHERE id = ?').run(p.category, p.points, row.id);
+    if (p) db.prepare('UPDATE cases SET card_category = ?, card_points = ?, card_min_salary = ? WHERE id = ?').run(p.category, p.points, p.min_salary, row.id);
+  }
+  // Older files: whether the salary qualified for a higher card than the one sold.
+  for (const row of db.prepare('SELECT id, credit_card, salary FROM cases WHERE credit_card IS NOT NULL AND card_higher_options IS NULL').all()) {
+    const higher = row.salary == null ? [] : higherCards(row.salary, cardProduct(row.credit_card));
+    db.prepare('UPDATE cases SET card_higher_options = ?, card_eligible_category = ? WHERE id = ?').run(higher.length, higher[0]?.category ?? null, row.id);
   }
 }

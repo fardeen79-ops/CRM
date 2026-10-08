@@ -2,7 +2,7 @@
 // columns, filtered by a period (a sales cycle or two dates), a region, and the viewer's own
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
-import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CORE_PRODUCTS, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError } from './cases.js';
+import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 
@@ -18,6 +18,8 @@ export const REPORTS = {
   cards: { name: 'Card activation and ageing', roles: ALL, period: 'cards completed (temp end) in the period', description: 'Temp ends, activation status and how long inactive cards have waited, per sales person.' },
   governance: { name: 'Governance summary', roles: ['governance', 'business_head'], period: 'files sourced in the period', description: 'Quality checks, urgent flags, recordings, complaints, call scores, DNCR and re-verifications by region.' },
   access: { name: 'Access and reveals', roles: ['governance', 'business_head'], period: 'activity in the period', description: 'Who opened files, which personal details they revealed and which reports they ran.' },
+  card_exceptions: { name: 'Card deviations and promotions', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards sold to customers below the card\'s salary requirement: the reason recorded (product deviation or new promotion), who decided, and files still awaiting approval.' },
+  card_downsell: { name: 'Cards sold below eligibility', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards where the customer\'s salary qualified for a higher card category than the one sold.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -74,7 +76,7 @@ function sourcing(db, user, { period, region }) {
     // One row per sales person per team they filed under, so a team change keeps old files with the old team.
     const id = `${c.sales_staff_id ?? c.created_by}|${c.team_leader_id ?? 0}|${c.sales_manager_id ?? 0}`;
     const s = staff.get(c.sales_staff_id ?? c.created_by) || { name: c.sales_staff_name || 'Unknown' };
-    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, temp_ends: 0, cards_active: 0, loans: 0 });
+    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, temp_ends: 0, cards_active: 0, loans: 0, deviations: 0, promotions: 0, below_eligibility: 0 });
     const r = by.get(id);
     r.sourced++;
     if ([STATUS.PENDING, STATUS.IN_VERIFICATION].includes(c.status)) r.awaiting++;
@@ -89,14 +91,17 @@ function sourcing(db, user, { period, region }) {
       if (includesCard(c)) { r.temp_ends++; if (c.card_status === 'active') r.cards_active++; }
     }
     if (caseProducts(c).some((p) => p === 'personal_loan' || p === 'auto_loan')) r.loans++;
+    if (c.card_salary_exception === 'deviation') r.deviations++;
+    if (c.card_salary_exception === 'promotion') r.promotions++;
+    if (c.card_higher_options > 0) r.below_eligibility++;
   }
   const out = [...by.values()].sort((a, b) => b.sourced - a.sourced || a.staff.localeCompare(b.staff));
   return {
     columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('asm', 'ASM', 'text'),
       col('sourced', 'Sourced'), col('approval', 'Awaiting TL/SM approval'), col('awaiting', 'Awaiting verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales'),
-      col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active')],
+      col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active'), col('deviations', 'Product deviations'), col('promotions', 'New promotions'), col('below_eligibility', 'Cards below eligibility')],
     rows: out,
-    totals: Object.fromEntries(['sourced', 'approval', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
+    totals: Object.fromEntries(['deviations', 'promotions', 'below_eligibility', 'sourced', 'approval', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
   };
 }
 
@@ -220,12 +225,12 @@ function cards(db, user, { period, region }) {
 
 function governance(db, user, { period, region }) {
   const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
-  const rows = db.prepare(`SELECT c.id, c.region, c.qc_flag, c.urgent_flag, c.recording_status, c.complaint_number, c.qc_score, c.incomplete_reason, c.status FROM cases c ${sql}`).all(...params);
+  const rows = db.prepare(`SELECT c.id, c.region, c.qc_flag, c.urgent_flag, c.recording_status, c.complaint_number, c.qc_score, c.incomplete_reason, c.status, c.card_salary_exception, c.card_higher_options FROM cases c ${sql}`).all(...params);
   const ids = new Set(rows.map((r) => r.id));
   const extra = db.prepare(`SELECT e.case_id, e.type FROM case_events e WHERE e.type IN ('re_verification', 'read_back', 'eid_scan')`).all().filter((e) => ids.has(e.case_id));
   const by = new Map();
   const row = (region) => {
-    if (!by.has(region)) by.set(region, { region, files: 0, qc_flagged: 0, urgent: 0, recordings_requested: 0, recordings_approved: 0, recordings_received: 0, recordings_declined: 0, complaints: 0, scored: 0, scores: [], dncr: 0, re_verifications: 0, read_backs: 0, eid_scans: 0 });
+    if (!by.has(region)) by.set(region, { region, files: 0, qc_flagged: 0, urgent: 0, recordings_requested: 0, recordings_approved: 0, recordings_received: 0, recordings_declined: 0, complaints: 0, scored: 0, scores: [], dncr: 0, re_verifications: 0, read_backs: 0, eid_scans: 0, deviations: 0, promotions: 0, card_approvals_waiting: 0, below_eligibility: 0 });
     return by.get(region);
   };
   const regionOfCase = new Map();
@@ -242,6 +247,10 @@ function governance(db, user, { period, region }) {
     if (c.complaint_number) r.complaints++;
     if (c.qc_score != null) { r.scored++; r.scores.push(c.qc_score); }
     if (c.incomplete_reason === 'customer_in_dncr') r.dncr++;
+    if (c.card_salary_exception === 'deviation') r.deviations++;
+    if (c.card_salary_exception === 'promotion') r.promotions++;
+    if (c.status === 'awaiting_approval') r.card_approvals_waiting++;
+    if (c.card_higher_options > 0) r.below_eligibility++;
   }
   for (const e of extra) {
     const r = row(regionOfCase.get(e.case_id));
@@ -250,12 +259,12 @@ function governance(db, user, { period, region }) {
     if (e.type === 'eid_scan') r.eid_scans++;
   }
   const out = [...by.values()].map((r) => ({ ...r, avg_score: avg(r.scores), scores: undefined })).sort((a, b) => a.region.localeCompare(b.region));
-  const keys = ['files', 'qc_flagged', 'urgent', 'recordings_requested', 'recordings_approved', 'recordings_received', 'recordings_declined', 'complaints', 'scored', 'dncr', 're_verifications', 'read_backs', 'eid_scans'];
+  const keys = ['files', 'qc_flagged', 'urgent', 'recordings_requested', 'recordings_approved', 'recordings_received', 'recordings_declined', 'complaints', 'scored', 'dncr', 're_verifications', 'read_backs', 'eid_scans', 'deviations', 'promotions', 'card_approvals_waiting', 'below_eligibility'];
   const totals = Object.fromEntries(keys.map((k) => [k, sum(out, k)]));
   totals.avg_score = avg(rows.filter((r) => r.qc_score != null).map((r) => r.qc_score));
   return {
     columns: [col('region', 'Region', 'text'), col('files', 'Files'), col('qc_flagged', 'Marked for QC'), col('urgent', 'Urgent'), col('recordings_requested', 'Recordings requested'), col('recordings_approved', 'With IT'), col('recordings_received', 'Received'), col('recordings_declined', 'Declined'),
-      col('complaints', 'Complaints'), col('scored', 'Calls scored'), col('avg_score', 'Average score', 'score'), col('dncr', 'Customer in DNCR'), col('re_verifications', 'Re-verifications'), col('read_backs', 'ID read back by voice'), col('eid_scans', 'Emirates ID scans')],
+      col('complaints', 'Complaints'), col('scored', 'Calls scored'), col('avg_score', 'Average score', 'score'), col('dncr', 'Customer in DNCR'), col('re_verifications', 'Re-verifications'), col('read_backs', 'ID read back by voice'), col('eid_scans', 'Emirates ID scans'), col('deviations', 'Product deviations'), col('promotions', 'New promotions'), col('card_approvals_waiting', 'Card approvals waiting'), col('below_eligibility', 'Cards below eligibility')],
     rows: out,
     totals,
   };
@@ -315,13 +324,14 @@ function register(db, user, { period, region }) {
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',
       verification: VERIFICATION_LABELS[c.status] || c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || '',
       case_status: CASE_STATUS[c.case_status] || c.case_status, case_status_at: c.case_status_at || '', disbursed_aed: (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0) || null,
+      card_reason: c.card_salary_exception ? CARD_EXCEPTIONS[c.card_salary_exception] : (c.status === 'awaiting_approval' ? 'Awaiting approval' : ''), eligible_category: c.card_higher_options > 0 ? c.card_eligible_category : '',
       card_status: c.card_status ? CARD_STATES[c.card_status] : (c.case_status === 'completed' && includesCard(c) ? 'Not mapped' : ''), card_date: c.card_activation_date || '',
       qc_score: c.qc_score ?? null, complaint: c.complaint_number || '', source: c.source || '',
     };
   });
   return {
     columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'), col('city', 'City', 'text'), col('salary_bank', 'Salary bank', 'text'), col('product', 'Product', 'text'), col('core_product', 'Core product', 'text'),
-      col('card_fee_type', 'Card sourced type', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest / ROI %', 'rate'), col('tenure', 'Tenure (months)'), col('fpd', 'FPD', 'date'), col('auto_loan_type', 'Auto loan type', 'text'), col('car', 'Car', 'text'), col('dealer', 'Dealer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
+      col('card_fee_type', 'Card sourced type', 'text'), col('card_reason', 'Card sold as', 'text'), col('eligible_category', 'Eligible for higher', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest / ROI %', 'rate'), col('tenure', 'Tenure (months)'), col('fpd', 'FPD', 'date'), col('auto_loan_type', 'Auto loan type', 'text'), col('car', 'Car', 'text'), col('dealer', 'Dealer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
       col('verification', 'Verification', 'text'), col('verification_reason', 'Reason', 'text'), col('processor', 'Processor', 'text'), col('verified_at', 'Verified at', 'datetime'), col('case_status', 'Case status', 'text'), col('case_status_at', 'Case status at', 'datetime'), col('disbursed_aed', 'Disbursed (AED)', 'aed'),
       col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text')],
     rows: out,
@@ -330,7 +340,46 @@ function register(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register };
+const STATUS_WORDS = { awaiting_approval: 'Awaiting TL/SM approval', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
+const CASE_COLS = [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text')];
+const caseCells = (c) => ({ ref: caseRef(c.id), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, sales_staff: c.sales_staff_name || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '' });
+
+/** Credit cards sold below the salary requirement: deviations, promotions and files still awaiting approval. */
+function card_exceptions(db, user, { period, region }) {
+  const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?', "(c.card_salary_exception IS NOT NULL OR c.status = 'awaiting_approval')"], [period.from, period.to]);
+  const rows = db.prepare(`SELECT c.*, ceb.name AS decided_by, ceb.role AS decided_role FROM cases c LEFT JOIN users ceb ON ceb.id = c.card_exception_by ${sql} ORDER BY c.sourcing_date DESC, c.id DESC`).all(...params);
+  const out = rows.map((c) => ({
+    ...caseCells(c), card: c.credit_card || '', category: c.card_category || '', min_salary: c.card_min_salary,
+    reason: c.card_salary_exception ? CARD_EXCEPTIONS[c.card_salary_exception] : 'Awaiting approval',
+    decided_by: c.decided_by ? `${c.decided_by} (${c.decided_role === 'sales' ? 'sales' : 'approver'})` : '', decided_at: c.card_exception_at || '', note: c.card_exception_note || '',
+    verification: STATUS_WORDS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status,
+  }));
+  const count = (k) => out.filter((r) => r.reason === k).length;
+  return {
+    columns: [...CASE_COLS, col('card', 'Card', 'text'), col('category', 'Category', 'text'), col('min_salary', 'Card needs (AED)', 'aed'), col('reason', 'Reason', 'text'), col('decided_by', 'Decided by', 'text'), col('decided_at', 'Decided at', 'datetime'), col('note', 'Note', 'text'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text')],
+    rows: out,
+    totals: { ref: `${out.length} files`, reason: `${count('Product deviation')} deviations · ${count('New promotion')} promotions · ${count('Awaiting approval')} awaiting` },
+  };
+}
+
+/** Credit cards sold where the salary qualified for a higher category. */
+function card_downsell(db, user, { period, region }) {
+  const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?', 'c.card_higher_options > 0'], [period.from, period.to]);
+  const rows = db.prepare(`SELECT c.* FROM cases c ${sql} ORDER BY c.sourcing_date DESC, c.id DESC`).all(...params);
+  const out = rows.map((c) => ({
+    ...caseCells(c), card: c.credit_card || '', category: c.card_category || '', eligible_category: c.card_eligible_category || '', higher_options: c.card_higher_options,
+    verification: STATUS_WORDS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status,
+  }));
+  const byStaff = new Map();
+  for (const r of out) byStaff.set(r.sales_staff, (byStaff.get(r.sales_staff) || 0) + 1);
+  return {
+    columns: [...CASE_COLS, col('card', 'Card sold', 'text'), col('category', 'Category sold', 'text'), col('eligible_category', 'Eligible for', 'text'), col('higher_options', 'Higher cards available'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text')],
+    rows: out,
+    totals: { ref: `${out.length} files`, sales_staff: [...byStaff].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n, k]) => `${n} ${k}`).join(' · ') },
+  };
+}
+
+const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
