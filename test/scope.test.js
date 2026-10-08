@@ -40,19 +40,19 @@ async function login(email) {
     return { status: r.status, data: await r.json() };
   };
 }
-const file = (name) => ({ customer_name: name, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan' });
+const file = (name, region = 'DXB') => ({ customer_name: name, region, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan' });
 const names = (list) => list.map((c) => c.customer_name).sort();
 
-test('a sales person\'s files default to their own region', async () => {
+test('a file names its region; any sales person can source in any region', async () => {
   const dana = await login('dana@t.local');
   const amal = await login('amal@t.local');
   const d = await dana('POST', '/cases', file('Dubai customer'));
   assert.equal(d.status, 201, JSON.stringify(d.data));
   assert.equal(d.data.case.region, 'DXB');
-  const a = await amal('POST', '/cases', file('Abu Dhabi customer'));
-  assert.equal(a.data.region ?? a.data.case.region, 'AUH');
-  // An explicit region still wins.
-  const x = await amal('POST', '/cases', { ...file('Abu Dhabi staff, Dubai customer'), region: 'DXB' });
+  const a = await amal('POST', '/cases', file('Abu Dhabi customer', 'AUH'));
+  assert.equal(a.data.case.region, 'AUH');
+  assert.equal((await amal('POST', '/cases', { ...file('No region'), region: '' })).status, 400);
+  const x = await amal('POST', '/cases', file('Abu Dhabi staff, Dubai customer'));
   assert.equal(x.data.case.region, 'DXB');
   ids.dubaiCase = d.data.case.id;
   ids.auhCase = a.data.case.id;
@@ -125,12 +125,12 @@ test('region view, hierarchy and reports follow the viewer\'s scope', async () =
   assert.equal((await bh('GET', '/stats')).data.total, 4);
   // The hierarchy: region → sales manager → team leader → staff for MIS; staff only for a team leader.
   const h = (await bh('GET', '/hierarchy')).data;
-  assert.deepEqual(h.levels, ['region', 'sales_manager', 'team_leader', 'staff']);
-  assert.deepEqual(h.nodes.map((n) => n.name), ['AUH', 'DXB']);
-  assert.equal(h.nodes[1].children[0].children[0].children[0].name, 'Dana');
+  assert.deepEqual(h.levels, ['sales_manager', 'team_leader', 'staff']);
+  assert.deepEqual(h.nodes.map((n) => n.name), ['SM One', 'SM Two']);
+  assert.equal(h.nodes[0].children[0].children[0].name, 'Dana');
   assert.equal(h.total.sourced, 4);
   const onlyAuh = (await bh('GET', '/hierarchy?region=AUH')).data;
-  assert.deepEqual(onlyAuh.nodes.map((n) => n.name), ['AUH']);
+  assert.equal(onlyAuh.total.sourced, 1);
   const tlView = (await tl('GET', '/hierarchy')).data;
   assert.deepEqual(tlView.levels, ['staff']);
   assert.deepEqual(tlView.nodes.map((n) => n.name), ['Dana']);
@@ -160,6 +160,42 @@ test('region view, hierarchy and reports follow the viewer\'s scope', async () =
   assert.match((await csv.text()).replace(/^\uFEFF/, ''), /^Ref,Sourced,Region/);
   const access = (await gov('GET', '/reports/access')).data;
   assert.ok(access.rows.some((r) => r.user === 'Mira' && r.reports_run >= 3));
+});
+
+test('a team change moves open files to the new team and leaves completed ones behind', async () => {
+  const tl = await login('tl-dxb@t.local');
+  const tlA = await login('tl-auh@t.local');
+  const sm1 = await login('sm1@t.local');
+  const sm2 = await login('sm2@t.local');
+  const mis = await login('mis@t.local');
+  // Dana completes one file under TL Dubai / SM One, and has open ones there too.
+  const done = (await tl('GET', '/cases')).data.cases.find((c) => c.customer_name === 'Dubai customer');
+  assert.equal((await mis('POST', `/cases/${done.id}/actions`, { action: 'set_case_status', case_status: 'completed' })).status, 200);
+  const before = (await tl('GET', '/cases')).data.cases.length;
+  assert.ok(before >= 2);
+  // Dana moves to TL Abu Dhabi and SM Two.
+  const moved = await tl('PATCH', `/users/${ids['dana@t.local']}`, { team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm2@t.local'], asm_id: '' });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.data.moved_cases, before - 1);
+  // The completed file stays with the old team; the open ones went to the new team.
+  const oldTeam = (await tl('GET', '/cases')).data.cases;
+  assert.deepEqual(oldTeam.map((c) => c.id), [done.id]);
+  assert.equal((await sm1('GET', '/cases')).data.cases.length, 1);
+  const newTeam = (await tlA('GET', '/cases')).data.cases;
+  assert.equal(newTeam.filter((c) => c.sales_staff_name === 'Dana').length, before - 1);
+  assert.ok(newTeam.every((c) => c.id !== done.id));
+  assert.ok((await sm2('GET', '/cases')).data.cases.some((c) => c.sales_staff_name === 'Dana'));
+  const movedCase = (await tlA('GET', `/cases/${newTeam.find((c) => c.sales_staff_name === 'Dana').id}`)).data.case;
+  assert.equal(movedCase.team_leader_name, 'TL Abu Dhabi');
+  assert.ok(movedCase.events.some((e) => e.type === 'team_change'));
+  // The old team leader keeps the completed file in their team view; the new one gets Dana with targets.
+  const oldView = (await tl('GET', '/hierarchy')).data;
+  assert.deepEqual(oldView.nodes.map((n) => [n.name, Boolean(n.previous_team), n.kpis.completed]), [['Dana', true, 1]]);
+  const newView = (await tlA('GET', '/hierarchy')).data;
+  assert.deepEqual(newView.nodes.map((n) => n.name).sort(), ['Amal', 'Dana']);
+  assert.equal(newView.nodes.find((n) => n.name === 'Dana').kpis.completed, 0);
+  // A team leader can only move a file to staff in their own team.
+  assert.equal((await tl('PUT', `/cases/${done.id}`, { sales_staff_id: ids['amal@t.local'] })).status, 403);
 });
 
 async function loginCookie(email) {

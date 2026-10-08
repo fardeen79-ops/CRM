@@ -307,6 +307,7 @@ function routes(db, dispatch, bot) {
       const id = Number(params[0]);
       const target = auth.getUser(db, id);
       if (!target) throw new HttpError(404, 'User not found');
+      let moved = 0;
       if (['name', 'email', 'mobile_number', 'whatsapp_number'].some((f) => f in body)) {
         let contact;
         try {
@@ -336,6 +337,7 @@ function routes(db, dispatch, bot) {
         }
         db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ? WHERE id = ?')
           .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, id);
+        if (['team_leader_id', 'sales_manager_id', 'asm_id'].some((f) => (profile[f] ?? null) !== (target[f] ?? null))) moved = cases.moveOpenCases(db, user, id);
       }
       if ('active' in body) {
         if (id === user.id && !body.active) throw new HttpError(400, 'You cannot deactivate your own account');
@@ -346,7 +348,7 @@ function routes(db, dispatch, bot) {
         if (String(body.password).length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
         db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(auth.hashPassword(String(body.password)), id);
       }
-      return { user: auth.getUser(db, id) };
+      return { user: auth.getUser(db, id), moved_cases: moved };
     }],
   ];
 }

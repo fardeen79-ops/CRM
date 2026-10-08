@@ -120,7 +120,9 @@ export const queueRole = (user) => (user.role === 'asm' ? 'sales_manager' : user
  */
 export function caseScope(user, c = 'c') {
   const own = `${c}.created_by = ?`;
-  const team = (field) => ({ sql: `(${own} OR ${c}.sales_staff_id IN (SELECT id FROM users WHERE ${field} = ?))`, params: [user.id, user.id] });
+  // A file belongs to the team stored on it, so a completed file stays with the managers it was
+  // sourced under even after the sales person moves team.
+  const team = (field) => ({ sql: `(${own} OR ${c}.${field} = ?)`, params: [user.id, user.id] });
   switch (user.role) {
     case 'sales': return { sql: `(${own} OR ${c}.sales_staff_id = ?)`, params: [user.id, user.id] };
     case 'processing': return user.region ? { sql: `(${c}.region = ? OR ${c}.region IS NULL)`, params: [user.region] } : null;
@@ -239,7 +241,7 @@ const PRODUCT_FIELDS = [
   'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
 ];
 // Snapshot of the sales person's profile, copied onto the file when it is sourced.
-const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name'];
+const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name', 'team_leader_id', 'sales_manager_id', 'asm_id'];
 // Details the processor confirmed with the customer. Changing any of them after verification is
 // completed sends the file back for a fresh verification.
 export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd'];
@@ -424,7 +426,28 @@ function salesStaffSnapshot(db, staffId) {
     sales_code: staff.sales_code,
     team_leader_name: staff.team_leader_name,
     sales_manager_name: staff.sales_manager_name,
+    team_leader_id: staff.team_leader_id,
+    sales_manager_id: staff.sales_manager_id,
+    asm_id: staff.asm_id,
   };
+}
+
+/**
+ * A sales person changed team: files still open (not completed or rejected) move to the new team
+ * leader, sales manager and ASM; completed and rejected files stay tagged with the old team.
+ */
+export function moveOpenCases(db, user, staffId) {
+  const staff = findUser(db, Number(staffId));
+  if (!staff || staff.role !== 'sales') return 0;
+  const open = db.prepare(`SELECT id, team_leader_name, sales_manager_name FROM cases WHERE sales_staff_id = ? AND case_status NOT IN ('completed', 'rejected')
+    AND (team_leader_id IS NOT ? OR sales_manager_id IS NOT ? OR asm_id IS NOT ?)`).all(staff.id, staff.team_leader_id, staff.sales_manager_id, staff.asm_id);
+  const ts = now();
+  for (const row of open) {
+    db.prepare('UPDATE cases SET team_leader_id = ?, sales_manager_id = ?, asm_id = ?, team_leader_name = ?, sales_manager_name = ?, updated_at = ? WHERE id = ?')
+      .run(staff.team_leader_id, staff.sales_manager_id, staff.asm_id, staff.team_leader_name, staff.sales_manager_name, ts, row.id);
+    addEvent(db, row.id, user.id, 'team_change', { detail: `${staff.name} moved team: now under ${staff.team_leader_name} (TL) and ${staff.sales_manager_name} (SM)${staff.asm_name ? `, ${staff.asm_name} (ASM)` : ''}; was under ${row.team_leader_name || '—'} and ${row.sales_manager_name || '—'}` });
+  }
+  return open.length;
 }
 
 /** Is this sales person in the viewer's team? Always true for roles that see everyone. */
@@ -709,11 +732,6 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   // MIS and business heads add files only by bulk upload (see imports.js), naming the sales person.
   const canAdd = ['sales', 'team_leader', ...MANAGER_ROLES].includes(user.role) || (bulk && ['mis', 'business_head'].includes(user.role));
   if (!canAdd) throw new WorkflowError(403, 'Only sales staff can add sourcing data');
-  // A file's region defaults to the sales person's own region.
-  if (!String(input.region ?? '').trim()) {
-    const staffRegion = findUser(db, Number(user.role === 'sales' ? user.id : input.sales_staff_id))?.region;
-    if (staffRegion) input = { ...input, region: staffRegion };
-  }
   const data = validateCaseInput(input);
   // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));

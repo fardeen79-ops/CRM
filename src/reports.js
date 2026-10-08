@@ -61,19 +61,20 @@ const hours = (a, b) => (a && b ? (Date.parse(b) - Date.parse(a)) / 36e5 : null)
 const avg = (list) => (list.length ? Math.round((list.reduce((a, b) => a + b, 0) / list.length) * 10) / 10 : null);
 const pct = (n, of) => (of ? Math.round((n / of) * 1000) / 10 : null);
 
-const STAFF_SQL = `SELECT u.id, u.name, u.sales_code, u.region, tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name
+const STAFF_SQL = `SELECT u.id, u.name, u.sales_code, tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name
   FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id`;
 const staffById = (db) => new Map(db.prepare(STAFF_SQL).all().map((s) => [s.id, s]));
 
 function sourcing(db, user, { period, region }) {
   const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
-  const rows = db.prepare(`SELECT c.* FROM cases c ${sql}`).all(...params);
+  const rows = db.prepare(`SELECT c.*, asm.name AS asm_name FROM cases c LEFT JOIN users asm ON asm.id = c.asm_id ${sql}`).all(...params);
   const staff = staffById(db);
   const by = new Map();
   for (const c of rows) {
-    const id = c.sales_staff_id ?? c.created_by;
-    const s = staff.get(id) || { id, name: c.sales_staff_name || c.created_by_name || 'Unknown' };
-    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', region: s.region || '', team_leader: s.team_leader_name || c.team_leader_name || '', sales_manager: s.sales_manager_name || c.sales_manager_name || '', asm: s.asm_name || '', sourced: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, temp_ends: 0, cards_active: 0, loans: 0 });
+    // One row per sales person per team they filed under, so a team change keeps old files with the old team.
+    const id = `${c.sales_staff_id ?? c.created_by}|${c.team_leader_id ?? 0}|${c.sales_manager_id ?? 0}`;
+    const s = staff.get(c.sales_staff_id ?? c.created_by) || { name: c.sales_staff_name || 'Unknown' };
+    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, temp_ends: 0, cards_active: 0, loans: 0 });
     const r = by.get(id);
     r.sourced++;
     if ([STATUS.PENDING, STATUS.IN_VERIFICATION].includes(c.status)) r.awaiting++;
@@ -90,7 +91,7 @@ function sourcing(db, user, { period, region }) {
   }
   const out = [...by.values()].sort((a, b) => b.sourced - a.sourced || a.staff.localeCompare(b.staff));
   return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('region', 'Region', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('asm', 'ASM', 'text'),
+    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('asm', 'ASM', 'text'),
       col('sourced', 'Sourced'), col('awaiting', 'Awaiting verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales'),
       col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active')],
     rows: out,
@@ -159,7 +160,7 @@ function targets(db, user, { period, region }) {
   const rep = targetReport(db, user, period.cycle, { region });
   const products = Object.entries(TARGET_PRODUCTS);
   const rows = rep.staff.map((s) => {
-    const r = { staff: s.name, sales_code: s.sales_code || '', region: s.region || '', team_leader: s.team_leader_name || '', sales_manager: s.sales_manager_name || '' };
+    const r = { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader_name || '', sales_manager: s.sales_manager_name || '' };
     for (const [k] of products) {
       r[`${k}_target`] = s.target[k] ?? null;
       r[`${k}_achieved`] = s.achieved[k];
@@ -168,7 +169,7 @@ function targets(db, user, { period, region }) {
     r.temp_ends = s.cards.temp_end; r.cards_active = s.cards.active;
     return r;
   });
-  const columns = [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('region', 'Region', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text')];
+  const columns = [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text')];
   for (const [k, name] of products) {
     const unit = TARGET_UNITS[k];
     columns.push(col(`${k}_target`, `${name} target${unit === 'aed' ? ' (AED)' : ''}`, unit), col(`${k}_achieved`, `${name} achieved${unit === 'aed' ? ' (AED)' : ''}`, unit), col(`${k}_pct`, `${name} %`, 'pct'));
@@ -186,14 +187,14 @@ function targets(db, user, { period, region }) {
 function cards(db, user, { period, region }) {
   sweepCardAgeing(db);
   const { sql, params } = caseWhere(user, region, [COMPLETED_IN_SQL, "(c.product = 'credit_card' OR (c.product = 'bundle' AND ',' || c.bundle_products || ',' LIKE '%,credit_card,%'))"], [period.from, period.to]);
-  const rows = db.prepare(`SELECT c.sales_staff_id, c.created_by, c.sales_staff_name, c.card_status, c.card_activation_date, c.case_status_at FROM cases c ${sql}`).all(...params);
+  const rows = db.prepare(`SELECT c.sales_staff_id, c.created_by, c.sales_staff_name, c.team_leader_name, c.card_status, c.card_activation_date, c.case_status_at FROM cases c ${sql}`).all(...params);
   const staff = staffById(db);
   const today = Date.parse(uaeDay());
   const by = new Map();
   for (const c of rows) {
     const id = c.sales_staff_id ?? c.created_by;
     const s = staff.get(id) || { name: c.sales_staff_name || 'Unknown' };
-    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || '', region: s.region || '', team_leader: s.team_leader_name || '', temp_ends: 0, active: 0, inactive: 0, out_of_range: 0, unmapped: 0, inactive_0_30: 0, inactive_31_60: 0, inactive_61_90: 0, inactive_90_plus: 0, ages: [] });
+    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || '', team_leader: c.team_leader_name || s.team_leader_name || '', temp_ends: 0, active: 0, inactive: 0, out_of_range: 0, unmapped: 0, inactive_0_30: 0, inactive_31_60: 0, inactive_61_90: 0, inactive_90_plus: 0, ages: [] });
     const r = by.get(id);
     r.temp_ends++;
     r[CARD_STATES[c.card_status] ? c.card_status : 'unmapped']++;
@@ -209,7 +210,7 @@ function cards(db, user, { period, region }) {
   const totals = Object.fromEntries(keys.map((k) => [k, sum(out, k)]));
   totals.activation_pct = pct(totals.active, totals.temp_ends);
   return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('region', 'Region', 'text'), col('team_leader', 'Team leader', 'text'), col('temp_ends', 'Temp ends'), col('active', 'Active'), col('inactive', 'Inactive'), col('out_of_range', 'Out of activation range'), col('unmapped', 'Not mapped'),
+    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('temp_ends', 'Temp ends'), col('active', 'Active'), col('inactive', 'Inactive'), col('out_of_range', 'Out of activation range'), col('unmapped', 'Not mapped'),
       col('activation_pct', 'Activation %', 'pct'), col('avg_days_inactive', 'Avg days inactive', 'days'), col('inactive_0_30', 'Inactive 0–30 days'), col('inactive_31_60', '31–60 days'), col('inactive_61_90', '61–90 days'), col('inactive_90_plus', 'Over 90 days')],
     rows: out,
     totals,

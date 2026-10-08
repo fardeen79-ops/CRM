@@ -114,6 +114,11 @@ CREATE TABLE IF NOT EXISTS cases (
   sales_code         TEXT,
   team_leader_name   TEXT,
   sales_manager_name TEXT,
+  -- The team the file belongs to: the sales person's managers when it was sourced, moved to the
+  -- new team only while the file is still open if the sales person changes team.
+  team_leader_id     INTEGER REFERENCES users(id),
+  sales_manager_id   INTEGER REFERENCES users(id),
+  asm_id             INTEGER REFERENCES users(id),
   edit_request_to    TEXT,
   edit_request_note  TEXT,
   edit_request_by    INTEGER REFERENCES users(id),
@@ -259,6 +264,7 @@ const ADDED_COLUMNS = {
   edit_request_to: 'TEXT', edit_request_note: 'TEXT', edit_request_by: 'INTEGER REFERENCES users(id)', edit_request_at: 'TEXT',
   region: 'TEXT', core_product: 'TEXT', sales_staff_id: 'INTEGER REFERENCES users(id)', sales_staff_name: 'TEXT',
   sales_code: 'TEXT', team_leader_name: 'TEXT', sales_manager_name: 'TEXT',
+  team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)', asm_id: 'INTEGER REFERENCES users(id)',
   qc_flag: 'INTEGER NOT NULL DEFAULT 0', urgent_flag: 'INTEGER NOT NULL DEFAULT 0', urgent_note: 'TEXT',
   urgent_by: 'INTEGER REFERENCES users(id)', urgent_at: 'TEXT', qc_note: 'TEXT', qc_by: 'INTEGER REFERENCES users(id)', qc_at: 'TEXT',
   recording_status: 'TEXT', recording_request_note: 'TEXT', recording_requested_by: 'INTEGER REFERENCES users(id)',
@@ -282,6 +288,11 @@ function migrate(db) {
   for (const [name, type] of Object.entries(ADDED_COLUMNS)) {
     if (!cols.includes(name)) db.exec(`ALTER TABLE cases ADD COLUMN ${name} ${type}`);
   }
+  // Files from before the team was stored on them belong to the sales person's current team.
+  db.exec(`UPDATE cases SET team_leader_id = (SELECT team_leader_id FROM users WHERE id = cases.sales_staff_id),
+      sales_manager_id = (SELECT sales_manager_id FROM users WHERE id = cases.sales_staff_id),
+      asm_id = (SELECT asm_id FROM users WHERE id = cases.sales_staff_id)
+    WHERE team_leader_id IS NULL AND sales_staff_id IS NOT NULL`);
   // Cases created before the sourcing date existed were sourced on the day they were entered.
   db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
   // Loans completed before disbursed amounts were recorded: assume the amount on the file.

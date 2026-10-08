@@ -614,7 +614,7 @@ async function viewDashboard() {
     ${cyc ? html`<h2 class="tiles-head">${cycleName(cyc.cycle)} cycle · ${cycleSpan(cyc.cycle)} · ${cyc.days_left} ${cyc.days_left === 1 ? 'day' : 'days'} left <a class="tiles-link" href="#/targets">${r === 'sales' ? 'My targets' : 'Targets'} →</a></h2>
       ${targetTiles(cyc, cyc.total)}` : ''}
     ${statusOverview(cs, s.total)}
-    ${team && team.nodes.length ? html`<div class="card team-card"><div class="card-head"><h2>${team.level_labels[team.levels[0]]}s · ${cycleName(team.cycle)} cycle</h2><a class="tiles-link" href="#/team">Full team view →</a></div>
+    ${team && team.nodes.length ? html`<div class="card team-card"><div class="card-head"><h2>${team.levels[0] === 'staff' ? 'My team' : `By ${team.level_labels[team.levels[0]].toLowerCase()}`} · ${cycleName(team.cycle)} cycle</h2><a class="tiles-link" href="#/team">Full team view →</a></div>
       ${teamTable({ ...team, nodes: team.nodes.map((n) => ({ ...n, children: [] })) })}</div>` : ''}
     <h2 class="tiles-head">Verification</h2>
     ${tileGrid(verifyTiles)}
@@ -879,7 +879,7 @@ async function viewCaseForm(id) {
             <label for="f-region">Region <span class="req">*</span></label>
             <select id="f-region" name="region" required>
               <option value="">Choose…</option>
-              ${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${(c.region || (!id && staffNow?.region)) === k ? raw('selected') : ''}>${l}</option>`)}
+              ${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${c.region === k ? raw('selected') : ''}>${l}</option>`)}
             </select>
           </div>
           ${field('bidaya_id', 'Bidaya ID')}
@@ -1032,7 +1032,6 @@ async function viewCaseForm(id) {
       $('#f-sales_code').value = st.sales_code || '';
       $('#f-team_leader_name').value = st.team_leader_name || '';
       $('#f-sales_manager_name').value = st.sales_manager_name || '';
-      if (!id && st.region) $('#f-region').value = st.region;
     };
   }
   boxes.forEach((b) => (b.onchange = updateProductFields));
@@ -2438,7 +2437,7 @@ function teamRows(nodes, rep, depth = 0, parent = '') {
     const loanTarget = k.target.personal_loan != null || k.target.auto_loan != null ? (k.target.personal_loan || 0) + (k.target.auto_loan || 0) : null;
     const row = html`<tr class="team-row level-${n.level}" data-node="${id}" data-parent="${parent}" ${group ? raw('data-open="1"') : raw(`data-href="#/cases?cycle=${rep.cycle}&staff=${n.id}"`)} style="--depth:${depth}">
       <td><div class="team-name">${group ? html`<button class="tree-toggle" type="button" aria-expanded="true" aria-label="Collapse ${n.name}">▾</button>` : html`<span class="tree-leaf"></span>`}
-        <div><strong>${n.name}</strong><div class="muted small">${rep.level_labels[n.level]}${n.sales_code ? html` · <span class="mono">${n.sales_code}</span>` : ''}${n.level === 'staff' && n.region ? ` · ${n.region}` : ''}${n.active === 0 ? ' · disabled' : ''}</div></div></div></td>
+        <div><strong>${n.name}</strong>${n.previous_team ? html` <span class="chip" title="Files sourced under this team before the sales person moved">Previous team</span>` : ''}<div class="muted small">${rep.level_labels[n.level]}${n.sales_code ? html` · <span class="mono">${n.sales_code}</span>` : ''}${n.active === 0 ? ' · disabled' : ''}</div></div></div></td>
       <td>${k.staff}</td>
       ${KPI_COLS.map(([key]) => html`<td>${key === 'disbursed_aed' ? (k[key] ? fmtAedShort(k[key]) : '—') : k[key]}</td>`)}
       <td>${meter(k.achieved.credit_card || 0, k.target.credit_card ?? null, { compact: true })}</td>
@@ -2489,7 +2488,7 @@ async function viewTeam(params) {
       <div>
         <div class="eyebrow">Sales cycle · ${cycleSpan(rep.cycle)}${rep.is_current ? ` · ${rep.days_left} ${rep.days_left === 1 ? 'day' : 'days'} left` : ''}${regionLabel()}</div>
         <h1>Team view — ${cycleName(rep.cycle)}</h1>
-        <p class="muted lede">Every level of the hierarchy you oversee, ${rep.levels.map((l) => rep.level_labels[l].toLowerCase()).join(' → ')}, with the numbers added up at each level. Sourced counts files entered in the cycle; completed and disbursed count case status set to Completed in the cycle; awaiting and pending are open right now. Select a sales person to see their completed cases.</p>
+        <p class="muted lede">Every level of the hierarchy you oversee, ${rep.levels.map((l) => rep.level_labels[l].toLowerCase()).join(' → ')}, with the numbers added up at each level. Sourced counts files entered in the cycle; completed and disbursed count case status set to Completed in the cycle; awaiting and pending are open right now. Files count under the team they were sourced in, so a sales person who changed team keeps a Previous team row for the old one. Select a sales person to see their completed cases.</p>
       </div>
       <div class="cycle-nav">
         <a class="btn" href="#/team?cycle=${shiftCycle(rep.cycle, -1)}" aria-label="Previous cycle">‹ ${cycleName(shiftCycle(rep.cycle, -1)).split(' ')[0]}</a>
@@ -2633,9 +2632,12 @@ async function viewUsers() {
     <div class="field-row"><label for="${prefix}-wa">WhatsApp number</label>
       <input id="${prefix}-wa" name="whatsapp_number" type="tel" inputmode="tel" value="${u.whatsapp_number || ''}" placeholder="+971 50 123 4567">
       <label class="check small wa-same"><input type="checkbox" data-wa-same> Same as local mobile</label></div>
-    <div class="field-row"><label for="${prefix}-region">Region</label>
-      <select id="${prefix}-region" name="region"><option value="">Not set</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${u.region === k ? raw('selected') : ''}>${l}</option>`)}</select>
-      <div class="muted small">Processors see only their region's files. Sales staff's new files default to it.</div></div>`;
+`;
+  // Processors can be limited to one region's files; everyone else works across regions.
+  const regionField = (u = {}, prefix = 'n') => html`
+    <div class="field-row" id="${prefix}-region-row"><label for="${prefix}-region">Region</label>
+      <select id="${prefix}-region" name="region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${u.region === k ? raw('selected') : ''}>${l}</option>`)}</select>
+      <div class="muted small">A processor with a region verifies only that region's files.</div></div>`;
   const contactCell = (u) => html`${u.mobile_number ? html`<div class="mono">${fmtMobile(u.mobile_number)}</div>` : html`<span class="muted">—</span>`}
     ${u.whatsapp_number ? html`<a class="wa" href="https://wa.me/${u.whatsapp_number.slice(1)}" target="_blank" rel="noopener" title="Open a WhatsApp chat">WhatsApp ${u.whatsapp_number}</a>` : ''}`;
 
@@ -2646,7 +2648,7 @@ async function viewUsers() {
       <div class="card"><div class="table-wrap"><table class="users-table">
         <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
         <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
-          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}</td>
+          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.role === 'processing' && u.region ? html`<div class="muted small">${u.region} only</div>` : ''}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
               ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}</div>`
@@ -2664,6 +2666,7 @@ async function viewUsers() {
         <div class="field-row"><label for="nu-role">Role</label><select id="nu-role" name="role" required>
           ${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}
         </select></div>
+        ${regionField({}, 'nu')}
         <fieldset class="product-detail" id="nu-profile">
           <legend>Sales profile</legend>
           ${!leaders.length || !managers.length ? html`<p class="small error">Add at least one team leader and one sales manager first.</p>` : ''}
@@ -2677,9 +2680,12 @@ async function viewUsers() {
   const form = document.getElementById('user-form');
   const role = document.getElementById('nu-role');
   const profile = document.getElementById('nu-profile');
+  const regionRow = document.getElementById('nu-region-row');
   const syncRole = () => {
     profile.hidden = role.value !== 'sales';
     profile.querySelectorAll('input, select').forEach((i) => (i.disabled = profile.hidden));
+    regionRow.hidden = role.value !== 'processing';
+    regionRow.querySelector('select').disabled = regionRow.hidden;
   };
   role.onchange = syncRole;
   syncRole();
@@ -2713,8 +2719,8 @@ async function viewUsers() {
     tr.dataset.profileEditor = '1';
     tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
       <strong>Edit ${u.name}</strong>
-      <div class="form-grid two">${contactFields(u, `e${u.id}`)}</div>
-      ${u.role === 'sales' ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, `e${u.id}`)}</div>` : ''}
+      <div class="form-grid two">${contactFields(u, `e${u.id}`)}${u.role === 'processing' ? regionField(u, `e${u.id}`) : ''}</div>
+      ${u.role === 'sales' ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, `e${u.id}`)}</div><p class="muted small">Changing the team leader, sales manager or ASM moves this person's open files to the new team. Completed and rejected files stay with the old team.</p>` : ''}
       <div class="actions"><button class="btn-primary">Save changes</button><button type="button" data-cancel>Cancel</button></div>
     </form></td>`.s;
     row.after(tr);
@@ -2724,8 +2730,8 @@ async function viewUsers() {
     f.onsubmit = async (e) => {
       e.preventDefault();
       try {
-        await api(`/users/${u.id}`, { method: 'PATCH', body: formData(f) });
-        toast('User updated');
+        const saved = await api(`/users/${u.id}`, { method: 'PATCH', body: formData(f) });
+        toast(saved.moved_cases ? `User updated. ${saved.moved_cases} open ${saved.moved_cases === 1 ? 'file' : 'files'} moved to the new team.` : 'User updated');
         viewUsers();
       } catch (ex) { toast(ex.message, true); }
     };

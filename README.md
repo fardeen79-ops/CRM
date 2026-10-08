@@ -110,11 +110,11 @@ The **Scan Emirates ID** button on the entry form fills in the customer's **firs
 
 **Region view.** Business heads, MIS and governance see every file. A switch in the top bar narrows the whole app to one region, DXB or AUH: the dashboard, case lists, targets, the team view and reports all follow it until it is set back to All regions. The choice is remembered in the browser.
 
-**Team view** (`#/team`) is the dashboard for every level of the hierarchy. It shows the sales cycle's numbers rolled up at each level the viewer oversees, region → sales manager → team leader → sales staff, with groups that expand and collapse:
+**Team view** (`#/team`) is the dashboard for every level of the hierarchy. It shows the sales cycle's numbers rolled up at each level the viewer oversees, sales manager → team leader → sales staff, with groups that expand and collapse. Files count under the team stored on them, so a sales person who changed team appears under the old team too for the files sourced there:
 
 | Viewer | Sees |
 |--------|------|
-| Business head, MIS, governance | Regions, then sales managers, team leaders and staff |
+| Business head, MIS, governance | Sales managers, then team leaders and staff |
 | Sales manager, assistant sales manager | Their team leaders and staff |
 | Team leader | Their sales staff |
 | Sales | Themselves |
@@ -299,7 +299,9 @@ Each role sees only the files that concern them. The server applies this to list
 | Processor with a **region** | Files in that region (`DXB` or `AUH`) and files with no region |
 | Processor without a region, MIS, business head, governance | Everything |
 
-A **region** can be set on any user on the Users page or in the users bulk upload. For a processor it limits what they see; for a sales person it pre-fills the region on their new files, which can still be changed. Team leaders, sales managers and ASMs pick sales staff only from their own team when entering a file, and may only move a file to staff in their team. An ASM has the same powers as a sales manager (entering files, edit requests, case status) over their own team; sales staff get an optional **Assistant sales manager** in their profile.
+A **region** is set on processors (Users page or the users bulk upload) and limits what they verify. Sales staff are not tied to a region: every file names its own region, and any sales person can source in any region. Team leaders, sales managers and ASMs pick sales staff only from their own team when entering a file, and may only move a file to staff in their team. An ASM has the same powers as a sales manager (entering files, edit requests, case status) over their own team; sales staff get an optional **Assistant sales manager** in their profile.
+
+**Team changes.** Every file stores the team leader, sales manager and ASM it was sourced under. When a sales person's team is changed on the Users page, their open files (anything not Completed or Rejected, including files still in the checker queue) move to the new team, with a `team_change` event on each. Completed and rejected files stay with the old managers, who keep seeing them in their lists, team view and reports; the team view shows them as a **Previous team** row under the old team leader.
 
 ### Personal details: who can see them
 
