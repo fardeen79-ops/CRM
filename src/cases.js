@@ -61,6 +61,9 @@ export const FPD_MAX_DAYS = 365;
 export const PL_TENURE_MAX = 48;
 export const AL_TENURE_MAX = 60;
 export const AUTO_LOAN_TYPES = { new: 'New', used: 'Used' };
+// How the bank pays out on an auto loan, which sets the points the loan earns: full payout for an
+// ordinary new or used car loan, a reduced rate for an algo loan, nothing for a low-payout non-algo loan.
+export const AUTO_LOAN_CLASSES = { full: 'Full payout', algo: 'Algo loan', low: 'Low-payout non-algo' };
 // What a personal loan buys out: a liability the customer already has.
 export const BUYOUT_KINDS = { personal_loan: 'Personal loan', credit_card: 'Credit card', non_stl_loan: 'Non-STL loan', auto_loan: 'Auto loan', mortgage: 'Mortgage' };
 // A buy-out loan always buys out a personal loan (its primary buyout); the other kinds are extras or secondary.
@@ -87,8 +90,20 @@ export const suggestedDisbursal = (row, product) => (product === 'personal_loan'
   : row.amount ?? null);
 
 /** Disbursed amounts for the loans in a case, from the input or the suggestion. */
+/** The auto loan payout class, if one was given: full, algo or low. */
+export function parseAutoLoanClass(value) {
+  const cls = clean(value);
+  if (!cls) return null;
+  if (!AUTO_LOAN_CLASSES[cls]) throw new WorkflowError(400, 'Choose the auto loan payout class: Full payout, Algo loan or Low-payout non-algo');
+  return cls;
+}
 function disbursals(row, input, { required }) {
   const out = {};
+  // The bank may reclassify an auto loan at disbursal (algo or low payout); the class sets its points.
+  if (caseProducts(row).includes('auto_loan')) {
+    const cls = parseAutoLoanClass(input.al_payout_class);
+    if (cls) out.al_payout_class = cls;
+  }
   for (const [product, field] of Object.entries(DISBURSAL_FIELDS)) {
     if (!caseProducts(row).includes(product)) continue;
     const label = `${PRODUCTS[product]} disbursed amount`;
@@ -259,7 +274,7 @@ const TEXT_FIELDS = {
 const PRODUCT_FIELDS = [
   'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank',
   'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
-  'pl_buyouts', 'secondary_buyout', 'pl_tenure', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure',
+  'pl_buyouts', 'secondary_buyout', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure',
 ];
 // Snapshot of the sales person's profile, copied onto the file when it is sourced.
 const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name', 'team_leader_id', 'sales_manager_id', 'asm_id'];
@@ -378,7 +393,7 @@ function validateProduct(input, current, out) {
   Object.assign(out, {
     personal_loan_type: null, buyout_bank: null,
     loan_amount: null, interest_rate: null, full_loan_amount: null, incremental_amount: null, fpd: null,
-    pl_tenure: null, pl_buyouts: null, secondary_buyout: null, auto_loan_type: null, car_make: null, car_model: null, car_year: null, dealer_details: null, al_lead_source: null, al_interest_rate: null, al_tenure: null,
+    pl_tenure: null, pl_buyouts: null, secondary_buyout: null, auto_loan_type: null, al_payout_class: null, car_make: null, car_model: null, car_year: null, dealer_details: null, al_lead_source: null, al_interest_rate: null, al_tenure: null,
   });
   if (includes('personal_loan')) {
     const type = clean(pick('personal_loan_type'));
@@ -439,6 +454,7 @@ function validateProduct(input, current, out) {
     const type = clean(pick('auto_loan_type'));
     if (!AUTO_LOAN_TYPES[type]) throw new WorkflowError(400, 'Choose the auto loan type: New or Used');
     out.auto_loan_type = type;
+    out.al_payout_class = parseAutoLoanClass(pick('al_payout_class')) || 'full';
     out.amount = parseNumber(pick('amount'), 'Auto loan amount', { required: true, positive: true });
     out.car_make = clean(pick('car_make'), 100);
     out.car_model = clean(pick('car_model'), 100);
@@ -1258,6 +1274,7 @@ export function sweepCardAgeing(db) {
 const disbursalText = (amounts) => Object.entries(DISBURSAL_FIELDS)
   .filter(([, f]) => amounts[f] != null)
   .map(([p, f]) => `${PRODUCTS[p]} AED ${amounts[f].toLocaleString('en-US', { maximumFractionDigits: 2 })}`)
+  .concat(amounts.al_payout_class ? [`Auto loan class ${AUTO_LOAN_CLASSES[amounts.al_payout_class]}`] : [])
   .join(' · ');
 
 export function setCardStatus(db, user, row, { card_status, activation_date } = {}) {
@@ -1294,8 +1311,8 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
   transaction(db, () => {
     if (action === 'set_disbursal') {
       const amounts = disbursals(row, extra, { required: true });
-      db.prepare('UPDATE cases SET pl_disbursed_amount = ?, al_disbursed_amount = ?, updated_at = ? WHERE id = ?')
-        .run(amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, ts, id);
+      db.prepare('UPDATE cases SET pl_disbursed_amount = ?, al_disbursed_amount = ?, al_payout_class = COALESCE(?, al_payout_class), updated_at = ? WHERE id = ?')
+        .run(amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, amounts.al_payout_class ?? null, ts, id);
       addEvent(db, id, user.id, 'disbursal', { detail: disbursalText(amounts), note });
     } else if (action === 'set_card_status') {
       setCardStatus(db, user, row, { card_status, activation_date });
@@ -1308,8 +1325,8 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       // Completing a loan records how much was disbursed; leaving Completed clears it.
       const amounts = case_status === 'completed' ? disbursals(row, extra, { required: true }) : {};
       db.prepare(`UPDATE cases SET case_status = ?, case_status_note = ?, case_status_by = ?, case_status_at = ?, updated_at = ?,
-          pl_disbursed_amount = ?, al_disbursed_amount = ? WHERE id = ?`)
-        .run(case_status, note, user.id, ts, ts, amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, id);
+          pl_disbursed_amount = ?, al_disbursed_amount = ?, al_payout_class = COALESCE(?, al_payout_class) WHERE id = ?`)
+        .run(case_status, note, user.id, ts, ts, amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, amounts.al_payout_class ?? null, id);
       addEvent(db, id, user.id, 'case_status', { detail: case_status, note });
       if (Object.keys(amounts).length) addEvent(db, id, user.id, 'disbursal', { detail: disbursalText(amounts) });
       const label = CASE_STATUS[case_status];

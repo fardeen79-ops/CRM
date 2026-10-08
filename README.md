@@ -146,7 +146,7 @@ API: `pl_buyouts` is a list of `{ role: primary|secondary, kind, bank, amount }`
 
 ### Auto loan details and loan tenures
 
-When a file includes an **auto loan**, the form asks for the auto loan type (**New** or **Used**), car make, model and year (1990 to next year), the loan amount, **ROI** (% a year), **tenure** (whole months, up to 60), dealer details (optional) and the lead source. A **personal loan** also needs a **tenure** of up to 48 months. All of these show on the case page and in the case register export, are columns in the cases bulk upload, and changing any of them after verification sends the file back for re-verification.
+When a file includes an **auto loan**, the form asks for the auto loan type (**New** or **Used**), car make, model and year (1990 to next year), the bank's **payout class** (Full payout by default; Algo loan or Low-payout non-algo, which set the points the loan earns), the loan amount, **ROI** (% a year), **tenure** (whole months, up to 60), dealer details (optional) and the lead source. A **personal loan** also needs a **tenure** of up to 48 months. All of these show on the case page and in the case register export, are columns in the cases bulk upload, and changing any of them after verification sends the file back for re-verification.
 
 ### Card salary requirement, deviations and team approval
 
@@ -180,11 +180,13 @@ What a credit card sales person earns on the points they make beyond their card 
 
 The band rate applies to the whole production, not slab by slab (confirmed). **Pending:** the cross-sell incentive for personal loan staff (what they earn on cards or other products sold alongside) is still to be defined.
 
+**Auto loan sales staff** are paid on **points beyond their auto loan target**. A loan's points are its **disbursed amount at the bank's payout rate**: new and used car loans **0.80%** (AED 200,000 = 1,600 points), **algo loans 0.25%**, **low-payout non-algo loans nothing**. Excess points pay **AED 1.10 each once new and used car disbursal in the cycle reaches AED 250,000**, otherwise **AED 0.60**; algo loans earn points but do not count towards the AED 250,000. The bank's worked example (200,000 new + 300,000 used + 100,000 algo = 4,250 points, threshold 2,000, excess 2,250 × 1.10 = AED 2,475) is reproduced in the tests. The same points count as the auto loan target achievement on the Targets page. Each auto loan file carries a **payout class** (Full payout, Algo loan, Low-payout non-algo): Full payout by default, set on the sourcing form, or corrected by MIS when the loan is completed or the disbursed amount is updated. The team leader and sales manager grids for auto loans are not defined yet.
+
 **All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank's data cut finalisation.** Both conditions are printed under the staff member's incentive block and under the incentives report.
 
 Two points settled with the business: the 50% rule for Emirates Islamic buy-outs applies to the AED 50,000 cross-sell test as well as to the points, and the premium mix is measured by the number of cards, not their points.
 
-Sales staff whose core product is credit cards see their own working on **My targets** (points, excess, which criterion they meet, incentive so far). The business head and DXB MIS run the **Credit card incentives** report for a cycle (one row per card seller with every input and the amount; totals and how many are on the higher rate). Nobody else sees incentives. The rates live in `src/incentives.js`.
+Sales staff see their own working on **My targets** for their core product (cards: points, excess, which criterion they meet; personal loans: production, band, next band; auto loans: points, excess, whether the AED 250,000 is met, incentive so far). The business head and DXB MIS run the **Credit card incentives**, **Personal loan incentives** and **Auto loan incentives** reports for a cycle (one row per seller with every input and the amount, totals and the conditions underneath). Nobody else sees incentives. The rates live in `src/incentives.js`.
 
 ### Payouts: what the bank pays per file
 
@@ -213,7 +215,7 @@ The business head or DXB MIS changes any rate from **Bulk upload → Payout rule
 | Credit card | temp end | number of temp ends |
 | Accounts | completed case | number of completed cases |
 | Personal loan | disbursal | **AED amount disbursed** |
-| Auto loan | disbursal | **AED amount disbursed** |
+| Auto loan | disbursal | **points: the AED amount disbursed at the bank's payout rate** (new and used 0.80%, algo 0.25%, low-payout non-algo nil) |
 
 A bundle counts for each product in it. The case page shows how a completed case counted, for example "Completed as Disbursed · Personal loan AED 140,000 · June 2026 cycle".
 
@@ -235,9 +237,9 @@ A bundle counts for each product in it. The case page shows how a completed case
 
 Team and manager targets are the sum of their sales staff's targets. Selecting a row lists the cases completed in that cycle. Use **‹ / ›** to move between cycles.
 
-**Setting targets.** Only **MIS and business heads** set targets, per sales person, cycle and product: a number of cases for credit cards and accounts, and an AED amount for personal and auto loans (for example `1,500,000`). There are two ways:
+**Setting targets.** Only **MIS and business heads** set targets, per sales person, cycle and product: card points and auto loan points, a number of cases for accounts, and an AED amount for personal loans (for example `1,500,000`). There are two ways:
 - **Set targets** on the Targets page turns the staff table into an editable grid. **Copy *last month's* targets** fills empty boxes from the previous cycle.
-- **Bulk upload → Targets** takes a CSV with a sales code, a cycle (`Jun 2026` or `2026-06`), card and account counts, and personal and auto loan disbursal amounts in AED. Blank cells leave a target unchanged.
+- **Bulk upload → Targets** takes a CSV with a sales code, a cycle (`Jun 2026` or `2026-06`), card and auto loan points, account counts, and personal loan disbursal amounts in AED. Blank cells leave a target unchanged.
 
 ### Card activation
 

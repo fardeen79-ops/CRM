@@ -17,24 +17,23 @@ export const TARGET_PRODUCTS = Object.fromEntries(['credit_card', 'personal_loan
 // How each product's target is measured: completed cases, or AED disbursed.
 export const TARGET_UNITS = { credit_card: 'points', personal_loan: 'aed', auto_loan: 'points', accounts: 'count' };
 
-/** The auto loan points bands. */
-export const autoLoanBands = (db) => db.prepare('SELECT amount_from, amount_to, points FROM auto_loan_points ORDER BY amount_from').all();
 /** What one completed file adds to a product's achievement. */
-export function achievedBy(product, row, bands = []) {
+// What the bank pays out on an auto loan, as a % of the amount disbursed; a loan's points are its
+// disbursed amount at this rate (AED 200,000 new car at 0.80% = 1,600 points).
+export const AUTO_LOAN_POINT_RATES = { new: 0.8, used: 0.8, algo: 0.25, low: 0 };
+export const autoLoanRate = (row) => (row.al_payout_class && row.al_payout_class !== 'full' ? AUTO_LOAN_POINT_RATES[row.al_payout_class] ?? 0 : AUTO_LOAN_POINT_RATES[row.auto_loan_type] ?? AUTO_LOAN_POINT_RATES.used);
+export const autoLoanPoints = (row) => Math.round(((row.al_disbursed_amount ?? 0) * autoLoanRate(row)) / 100 * 100) / 100;
+export function achievedBy(product, row) {
   if (product === 'personal_loan') return row.pl_disbursed_amount ?? 0;
   if (product === 'credit_card') return row.card_points ?? 1;
-  if (product === 'auto_loan') {
-    const amount = row.al_disbursed_amount ?? 0;
-    const band = bands.find((b) => amount >= b.amount_from && amount <= b.amount_to);
-    return band ? band.points : 1;
-  }
+  if (product === 'auto_loan') return autoLoanPoints(row);
   return 1;
 }
 /** How targets and points are set up, for the Targets page. */
 export function targetSetup(db) {
   return {
     salary_bands: db.prepare('SELECT product, COUNT(*) AS n FROM target_rules GROUP BY product').all().reduce((o, r) => ({ ...o, [r.product]: r.n }), {}),
-    auto_loan_bands: db.prepare('SELECT COUNT(*) AS n FROM auto_loan_points').get().n,
+    auto_loan_rates: AUTO_LOAN_POINT_RATES,
     card_points_set: cardProducts().some((p) => p.points != null),
     staff_with_salary: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'sales' AND active = 1 AND salary IS NOT NULL").get().n,
     staff: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'sales' AND active = 1").get().n,
@@ -85,7 +84,6 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
     const s = byId.get(t.user_id);
     if (s && TARGET_PRODUCTS[t.product]) s.target[t.product] = t.target;
   }
-  const bands = autoLoanBands(db);
   const done = db.prepare(`SELECT c.sales_staff_id, c.product, c.bundle_products, c.card_status, c.card_points, c.pl_disbursed_amount, c.al_disbursed_amount
     FROM cases c WHERE ${COMPLETED_IN_SQL}`).all(start, end);
   for (const c of done) {
@@ -94,7 +92,7 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
     for (const p of caseProducts(c)) {
       if (!(p in s.achieved)) continue;
       s.cases[p]++;
-      s.achieved[p] += achievedBy(p, c, bands);
+      s.achieved[p] += achievedBy(p, c);
     }
     if (includesCard(c)) {
       s.cards.temp_end++;
@@ -180,7 +178,6 @@ export function hierarchy(db, user, { cycle, region } = {}) {
       date(c.verified_at, '+4 hours') AS verified_day, date(c.case_status_at, '+4 hours') AS completed_day
     FROM cases c ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`).all(...params);
   // Numbers per sales person per team they filed under.
-  const bands = autoLoanBands(db);
   const keyOf = (r) => `${r.sales_staff_id ?? 0}|${r.team_leader_id ?? 0}|${r.sales_manager_id ?? 0}|${r.asm_id ?? 0}`;
   const agg = new Map();
   for (const r of rows) {
@@ -196,7 +193,7 @@ export function hierarchy(db, user, { cycle, region } = {}) {
       k.completed++;
       for (const p of caseProducts(r)) {
         if (!(p in k.achieved)) continue;
-        k.achieved[p] += achievedBy(p, r, bands);
+        k.achieved[p] += achievedBy(p, r);
       }
       k.disbursed_aed += (r.pl_disbursed_amount || 0) + (r.al_disbursed_amount || 0);
       if (includesCard(r)) { k.cards.temp_end++; k.cards[CARD_STATES[r.card_status] ? r.card_status : 'unmapped']++; }

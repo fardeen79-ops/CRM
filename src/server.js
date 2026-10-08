@@ -6,7 +6,7 @@ import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
-import { myIncentive, INCENTIVE_RULES } from './incentives.js';
+import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -173,6 +173,8 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
+        auto_loan_classes: cases.AUTO_LOAN_CLASSES,
+        al_incentive_rules: AL_INCENTIVE_RULES,
         buyout_kinds: cases.BUYOUT_KINDS,
         secondary_buyout_kinds: cases.SECONDARY_BUYOUT_KINDS,
         tenure_max: { personal_loan: cases.PL_TENURE_MAX, auto_loan: cases.AL_TENURE_MAX },
@@ -196,7 +198,7 @@ function routes(db, dispatch, bot) {
         it_email: cases.config.itEmail,
         call_bot: cases.config.callBot,
         ocr: ocrAssets(),
-        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, auto_loan_points: imports.AUTO_LOAN_POINTS_IMPORT_COLUMNS, payout_rules: imports.PAYOUT_RULE_IMPORT_COLUMNS },
+        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, payout_rules: imports.PAYOUT_RULE_IMPORT_COLUMNS },
         card_statuses: cases.CARD_STATES,
         card_range_days: cases.CARD_RANGE_DAYS,
         card_mappers: cases.CARD_MAPPERS,
@@ -319,7 +321,6 @@ function routes(db, dispatch, bot) {
     // Sets every sales person's targets for a cycle from their salary and the salary-band rules.
     ['POST', /^\/api\/targets\/generate$/, async ({ user, body }) => performance.generateTargets(db, user, body.cycle)],
     ['POST', /^\/api\/import\/target_rules$/, async ({ user, body }) => imports.importTargetRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
-    ['POST', /^\/api\/import\/auto_loan_points$/, async ({ user, body }) => imports.importAutoLoanPoints(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
     ['POST', /^\/api\/import\/payout_rules$/, async ({ user, body }) => imports.importPayoutRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],

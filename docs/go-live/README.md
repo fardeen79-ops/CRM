@@ -22,7 +22,7 @@ Loading both into a scratch copy of the CRM (with placeholder codes in the leade
 | MANAGER | not loaded | Fardeen (DXB) and Noman Najam (AUH) are the two business heads. Create them from the Staff page with the Business head role and their region |
 | LOCATION | Region | DXB or AUH, on every account |
 | Salary | Monthly salary | Drives the targets |
-| Point Target | Salary bands | Points for credit cards and auto loans, **AED to disburse for personal loans**. Reproduced exactly by the bands in `salary-targets.csv`, see below |
+| Point Target | Salary bands | Points for credit cards and auto loans (an auto loan's points are its disbursed amount at the bank's payout rate: 0.80% new and used, 0.25% algo), **AED to disburse for personal loans**. Reproduced exactly by the bands in `salary-targets.csv`, see below |
 
 ## Placeholders to replace
 
@@ -45,5 +45,5 @@ The sheet's target column (points for CC and AL, AED for PL) follows the salary 
 ## Still needed
 
 - The **cross-sell incentive for personal loan sales staff** (not yet defined; the PL production bands and the card scheme are in).
-- The **auto loan points table** (points per loan by amount band), so auto loan achievement counts in points against the targets above. Until then each auto loan counts 1 point.
+- The **team leader and sales manager grids** for the auto loan incentive (the SE scheme is in: points at the payout rate, AED 1.10 or 0.60 per excess point).
 - The ASM distinction, if any of the SM / ASM names are ASMs rather than sales managers.

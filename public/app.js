@@ -123,6 +123,9 @@ const suggestedDisbursal = (c, p) => (p === 'personal_loan' ? (c.personal_loan_t
 const fmtAed = (n) => `AED ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 // Compact for meters and tables: AED 1.25M, AED 480K.
 const fmtAedShort = (n) => `AED ${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(n)}`;
+// The bank's payout class on an auto loan, set or corrected when the loan is disbursed.
+const payoutClassField = (c, id) => (loansIn(c).includes('auto_loan') && state.meta.auto_loan_classes ? html`<div class="field-row"><label for="${id}-al-class">Auto loan payout class</label>
+  <select id="${id}-al-class" name="al_payout_class">${Object.entries(state.meta.auto_loan_classes).map(([k, l]) => html`<option value="${k}" ${(c.al_payout_class || 'full') === k ? raw('selected') : ''}>${l}</option>`)}</select></div>` : '');
 const disbursedText = (c) => loansIn(c).filter((p) => c[LOAN_DISBURSAL[p][0]] != null).map((p) => `${LOAN_DISBURSAL[p][1]} ${fmtAed(c[LOAN_DISBURSAL[p][0]])}`).join(' · ');
 // The date that goes with a card status: when it was activated, or since when it is inactive.
 const cardDateText = (c) => (c.card_activation_date
@@ -495,7 +498,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|auto_loan_points|payout_rules)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
@@ -968,6 +971,10 @@ async function viewCaseForm(id) {
             <div class="segmented two-up">
               ${Object.entries(state.meta.auto_loan_types).map(([k, l]) => html`<label><input type="radio" name="auto_loan_type" value="${k}" required disabled ${c.auto_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
             </div>
+            <div class="sub-label" style="margin-top:12px">Payout class <span class="muted">(the bank's classification; it sets the loan's points)</span></div>
+            <div class="segmented three-up">
+              ${Object.entries(state.meta.auto_loan_classes || {}).map(([k, l]) => html`<label><input type="radio" name="al_payout_class" value="${k}" disabled ${(c.al_payout_class || 'full') === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+            </div>
             <div class="form-grid three" style="margin-top:12px">
               ${field('car_make', 'Car make', { required: true, placeholder: 'e.g. Toyota', attrs: 'disabled data-al', dictate: true })}
               ${field('car_model', 'Car model', { required: true, placeholder: 'e.g. Land Cruiser', attrs: 'disabled data-al', dictate: true })}
@@ -1111,7 +1118,7 @@ async function viewCaseForm(id) {
     secondaryRadios.forEach((r) => (r.disabled = secondaryBlock.hidden));
     secondaryBlock.querySelector('[data-builder]').hidden = secondaryBlock.hidden || !secondaryRadios.some((r) => r.checked && r.value === 'yes');
     autoField.hidden = !includes('auto_loan');
-    autoField.querySelectorAll('input[name=auto_loan_type]').forEach((r) => (r.disabled = autoField.hidden));
+    autoField.querySelectorAll('input[name=auto_loan_type], input[name=al_payout_class]').forEach((r) => (r.disabled = autoField.hidden));
     form.querySelectorAll('[data-al]').forEach((i) => (i.disabled = autoField.hidden));
     cardField.hidden = !includes('credit_card');
     cardSelect.disabled = cardField.hidden;
@@ -1334,7 +1341,7 @@ async function viewCaseForm(id) {
       const body = formData(form);
       if (check?.dataset.state === 'below' && !('card_salary_exception' in body)) body.card_salary_exception = '';
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
-      for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;
+      for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;
       // Leave hidden values untouched unless a replacement was typed.
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.pl_buyouts = collectBuyouts();
@@ -1616,6 +1623,7 @@ async function viewCase(id) {
           <legend>Disbursed amount <span class="muted">(when completing)</span></legend>
           ${loansIn(c).map((p) => html`<div class="field-row"><label for="cs-${p}">${LOAN_DISBURSAL[p][1]} (AED) <span class="req">*</span></label>
             <input id="cs-${p}" name="${LOAN_DISBURSAL[p][0]}" inputmode="decimal" value="${suggestedDisbursal(c, p)}" placeholder="Amount paid out"></div>`)}
+          ${payoutClassField(c, 'cs')}
           <p class="muted small">Prefilled from the file${c.personal_loan_type === 'top_up' ? ' (the incremental amount for a top up)' : ''}. Change it if a different amount was disbursed. It counts towards the loan target.</p>
         </fieldset>` : ''}
         <div class="field-row"><textarea name="note" id="cs-note" placeholder="Note (required for Applicant review and Rejected)"></textarea></div>
@@ -1633,6 +1641,7 @@ async function viewCase(id) {
       <form data-form="set_disbursal">
         ${loansIn(c).map((p) => html`<div class="field-row"><label for="ds-${p}">${LOAN_DISBURSAL[p][1]} (AED)</label>
           <input id="ds-${p}" name="${LOAN_DISBURSAL[p][0]}" inputmode="decimal" required value="${c[LOAN_DISBURSAL[p][0]] ?? suggestedDisbursal(c, p)}"></div>`)}
+        ${payoutClassField(c, 'ds')}
         <button>Update disbursed amount</button>
       </form>`);
   }
@@ -1705,7 +1714,7 @@ async function viewCase(id) {
             ${c.credit_card && c.card_min_salary != null ? html`<dt>Salary check</dt><dd>Card needs AED ${fmtAmount(c.card_min_salary)} a month · ${c.card_salary_exception || c.status === 'awaiting_approval' ? html`<span class="chip bad">Customer below requirement</span>` : html`<span class="chip good">Customer meets requirement</span>`}</dd>` : ''}
             ${c.card_salary_exception ? html`<dt>Sold as</dt><dd><strong>${state.meta.card_exceptions[c.card_salary_exception] || c.card_salary_exception}</strong><div class="muted small">by ${c.card_exception_by_name || '—'} on ${fmtDate(c.card_exception_at)}${c.card_exception_note ? ` · ${c.card_exception_note}` : ''}</div></dd>` : ''}
             ${c.card_fee_type ? html`<dt>Card sourced type</dt><dd><strong>${state.meta.card_fee_types[c.card_fee_type] || c.card_fee_type}</strong></dd>` : ''}
-            ${c.auto_loan_type ? html`<dt>Auto loan</dt><dd><strong>${state.meta.auto_loan_types[c.auto_loan_type] || c.auto_loan_type} car</strong> · ${[c.car_make, c.car_model, c.car_year].filter(Boolean).join(' ')}${c.dealer_details ? html`<div class="muted small">Dealer: ${c.dealer_details}</div>` : ''}${c.al_lead_source ? html`<div class="muted small">Lead source: ${c.al_lead_source}</div>` : ''}</dd>` : ''}
+            ${c.auto_loan_type ? html`<dt>Auto loan</dt><dd><strong>${state.meta.auto_loan_types[c.auto_loan_type] || c.auto_loan_type} car</strong>${c.al_payout_class && c.al_payout_class !== 'full' ? html` · <span class="chip warn">${(state.meta.auto_loan_classes || {})[c.al_payout_class] || c.al_payout_class}</span>` : ''} · ${[c.car_make, c.car_model, c.car_year].filter(Boolean).join(' ')}${c.dealer_details ? html`<div class="muted small">Dealer: ${c.dealer_details}</div>` : ''}${c.al_lead_source ? html`<div class="muted small">Lead source: ${c.al_lead_source}</div>` : ''}</dd>` : ''}
             ${c.amount != null ? html`<dt>Auto loan amount</dt><dd><strong>AED ${fmtAmount(c.amount)}</strong>${c.al_interest_rate != null ? html` · ROI ${c.al_interest_rate}%` : ''}${c.al_tenure != null ? html` · ${c.al_tenure} months` : ''}</dd>` : ''}
           </dl>
           <h2 class="sub">Sales staff</h2>
@@ -2031,7 +2040,7 @@ function setupSummary(s) {
     Object.keys(s.salary_bands).length ? `Salary bands loaded: ${bands}.` : 'No salary bands yet: upload them from Bulk upload → Salary targets.',
     `${s.staff_with_salary} of ${s.staff} sales staff have a salary on their profile.`,
     s.card_points_set ? 'Card points come from the product list.' : 'Card points not loaded yet: each card counts 1 point until the product list has points.',
-    s.auto_loan_bands ? `Auto loan points: ${s.auto_loan_bands} amount bands.` : 'Auto loan points not loaded yet: each auto loan counts 1 point until the bands are uploaded.',
+    `Auto loan points: the amount disbursed at the bank's payout rate (new and used ${s.auto_loan_rates.new.toFixed(2)}%, algo ${s.auto_loan_rates.algo.toFixed(2)}%, low-payout non-algo nil).`,
   ].join(' ');
 }
 
@@ -2054,6 +2063,25 @@ function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [] }
     <table class="bands"><thead><tr><th>Production in the cycle</th><th>Rate on the whole production</th></tr></thead>
       <tbody>${pl_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(2)}%</td></tr>`)}</tbody></table>
     <p class="muted small">Only loans disbursed on files completed in the cycle count. An Emirates Islamic buy-out counts at ${rules.eib_buyout_share}% of its disbursed amount; a top-up at ${i.topup_share}% of its incremental amount${i.topup_share < 100 ? '' : ' (70% from the October 2026 cycle)'}.</p>
+    ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
+  </div>`;
+}
+
+// An auto loan sales person's incentive for the cycle: points from disbursal, excess over target and the multiplier.
+function alIncentiveCard({ incentive: i, al_rules: r, conditions = [] }) {
+  const kinds = [['new_loans', 'new'], ['used_loans', 'used'], ['algo_loans', 'algo'], ['low_loans', 'low-payout']].filter(([k]) => i[k]).map(([k, l]) => `${i[k]} ${l}`).join(', ');
+  return html`<div class="card incentive">
+    <div class="card-head"><h2>My incentive · ${i.full_payout_met ? 'higher multiplier' : 'standard multiplier'}</h2>
+      <span class="chip ${i.full_payout_met ? 'good' : ''}">AED ${i.multiplier.toFixed(2)} per excess point</span></div>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Production points</span><span class="kpi-value">${fmtAmount(i.points)}</span><span class="kpi-sub">AED ${fmtAmount(i.disbursed)} disbursed on ${i.loans} ${i.loans === 1 ? 'loan' : 'loans'}${kinds ? ` (${kinds})` : ''}</span></div>
+      <div class="kpi"><span class="kpi-label">Excess over target</span><span class="kpi-value">${i.excess_points == null ? '—' : fmtAmount(i.excess_points)}</span><span class="kpi-sub">${i.target == null ? 'no auto loan target set for this cycle' : `target ${fmtAmount(i.target)} points · ${i.achievement_pct}% achieved`}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">${i.incentive_aed == null ? '—' : `AED ${fmtAmount(i.incentive_aed)}`}</span><span class="kpi-sub">${i.excess_points ? `${fmtAmount(i.excess_points)} × AED ${i.multiplier.toFixed(2)}` : 'no excess points yet'}</span></div>
+    </div>
+    <ul class="checklist">
+      <li>${i.full_payout_met ? '✓' : '○'} New and used car disbursal: AED ${fmtAmount(i.full_payout_aed)} of AED ${fmtAmount(r.full_payout_aed)}${i.full_payout_met ? '' : ` (AED ${fmtAmount(i.short_by)} more for AED ${r.multiplier_high.toFixed(2)} a point)`}${i.algo_aed ? ` · algo loans (AED ${fmtAmount(i.algo_aed)}) earn points but do not count here` : ''}</li>
+    </ul>
+    <p class="muted small">A loan's points are its disbursed amount at the bank's payout rate: new and used car loans ${r.rates_pct.new.toFixed(2)}%, algo loans ${r.rates_pct.algo.toFixed(2)}%, low-payout non-algo loans nil. Points beyond target pay AED ${r.multiplier_high.toFixed(2)} each once new and used disbursal reaches AED ${fmtAmount(r.full_payout_aed)} in the cycle, otherwise AED ${r.multiplier_low.toFixed(2)}. Only loans on files completed in the cycle count.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
 }
@@ -2158,7 +2186,7 @@ async function viewTargets(cycleParam) {
     <h2 class="tiles-head">${r === 'sales' ? 'Achieved against target' : `${scopeTitle} · ${rep.staff.length} sales staff`}</h2>
     ${targetTiles(rep, rep.total)}
     ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
-    ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : incentiveCard(mine)) : ''}
+    ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : mine.type === 'auto_loan' ? alIncentiveCard(mine) : incentiveCard(mine)) : ''}
     ${groupTable('By team leader', rep.by_team_leader)}
     ${groupTable('By sales manager', rep.by_sales_manager)}
     ${r !== 'sales' ? html`<div class="card" id="staff-card">
@@ -2577,13 +2605,6 @@ const BULK = {
     template: 'salary-targets-template.csv',
     done: ['#/targets', 'Open targets'],
   },
-  auto_loan_points: {
-    tab: 'Auto loan points',
-    title: 'Upload auto loan points',
-    lede: 'The points an auto loan earns by the amount disbursed: one row per amount band, bands must not overlap. Until this is uploaded each auto loan counts 1 point. Card points come from the card product list.',
-    template: 'auto-loan-points-template.csv',
-    done: ['#/targets', 'Open targets'],
-  },
   payout_rules: {
     tab: 'Payout rules',
     title: 'Upload the bank\'s payout rates',
@@ -2608,7 +2629,6 @@ const BULK_WORDS = {
   targets: { one: 'target row', many: 'target rows', verb: 'Saved', who: 'Sales staff', names: ['salescode', 'cycle'], sep: ' · ', after: 'Staff see them on their Targets page.', excel: '' },
   card_products: { one: 'card', many: 'cards', verb: 'Listed', who: 'Card', names: ['cardname'], sep: ' ', after: 'The New case form now offers exactly these cards.', excel: '' },
   target_rules: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['product', 'salaryfromaed'], sep: ' · ', after: 'Press Generate from salaries on the Targets page to apply them.', excel: '' },
-  auto_loan_points: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['loanamountfromaed'], sep: ' ', after: 'Auto loan points now use these bands.', excel: '' },
   payout_rules: { one: 'rule', many: 'rules', verb: 'Saved', who: 'Rule', names: ['rule'], sep: ' ', after: 'Payouts on files, the dashboard and reports now use these rates.', excel: '' },
 };
 

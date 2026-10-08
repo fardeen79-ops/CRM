@@ -7,7 +7,7 @@
 import { caseProducts, includesCard, COMPLETED_IN_SQL, REGIONS, WorkflowError } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { isEibBuyout } from './payouts.js';
-import { achievedBy } from './performance.js';
+import { achievedBy, autoLoanRate, autoLoanPoints, AUTO_LOAN_POINT_RATES } from './performance.js';
 
 export const INCENTIVE_RULES = {
   rate_high: 1.25, // AED per excess point when a criterion is met
@@ -69,6 +69,66 @@ export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell'
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// Auto loan sales staff: the loan's points are its disbursed amount at the bank's payout rate (new and
+// used car loans 0.80%, algo loans 0.25%, low-payout non-algo loans nothing). Points beyond the staff
+// member's auto loan target pay AED 1.10 each once new and used car disbursal in the cycle reaches
+// AED 250,000, otherwise AED 0.60 each. Algo loans earn points but do not count towards the AED 250,000.
+export const AL_INCENTIVE_RULES = {
+  rates_pct: AUTO_LOAN_POINT_RATES, // % of the disbursed amount that becomes points, by loan type or class
+  multiplier_high: 1.1, // AED per excess point at or above the full-payout disbursal below
+  multiplier_low: 0.6, // AED per excess point otherwise
+  full_payout_aed: 250000, // new and used car loans (full payout) disbursed in the cycle
+};
+export const AL_CLASS_LABELS = { new: 'New car', used: 'Used car', algo: 'Algo loan', low: 'Low-payout non-algo' };
+
+/** What a completed auto loan counts for incentives: its class, rate and points. */
+export function countedAutoLoan(c) {
+  if (!caseProducts(c).includes('auto_loan') || !(c.al_disbursed_amount > 0)) return null;
+  const kind = c.al_payout_class && c.al_payout_class !== 'full' ? c.al_payout_class : (c.auto_loan_type || 'used');
+  return { kind, label: AL_CLASS_LABELS[kind], disbursed: c.al_disbursed_amount, rate_pct: autoLoanRate(c), points: autoLoanPoints(c), full_payout: kind === 'new' || kind === 'used' };
+}
+
+/** One auto loan sales person's incentive for a cycle: points from disbursal, excess over target, the multiplier earned. */
+export function alIncentiveFor(db, staffId, cycle) {
+  const { start, end } = cycleRange(cycle);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end);
+  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'auto_loan'").get(staffId, cycle)?.target ?? null;
+  const n = { new: 0, used: 0, algo: 0, low: 0 };
+  let loans = 0; let disbursed = 0; let full_payout_aed = 0; let algo_aed = 0; let low_aed = 0; let points = 0;
+  for (const c of rows) {
+    const loan = countedAutoLoan(c);
+    if (!loan) continue;
+    loans++; n[loan.kind]++;
+    disbursed += loan.disbursed;
+    points += loan.points;
+    if (loan.full_payout) full_payout_aed += loan.disbursed;
+    else if (loan.kind === 'algo') algo_aed += loan.disbursed;
+    else low_aed += loan.disbursed;
+  }
+  points = round2(points);
+  const high = full_payout_aed >= AL_INCENTIVE_RULES.full_payout_aed;
+  const multiplier = high ? AL_INCENTIVE_RULES.multiplier_high : AL_INCENTIVE_RULES.multiplier_low;
+  const excess_points = target == null ? null : Math.max(0, round2(points - target));
+  return {
+    cycle, target, loans, new_loans: n.new, used_loans: n.used, algo_loans: n.algo, low_loans: n.low, disbursed, full_payout_aed, algo_aed, low_aed, points,
+    achievement_pct: target ? Math.round((points / target) * 1000) / 10 : null, excess_points, full_payout_met: high, multiplier,
+    short_by: high ? 0 : round2(AL_INCENTIVE_RULES.full_payout_aed - full_payout_aed), incentive_aed: excess_points == null ? null : round2(excess_points * multiplier), files: rows.length,
+  };
+}
+
+/** Every auto loan sales person's incentive for the cycle, as report rows. */
+export function alIncentiveRows(db, cycle, region = null) {
+  const r = String(region || '').toUpperCase();
+  if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, tl.name AS team_leader, sm.name AS sales_manager
+    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id
+    WHERE u.role = 'sales' AND u.active = 1 AND u.core_product = 'auto_loan'${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(...(region ? [r] : []));
+  return staff.map((s) => {
+    const i = alIncentiveFor(db, s.id, cycle);
+    return { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, multiplier: `AED ${i.multiplier.toFixed(2)}`, full_payout_met: i.full_payout_met ? 'Yes' : 'No' };
+  }).sort((a, b) => (b.incentive_aed ?? -1) - (a.incentive_aed ?? -1) || a.staff.localeCompare(b.staff));
+}
+
 /** The share of a top-up's incremental amount that counts in a cycle: 70% from October 2026, 100% before. */
 export const topupShare = (cycle) => (String(cycle) >= INCENTIVE_RULES.topup_share_from_cycle ? INCENTIVE_RULES.topup_share : 100);
 
@@ -118,15 +178,16 @@ export function incentiveFor(db, staffId, cycle) {
   };
 }
 
-/** The staff member's own incentive, for the Targets page; null unless they sell credit cards. */
+/** The staff member's own incentive, for the Targets page; null unless they sell cards or loans. */
 export function myIncentive(db, user, cycle) {
   if (user.role !== 'sales') throw new WorkflowError(403, 'Incentives are shown to sales staff');
   cycle = cycle ? String(cycle) : cycleOf(uaeDay());
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const me = db.prepare('SELECT core_product FROM users WHERE id = ?').get(user.id);
-  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
+  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, al_rules: AL_INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
   if (me?.core_product === 'credit_card') return { ...base, type: 'credit_card', incentive: incentiveFor(db, user.id, cycle) };
   if (me?.core_product === 'personal_loan') return { ...base, type: 'personal_loan', incentive: plIncentiveFor(db, user.id, cycle) };
+  if (me?.core_product === 'auto_loan') return { ...base, type: 'auto_loan', incentive: alIncentiveFor(db, user.id, cycle) };
   return { ...base, type: null, incentive: null };
 }
 

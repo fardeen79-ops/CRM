@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -79,6 +79,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'incremental_amount', header: 'Incremental amount', example: '100000', help: 'Top Up' },
   { key: 'amount', header: 'Auto loan amount', example: '', help: 'Auto loan, AED' },
   { key: 'auto_loan_type', header: 'Auto loan type', example: '', allowed: ['New', 'Used'], help: 'Auto loan' },
+  { key: 'al_payout_class', header: 'Auto loan payout class', example: '', allowed: ['Full payout', 'Algo loan', 'Low-payout non-algo'], help: 'Auto loan; Full payout if blank' },
   { key: 'car_make', header: 'Car make', example: '', help: 'Auto loan' },
   { key: 'car_model', header: 'Car model', example: '', help: 'Auto loan' },
   { key: 'car_year', header: 'Car year', example: '', help: 'Auto loan' },
@@ -112,11 +113,6 @@ export const TARGET_RULE_IMPORT_COLUMNS = [
   { key: 'target', header: 'Target', required: true, example: '600000', help: 'Credit card and auto loan: points. Personal loan: AED to disburse. Accounts: number of accounts' },
 ];
 
-export const AUTO_LOAN_POINTS_IMPORT_COLUMNS = [
-  { key: 'amount_from', header: 'Loan amount from (AED)', required: true, example: '0', help: 'Lowest disbursed amount in the band, inclusive' },
-  { key: 'amount_to', header: 'Loan amount to (AED)', required: true, example: '99999', help: 'Highest disbursed amount in the band, inclusive' },
-  { key: 'points', header: 'Points', required: true, example: '1', help: 'Points an auto loan in this band earns' },
-];
 
 export const PAYOUT_RULE_IMPORT_COLUMNS = [
   { key: 'rule', header: 'Rule', required: true, example: 'card:Mass', help: `One of: ${PAYOUT_KEYS.join(', ')} (the rule's name as shown on the Payout rules page also works)` },
@@ -260,7 +256,7 @@ function caseInput(v) {
     personal_loan_type: choose(v.personal_loan_type, PERSONAL_LOAN_TYPES, 'Personal loan type'),
     card_fee_type: choose({ firstyearfree: 'fyf', freeforlife: 'ffl', fullannualfee: 'full_fee' }[norm(v.card_fee_type)] || v.card_fee_type, { fyf: 'FYF', full_fee: 'Full fee', ffl: 'FFL' }, 'Card sourced type'),
     fpd: v.fpd ? parseDate(v.fpd, 'FPD') : '',
-    pl_tenure: v.pl_tenure, amount: v.amount, auto_loan_type: v.auto_loan_type ? choose(v.auto_loan_type, AUTO_LOAN_TYPES, 'Auto loan type') : '', car_make: v.car_make, car_model: v.car_model, car_year: v.car_year, dealer_details: v.dealer_details, al_lead_source: v.al_lead_source, al_interest_rate: v.al_interest_rate, al_tenure: v.al_tenure,
+    pl_tenure: v.pl_tenure, amount: v.amount, auto_loan_type: v.auto_loan_type ? choose(v.auto_loan_type, AUTO_LOAN_TYPES, 'Auto loan type') : '', al_payout_class: v.al_payout_class ? choose(v.al_payout_class, AUTO_LOAN_CLASSES, 'Auto loan payout class') : '', car_make: v.car_make, car_model: v.car_model, car_year: v.car_year, dealer_details: v.dealer_details, al_lead_source: v.al_lead_source, al_interest_rate: v.al_interest_rate, al_tenure: v.al_tenure,
     bundle_products: product === 'bundle'
       ? String(v.bundle_products || '').split(/[;,|/+]/).map((p) => p.trim()).filter(Boolean).map((p) => choose(p, PRODUCTS, 'Bundle product'))
       : '',
@@ -403,34 +399,6 @@ export function importTargetRules(db, user, csv, { dryRun = false } = {}) {
     }
     for (const r of parsed.filter((r) => r.ok)) {
       db.prepare('INSERT INTO target_rules (product, salary_from, salary_to, target, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?)').run(r.product, r.from, r.to, r.target, user.id, ts);
-    }
-    return parsed;
-  });
-  return summarize(header, unknown, results, dryRun);
-}
-
-/** Replaces the auto loan points bands with a CSV file. */
-export function importAutoLoanPoints(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
-  const { header, records, unknown } = readFile(csv, AUTO_LOAN_POINTS_IMPORT_COLUMNS);
-  const ts = new Date().toISOString();
-  const results = run(db, dryRun, () => {
-    const parsed = records.map((record) => rowResult(record, () => {
-      const v = record.values;
-      const from = money(v.amount_from, 'Loan amount from');
-      const to = money(v.amount_to, 'Loan amount to');
-      if (to < from) throw new Error('Loan amount to is below loan amount from');
-      const points = money(v.points, 'Points');
-      return { from, to, points, line: record.line, label: `AED ${from.toLocaleString('en-US')}–${to.toLocaleString('en-US')}`, email: `${points} points` };
-    }));
-    try {
-      noOverlap(parsed.filter((r) => r.ok), 'Band');
-    } catch (err) {
-      for (const r of parsed) if (r.ok) { r.ok = false; r.error = err.message; }
-    }
-    if (parsed.some((r) => r.ok)) {
-      db.exec('DELETE FROM auto_loan_points');
-      for (const r of parsed.filter((r) => r.ok)) db.prepare('INSERT INTO auto_loan_points (amount_from, amount_to, points, set_by, set_at) VALUES (?, ?, ?, ?, ?)').run(r.from, r.to, r.points, user.id, ts);
     }
     return parsed;
   });

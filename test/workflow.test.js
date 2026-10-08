@@ -1383,20 +1383,15 @@ test('salary-based targets: bands and points are uploaded, targets generated, po
   assert.equal(rep.setup.staff_with_salary, 1);
   assert.deepEqual(rep.staff.find((s) => s.id === sallyId).target, { credit_card: 100, personal_loan: 600000, auto_loan: 20 });
   assert.equal(rep.staff.find((s) => s.id === sallyId).salary, 5000);
-  // Auto loan points by amount band, with a preview that saves nothing.
-  const bands = 'Loan amount from (AED),Loan amount to (AED),Points\n0,99999,5\n100000,249999,12\n250000,999999999,25\n';
-  await mis('POST', '/import/auto_loan_points', { csv: bands, dry_run: true });
-  assert.equal((await mis('GET', '/targets')).data.setup.auto_loan_bands, 0);
-  assert.equal((await mis('POST', '/import/auto_loan_points', { csv: bands })).data.ok, 3);
-  assert.equal((await mis('GET', '/targets')).data.setup.auto_loan_bands, 3);
-  // A completed auto loan of AED 150,000 earns 12 points; a card earns the product list's points.
+  // A completed used car loan of AED 150,000 earns 1,200 points (0.80% of the disbursed amount); a card earns the product list's points.
+  assert.equal((await mis('GET', '/targets')).data.setup.auto_loan_rates.used, 0.8);
   const autoBefore = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.auto_loan;
   const car = await sales('POST', '/cases', { ...newCase, product: 'auto_loan', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, amount: 150000, core_product: 'auto_loan' });
   assert.equal(car.status, 201, JSON.stringify(car.data));
   await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' });
   assert.equal((await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_disbursal', al_disbursed_amount: 150000 })).status, 200);
   const now = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId);
-  assert.equal(now.achieved.auto_loan, autoBefore + 12);
+  assert.equal(now.achieved.auto_loan, autoBefore + 1200);
   assert.ok(now.cases.auto_loan >= 1);
   const cardsBefore = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.credit_card;
   const card = await sales('POST', '/cases', { ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'New Cashback Credit Card', card_fee_type: 'fyf' });

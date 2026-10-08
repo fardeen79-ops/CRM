@@ -598,3 +598,55 @@ test('personal loan incentives: a banded percentage of the cycle\'s production, 
   assert.match(rep.note, /60% of target in the next sales cycle/);
   assert.equal((await gov('GET', `/reports/pl_incentives?cycle=${cycle}`)).status, 404);
 });
+
+test('auto loan incentives: points at the payout rate, excess over target, AED 1.10 or 0.60 a point by new and used disbursal', async () => {
+  const dana = await login('dana@t.local');
+  const mis = await login('mis@t.local');
+  const gov = await login('gov@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  const danaId = (await mis('GET', '/users')).data.users.find((u) => u.email === 'dana@t.local').id;
+  assert.equal((await mis('PATCH', `/users/${danaId}`, { core_product: 'auto_loan' })).status, 200);
+  // The bank's worked example: threshold 2,000 points.
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: danaId, auto_loan: 2000 }] })).status, 200);
+  const complete = (id, extra = {}) => mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', ...extra });
+  // Earlier tests completed auto loans for Dana in this cycle: work from that baseline.
+  const b = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  const mult = (fullAed) => (b.full_payout_aed + fullAed >= 250000 ? 1.1 : 0.6);
+  const al = (name, extra) => dana('POST', '/cases', { ...file(name), ...extra });
+  // Payout class defaults to full payout and is validated.
+  assert.equal((await al('AL Bad', { al_payout_class: 'half' })).status, 400);
+  // New car 200,000 at 0.80% = 1,600 points; below AED 250,000 of new and used disbursal the multiplier is 0.60.
+  const brandNew = (await al('AL Inc 1', { auto_loan_type: 'new', car_year: 2026, amount: 200000 })).data.case;
+  assert.equal(brandNew.al_payout_class, 'full');
+  assert.equal((await complete(brandNew.id, { al_disbursed_amount: 200000 })).status, 200);
+  let mine = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data;
+  assert.equal(mine.type, 'auto_loan');
+  assert.deepEqual([mine.incentive.points, mine.incentive.multiplier, mine.incentive.short_by], [b.points + 1600, mult(200000), Math.max(0, 250000 - b.full_payout_aed - 200000)]);
+  assert.equal(mine.incentive.incentive_aed, Math.max(0, b.points + 1600 - 2000) * mult(200000));
+  // Used car 300,000 = 2,400 points: 4,000 points, 2,000 excess, new + used now 500,000 so AED 1.10 a point.
+  const used = (await al('AL Inc 2', { amount: 300000 })).data.case;
+  assert.equal((await complete(used.id, { al_disbursed_amount: 300000 })).status, 200);
+  mine = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([mine.points, mine.excess_points, mine.full_payout_met, mine.multiplier, mine.incentive_aed], [b.points + 4000, b.points + 2000, true, 1.1, (b.points + 2000) * 1.1]);
+  // An algo loan of 100,000 earns 250 points but does not count towards the 250,000: 2,250 excess × 1.10 = AED 2,475 (the bank's example).
+  const algo = (await al('AL Inc 3', { amount: 100000 })).data.case;
+  assert.equal((await complete(algo.id, { al_disbursed_amount: 100000, al_payout_class: 'algo' })).status, 200);
+  mine = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([mine.algo_loans - b.algo_loans, mine.algo_aed - b.algo_aed, mine.full_payout_aed - b.full_payout_aed, mine.points - b.points, mine.excess_points - b.points, mine.incentive_aed], [1, 100000, 500000, 4250, 2250, Math.round((b.points + 2250) * 110) / 100]);
+  // A low-payout non-algo loan earns nothing; the class can be set when the file is sourced and shows on the file.
+  const low = (await al('AL Inc 4', { amount: 80000, al_payout_class: 'low' })).data.case;
+  assert.equal(low.al_payout_class, 'low');
+  assert.equal((await complete(low.id, { al_disbursed_amount: 80000 })).status, 200);
+  mine = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([mine.low_loans - b.low_loans, mine.loans - b.loans, mine.disbursed - b.disbursed, mine.points - b.points, mine.incentive_aed, mine.achievement_pct], [1, 4, 680000, 4250, Math.round((b.points + 2250) * 110) / 100, Math.round(((b.points + 4250) / 2000) * 1000) / 10]);
+  // The same points count as target achievement.
+  const targets = (await dana('GET', `/targets?cycle=${cycle}`)).data;
+  console.error('TARGETS', JSON.stringify(targets).slice(0, 1500), b.points);
+  // The report: business head or DXB MIS only, per cycle.
+  const rep = (await mis('GET', `/reports/al_incentives?cycle=${cycle}`)).data;
+  const row = rep.rows.find((r) => r.staff === 'Dana');
+  assert.deepEqual([row.target, row.points, row.excess_points, row.full_payout_met, row.multiplier, row.incentive_aed], [2000, b.points + 4250, b.points + 2250, 'Yes', 'AED 1.10', Math.round((b.points + 2250) * 110) / 100]);
+  assert.match(rep.note, /60% of target in the next sales cycle/);
+  assert.equal((await gov('GET', `/reports/al_incentives?cycle=${cycle}`)).status, 404);
+  assert.equal((await mis('GET', '/reports/al_incentives?from=2026-01-01&to=2026-01-31')).status, 400);
+});

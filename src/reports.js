@@ -7,7 +7,7 @@ import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
-import { incentiveRows, plIncentiveRows, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel } from './incentives.js';
+import { incentiveRows, plIncentiveRows, alIncentiveRows, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
@@ -25,6 +25,7 @@ export const REPORTS = {
   card_downsell: { name: 'Cards sold below eligibility', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards where the customer\'s salary qualified for a higher card category than the one sold, with the points earned, the points the best eligible card would have earned, and the points lost.' },
   incentives: { name: 'Credit card incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each credit card sales person earns on points beyond target: AED 1.25 per excess point with at least 33% Premium or Super Premium cards or AED 50,000 of personal loans cross-sold, else AED 0.70. Personal loans count AED 100 per point; an Emirates Islamic buy-out counts at half, a top-up at 70% of its incremental amount from the October 2026 cycle (100% before). Runs for a sales cycle only. All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank\'s data cut finalisation.' },
   pl_incentives: { name: 'Personal loan incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each personal loan sales person earns on the cycle\'s disbursed production: 0.40% from AED 600K, 0.55% from 750K, 0.75% from 1M, 0.90% from 1.25M, 1.10% from 1.5M and 1.20% from 2M, on the whole production; nothing below AED 600K. An Emirates Islamic buy-out counts at half, a top-up at 70% of its incremental amount from the October 2026 cycle (100% before). Runs for a sales cycle only. All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank\'s data cut finalisation.' },
+  al_incentives: { name: 'Auto loan incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each auto loan sales person earns on points beyond target: a loan\'s points are its disbursed amount at the payout rate (new and used 0.80%, algo 0.25%, low-payout non-algo nil), paid AED 1.10 a point once new and used disbursal reaches AED 250,000 in the cycle, else AED 0.60.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -433,7 +434,22 @@ function pl_incentives(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives };
+function al_incentives(db, user, { period, region }) {
+  if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
+  const rows = alIncentiveRows(db, period.cycle, region);
+  const r = AL_INCENTIVE_RULES;
+  return {
+    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+      col('target', 'AL target (points)', 'points'), col('loans', 'Loans disbursed'), col('new_loans', 'New car'), col('used_loans', 'Used car'), col('algo_loans', 'Algo'), col('low_loans', 'Low payout'),
+      col('disbursed', 'Disbursed (AED)', 'aed'), col('full_payout_aed', 'New + used (AED)', 'aed'), col('points', 'Production points', 'points'), col('achievement_pct', 'Of target', 'pct'), col('excess_points', 'Excess points', 'points'),
+      col('full_payout_met', `AED ${r.full_payout_aed.toLocaleString('en-US')} met`, 'text'), col('multiplier', 'Per point', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed')],
+    rows,
+    note: `${INCENTIVE_CONDITIONS.join(' ')} Points: new and used car loans ${r.rates_pct.new.toFixed(2)}% of the disbursed amount, algo loans ${r.rates_pct.algo.toFixed(2)}%, low-payout non-algo loans nil. Excess points pay AED ${r.multiplier_high.toFixed(2)} when new and used disbursal reaches AED ${r.full_payout_aed.toLocaleString('en-US')}, else AED ${r.multiplier_low.toFixed(2)}.`,
+    totals: { staff: `${rows.length} staff`, loans: sum(rows, 'loans'), new_loans: sum(rows, 'new_loans'), used_loans: sum(rows, 'used_loans'), algo_loans: sum(rows, 'algo_loans'), low_loans: sum(rows, 'low_loans'), disbursed: sum(rows, 'disbursed'), full_payout_aed: sum(rows, 'full_payout_aed'), points: sum(rows, 'points'), excess_points: sum(rows, 'excess_points'), incentive_aed: sum(rows, 'incentive_aed'), full_payout_met: `${rows.filter((x) => x.full_payout_met === 'Yes').length} at AED ${r.multiplier_high.toFixed(2)}` },
+  };
+}
+
+const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
