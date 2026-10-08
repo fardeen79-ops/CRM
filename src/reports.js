@@ -74,10 +74,11 @@ function sourcing(db, user, { period, region }) {
     // One row per sales person per team they filed under, so a team change keeps old files with the old team.
     const id = `${c.sales_staff_id ?? c.created_by}|${c.team_leader_id ?? 0}|${c.sales_manager_id ?? 0}`;
     const s = staff.get(c.sales_staff_id ?? c.created_by) || { name: c.sales_staff_name || 'Unknown' };
-    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, temp_ends: 0, cards_active: 0, loans: 0 });
+    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, temp_ends: 0, cards_active: 0, loans: 0 });
     const r = by.get(id);
     r.sourced++;
     if ([STATUS.PENDING, STATUS.IN_VERIFICATION].includes(c.status)) r.awaiting++;
+    if (c.status === STATUS.APPROVAL) r.approval++;
     if (c.status === STATUS.COMPLETED) r.verified++;
     if (c.status === STATUS.INCOMPLETE) r.verification_pending++;
     if (c.status === STATUS.REJECTED) r.verification_rejected++;
@@ -92,10 +93,10 @@ function sourcing(db, user, { period, region }) {
   const out = [...by.values()].sort((a, b) => b.sourced - a.sourced || a.staff.localeCompare(b.staff));
   return {
     columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('asm', 'ASM', 'text'),
-      col('sourced', 'Sourced'), col('awaiting', 'Awaiting verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales'),
+      col('sourced', 'Sourced'), col('approval', 'Awaiting TL/SM approval'), col('awaiting', 'Awaiting verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales'),
       col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active')],
     rows: out,
-    totals: Object.fromEntries(['sourced', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
+    totals: Object.fromEntries(['sourced', 'approval', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
   };
 }
 
@@ -105,17 +106,17 @@ function pipeline(db, user, { period, region }) {
   const by = new Map();
   for (const r of rows) {
     const key = `${r.region || ''}|${r.core_product || ''}`;
-    if (!by.has(key)) by.set(key, { region: r.region || 'Not set', product: CORE_PRODUCTS[r.core_product] || r.core_product || 'Not set', files: 0, ...Object.fromEntries(Object.keys(CASE_STATUS).map((k) => [k, 0])), awaiting: 0, in_verification: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0 });
+    if (!by.has(key)) by.set(key, { region: r.region || 'Not set', product: CORE_PRODUCTS[r.core_product] || r.core_product || 'Not set', files: 0, ...Object.fromEntries(Object.keys(CASE_STATUS).map((k) => [k, 0])), approval: 0, awaiting: 0, in_verification: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0 });
     const t = by.get(key);
     t.files += r.n;
     t[r.case_status] += r.n;
-    t[{ pending_verification: 'awaiting', in_verification: 'in_verification', completed: 'verified', incomplete: 'verification_pending', rejected: 'verification_rejected', returned_to_sales: 'returned' }[r.status]] += r.n;
+    t[{ awaiting_approval: 'approval', pending_verification: 'awaiting', in_verification: 'in_verification', completed: 'verified', incomplete: 'verification_pending', rejected: 'verification_rejected', returned_to_sales: 'returned' }[r.status]] += r.n;
   }
   const out = [...by.values()].sort((a, b) => a.region.localeCompare(b.region) || a.product.localeCompare(b.product));
-  const keys = ['files', 'sent_to_check', 'applicant_review', 'completed', 'rejected', 'awaiting', 'in_verification', 'verified', 'verification_pending', 'verification_rejected', 'returned'];
+  const keys = ['files', 'sent_to_check', 'applicant_review', 'completed', 'rejected', 'approval', 'awaiting', 'in_verification', 'verified', 'verification_pending', 'verification_rejected', 'returned'];
   return {
     columns: [col('region', 'Region', 'text'), col('product', 'Core product', 'text'), col('files', 'Files'), col('sent_to_check', 'Sent to checker'), col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'),
-      col('awaiting', 'Awaiting verification'), col('in_verification', 'In verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales')],
+      col('approval', 'Awaiting TL/SM approval'), col('awaiting', 'Awaiting verification'), col('in_verification', 'In verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales')],
     rows: out,
     totals: Object.fromEntries(keys.map((k) => [k, sum(out, k)])),
   };
@@ -297,7 +298,7 @@ function access(db, user, { period, region }) {
   };
 }
 
-const VERIFICATION_LABELS = { pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
+const VERIFICATION_LABELS = { awaiting_approval: 'Awaiting TL/SM approval', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
 const REGISTER_LIMIT = 5000;
 function register(db, user, { period, region }) {
   sweepCardAgeing(db);

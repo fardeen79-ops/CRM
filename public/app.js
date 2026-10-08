@@ -4,6 +4,7 @@ import { speechSupported, listen, readBackMatches } from './speech.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
 const STATUS_LABEL = {
+  awaiting_approval: 'Awaiting TL/SM approval',
   pending_verification: 'Awaiting verification',
   in_verification: 'In verification',
   completed: 'Verification completed',
@@ -66,7 +67,7 @@ const ACTION_LABEL = {
   bulk_upload: 'Added by bulk upload',
 };
 
-const state = { user: null, meta: null, region: '', unread: 0, unreadMessages: 0, actionRequired: 0, editRequests: 0, qc: 0, recordings: 0, urgent: 0, callbacksDue: 0 };
+const state = { user: null, meta: null, region: '', unread: 0, unreadMessages: 0, actionRequired: 0, editRequests: 0, cardApprovals: 0, qc: 0, recordings: 0, urgent: 0, callbacksDue: 0 };
 const app = document.getElementById('app');
 
 // Roles that see every file can narrow the whole app to one region (DXB or AUH).
@@ -249,6 +250,7 @@ async function refreshCounters() {
       const s = await api('/stats');
       state.actionRequired = s.by_status.incomplete;
       state.editRequests = s.edit_requests;
+      state.cardApprovals = s.card_approvals ?? 0;
       state.qc = s.governance?.qc ?? 0;
       state.urgent = s.governance?.urgent ?? 0;
       // Business heads see requests awaiting approval; governance sees ones waiting on IT.
@@ -303,11 +305,12 @@ function navGroups() {
   const r = effRole();
   const urgent = ['#/urgent', 'Urgent', 'urgent', 'data-urgent-count', state.urgent];
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
+  const cardApprovals = ['#/card-approvals', 'Card approvals', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
   const work = [['#/', 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
-  if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests);
-  if (r === 'sales_manager') work.push(editRequests);
+  if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
+  if (r === 'sales_manager') work.push(editRequests, cardApprovals);
   if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings]);
   if (r === 'governance') {
     work.push(urgent, ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc], ['#/recordings', 'Recordings', 'mic', 'data-rec-count', state.recordings]);
@@ -454,6 +457,9 @@ async function route() {
     if (path === '/action-required') {
       return await viewCases({ title: 'Action required', subtitle: 'Files the processing team marked Verification pending. Decide whether to return to sales, re-verify, or reject.', params, fixedStatus: 'incomplete' });
     }
+    if (path === '/card-approvals') {
+      return await viewCases({ title: 'Card approvals', subtitle: 'Credit cards sold to customers whose salary is below the card\'s requirement, with no reason chosen by the sales person. Open a file to record a product deviation or new promotion and send it for verification, or return it to sales.', params, fixedStatus: 'awaiting_approval', cols: ['ref', 'customer', 'source_by', 'sourced', 'updated'], empty: 'Nothing waiting for your approval' });
+    }
     if (path === '/edit-requests') {
       return await viewCases({
         title: 'Edit requests',
@@ -513,7 +519,8 @@ async function viewDashboard() {
 
   const verifyTiles = [];
   if (r === 'team_leader') verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
-  if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0]);
+  if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0], ['Card approvals', s.card_approvals, '#/card-approvals', s.card_approvals > 0]);
+  else if (r !== 'sales' && r !== 'processing') verifyTiles.push(['Awaiting TL/SM approval', by.awaiting_approval, '#/cases?status=awaiting_approval']);
   if (['processing', 'team_leader'].includes(r)) verifyTiles.unshift(['Urgent verification', s.governance.urgent, '#/urgent', s.governance.urgent > 0]);
   if (r === 'processing') {
     verifyTiles.unshift(['Call-backs due', s.callbacks.due, '#/callbacks', s.callbacks.due > 0, `${s.callbacks.upcoming} upcoming`]);
@@ -943,7 +950,7 @@ async function viewCaseForm(id) {
             <select id="f-credit_card" name="credit_card" required disabled>
               <option value="">Choose a card…</option>
               ${state.meta.credit_cards.map((f) => html`<optgroup label="${f.family}">
-                ${f.cards.map((card) => html`<option value="${card.name}" data-category="${card.category}" data-points="${card.points ?? ''}" ${c.credit_card === card.name ? raw('selected') : ''}>${card.name}</option>`)}
+                ${f.cards.map((card) => html`<option value="${card.name}" data-category="${card.category}" data-points="${card.points ?? ''}" data-min-salary="${card.min_salary ?? ''}" ${c.credit_card === card.name ? raw('selected') : ''}>${card.name}</option>`)}
               </optgroup>`)}
               ${c.credit_card && !state.meta.credit_cards.some((f) => f.cards.some((card) => card.name === c.credit_card)) ? html`<option value="${c.credit_card}" data-category="${c.card_category || ''}" selected>${c.credit_card} (retired)</option>` : ''}
             </select>
@@ -951,6 +958,7 @@ async function viewCaseForm(id) {
               <div><label for="f-card_category">Card category</label><input id="f-card_category" value="${c.card_category || ''}" readonly placeholder="From the card chosen" tabindex="-1"></div>
               <div><label for="f-card_points">Points</label><input id="f-card_points" value="${c.card_points ?? ''}" readonly placeholder="Not set yet" tabindex="-1"></div>
             </div>
+            <div id="card-salary-check" data-exception="${c.card_salary_exception || ''}" data-note="${c.card_exception_note || ''}" data-known-below="${c.status === 'awaiting_approval' || c.card_salary_exception ? '1' : ''}"></div>
             <div class="sub-label" style="margin-top:12px">Card sourced type <span class="req">*</span></div>
             <div class="segmented three-up">
               ${Object.entries(state.meta.card_fee_types).map(([k, l]) => html`<label><input type="radio" name="card_fee_type" value="${k}" required disabled ${c.card_fee_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
@@ -997,7 +1005,52 @@ async function viewCaseForm(id) {
     const opt = cardSelect.selectedOptions[0];
     $('#f-card_category').value = opt?.dataset.category || '';
     $('#f-card_points').value = opt?.dataset.points || '';
+    checkCardSalary();
   };
+  // The salary check: a card the customer earns too little for needs a reason or team approval; a
+  // salary that qualifies for a higher card prompts the sales person to offer one.
+  const salaryInput = $('#f-salary');
+  const checkBox = $('#card-salary-check');
+  const allCards = state.meta.credit_cards.flatMap((f) => f.cards);
+  const checkCardSalary = () => {
+    const opt = cardSelect.selectedOptions[0];
+    const min = opt?.dataset.minSalary ? Number(opt.dataset.minSalary) : null;
+    const typed = salaryInput.value.replace(/,/g, '').trim();
+    // On an edit form the salary is masked; the server's own verdict stands until a new salary is typed.
+    const masked = salaryInput.hasAttribute('data-masked') && typed === '';
+    const salary = typed === '' ? NaN : Number(typed);
+    if (cardField.hidden || !opt?.value || min == null) { checkBox.innerHTML = ''; checkBox.dataset.state = ''; return; }
+    if (Number.isNaN(salary) && !masked) {
+      checkBox.dataset.state = 'no-salary';
+      checkBox.innerHTML = html`<div class="callout warn small"><strong>Enter the customer's monthly salary.</strong> ${opt.value} needs AED ${min.toLocaleString()}; the salary decides whether this card can go ahead.</div>`.s;
+      return;
+    }
+    const below = masked ? (checkBox.dataset.knownBelow === '1' && opt.value === c.credit_card) : salary < min;
+    if (below) {
+      const chosen = checkBox.dataset.exception || '';
+      checkBox.dataset.state = 'below';
+      checkBox.innerHTML = html`<div class="callout danger card-check">
+        <strong>Salary below the card requirement.</strong> ${opt.value} needs AED ${min.toLocaleString()} a month${masked ? '' : `; the customer earns AED ${salary.toLocaleString()}`}.
+        <div class="sub-label" style="margin-top:10px">Why is this card being sold?</div>
+        <div class="segmented two-up" role="radiogroup" aria-label="Reason">
+          ${Object.entries(state.meta.card_exceptions).map(([k, l]) => html`<label><input type="radio" name="card_salary_exception" value="${k}" ${chosen === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+        </div>
+        <input name="card_exception_note" placeholder="Reference or note (optional)" value="${checkBox.dataset.note || ''}" style="margin-top:8px">
+        <p class="muted small" style="margin:8px 0 0">Pick one to send the file straight for verification. Without a reason, the file first goes to your team leader or sales manager for approval.</p>
+      </div>`.s;
+      checkBox.querySelectorAll('[name=card_salary_exception]').forEach((i) => (i.onchange = () => { checkBox.dataset.exception = i.value; }));
+      return;
+    }
+    if (masked) { checkBox.innerHTML = ''; checkBox.dataset.state = 'ok'; return; }
+    const higher = allCards.filter((k) => k.min_salary != null && k.min_salary > min && k.min_salary <= salary).sort((a, b) => b.min_salary - a.min_salary);
+    checkBox.dataset.state = higher.length ? 'higher' : 'ok';
+    checkBox.innerHTML = higher.length ? html`<div class="callout info card-check">
+      <strong>The customer qualifies for a higher card.</strong> A salary of AED ${salary.toLocaleString()} meets the requirement for ${higher.length} ${higher.length === 1 ? 'card' : 'cards'} above ${opt.dataset.category || 'this one'}. Consider offering one:
+      <div class="chips" style="margin-top:8px">${higher.slice(0, 6).map((k) => html`<button type="button" class="chip" data-pick-card="${k.name}" title="Needs AED ${k.min_salary.toLocaleString()}">${k.name} · ${k.category}</button>`)}</div>
+    </div>`.s : html`<p class="muted small" style="margin:8px 0 0">Salary meets the AED ${min.toLocaleString()} requirement for this card.</p>`.s;
+    checkBox.querySelectorAll('[data-pick-card]').forEach((b) => (b.onclick = () => { cardSelect.value = b.dataset.pickCard; syncCard(); }));
+  };
+  salaryInput.addEventListener('input', checkCardSalary);
   cardSelect.onchange = syncCard;
   syncCard();
   const fullAmount = $('#f-full_loan_amount');
@@ -1172,8 +1225,13 @@ async function viewCaseForm(id) {
       form.reportValidity();
       return;
     }
+    const check = document.getElementById('card-salary-check');
+    if (check?.dataset.state === 'below' && !form.querySelector('[name=card_salary_exception]:checked')) {
+      if (!confirm('No reason chosen for selling this card below its salary requirement. Send the file to your team leader / sales manager for approval before verification?')) return;
+    }
     try {
       const body = formData(form);
+      if (check?.dataset.state === 'below' && !('card_salary_exception' in body)) body.card_salary_exception = '';
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
       for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd']) body[f] ??= null;
       // Leave hidden values untouched unless a replacement was typed.
@@ -1245,6 +1303,8 @@ async function viewCase(id) {
   if (c.status === 'incomplete') {
     banner = html`<div class="callout danger"><strong>Verification pending — waiting for team leader action (${ago(c.incomplete_at)})</strong>
       ${label(c.incomplete_reason)}${c.incomplete_note ? `: ${c.incomplete_note}` : ''} <span class="muted">— ${c.assigned_to_name}</span></div>`;
+  } else if (c.status === 'awaiting_approval') {
+    banner = html`<div class="callout warn"><strong>Awaiting team leader / sales manager approval</strong>${c.credit_card} needs a monthly salary of AED ${fmtAmount(c.card_min_salary)} and the customer's salary is below it. No product deviation or promotion was chosen, so the file waits for the team's decision before verification.</div>`;
   } else if (c.status === 'returned_to_sales') {
     banner = html`<div class="callout info"><strong>Returned to sales by ${c.tl_actioned_by_name}</strong>${c.tl_note}
       ${c.incomplete_reason ? html`<div class="muted small">Original issue: ${label(c.incomplete_reason)}${c.incomplete_note ? ` — ${c.incomplete_note}` : ''}</div>` : ''}</div>`;
@@ -1307,6 +1367,20 @@ async function viewCase(id) {
       </form>`);
   }
   if (a.has('release')) panel.push(html`<hr><button data-action="release">Release back to queue</button>`);
+  if (a.has('approve_card')) {
+    panel.push(html`<h3>Card below salary requirement</h3>
+      <p class="muted small">${c.credit_card} needs AED ${fmtAmount(c.card_min_salary)} a month. Record why it is being sold and send the file for verification, or return it to ${c.sales_staff_name || 'sales'}.</p>
+      <form data-form="card_approval">
+        <div class="segmented two-up" role="radiogroup" aria-label="Reason">
+          ${Object.entries(state.meta.card_exceptions).map(([k, l]) => html`<label><input type="radio" name="exception" value="${k}"><span>${l}</span></label>`)}
+        </div>
+        <div class="field-row" style="margin-top:10px"><textarea name="note" placeholder="Reference or note (required when returning to sales)"></textarea></div>
+        <div class="actions">
+          <button data-card="approve_card" class="btn-primary">Approve &amp; send for verification</button>
+          <button data-card="decline_card">↩ Return to sales</button>
+        </div>
+      </form>`);
+  }
   if (a.has('return_to_sales')) {
     panel.push(html`<h3>Team leader decision</h3>
       <form data-form="tl">
@@ -1516,6 +1590,8 @@ async function viewCase(id) {
             ${c.buyout_bank ? html`<dt>Buy-out from</dt><dd><strong>${c.buyout_bank}</strong></dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             ${c.card_category ? html`<dt>Card category</dt><dd><strong>${c.card_category}</strong>${c.card_points != null ? html` <span class="muted">· ${c.card_points} points</span>` : ''}</dd>` : ''}
+            ${c.credit_card && c.card_min_salary != null ? html`<dt>Salary check</dt><dd>Card needs AED ${fmtAmount(c.card_min_salary)} a month · ${c.card_salary_exception || c.status === 'awaiting_approval' ? html`<span class="chip bad">Customer below requirement</span>` : html`<span class="chip good">Customer meets requirement</span>`}</dd>` : ''}
+            ${c.card_salary_exception ? html`<dt>Sold as</dt><dd><strong>${state.meta.card_exceptions[c.card_salary_exception] || c.card_salary_exception}</strong><div class="muted small">by ${c.card_exception_by_name || '—'} on ${fmtDate(c.card_exception_at)}${c.card_exception_note ? ` · ${c.card_exception_note}` : ''}</div></dd>` : ''}
             ${c.card_fee_type ? html`<dt>Card sourced type</dt><dd><strong>${state.meta.card_fee_types[c.card_fee_type] || c.card_fee_type}</strong></dd>` : ''}
             ${c.amount != null ? html`<dt>Amount</dt><dd>${fmtAmount(c.amount)}</dd>` : ''}
           </dl>
@@ -1703,6 +1779,15 @@ async function viewCase(id) {
         const { result, ...rest } = formData(f);
         run({ action: result, ...rest }, f.querySelector('button.btn-primary'));
       };
+    } else if (kind === 'card_approval') {
+      f.onsubmit = (e) => e.preventDefault();
+      f.querySelectorAll('[data-card]').forEach((b) => (b.onclick = (e) => {
+        e.preventDefault();
+        const { exception, note } = formData(f);
+        if (b.dataset.card === 'approve_card' && !exception) { toast('Choose Product deviation or New promotion first', true); return; }
+        if (b.dataset.card === 'decline_card' && !note?.trim()) { toast('Tell the sales person why the file is coming back', true); return; }
+        run({ action: b.dataset.card, exception, note }, b);
+      }));
     } else if (kind === 'tl') {
       f.onsubmit = (e) => e.preventDefault();
       f.querySelectorAll('[data-tl]').forEach((b) => (b.onclick = (e) => {

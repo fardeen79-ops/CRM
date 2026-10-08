@@ -639,3 +639,8 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .staff-kpis { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 960px) { .kpis.staff-kpis { grid-template-columns: repeat(2, 1fr); } }
 .toolbar select { width: auto; }
+
+.st-awaiting_approval { color: var(--s-pending); background: var(--s-pending-bg); outline: 1px dashed currentColor; outline-offset: -1px; }
+.card-check .segmented { margin-top: 6px; }
+.card-check input[name=card_exception_note] { width: 100%; }
+.chip.good { color: var(--s-done); background: var(--s-done-bg); border-color: transparent; }

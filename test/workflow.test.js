@@ -61,6 +61,8 @@ const withProductDefaults = (body) => {
   const products = body.product === 'bundle' || (!body.product && raw) ? (Array.isArray(raw) ? raw : String(raw || '').split(',')) : [body.product];
   const out = { ...body };
   if (products.includes('credit_card') && !('card_fee_type' in out)) out.card_fee_type = 'fyf';
+  // A card needs the customer's salary for the salary check; tests that don't care get a high one.
+  if (products.includes('credit_card') && !('salary' in out)) out.salary = 30000;
   if (products.includes('personal_loan') && !('fpd' in out)) out.fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   return out;
 };
@@ -843,12 +845,12 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   const lead = await login('lead@t.local');
   const sales = await login('sales@t.local');
   const head = await login('bh@t.local');
-  const header = 'Sales code,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID,Card sourced type,FPD';
+  const header = 'Sales code,Salary,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID,Card sourced type,FPD';
   const csv = [
     header,
-    'S-002,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671,,05/11/2026',
-    'S-002,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,,first year free,2026-11-05',
-    'S-002,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,,Full fee,',
+    'S-002,30000,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671,,05/11/2026',
+    'S-002,30000,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,,first year free,2026-11-05',
+    'S-002,30000,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,,Full fee,',
     'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,,,',
   ].join('\n');
   for (const who of [sales, lead]) assert.equal((await who('POST', '/import/cases', { csv })).status, 403);

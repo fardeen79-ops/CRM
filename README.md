@@ -136,6 +136,16 @@ Columns: staff, sourced in the cycle, awaiting verification and verification pen
 
 API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
 
+### Card salary requirement, deviations and team approval
+
+Every card in the product list has a **minimum monthly salary** (an upload column; provisional by tier until the bank's list is loaded). On the form, once a card and the customer's salary are entered:
+
+- **Salary below the requirement:** an error shows with two choices, **Product deviation** or **New promotion** (plus an optional reference). Picking one sends the file straight for verification with the reason recorded against the sales person. Submitting without one, after a confirmation, puts the file in **Awaiting TL/SM approval**: processors do not see it, and the file's team leader, sales manager and ASM are notified. One of them opens the file, records the reason and sends it for verification, or returns it to sales with a note. The sales person can also add the reason themselves while it waits, and a resubmitted or edited file is re-checked.
+- **Salary qualifies for a higher card:** a prompt lists the higher cards the customer is eligible for, with one tap to switch.
+- A card with a requirement needs the customer's salary; a file without it is refused.
+
+The case page shows the card's requirement, whether the customer meets it, and the reason with who chose it and when. API: `card_salary_exception` and `card_exception_note` on create or update; actions `approve_card` (`exception`) and `decline_card` (`note`); status `awaiting_approval`; `card_approvals` in `/api/stats` for approvers.
+
 ### Credit card product list and card category
 
 Every credit card has a **family**, a **card category** and, when the bank provides them, **points**. When a sales person chooses a card on the form, the category and points fill in automatically (read-only) and are saved on the file, so later changes to the list do not rewrite old files.

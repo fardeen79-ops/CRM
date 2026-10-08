@@ -244,3 +244,57 @@ test('a date of leaving disables the account from that day', async () => {
   assert.equal((await staffAdmin('PATCH', `/users/${id}`, { active: true })).data.user.active, 1);
   assert.equal((await staffAdmin('PATCH', `/users/${ids['mis@t.local']}`, { dol: today })).status, 400);
 });
+
+test('a card below the salary requirement needs a reason or team approval; a higher card is suggested', async () => {
+  const dana = await login('dana@t.local');
+  // Dana moved to TL Abu Dhabi and SM Two earlier in this file, so they are her approvers.
+  const tl = await login('tl-auh@t.local');
+  const proc = await login('proc-dxb@t.local');
+  const sm = await login('sm2@t.local');
+  const card = (extra) => ({ customer_name: 'Card Customer', region: 'DXB', phone: '+971 50 111 3333', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Skywards Infinite Credit Card', card_fee_type: 'fyf', ...extra });
+  // The list carries each card's salary requirement; Infinite needs AED 15,000 in the built-in list.
+  const cards = (await dana('GET', '/me')).data.meta.credit_cards.flatMap((f) => f.cards);
+  assert.equal(cards.find((k) => k.name === 'Skywards Infinite Credit Card').min_salary, 15000);
+  // No salary: refused, with the requirement in the message.
+  const noSalary = await dana('POST', '/cases', card({}));
+  assert.equal(noSalary.status, 400);
+  assert.match(noSalary.data.error, /salary.*15,000/);
+  // Salary meets the requirement: straight to verification.
+  const fine = await dana('POST', '/cases', card({ salary: 20000 }));
+  assert.equal(fine.status, 201, JSON.stringify(fine.data));
+  assert.equal(fine.data.case.status, 'pending_verification');
+  assert.equal(fine.data.case.card_min_salary, 15000);
+  // Below with a reason: goes for verification, the reason recorded against the sales person.
+  const promo = await dana('POST', '/cases', card({ salary: 9000, card_salary_exception: 'promotion', card_exception_note: 'Oct campaign' }));
+  assert.equal(promo.status, 201, JSON.stringify(promo.data));
+  assert.deepEqual([promo.data.case.status, promo.data.case.card_salary_exception, promo.data.case.card_exception_by_name, promo.data.case.card_exception_note], ['pending_verification', 'promotion', 'Dana', 'Oct campaign']);
+  assert.ok(promo.data.case.events.some((e) => e.type === 'card_exception'));
+  assert.equal((await dana('POST', '/cases', card({ salary: 9000, card_salary_exception: 'discount' }))).status, 400);
+  // Below with no reason: waits for the team, invisible to processors, and the team is told.
+  const wait = await dana('POST', '/cases', card({ salary: 9000 }));
+  assert.equal(wait.status, 201, JSON.stringify(wait.data));
+  const id = wait.data.case.id;
+  assert.equal(wait.data.case.status, 'awaiting_approval');
+  assert.ok(!(await proc('GET', '/cases?status=pending_verification')).data.cases.some((c) => c.id === id));
+  assert.equal((await proc('POST', `/cases/${id}/actions`, { action: 'claim' })).status, 409);
+  assert.ok((await tl('GET', '/notifications')).data.items.some((n) => /Approval needed/.test(n.message) && n.case_id === id));
+  assert.equal((await tl('GET', '/stats')).data.card_approvals, 1);
+  assert.ok((await sm('GET', '/cases?status=awaiting_approval')).data.cases.some((c) => c.id === id));
+  // The sales person can still add the reason themselves, which releases the file.
+  const self = await dana('PUT', `/cases/${id}`, { card_salary_exception: 'deviation' });
+  assert.deepEqual([self.data.case.status, self.data.case.card_salary_exception], ['pending_verification', 'deviation']);
+  assert.equal((await dana('PUT', `/cases/${id}`, { card_salary_exception: '' })).data.case.status, 'awaiting_approval');
+  // The team leader records the reason and sends it on, or returns it with a note.
+  assert.equal((await tl('POST', `/cases/${id}/actions`, { action: 'approve_card' })).status, 400);
+  assert.equal((await proc('POST', `/cases/${id}/actions`, { action: 'approve_card', exception: 'promotion' })).status, 403);
+  const approved = (await tl('POST', `/cases/${id}/actions`, { action: 'approve_card', exception: 'promotion', note: 'Approved for the campaign' })).data.case;
+  assert.deepEqual([approved.status, approved.card_salary_exception, approved.card_exception_by_name], ['pending_verification', 'promotion', 'TL Abu Dhabi']);
+  assert.equal((await proc('POST', `/cases/${id}/actions`, { action: 'claim' })).status, 200);
+  const back = await dana('POST', '/cases', card({ salary: 9000 }));
+  assert.equal((await sm('POST', `/cases/${back.data.case.id}/actions`, { action: 'decline_card' })).status, 400);
+  const declined = (await sm('POST', `/cases/${back.data.case.id}/actions`, { action: 'decline_card', note: 'Offer the Titanium card instead' })).data.case;
+  assert.equal(declined.status, 'returned_to_sales');
+  // Resubmitting without fixing it goes back to approval; raising the salary clears it.
+  assert.equal((await dana('POST', `/cases/${back.data.case.id}/actions`, { action: 'resubmit' })).data.case.status, 'awaiting_approval');
+  assert.equal((await dana('PUT', `/cases/${back.data.case.id}`, { salary: 16000 })).data.case.status, 'pending_verification');
+});

@@ -189,7 +189,7 @@ export function hierarchy(db, user, { cycle, region } = {}) {
     const k = agg.get(key);
     const inCycle = (day) => day && day >= start && day <= end;
     if (inCycle(r.sourcing_date)) k.sourced++;
-    if ([STATUS.PENDING, STATUS.IN_VERIFICATION].includes(r.status)) k.awaiting++;
+    if ([STATUS.PENDING, STATUS.IN_VERIFICATION, STATUS.APPROVAL].includes(r.status)) k.awaiting++;
     if (r.status === STATUS.INCOMPLETE) k.verification_pending++;
     if (r.status === STATUS.COMPLETED && inCycle(r.verified_day)) k.verified++;
     if (r.case_status === 'completed' && inCycle(r.completed_day)) {

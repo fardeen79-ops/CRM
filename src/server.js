@@ -168,6 +168,7 @@ function routes(db, dispatch, bot) {
         card_list_source: cardProductSource(),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         card_fee_types: cases.CARD_FEE_TYPES,
+        card_exceptions: cases.CARD_EXCEPTIONS,
         masked_fields: cases.MASKED_FIELDS,
         chat_overseers: chat.CHAT_OVERSEERS,
         chat_edit_minutes: chat.EDIT_WINDOW_MINUTES,

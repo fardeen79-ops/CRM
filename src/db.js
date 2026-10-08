@@ -107,6 +107,13 @@ CREATE TABLE IF NOT EXISTS cases (
   card_fee_type        TEXT,
   card_category        TEXT, -- from the product list when the card was chosen
   card_points          REAL,
+  -- The card's salary requirement when it was chosen, and the deviation/promotion decision when
+  -- the customer's salary was below it (by the sales person, or a TL/SM/ASM on approval).
+  card_min_salary      REAL,
+  card_salary_exception TEXT,
+  card_exception_by    INTEGER REFERENCES users(id),
+  card_exception_at    TEXT,
+  card_exception_note  TEXT,
   fpd                  TEXT,
   callback_at          TEXT,
   callback_by          INTEGER REFERENCES users(id),
@@ -219,6 +226,7 @@ CREATE TABLE IF NOT EXISTS card_products (
   family     TEXT NOT NULL,
   category   TEXT NOT NULL,
   points     REAL,
+  min_salary REAL, -- minimum monthly salary (AED) the customer needs for this card
   active     INTEGER NOT NULL DEFAULT 1,
   updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL
@@ -315,6 +323,7 @@ const ADDED_COLUMNS = {
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
   pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
   card_fee_type: 'TEXT', fpd: 'TEXT', card_category: 'TEXT', card_points: 'REAL',
+  card_min_salary: 'REAL', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {
@@ -334,6 +343,7 @@ function migrate(db) {
       asm_id = (SELECT asm_id FROM users WHERE id = cases.sales_staff_id)
     WHERE team_leader_id IS NULL AND sales_staff_id IS NOT NULL`);
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_hrms ON users(hrms_code COLLATE NOCASE)');
+  if (!db.prepare('PRAGMA table_info(card_products)').all().some((c) => c.name === 'min_salary')) db.exec('ALTER TABLE card_products ADD COLUMN min_salary REAL');
   // Cases created before the sourcing date existed were sourced on the day they were entered.
   db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
   // Loans completed before disbursed amounts were recorded: assume the amount on the file.

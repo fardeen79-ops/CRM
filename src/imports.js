@@ -87,6 +87,7 @@ export const CARD_PRODUCT_IMPORT_COLUMNS = [
   { key: 'family', header: 'Family', required: true, example: 'Skywards', help: 'Groups the cards in the drop-down' },
   { key: 'category', header: 'Card category', required: true, example: 'Signature', help: 'Shown on the form when the card is chosen, and saved on each file' },
   { key: 'points', header: 'Points', example: '', help: 'Optional. Points the card earns the sales person; a number' },
+  { key: 'min_salary', header: 'Minimum salary (AED)', example: '5000', help: 'Monthly salary the customer needs for this card. A lower salary needs a product deviation or promotion, or team approval' },
 ];
 
 export const TARGET_RULE_IMPORT_COLUMNS = [
@@ -303,10 +304,15 @@ export function importCardProducts(db, user, csv, { dryRun = false } = {}) {
         points = Number(String(v.points).replace(/,/g, ''));
         if (!Number.isFinite(points) || points < 0) throw new Error(`Points must be a number: ${v.points}`);
       }
-      db.prepare(`INSERT INTO card_products (name, family, category, points, active, updated_by, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)
-        ON CONFLICT (name) DO UPDATE SET family = excluded.family, category = excluded.category, points = excluded.points, active = 1, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-        .run(name, family, category, points, user.id, ts);
-      return { label: `${name} · ${category}`, email: `${family}${points != null ? ` · ${points} points` : ''}` };
+      let minSalary = null;
+      if (String(v.min_salary ?? '').trim() !== '') {
+        minSalary = Number(String(v.min_salary).replace(/,/g, '').replace(/^aed\s*/i, ''));
+        if (!Number.isFinite(minSalary) || minSalary < 0) throw new Error(`Minimum salary must be an amount: ${v.min_salary}`);
+      }
+      db.prepare(`INSERT INTO card_products (name, family, category, points, min_salary, active, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT (name) DO UPDATE SET family = excluded.family, category = excluded.category, points = excluded.points, min_salary = excluded.min_salary, active = 1, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+        .run(name, family, category, points, minSalary, user.id, ts);
+      return { label: `${name} · ${category}`, email: `${family}${points != null ? ` · ${points} points` : ''}${minSalary != null ? ` · min salary AED ${minSalary.toLocaleString('en-US')}` : ''}` };
     })));
     // Only a file with at least one good row replaces the list; cards it leaves out are retired.
     if (out.some((r) => r.ok)) {

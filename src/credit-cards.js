@@ -6,6 +6,8 @@
 // upload are retired (kept on old files, no longer offered). Until that upload, the category is
 // provisional: the card's tier taken from its name.
 
+// Provisional minimum monthly salary (AED) by tier, until the bank's product list is uploaded.
+const MIN_SALARY = { 'World Elite': 25000, Infinite: 15000, World: 12000, Signature: 10000, Platinum: 8000, Elevate: 8000, Titanium: 5000, Inspire: 5000, Standard: 5000 };
 const tier = (name) => {
   const n = name.toLowerCase();
   if (n.includes('world elite')) return 'World Elite';
@@ -38,14 +40,14 @@ const FAMILIES = [
 ];
 
 /** The built-in list: { name, family, category, points }. */
-export const DEFAULT_CARD_PRODUCTS = FAMILIES.flatMap(([family, names]) => names.map((name) => ({ name, family, category: tier(name), points: null })));
+export const DEFAULT_CARD_PRODUCTS = FAMILIES.flatMap(([family, names]) => names.map((name) => ({ name, family, category: tier(name), points: null, min_salary: MIN_SALARY[tier(name)] ?? null })));
 
 let products = DEFAULT_CARD_PRODUCTS;
 let source = 'built_in';
 
 /** Uses the uploaded product list when there is one, else the built-in list. Call on start and after an upload. */
 export function loadCardProducts(db) {
-  const rows = db.prepare('SELECT name, family, category, points FROM card_products WHERE active = 1 ORDER BY family, name').all();
+  const rows = db.prepare('SELECT name, family, category, points, min_salary FROM card_products WHERE active = 1 ORDER BY family, name').all();
   products = rows.length ? rows : DEFAULT_CARD_PRODUCTS;
   source = rows.length ? 'uploaded' : 'built_in';
   return products;
@@ -66,9 +68,16 @@ export function cardFamilies() {
   const map = new Map();
   for (const p of products) {
     if (!map.has(p.family)) map.set(p.family, { family: p.family, cards: [] });
-    map.get(p.family).cards.push({ name: p.name, category: p.category, points: p.points });
+    map.get(p.family).cards.push({ name: p.name, category: p.category, points: p.points, min_salary: p.min_salary });
   }
   return [...map.values()];
+}
+
+/** Cards the customer's salary qualifies for that need more salary than the chosen one: the upgrade prompt. */
+export function higherCards(salary, chosen) {
+  const base = chosen?.min_salary ?? 0;
+  if (salary == null) return [];
+  return products.filter((p) => p.min_salary != null && p.min_salary > base && p.min_salary <= salary).sort((a, b) => b.min_salary - a.min_salary);
 }
 
 /** Fills the category and points on files that have a card but no category yet (older files). */

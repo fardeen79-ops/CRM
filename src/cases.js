@@ -19,7 +19,14 @@ export const STATUS = {
   INCOMPLETE: 'incomplete',
   RETURNED: 'returned_to_sales',
   REJECTED: 'rejected',
+  // The customer's salary is below the card's requirement and the sales person chose no reason:
+  // a team leader, sales manager or ASM decides before it goes for verification.
+  APPROVAL: 'awaiting_approval',
 };
+
+// Why a card is sold below its salary requirement.
+export const CARD_EXCEPTIONS = { deviation: 'Product deviation', promotion: 'New promotion' };
+const APPROVERS = ['team_leader', 'sales_manager', 'asm'];
 
 export const CALL_OUTCOMES = ['connected', 'no_answer', 'busy', 'switched_off', 'wrong_number', 'call_back_later'];
 // A "call back later" outcome needs the date and time the customer asked for, up to this far ahead.
@@ -208,7 +215,7 @@ export function productLabel(product, bundleProducts, creditCard, loanType, buyo
 const OPEN_FOR_PROCESSING = [STATUS.PENDING, STATUS.IN_VERIFICATION];
 // Verification has a final result only when Completed or Rejected; anything else is still being verified.
 const VERIFICATION_FINAL = [STATUS.COMPLETED, STATUS.REJECTED];
-const STILL_VERIFYING = [STATUS.PENDING, STATUS.IN_VERIFICATION, STATUS.INCOMPLETE, STATUS.RETURNED];
+const STILL_VERIFYING = [STATUS.PENDING, STATUS.IN_VERIFICATION, STATUS.INCOMPLETE, STATUS.RETURNED, STATUS.APPROVAL];
 
 /**
  * Every state change goes through this table. `to: null` means the action is
@@ -228,6 +235,9 @@ export const ACTIONS = {
   reverify:        { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.PENDING },
   reject:          { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.REJECTED, noteRequired: true },
   resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.PENDING },
+  // Card sold below its salary requirement: the team decides the reason, or sends it back.
+  approve_card:    { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.PENDING },
+  decline_card:    { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.RETURNED, noteRequired: true },
 };
 
 // Plain text fields and their length limits; name, product and number fields are validated separately.
@@ -250,7 +260,7 @@ const VERIFIED_FIELD_LABELS = {
   loan_amount: 'loan amount', interest_rate: 'interest rate', full_loan_amount: 'full loan amount', incremental_amount: 'incremental amount', fpd: 'FPD',
 };
 // The card's category and points, copied from the product list when the card is chosen.
-const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points'];
+const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points', 'card_min_salary'];
 const EDITABLE_FIELDS = [
   ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'region', 'core_product',
   ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS, ...CARD_SNAPSHOT_FIELDS,
@@ -259,8 +269,19 @@ const EDITABLE_FIELDS = [
 const cardSnapshot = (data) => {
   if (!('credit_card' in data)) return {};
   const p = data.credit_card ? cardProduct(data.credit_card) : null;
-  return { card_category: p?.category ?? null, card_points: p?.points ?? null };
+  return { card_category: p?.category ?? null, card_points: p?.points ?? null, card_min_salary: p?.min_salary ?? null };
 };
+/** Is the customer's salary below the chosen card's requirement? */
+export const cardBelowSalary = (row) => row.credit_card != null && row.card_min_salary != null && row.salary != null && row.salary < row.card_min_salary;
+/** The reason chosen for selling a card below its requirement, or null; a bad value is refused. */
+function cardExceptionOf(input) {
+  const v = clean(input.card_salary_exception, 20);
+  if (!v) return null;
+  if (!CARD_EXCEPTIONS[v]) throw new WorkflowError(400, 'Choose Product deviation or New promotion');
+  return v;
+}
+/** Who approves a file's card exception: its team leader, sales manager and ASM. */
+const approverIds = (row) => [row.team_leader_id, row.sales_manager_id, row.asm_id].filter(Boolean);
 
 export const caseRef = (id) => `CRM-${String(id).padStart(6, '0')}`;
 
@@ -491,7 +512,7 @@ const CASE_SELECT = `
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
          sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
          qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name, ub.name AS urgent_by_name,
-         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name
+         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name, ceb.name AS card_exception_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
   LEFT JOIN users at ON at.id = c.assigned_to
@@ -507,7 +528,8 @@ const CASE_SELECT = `
   LEFT JOIN users cpb ON cpb.id = c.complaint_by
   LEFT JOIN users scb ON scb.id = c.qc_scored_by
   LEFT JOIN users csb ON csb.id = c.card_status_by
-  LEFT JOIN users cbb ON cbb.id = c.callback_by`;
+  LEFT JOIN users cbb ON cbb.id = c.callback_by
+  LEFT JOIN users ceb ON ceb.id = c.card_exception_by`;
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) };
 
@@ -748,19 +770,32 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   }
   const data = validateCaseInput(input);
   Object.assign(data, cardSnapshot(data));
+  if (data.credit_card && data.card_min_salary != null && data.salary == null) throw new WorkflowError(400, `Enter the customer's monthly salary: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}`);
   // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
   const ts = now();
-  const cols = [...EDITABLE_FIELDS, 'status', 'created_by', 'created_at', 'updated_at'];
+  // A card below the salary requirement goes for verification with a reason, or to the team for approval.
+  const exception = cardBelowSalary(data) ? cardExceptionOf(input) : null;
+  if (exception) Object.assign(data, { card_salary_exception: exception, card_exception_by: user.id, card_exception_at: ts, card_exception_note: clean(input.card_exception_note, 500) });
+  const status = cardBelowSalary(data) && !exception ? STATUS.APPROVAL : STATUS.PENDING;
+  const cols = [...EDITABLE_FIELDS, 'card_salary_exception', 'card_exception_by', 'card_exception_at', 'card_exception_note', 'status', 'created_by', 'created_at', 'updated_at'];
   const { lastInsertRowid } = db
     .prepare(`INSERT INTO cases (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-    .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), STATUS.PENDING, user.id, ts, ts);
+    .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), data.card_salary_exception ?? null, data.card_exception_by ?? null, data.card_exception_at ?? null, data.card_exception_note ?? null, status, user.id, ts, ts);
   const id = Number(lastInsertRowid);
-  addEvent(db, id, user.id, 'created', { to: STATUS.PENDING, detail: 'sent_to_check' });
+  addEvent(db, id, user.id, 'created', { to: status, detail: 'sent_to_check' });
+  if (exception) addEvent(db, id, user.id, 'card_exception', { detail: `${CARD_EXCEPTIONS[exception]}: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}, customer salary AED ${data.salary.toLocaleString('en-US')}` });
+  if (status === STATUS.APPROVAL) sendForApproval(db, id, user, data);
   if (bulk) addEvent(db, id, user.id, 'bulk_upload', { detail: 'Added from a bulk upload file' });
   if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
   recordReadBack(db, id, user.id, input.read_back);
   return id;
+}
+
+/** Alerts the file's team that a card sold below its salary requirement needs their decision. */
+function sendForApproval(db, id, user, row) {
+  addEvent(db, id, user.id, 'card_approval_requested', { detail: `${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}; customer salary AED ${row.salary.toLocaleString('en-US')}` });
+  notify(db, approverIds(row), id, `Approval needed: ${caseRef(id)} (${row.customer_name}) — ${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}, customer earns AED ${row.salary.toLocaleString('en-US')}. Choose product deviation or new promotion, or return it to ${user.name}`);
 }
 
 function canEdit(user, row) {
@@ -768,7 +803,7 @@ function canEdit(user, row) {
   if (EDITOR_ROLES.includes(user.role)) return !closed;
   if (user.role === 'sales') {
     // Once the file is under review, sales must ask a team leader or sales manager to make changes.
-    return isOwner(user, row) && row.case_status === 'sent_to_check' && [STATUS.PENDING, STATUS.RETURNED].includes(row.status);
+    return isOwner(user, row) && row.case_status === 'sent_to_check' && [STATUS.PENDING, STATUS.RETURNED, STATUS.APPROVAL].includes(row.status);
   }
   return false;
 }
@@ -784,6 +819,16 @@ export function updateCase(db, user, id, input) {
     if (!inTeam(db, user, input.sales_staff_id)) throw new WorkflowError(403, 'You can only move a file to sales staff in your own team');
     Object.assign(data, salesStaffSnapshot(db, input.sales_staff_id));
   }
+  // A reason for a card below the salary requirement can be given (or changed) while the file is still with sales.
+  const merged = { ...row, ...data };
+  if (merged.credit_card && merged.card_min_salary != null && merged.salary == null) throw new WorkflowError(400, `Enter the customer's monthly salary: ${merged.credit_card} needs AED ${merged.card_min_salary.toLocaleString('en-US')}`);
+  const reasonGiven = 'card_salary_exception' in input && [STATUS.PENDING, STATUS.RETURNED, STATUS.APPROVAL].includes(row.status);
+  if (reasonGiven) {
+    const exception = cardBelowSalary(merged) ? cardExceptionOf(input) : null;
+    if (exception !== (row.card_salary_exception ?? null)) Object.assign(data, { card_salary_exception: exception, card_exception_by: exception ? user.id : null, card_exception_at: exception ? now() : null, card_exception_note: exception ? clean(input.card_exception_note, 500) : null });
+  } else if (!cardBelowSalary(merged) && row.card_salary_exception) {
+    Object.assign(data, { card_salary_exception: null, card_exception_by: null, card_exception_at: null, card_exception_note: null });
+  }
   const changed = Object.keys(data).filter((f) => (data[f] ?? null) !== (row[f] ?? null));
   if (!changed.length) return getCase(db, user, id);
   return transaction(db, () => {
@@ -793,6 +838,19 @@ export function updateCase(db, user, id, input) {
       id
     );
     addEvent(db, id, user.id, 'edited', { detail: changed.join(', ') });
+    if (changed.includes('card_salary_exception') && data.card_salary_exception) addEvent(db, id, user.id, 'card_exception', { detail: `${CARD_EXCEPTIONS[data.card_salary_exception]}: ${merged.credit_card} needs AED ${merged.card_min_salary.toLocaleString('en-US')}, customer salary AED ${merged.salary.toLocaleString('en-US')}` });
+    // While the file is with sales, the salary check decides whether it waits for the team's approval.
+    const after = { ...row, ...data };
+    if ([STATUS.PENDING, STATUS.APPROVAL].includes(row.status)) {
+      const needs = cardBelowSalary(after) && !after.card_salary_exception;
+      if (needs && row.status !== STATUS.APPROVAL) {
+        db.prepare('UPDATE cases SET status = ?, assigned_to = NULL WHERE id = ?').run(STATUS.APPROVAL, id);
+        sendForApproval(db, id, user, after);
+      } else if (!needs && row.status === STATUS.APPROVAL) {
+        db.prepare('UPDATE cases SET status = ? WHERE id = ?').run(STATUS.PENDING, id);
+        addEvent(db, id, user.id, 'card_approval_cleared', { from: STATUS.APPROVAL, to: STATUS.PENDING, detail: after.card_salary_exception ? CARD_EXCEPTIONS[after.card_salary_exception] : 'salary now meets the card requirement' });
+      }
+    }
     if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
     recordReadBack(db, id, user.id, input.read_back);
     // Verified details changed after verification was completed: the customer must be called again.
@@ -1016,6 +1074,19 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         break;
       case 'resubmit':
         set.assigned_to = null;
+        if (cardBelowSalary(row) && !row.card_salary_exception) { set.status = STATUS.APPROVAL; sendForApproval(db, id, user, row); }
+        break;
+      case 'approve_card': {
+        const exception = cardExceptionOf({ card_salary_exception: extra.exception ?? extra.card_salary_exception });
+        if (!exception) throw new WorkflowError(400, 'Choose Product deviation or New promotion');
+        Object.assign(set, { card_salary_exception: exception, card_exception_by: user.id, card_exception_at: ts, card_exception_note: note || null, assigned_to: null });
+        detail = `${CARD_EXCEPTIONS[exception]}: ${row.credit_card} needs AED ${Number(row.card_min_salary).toLocaleString('en-US')}, customer salary AED ${Number(row.salary).toLocaleString('en-US')}`;
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) approved by ${user.name} as ${CARD_EXCEPTIONS[exception].toLowerCase()} and sent for verification`);
+        break;
+      }
+      case 'decline_card':
+        Object.assign(set, { tl_action: 'decline_card', tl_note: note, tl_actioned_by: user.id, tl_actioned_at: ts, assigned_to: null });
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) returned by ${user.name}: ${note}`);
         break;
     }
 
@@ -1230,6 +1301,7 @@ export function stats(db, user, { region } = {}) {
     byCaseStatus[r.case_status] = r.n;
   }
   const result = { by_status: byStatus, by_case_status: byCaseStatus, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+  if (APPROVERS.includes(user.role)) result.card_approvals = db.prepare(`SELECT COUNT(*) AS n FROM cases c WHERE c.status = ? ${scope.replace('WHERE', 'AND')}`).get(STATUS.APPROVAL, ...params).n;
   if (EDITOR_ROLES.includes(user.role)) {
     result.edit_requests = db.prepare(`SELECT COUNT(*) AS n FROM cases c WHERE edit_request_to = ? ${scope.replace('WHERE', 'AND')}`).get(queueRole(user), ...params).n;
   }
