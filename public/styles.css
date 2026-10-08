@@ -560,6 +560,8 @@ main { position: relative; }
 @media print { .watermark { opacity: .25; } }
 
 /* Chat */
+.incentive table.bands { width: auto; min-width: 420px; margin: 10px 0 6px; font-size: 13px; }
+.incentive table.bands tr.on td { font-weight: 600; background: var(--s-done-bg); }
 .incentive .checklist { list-style: none; padding: 0; margin: 12px 0 6px; display: grid; gap: 6px; font-size: 14px; }
 .audience { margin: 0 0 10px; font-size: 13px; }
 .audience summary { cursor: pointer; }

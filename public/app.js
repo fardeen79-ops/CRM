@@ -2040,6 +2040,24 @@ const activationRate = (cards) => (cards.temp_end ? Math.round((cards.active / c
 const unitSuffix = (unit) => (unit === 'aed' ? ' (AED)' : unit === 'points' ? ' (points)' : '');
 
 /** Product tiles and the card activation tile for one person or a whole team. */
+// A personal loan sales person's incentive for the cycle: production, its band and the rate.
+function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [] }) {
+  return html`<div class="card incentive">
+    <div class="card-head"><h2>My incentive · ${i.band}</h2>
+      <span class="chip ${i.rate_pct ? 'good' : ''}">${i.rate_pct.toFixed(2)}% of production</span></div>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Production this cycle</span><span class="kpi-value">AED ${fmtAmount(i.pl_counted)}</span><span class="kpi-sub">${i.loans} ${i.loans === 1 ? 'loan' : 'loans'} disbursed, AED ${fmtAmount(i.pl_disbursed)}${i.eib_loans ? ` · ${i.eib_loans} Emirates Islamic buy-out${i.eib_loans === 1 ? '' : 's'} at ${rules.eib_buyout_share}%` : ''}</span></div>
+      <div class="kpi"><span class="kpi-label">Against target</span><span class="kpi-value">${i.achievement_pct == null ? '—' : `${i.achievement_pct}%`}</span><span class="kpi-sub">${i.target == null ? 'no personal loan target set for this cycle' : `target AED ${fmtAmount(i.target)}`}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">${i.rate_pct ? `${i.rate_pct.toFixed(2)}% of AED ${fmtAmount(i.pl_counted)}` : i.next_band ? `AED ${fmtAmount(i.next_band.short_by)} more reaches ${i.next_band.label} at ${i.next_band.rate.toFixed(2)}%` : ''}</span></div>
+    </div>
+    ${i.rate_pct && i.next_band ? html`<p class="muted small">AED ${fmtAmount(i.next_band.short_by)} more production reaches ${i.next_band.label}, paid at ${i.next_band.rate.toFixed(2)}% on the whole.</p>` : ''}
+    <table class="bands"><thead><tr><th>Production in the cycle</th><th>Rate on the whole production</th></tr></thead>
+      <tbody>${pl_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(2)}%</td></tr>`)}</tbody></table>
+    <p class="muted small">Only loans disbursed on files completed in the cycle count. An Emirates Islamic buy-out counts at ${rules.eib_buyout_share}% of its disbursed amount.</p>
+    ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
+  </div>`;
+}
+
 // A credit card sales person's incentive for the cycle: points beyond target, the rate earned and why.
 function incentiveCard({ incentive: i, rules, conditions = [] }) {
   const met = i.criterion !== 'none';
@@ -2140,7 +2158,7 @@ async function viewTargets(cycleParam) {
     <h2 class="tiles-head">${r === 'sales' ? 'Achieved against target' : `${scopeTitle} · ${rep.staff.length} sales staff`}</h2>
     ${targetTiles(rep, rep.total)}
     ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
-    ${mine?.incentive ? incentiveCard(mine) : ''}
+    ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : incentiveCard(mine)) : ''}
     ${groupTable('By team leader', rep.by_team_leader)}
     ${groupTable('By sales manager', rep.by_sales_manager)}
     ${r !== 'sales' ? html`<div class="card" id="staff-card">

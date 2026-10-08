@@ -24,6 +24,44 @@ export const INCENTIVE_CONDITIONS = [
   'All incentives are subject to the bank\'s data cut finalisation.',
 ];
 export const PREMIUM_CATEGORIES = ['Premium', 'Super Premium'];
+
+// Personal loan sales staff: a percentage of the cycle's disbursed production, by band. The whole
+// production pays at the band's rate; below the first band nothing is paid. An Emirates Islamic
+// buy-out counts at half its disbursed amount, as for cards.
+export const PL_INCENTIVE_BANDS = [
+  { from: 600000, to: 749999.99, rate: 0.4 },
+  { from: 750000, to: 999999.99, rate: 0.55 },
+  { from: 1000000, to: 1249999.99, rate: 0.75 },
+  { from: 1250000, to: 1499999.99, rate: 0.9 },
+  { from: 1500000, to: 1999999.99, rate: 1.1 },
+  { from: 2000000, to: Infinity, rate: 1.2 },
+];
+const aedK = (n) => (n >= 1000000 ? `AED ${(n / 1000000).toFixed(n % 1000000 ? 2 : 0).replace(/\.?0+$/, '')}M` : `AED ${Math.round(n / 1000)}K`);
+export const plBandLabel = (b) => (b.to === Infinity ? `${aedK(b.from)}+` : `${aedK(b.from)} to ${aedK(b.to + 0.01)}`);
+
+/** One personal loan sales person's incentive for a cycle: production in the cycle, its band and rate. */
+export function plIncentiveFor(db, staffId, cycle) {
+  const { start, end } = cycleRange(cycle);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end);
+  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'personal_loan'").get(staffId, cycle)?.target ?? null;
+  let loans = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0;
+  for (const c of rows) {
+    if (!caseProducts(c).includes('personal_loan') || !(c.pl_disbursed_amount > 0)) continue;
+    const eib = isEibBuyout(c);
+    loans++;
+    pl_disbursed += c.pl_disbursed_amount;
+    pl_counted += eib ? (c.pl_disbursed_amount * INCENTIVE_RULES.eib_buyout_share) / 100 : c.pl_disbursed_amount;
+    if (eib) eib_loans++;
+  }
+  const band = PL_INCENTIVE_BANDS.find((b) => pl_counted >= b.from && pl_counted <= b.to) || null;
+  const rate_pct = band ? band.rate : 0;
+  const next = band ? PL_INCENTIVE_BANDS[PL_INCENTIVE_BANDS.indexOf(band) + 1] || null : PL_INCENTIVE_BANDS[0];
+  return {
+    cycle, target, loans, eib_loans, pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
+    band: band ? plBandLabel(band) : `Below ${aedK(PL_INCENTIVE_BANDS[0].from)}`, rate_pct, incentive_aed: round2((pl_counted * rate_pct) / 100),
+    next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length,
+  };
+}
 export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell', none: 'Neither' };
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -68,8 +106,23 @@ export function myIncentive(db, user, cycle) {
   cycle = cycle ? String(cycle) : cycleOf(uaeDay());
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const me = db.prepare('SELECT core_product FROM users WHERE id = ?').get(user.id);
-  if (me?.core_product !== 'credit_card') return { cycle, label: cycleLabel(cycle), incentive: null, rules: INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS };
-  return { cycle, label: cycleLabel(cycle), incentive: incentiveFor(db, user.id, cycle), rules: INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS };
+  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
+  if (me?.core_product === 'credit_card') return { ...base, type: 'credit_card', incentive: incentiveFor(db, user.id, cycle) };
+  if (me?.core_product === 'personal_loan') return { ...base, type: 'personal_loan', incentive: plIncentiveFor(db, user.id, cycle) };
+  return { ...base, type: null, incentive: null };
+}
+
+/** Every personal loan sales person's incentive for the cycle, as report rows. */
+export function plIncentiveRows(db, cycle, region = null) {
+  const r = String(region || '').toUpperCase();
+  if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, tl.name AS team_leader, sm.name AS sales_manager
+    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id
+    WHERE u.role = 'sales' AND u.active = 1 AND u.core_product = 'personal_loan'${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(...(region ? [r] : []));
+  return staff.map((s) => {
+    const i = plIncentiveFor(db, s.id, cycle);
+    return { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, rate: `${i.rate_pct.toFixed(2)}%` };
+  }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.staff.localeCompare(b.staff));
 }
 
 /** Every credit card sales person's incentive for the cycle, as report rows. */
