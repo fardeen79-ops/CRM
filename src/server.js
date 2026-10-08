@@ -6,7 +6,7 @@ import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { BANKS } from './banks.js';
-import { contactDetails, findUser, listUsers, salesProfile, regionOf } from './users.js';
+import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
 import * as reports from './reports.js';
@@ -314,7 +314,7 @@ function routes(db, dispatch, bot) {
       const target = auth.getUser(db, id);
       if (!target) throw new HttpError(404, 'User not found');
       let moved = 0;
-      if (['name', 'email', 'mobile_number', 'whatsapp_number', 'hrms_code', 'doj'].some((f) => f in body)) {
+      if (['name', 'email', 'mobile_number', 'whatsapp_number', 'hrms_code', 'doj', 'dol'].some((f) => f in body)) {
         let contact;
         try {
           contact = contactDetails(body, { current: target });
@@ -327,7 +327,10 @@ function routes(db, dispatch, bot) {
         if (contact.hrms_code && db.prepare('SELECT 1 FROM users WHERE hrms_code = ? COLLATE NOCASE AND id != ?').get(contact.hrms_code, id)) {
           throw new HttpError(409, `HRMS code ${contact.hrms_code} is already used by another user`);
         }
+        if (contact.dol && id === user.id) throw new HttpError(400, 'You cannot set your own date of leaving');
         for (const [field, value] of Object.entries(contact)) db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, id);
+        // A leaving date that has arrived disables the account now; a future one does so on the day.
+        sweepLeavers(db);
       }
       if ('region' in body) {
         try {
@@ -350,6 +353,7 @@ function routes(db, dispatch, bot) {
       }
       if ('active' in body) {
         if (id === user.id && !body.active) throw new HttpError(400, 'You cannot deactivate your own account');
+        if (body.active && target.dol && target.dol <= new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10)) throw new HttpError(400, `${target.name} left on ${target.dol}. Clear the date of leaving to re-enable the account`);
         db.prepare('UPDATE users SET active = ? WHERE id = ?').run(body.active ? 1 : 0, id);
         if (!body.active) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
       }
@@ -385,6 +389,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   cases.config.itEmail = itEmail;
   loadCardProducts(db);
   backfillCardCategories(db);
+  sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;
   const table = routes(db, dispatch, bot);
@@ -425,6 +430,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   // Fire call-back alerts at the scheduled time, even when nobody is using the CRM.
   const timer = setInterval(() => {
     try { dispatch(cases.triggerDueCallbacks(db)); } catch (err) { console.error('[callbacks]', err); }
+    try { sweepLeavers(db); } catch (err) { console.error('[leavers]', err); }
   }, 30e3);
   timer.unref();
   server.on('close', () => clearInterval(timer));

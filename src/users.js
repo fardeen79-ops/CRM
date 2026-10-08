@@ -1,7 +1,7 @@
 // User profiles. Sales staff carry a sales code plus their team leader and sales manager,
 // which pre-fill the "Sales staff" section of every file they source.
 
-export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj,
+export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj, u.dol,
   u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
   tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name`;
 export const USER_FROM = `users u
@@ -100,6 +100,17 @@ export function salaryOf(value) {
   return Math.round(n);
 }
 
+/** Disables the accounts of staff whose leaving date has arrived (UAE day). Returns how many. */
+export function sweepLeavers(db) {
+  const today = new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10);
+  const gone = db.prepare('SELECT id FROM users WHERE active = 1 AND dol IS NOT NULL AND dol <= ?').all(today);
+  for (const { id } of gone) {
+    db.prepare('UPDATE users SET active = 0 WHERE id = ?').run(id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+  }
+  return gone.length;
+}
+
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
@@ -107,7 +118,10 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * so only the fields being changed need to be sent.
  */
 /** Date of joining as YYYY-MM-DD (also accepts DD/MM/YYYY); blank allowed. Not in the future, not before 1970. */
-export function dojOf(value) {
+export function dojOf(value) { return dayOf(value, 'Date of joining', { future: false }); }
+/** Date of leaving: may be up to 180 days ahead (notice period); the account is disabled from that day. */
+export function dolOf(value) { return dayOf(value, 'Date of leaving', { future: true }); }
+function dayOf(value, label, { future }) {
   const v = String(value ?? '').trim();
   if (!v) return null;
   let m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
@@ -115,9 +129,10 @@ export function dojOf(value) {
   if (!day && (m = v.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/))) day = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   if (!day && /^\d{5}$/.test(v)) day = new Date(Date.UTC(1899, 11, 30) + Number(v) * 864e5).toISOString().slice(0, 10);
   const t = day && Date.parse(`${day}T00:00:00Z`);
-  if (!day || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== day) throw new Error(`Date of joining "${v}" should be DD/MM/YYYY or YYYY-MM-DD`);
-  if (day < '1970-01-01') throw new Error('Date of joining is too far in the past');
-  if (t > Date.now() + 4 * 3600e3) throw new Error('Date of joining cannot be in the future');
+  if (!day || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== day) throw new Error(`${label} "${v}" should be DD/MM/YYYY or YYYY-MM-DD`);
+  if (day < '1970-01-01') throw new Error(`${label} is too far in the past`);
+  if (!future && t > Date.now() + 4 * 3600e3) throw new Error(`${label} cannot be in the future`);
+  if (future && t > Date.now() + 180 * 864e5) throw new Error(`${label} can be at most 180 days ahead`);
   return day;
 }
 
@@ -152,5 +167,9 @@ export function contactDetails(input, { current = null, requireMobile = false } 
   }
   if (!current || 'whatsapp_number' in input) out.whatsapp_number = whatsappNumber(input.whatsapp_number);
   if (!current || 'doj' in input) out.doj = dojOf(input.doj);
+  if (!current || 'dol' in input) out.dol = dolOf(input.dol);
+  const doj = 'doj' in out ? out.doj : current?.doj;
+  const dol = 'dol' in out ? out.dol : current?.dol;
+  if (doj && dol && dol < doj) throw new Error('Date of leaving is before the date of joining');
   return out;
 }

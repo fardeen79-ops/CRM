@@ -218,3 +218,26 @@ test('date of joining is saved on a user and validated', async () => {
   assert.equal(made.status, 201, JSON.stringify(made.data));
   assert.equal(made.data.user.doj, '2025-06-15');
 });
+
+test('a date of leaving disables the account from that day', async () => {
+  const tl = await login('tl-dxb@t.local');
+  const id = ids['proc-all@t.local'];
+  const today = new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10);
+  const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
+  // A future leaving date keeps the account working for now.
+  let r = await tl('PATCH', `/users/${id}`, { dol: soon });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual([r.data.user.dol, r.data.user.active], [soon, 1]);
+  assert.equal((await login('proc-all@t.local') && 'ok'), 'ok');
+  assert.equal((await tl('PATCH', `/users/${id}`, { dol: '2099-01-01' })).status, 400);
+  assert.equal((await tl('PATCH', `/users/${ids['amal@t.local']}`, { doj: '2025-01-01', dol: '2024-12-01' })).status, 400);
+  // A leaving date that has arrived disables the account and ends its sessions.
+  const who = await login('proc-all@t.local');
+  r = await tl('PATCH', `/users/${id}`, { dol: today });
+  assert.equal(r.data.user.active, 0);
+  assert.equal((await who('GET', '/me')).status, 401);
+  assert.equal((await tl('PATCH', `/users/${id}`, { active: true })).status, 400);
+  assert.equal((await tl('PATCH', `/users/${id}`, { dol: '' })).data.user.dol, null);
+  assert.equal((await tl('PATCH', `/users/${id}`, { active: true })).data.user.active, 1);
+  assert.equal((await tl('PATCH', `/users/${ids['tl-dxb@t.local']}`, { dol: today })).status, 400);
+});
