@@ -465,10 +465,11 @@ export function canViewSensitive(user, row) {
 
 // Personal identifiers are masked on every screen until someone chooses to reveal them, which is
 // logged. Masks keep enough to recognise the record: the last digits.
-export const MASKED_FIELDS = ['phone', 'alt_phone', 'eid_number', 'passport_number'];
+export const MASKED_FIELDS = ['phone', 'alt_phone', 'eid_number', 'passport_number', 'salary'];
 export function maskValue(field, value) {
   if (value == null || value === '') return value;
   const s = String(value);
+  if (field === 'salary') return 'AED ••,•••';
   if (field === 'eid_number') return s.replace(/^(784-)?(\d{4})-(\d{7})-(\d)$/, (_, p, y, n, c) => `784-••••-••••${n.slice(-3)}-${c}`);
   if (field === 'passport_number') return s.length > 3 ? `${s[0]}${'•'.repeat(s.length - 3)}${s.slice(-2)}` : '•••';
   // Phone numbers: keep the spacing and the last four digits.

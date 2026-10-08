@@ -1356,14 +1356,14 @@ async function viewCase(id) {
         <div class="card">
           <h2>Customer</h2>
           ${hiddenFields.size ? html`<p class="muted small">Company, salary, Emirates ID and passport details are hidden for your role${state.user.role === 'processing' ? ' once verification is completed or rejected' : ''}.</p>` : ''}
-          ${maskedFields.size ? html`<p class="muted small privacy-note">Personal identifiers are masked. Reveal only what you need; each reveal is recorded against your name. <button type="button" class="btn-link" id="reveal-all">Reveal all</button></p>` : ''}
+          ${maskedFields.size ? html`<p class="muted small privacy-note">Personal identifiers are masked. Reveal only what you need; each reveal is recorded against your name, and revealed values hide again after ${Math.round((window.__crmRehideMs || 180000) / 60000)} minutes or when you leave the page. <button type="button" class="btn-link" id="reveal-all">Reveal all</button></p>` : ''}
           <dl class="details">
             ${phoneRow('Mobile', 'phone')}
             ${c.alt_phone ? phoneRow('Alternate phone', 'alt_phone') : ''}
             ${row('Emirates ID', c.eid_number, true, 'eid_number')}
             ${row('Passport number', c.passport_number, true, 'passport_number')}
             ${row('Company', c.company_name, false, 'company_name')}
-            ${row('Monthly salary', c.salary != null ? `AED ${fmtAmount(c.salary)}` : null, false, 'salary')}
+            ${row('Monthly salary', c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
             ${row('Bidaya ID', c.bidaya_id, true)}
             ${row('App ID', c.app_id, true)}
             ${row('Email', c.email)}
@@ -1464,6 +1464,23 @@ async function viewCase(id) {
     }
   };
   // Reveal masked values one at a time or all at once; the server logs each reveal.
+  // Revealed values hide again after a few minutes, or as soon as the tab is hidden or the page
+  // is left, so a screen left unattended does not keep showing them.
+  const REHIDE_MS = window.__crmRehideMs || 3 * 60e3;
+  const revealed = new Map(); // field -> { el, original, timer }
+  const rehide = (f) => {
+    const r = revealed.get(f);
+    if (!r) return;
+    clearTimeout(r.timer);
+    revealed.delete(f);
+    if (!r.el.isConnected) return;
+    r.el.replaceWith(r.original);
+    r.original.insertAdjacentHTML('afterend', ` <button type="button" class="btn-link reveal" data-reveal="${f}">${f === 'phone' || f === 'alt_phone' ? 'Reveal to call' : 'Reveal'}</button>`);
+    r.original.nextElementSibling.onclick = () => reveal([f]);
+    const all = document.getElementById('reveal-all');
+    if (all) all.hidden = false;
+  };
+  const rehideAll = () => [...revealed.keys()].forEach(rehide);
   const reveal = async (fields) => {
     const wanted = fields.filter((f) => app.querySelector(`[data-masked-value="${f}"]`));
     if (!wanted.length) return;
@@ -1472,16 +1489,24 @@ async function viewCase(id) {
       for (const [f, v] of Object.entries(values)) {
         const el = app.querySelector(`[data-masked-value="${f}"]`);
         if (!el) continue;
+        let shown;
         if (el.classList.contains('phone-link')) {
-          const a = document.createElement('a'); a.className = 'phone-link'; a.href = `tel:${String(v).replace(/[^\d+]/g, '')}`; a.textContent = v; el.replaceWith(a);
-        } else el.textContent = v;
+          shown = document.createElement('a'); shown.className = 'phone-link'; shown.href = `tel:${String(v).replace(/[^\d+]/g, '')}`; shown.textContent = v;
+        } else {
+          shown = document.createElement('span'); shown.className = 'revealed'; shown.textContent = f === 'salary' ? `AED ${fmtAmount(v)}` : v;
+        }
+        el.replaceWith(shown);
         app.querySelector(`[data-reveal="${f}"]`)?.remove();
+        revealed.set(f, { el: shown, original: el, timer: setTimeout(() => rehide(f), REHIDE_MS) });
       }
-      if (!app.querySelector('[data-masked-value]')) document.getElementById('reveal-all')?.remove();
+      if (!app.querySelector('[data-masked-value]')) { const all = document.getElementById('reveal-all'); if (all) all.hidden = true; }
     } catch (ex) { toast(ex.message, true); }
   };
   app.querySelectorAll('[data-reveal]').forEach((b) => (b.onclick = () => reveal([b.dataset.reveal])));
   document.getElementById('reveal-all')?.addEventListener('click', () => reveal(state.meta.masked_fields));
+  const onHide = () => { if (document.visibilityState === 'hidden') rehideAll(); };
+  document.addEventListener('visibilitychange', onHide);
+  window.addEventListener('hashchange', () => document.removeEventListener('visibilitychange', onHide), { once: true });
   document.getElementById('back-link').onclick = (e) => {
     if (history.length > 1) { e.preventDefault(); history.back(); }
   };
@@ -1896,7 +1921,7 @@ function paintWatermark() {
   watermarkTimer = setInterval(stamp, 60000);
 }
 
-const ACCESS_LABEL = { view: 'Opened the case', 'reveal:phone': 'Revealed mobile number', 'reveal:alt_phone': 'Revealed alternate phone', 'reveal:eid_number': 'Revealed Emirates ID', 'reveal:passport_number': 'Revealed passport number' };
+const ACCESS_LABEL = { view: 'Opened the case', 'reveal:phone': 'Revealed mobile number', 'reveal:alt_phone': 'Revealed alternate phone', 'reveal:eid_number': 'Revealed Emirates ID', 'reveal:passport_number': 'Revealed passport number', 'reveal:salary': 'Revealed salary' };
 
 async function viewAccessLog(params) {
   const caseId = params.get('case') || '';

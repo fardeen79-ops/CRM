@@ -342,7 +342,8 @@ test('customer identity fields and personal loan amounts are captured and valida
   assert.equal(c.eid_number, '784-••••-••••567-1');
   assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=eid_number`)).data.values.eid_number, '784-1990-1234567-1');
   assert.equal(c.passport_number, 'N•••••67');
-  assert.equal(c.salary, 25000);
+  assert.equal(c.salary, 'AED ••,•••');
+  assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=salary`)).data.values.salary, 25000);
   assert.equal(c.loan_amount, 120000);
   assert.equal(c.interest_rate, 5.99);
   assert.equal(c.full_loan_amount, null);
@@ -519,10 +520,10 @@ test('team leaders never see company, salary, Emirates ID or passport; processor
   // Emirates ID and passport are masked on screen, so read them through the logged reveal.
   const fields = async (who) => {
     const c = (await who('GET', `/cases/${id}`)).data.case;
-    const rv = await who('GET', `/cases/${id}/reveal?fields=eid_number,passport_number`);
-    const v = rv.status === 200 ? rv.data.values : { eid_number: null, passport_number: null };
+    const rv = await who('GET', `/cases/${id}/reveal?fields=eid_number,passport_number,salary`);
+    const v = rv.status === 200 ? rv.data.values : { eid_number: null, passport_number: null, salary: null };
     if (rv.status !== 200) assert.equal(rv.status, 403);
-    return { company_name: c.company_name, salary: c.salary, eid_number: v.eid_number, passport_number: v.passport_number, hidden: c.hidden_fields };
+    return { company_name: c.company_name, salary: v.salary, eid_number: v.eid_number, passport_number: v.passport_number, hidden: c.hidden_fields };
   };
   const shown = { ...secret, hidden: [] };
   const hidden = { company_name: null, salary: null, eid_number: null, passport_number: null, hidden: ['company_name', 'salary', 'eid_number', 'passport_number'] };
@@ -1168,11 +1169,13 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   const proc = await login('proc@t.local');
   const lead = await login('lead@t.local');
   const gov = await login('gov@t.local');
-  const data = { ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', eid_number: '784-1988-4821736-2', passport_number: 'Z4821736' };
+  const data = { ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', eid_number: '784-1988-4821736-2', passport_number: 'Z4821736', salary: 28500 };
   const id = (await sales('POST', '/cases', data)).data.case.id;
   const c = (await proc('GET', `/cases/${id}`)).data.case;
   assert.deepEqual([c.phone, c.alt_phone, c.eid_number, c.passport_number], ['+••• •• ••• 4567', '••••••4567', '784-••••-••••736-2', 'Z•••••36']);
-  assert.deepEqual(c.masked_fields, ['phone', 'alt_phone', 'eid_number', 'passport_number']);
+  assert.deepEqual(c.masked_fields, ['phone', 'alt_phone', 'eid_number', 'passport_number', 'salary']);
+  assert.equal(c.salary, 'AED ••,•••');
+  assert.deepEqual((await proc('GET', `/cases/${id}/reveal?fields=salary`)).data.values, { salary: 28500 });
   // Lists are masked too, and search still finds the full value.
   const listed = (await proc('GET', '/cases?q=4821736')).data.cases.find((x) => x.id === id);
   assert.equal(listed.eid_number, '784-••••-••••736-2');
@@ -1188,7 +1191,7 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   assert.equal((await sales('GET', '/access-log')).status, 403);
   const log = (await gov('GET', `/access-log?case=${id}`)).data.items;
   const mine = log.filter((e) => e.user_name === 'Pam').map((e) => e.what).sort();
-  assert.deepEqual(mine, ['reveal:eid_number', 'reveal:passport_number', 'reveal:phone', 'view']);
+  assert.deepEqual(mine, ['reveal:eid_number', 'reveal:passport_number', 'reveal:phone', 'reveal:salary', 'view']);
   assert.ok(log.some((e) => e.user_name === 'Lead' && e.what === 'reveal:phone'));
   assert.equal(log[0].ref, `CRM-${String(id).padStart(6, '0')}`);
   assert.ok((await gov('GET', '/access-log')).data.items.length >= log.length);
