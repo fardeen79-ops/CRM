@@ -1046,7 +1046,7 @@ async function viewCaseForm(id) {
     checkBox.dataset.state = higher.length ? 'higher' : 'ok';
     checkBox.innerHTML = higher.length ? html`<div class="callout info card-check">
       <strong>The customer qualifies for a higher card.</strong> A salary of AED ${salary.toLocaleString()} meets the requirement for ${higher.length} ${higher.length === 1 ? 'card' : 'cards'} above ${opt.dataset.category || 'this one'}. Consider offering one:
-      <div class="chips" style="margin-top:8px">${higher.slice(0, 6).map((k) => html`<button type="button" class="chip" data-pick-card="${k.name}" title="Needs AED ${k.min_salary.toLocaleString()}">${k.name} · ${k.category}</button>`)}</div>
+      <div class="chips" style="margin-top:8px">${higher.slice(0, 6).map((k) => html`<button type="button" class="chip" data-pick-card="${k.name}" title="Needs AED ${k.min_salary.toLocaleString()}">${k.name} · ${k.category}</button>`)}${higher.length > 6 ? html`<span class="muted small" style="align-self:center">and ${higher.length - 6} more in the card list</span>` : ''}</div>
     </div>`.s : html`<p class="muted small" style="margin:8px 0 0">Salary meets the AED ${min.toLocaleString()} requirement for this card.</p>`.s;
     checkBox.querySelectorAll('[data-pick-card]').forEach((b) => (b.onclick = () => { cardSelect.value = b.dataset.pickCard; syncCard(); }));
   };
