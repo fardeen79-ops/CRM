@@ -577,24 +577,26 @@ test('personal loan incentives: a banded percentage of the cycle\'s production, 
   const first = (await pl('PL Inc 1', { personal_loan_type: 'fresh' })).data.case; assert.equal((await complete(first.id, { pl_disbursed_amount: 500000 })).status, 200);
   let mine = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data;
   assert.equal(mine.type, 'personal_loan');
-  assert.deepEqual([mine.incentive.pl_counted, mine.incentive.rate_pct, mine.incentive.incentive_aed, mine.incentive.next_band.short_by], [500000, 0, 0, 100000]);
+  // At 500,000 she is at the card threshold (target less 100,000): the Mass card she cross-sold earlier pays AED 500.
+  assert.deepEqual([mine.incentive.pl_counted, mine.incentive.rate_pct, mine.incentive.core_aed, mine.incentive.cards_threshold, mine.incentive.cards_qualified, mine.incentive.cards.Mass, mine.incentive.cards_incentive_aed, mine.incentive.incentive_aed, mine.incentive.next_band.short_by], [500000, 0, 0, 500000, true, 1, 500, 500, 100000]);
   // A fresh 200,000 takes production to 700,000: 0.40% on the whole = 2,800.
   const second = (await pl('PL Inc 2', { personal_loan_type: 'fresh' })).data.case; assert.equal((await complete(second.id, { pl_disbursed_amount: 200000 })).status, 200);
   mine = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
-  assert.deepEqual([mine.pl_counted, mine.band, mine.rate_pct, mine.incentive_aed, mine.achievement_pct], [700000, 'AED 600K to AED 750K', 0.4, 2800, 116.7]);
+  assert.deepEqual([mine.pl_counted, mine.band, mine.rate_pct, mine.core_aed, mine.incentive_aed, mine.achievement_pct], [700000, 'AED 600K to AED 750K', 0.4, 2800, 3300, 116.7]);
   // An Emirates Islamic buy-out of 600,000 counts 300,000: production 1,000,000 at 0.75% = 7,500.
   const eib = (await pl('PL Inc 3', { personal_loan_type: 'buy_out', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Emirates Islamic', amount: 600000 }] })).data.case;
   assert.equal((await complete(eib.id, { pl_disbursed_amount: 600000 })).status, 200);
   mine = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
-  assert.deepEqual([mine.pl_disbursed, mine.pl_counted, mine.eib_loans, mine.band, mine.rate_pct, mine.incentive_aed], [1300000, 1000000, 1, 'AED 1M to AED 1.25M', 0.75, 7500]);
+  assert.deepEqual([mine.pl_disbursed, mine.pl_counted, mine.eib_loans, mine.band, mine.rate_pct, mine.core_aed, mine.incentive_aed], [1300000, 1000000, 1, 'AED 1M to AED 1.25M', 0.75, 7500, 8000]);
   // A top-up counts 70% of its incremental amount: 100,000 more on a 300,000 loan adds 70,000 (production 1,070,000, still 0.75% = 8,025).
   const topUp = (await pl('PL Inc 4', { personal_loan_type: 'top_up', full_loan_amount: 300000, incremental_amount: 100000 })).data.case;
   assert.equal((await complete(topUp.id, { pl_disbursed_amount: 300000 })).status, 200);
   mine = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
-  assert.deepEqual([mine.top_ups, mine.pl_counted, mine.incentive_aed], [1, 1070000, 8025]);
+  assert.deepEqual([mine.top_ups, mine.pl_counted, mine.core_aed, mine.incentive_aed], [1, 1070000, 8025, 8525]);
   const rep = (await mis('GET', `/reports/pl_incentives?cycle=${cycle}`)).data;
   const row = rep.rows.find((r) => r.staff === 'Amal');
-  assert.deepEqual([row.incentive_aed, row.rate, row.band, row.top_ups], [8025, '0.75%', 'AED 1M to AED 1.25M', 1]);
+  assert.deepEqual([row.core_aed, row.cards_incentive_aed, row.incentive_aed, row.rate, row.band, row.top_ups, row.mass_cards], [8025, 500, 8525, '0.75%', 'AED 1M to AED 1.25M', 1, 1]);
+  assert.match(rep.note, /Mass AED 500/);
   assert.match(rep.note, /60% of target in the next sales cycle/);
   assert.equal((await gov('GET', `/reports/pl_incentives?cycle=${cycle}`)).status, 404);
 });

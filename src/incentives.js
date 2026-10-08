@@ -31,6 +31,9 @@ export const PREMIUM_CATEGORIES = ['Premium', 'Super Premium'];
 // Personal loan sales staff: a percentage of the cycle's disbursed production, by band. The whole
 // production pays at the band's rate; below the first band nothing is paid. An Emirates Islamic
 // buy-out counts at half its disbursed amount, as for cards.
+// Cards a personal loan sales person cross-sells pay a flat amount each, once their counted production
+// reaches their target less AED 100,000; the noon card pays nothing.
+export const PL_CROSS_SELL = { threshold_below_target_aed: 100000, card_aed: { Mass: 500, Premium: 900, 'Super Premium': 1100 }, noon_aed: 0 };
 export const PL_INCENTIVE_BANDS = [
   { from: 600000, to: 749999.99, rate: 0.4 },
   { from: 750000, to: 999999.99, rate: 0.55 },
@@ -60,9 +63,21 @@ export function plIncentiveFor(db, staffId, cycle) {
   const band = PL_INCENTIVE_BANDS.find((b) => pl_counted >= b.from && pl_counted <= b.to) || null;
   const rate_pct = band ? band.rate : 0;
   const next = band ? PL_INCENTIVE_BANDS[PL_INCENTIVE_BANDS.indexOf(band) + 1] || null : PL_INCENTIVE_BANDS[0];
+  // Cards cross-sold, paid once production reaches the threshold (target less AED 100,000).
+  const cards = { noon: 0, Mass: 0, Premium: 0, 'Super Premium': 0, other: 0 };
+  let cards_aed = 0;
+  for (const c of rows) {
+    if (!(includesCard(c) && c.credit_card)) continue;
+    if (/\bnoon\b/i.test(c.credit_card)) { cards.noon++; cards_aed += PL_CROSS_SELL.noon_aed; } else if (PL_CROSS_SELL.card_aed[c.card_category] != null) { cards[c.card_category]++; cards_aed += PL_CROSS_SELL.card_aed[c.card_category]; } else cards.other++;
+  }
+  const cards_threshold = target == null ? null : Math.max(0, target - PL_CROSS_SELL.threshold_below_target_aed);
+  const cards_qualified = cards_threshold != null && pl_counted >= cards_threshold;
+  const core_aed = round2((pl_counted * rate_pct) / 100);
+  const cards_incentive_aed = cards_qualified ? round2(cards_aed) : 0;
   return {
     cycle, target, loans, eib_loans, top_ups, topup_share: topupShare(cycle), pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
-    band: band ? plBandLabel(band) : `Below ${aedK(PL_INCENTIVE_BANDS[0].from)}`, rate_pct, incentive_aed: round2((pl_counted * rate_pct) / 100),
+    band: band ? plBandLabel(band) : `Below ${aedK(PL_INCENTIVE_BANDS[0].from)}`, rate_pct, core_aed,
+    cards_sold: cards.noon + cards.Mass + cards.Premium + cards['Super Premium'] + cards.other, cards, cards_aed: round2(cards_aed), cards_threshold, cards_qualified, cards_incentive_aed, incentive_aed: round2(core_aed + cards_incentive_aed),
     next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length,
   };
 }
@@ -389,7 +404,7 @@ export function myIncentive(db, user, cycle) {
   cycle = cycle ? String(cycle) : cycleOf(uaeDay());
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const me = db.prepare('SELECT core_product FROM users WHERE id = ?').get(user.id);
-  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, al_rules: AL_INCENTIVE_RULES, tl_rules: TL_INCENTIVE_RULES, pl_tl_rules: PL_TL_RULES, pl_tl_bands: PL_TL_BANDS.map((b) => ({ label: plTlBandLabel(b), rate: b.rate })), cc_sm_slabs: CC_SM_SLABS.map((b) => ({ label: plTlBandLabel(b), aed: b.aed })), pl_sm_bands: PL_SM_BANDS.map((b) => ({ label: plTlBandLabel(b), rate: b.rate })), sm_rules: SM_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
+  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, pl_cross_sell: PL_CROSS_SELL, al_rules: AL_INCENTIVE_RULES, tl_rules: TL_INCENTIVE_RULES, pl_tl_rules: PL_TL_RULES, pl_tl_bands: PL_TL_BANDS.map((b) => ({ label: plTlBandLabel(b), rate: b.rate })), cc_sm_slabs: CC_SM_SLABS.map((b) => ({ label: plTlBandLabel(b), aed: b.aed })), pl_sm_bands: PL_SM_BANDS.map((b) => ({ label: plTlBandLabel(b), rate: b.rate })), sm_rules: SM_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
   if (user.role !== 'sales') {
     const teams = [];
     if (ccTeamOf(db, user.id).length) teams.push({ type: 'cc_team_leader', incentive: tlIncentiveFor(db, user.id, cycle) });
@@ -415,7 +430,7 @@ export function plIncentiveRows(db, cycle, region = null) {
     WHERE u.role = 'sales' AND u.active = 1 AND u.core_product = 'personal_loan'${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(...(region ? [r] : []));
   return staff.map((s) => {
     const i = plIncentiveFor(db, s.id, cycle);
-    return { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, rate: `${i.rate_pct.toFixed(2)}%` };
+    return { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, cards: undefined, mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, cards_qualified: i.cards_qualified ? 'Yes' : 'No', rate: `${i.rate_pct.toFixed(2)}%` };
   }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.staff.localeCompare(b.staff));
 }
 

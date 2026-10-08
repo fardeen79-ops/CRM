@@ -2050,16 +2050,20 @@ const unitSuffix = (unit) => (unit === 'aed' ? ' (AED)' : unit === 'points' ? ' 
 
 /** Product tiles and the card activation tile for one person or a whole team. */
 // A personal loan sales person's incentive for the cycle: production, its band and the rate.
-function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [] }) {
+function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [], pl_cross_sell: x }) {
+  const cardBits = [['Mass', i.cards.Mass], ['Premium', i.cards.Premium], ['Super Premium', i.cards['Super Premium']], ['noon', i.cards.noon]].filter(([, n]) => n).map(([l, n]) => `${n} ${l}`).join(', ');
   return html`<div class="card incentive">
     <div class="card-head"><h2>My incentive · ${i.band}</h2>
       <span class="chip ${i.rate_pct ? 'good' : ''}">${i.rate_pct.toFixed(2)}% of production</span></div>
     <div class="kpis">
       <div class="kpi"><span class="kpi-label">Production this cycle</span><span class="kpi-value">AED ${fmtAmount(i.pl_counted)}</span><span class="kpi-sub">${i.loans} ${i.loans === 1 ? 'loan' : 'loans'} disbursed, AED ${fmtAmount(i.pl_disbursed)}${i.eib_loans ? ` · ${i.eib_loans} Emirates Islamic buy-out${i.eib_loans === 1 ? '' : 's'} at ${rules.eib_buyout_share}%` : ''}${i.top_ups ? ` · ${i.top_ups} top-up${i.top_ups === 1 ? '' : 's'} at ${i.topup_share}% of the increment` : ''}</span></div>
       <div class="kpi"><span class="kpi-label">Against target</span><span class="kpi-value">${i.achievement_pct == null ? '—' : `${i.achievement_pct}%`}</span><span class="kpi-sub">${i.target == null ? 'no personal loan target set for this cycle' : `target AED ${fmtAmount(i.target)}`}</span></div>
-      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">${i.rate_pct ? `${i.rate_pct.toFixed(2)}% of AED ${fmtAmount(i.pl_counted)}` : i.next_band ? `AED ${fmtAmount(i.next_band.short_by)} more reaches ${i.next_band.label} at ${i.next_band.rate.toFixed(2)}%` : ''}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">${i.cards_incentive_aed ? `AED ${fmtAmount(i.core_aed)} production + AED ${fmtAmount(i.cards_incentive_aed)} cards · ` : ''}${i.rate_pct ? `${i.rate_pct.toFixed(2)}% of AED ${fmtAmount(i.pl_counted)}` : i.next_band ? `AED ${fmtAmount(i.next_band.short_by)} more reaches ${i.next_band.label} at ${i.next_band.rate.toFixed(2)}%` : ''}</span></div>
     </div>
     ${i.rate_pct && i.next_band ? html`<p class="muted small">AED ${fmtAmount(i.next_band.short_by)} more production reaches ${i.next_band.label}, paid at ${i.next_band.rate.toFixed(2)}% on the whole.</p>` : ''}
+    <ul class="checklist">
+      <li>${i.cards_qualified ? '✓' : '○'} Cards cross-sold: ${i.cards_sold ? `${cardBits} (AED ${fmtAmount(i.cards_aed)})` : 'none yet'}${i.cards_threshold == null ? ' · needs a personal loan target' : i.cards_qualified ? '' : ` · paid once production reaches AED ${fmtAmount(i.cards_threshold)} (target less AED ${fmtAmount(x.threshold_below_target_aed)})`}. Mass AED ${x.card_aed.Mass}, Premium AED ${x.card_aed.Premium}, Super Premium AED ${x.card_aed['Super Premium']}, noon nil.</li>
+    </ul>
     <table class="bands"><thead><tr><th>Production in the cycle</th><th>Rate on the whole production</th></tr></thead>
       <tbody>${pl_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(2)}%</td></tr>`)}</tbody></table>
     <p class="muted small">Only loans disbursed on files completed in the cycle count. An Emirates Islamic buy-out counts at ${rules.eib_buyout_share}% of its disbursed amount; a top-up at ${i.topup_share}% of its incremental amount${i.topup_share < 100 ? '' : ' (70% from the October 2026 cycle)'}.</p>

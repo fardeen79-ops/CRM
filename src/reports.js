@@ -7,7 +7,7 @@ import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
-import { incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
+import { PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
@@ -431,10 +431,11 @@ function pl_incentives(db, user, { period, region }) {
   return {
     columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('target', 'PL target (AED)', 'aed'), col('loans', 'Loans disbursed'), col('eib_loans', 'Emirates Islamic buy-outs'), col('top_ups', 'Top-ups'), col('pl_disbursed', 'Disbursed (AED)', 'aed'), col('pl_counted', 'Production counted (AED)', 'aed'),
-      col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed')],
+      col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('core_aed', 'Production incentive (AED)', 'aed'),
+      col('mass_cards', 'Mass cards'), col('premium_cards', 'Premium cards'), col('super_premium_cards', 'Super Premium cards'), col('noon_cards', 'noon cards'), col('cards_threshold', 'Card threshold (AED)', 'aed'), col('cards_qualified', 'At threshold', 'text'), col('cards_incentive_aed', 'Card cross-sell (AED)', 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed')],
     rows,
-    note: `${INCENTIVE_CONDITIONS.join(' ')} Bands: ${PL_INCENTIVE_BANDS.map((b) => `${plBandLabel(b)} ${b.rate.toFixed(2)}%`).join(' · ')}.`,
-    totals: { staff: `${rows.length} staff`, loans: sum(rows, 'loans'), eib_loans: sum(rows, 'eib_loans'), top_ups: sum(rows, 'top_ups'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), incentive_aed: sum(rows, 'incentive_aed'), band: `${rows.filter((r) => r.rate_pct > 0).length} earning` },
+    note: `${INCENTIVE_CONDITIONS.join(' ')} Bands: ${PL_INCENTIVE_BANDS.map((b) => `${plBandLabel(b)} ${b.rate.toFixed(2)}%`).join(' · ')}. Cards cross-sold: Mass AED ${PL_CROSS_SELL.card_aed.Mass}, Premium AED ${PL_CROSS_SELL.card_aed.Premium}, Super Premium AED ${PL_CROSS_SELL.card_aed['Super Premium']}, noon nil, paid once production reaches the target less AED ${PL_CROSS_SELL.threshold_below_target_aed.toLocaleString('en-US')}.`,
+    totals: { staff: `${rows.length} staff`, loans: sum(rows, 'loans'), eib_loans: sum(rows, 'eib_loans'), top_ups: sum(rows, 'top_ups'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), core_aed: sum(rows, 'core_aed'), mass_cards: sum(rows, 'mass_cards'), premium_cards: sum(rows, 'premium_cards'), super_premium_cards: sum(rows, 'super_premium_cards'), noon_cards: sum(rows, 'noon_cards'), cards_incentive_aed: sum(rows, 'cards_incentive_aed'), incentive_aed: sum(rows, 'incentive_aed'), band: `${rows.filter((r) => r.rate_pct > 0).length} earning` },
   };
 }
 
