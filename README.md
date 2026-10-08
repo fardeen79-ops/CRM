@@ -188,7 +188,7 @@ The band rate applies to the whole production, not slab by slab (confirmed). **C
 
 **Credit card sales managers and ASMs** earn a **flat amount per card** their core card staff sold, by the team's achievement of its combined card targets: nil below 70%, **AED 15 from 70%, 20 from 80%, 30 from 100%, 35 from 110%, 40 from 125%, 45 from 140%, 50 from 150%** (the bank's example: 120% with 500 cards = AED 17,500). **Managers with personal loan production** earn a percentage of the team's **whole loan production**, core loan staff plus loans cross-sold by the rest of their team, by its achievement of the core staff's combined targets: nil below 80%, **0.02% from 80%, 0.0625% from 100%, 0.075% from 125%, 0.10% from 150%**. The bank confirmed this grid for card managers who also manage loans; a dedicated core loan manager grid is not verified, so the same grid applies to every manager until it is. A sales manager's team is everyone whose sales manager they are; an ASM's team is everyone whose ASM they are. A manager who also leads a team directly gets the team leader calculation as well.
 
-Still open from the bank's workflow: the "approved AUH-specific treatment", which has not been described. Everything else in the workflow is built.
+Every incentive is calculated the same way in DXB and AUH; there is no AUH-specific treatment (confirmed). The whole incentive workflow is built; only the core personal loan manager grid is provisional (the card-manager grid is applied until the bank confirms a dedicated one).
 
 **All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank's data cut finalisation.** Both conditions are printed under the staff member's incentive block and under the incentives report.
 
