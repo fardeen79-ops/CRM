@@ -894,7 +894,7 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   assert.equal(completed.data.case.pl_disbursed_amount, 140000);
 
   const mine = (await sally('GET', `/targets?cycle=${cycle}`)).data;
-  assert.deepEqual(mine.units, { credit_card: 'count', personal_loan: 'aed', auto_loan: 'aed', accounts: 'count' });
+  assert.deepEqual(mine.units, { credit_card: 'points', personal_loan: 'aed', auto_loan: 'points', accounts: 'count' });
   assert.equal(mine.is_current, true);
   assert.ok(mine.days_left >= 1 && mine.days_left <= 31);
   assert.deepEqual(mine.staff[0].target, { credit_card: 5, personal_loan: 1500000 });
@@ -1311,4 +1311,51 @@ test('a card\'s category is filled from the product list and the list can be rep
   const old = (await sales('GET', `/cases/${id}`)).data.case;
   assert.equal(old.credit_card, 'Skywards Signature Credit Card');
   assert.equal(old.card_category, 'Signature');
+});
+
+test('salary-based targets: bands and points are uploaded, targets generated, points achieved', async () => {
+  const mis = await login('mis@t.local');
+  const lead = await login('lead@t.local');
+  const sales = await login('sales@t.local');
+  const cycle = '2031-03';
+  const sallyId = (await lead('GET', '/users')).data.users.find((u) => u.email === 'sales@t.local').id;
+  const sidId = (await lead('GET', '/users')).data.users.find((u) => u.email === 'sales2@t.local').id;
+  // Salaries go on the profile; only MIS and business heads see them in the target report.
+  assert.equal((await lead('PATCH', `/users/${sallyId}`, { salary: 'AED 5,000' })).data.user.salary, 5000);
+  assert.equal((await lead('PATCH', `/users/${sallyId}`, { salary: 'lots' })).status, 400);
+  assert.equal((await sales('GET', '/targets')).data.staff[0].salary, undefined);
+  // No rules yet: generating fails with a clear message.
+  assert.match((await mis('POST', '/targets/generate', { cycle })).data.error, /No salary-band rules/);
+  // Bands: overlapping bands are refused as a group; the rest load.
+  const rules = 'Product,Salary from (AED),Salary to (AED),Target\nPersonal Loan,0,5999,600000\nPersonal Loan,6000,9999,900000\nCredit Card,0,5999,100\nCredit Card,6000,9999,150\nAuto Loan,0,9999,20\nAccounts,0,9999,2\nAccounts,5000,7000,3\n';
+  const r = (await mis('POST', '/import/target_rules', { csv: rules })).data;
+  assert.deepEqual(r.rows.map((x) => x.ok), [true, true, true, true, true, false, false]);
+  assert.match(r.rows[6].error, /overlaps/);
+  assert.equal((await lead('POST', '/import/target_rules', { csv: rules })).status, 403);
+  const gen = (await mis('POST', '/targets/generate', { cycle })).data;
+  assert.deepEqual(gen.set.filter((s) => s.name === 'Sally').map((s) => s.targets), [{ credit_card: 100, personal_loan: 600000, auto_loan: 20 }]);
+  assert.ok(gen.skipped.some((s) => s.name === 'Sid' && /no salary/.test(s.reason)));
+  const rep = (await mis('GET', `/targets?cycle=${cycle}`)).data;
+  assert.equal(rep.setup.staff_with_salary, 1);
+  assert.deepEqual(rep.staff.find((s) => s.id === sallyId).target, { credit_card: 100, personal_loan: 600000, auto_loan: 20 });
+  assert.equal(rep.staff.find((s) => s.id === sallyId).salary, 5000);
+  // Auto loan points by amount band, with a preview that saves nothing.
+  const bands = 'Loan amount from (AED),Loan amount to (AED),Points\n0,99999,5\n100000,249999,12\n250000,999999999,25\n';
+  await mis('POST', '/import/auto_loan_points', { csv: bands, dry_run: true });
+  assert.equal((await mis('GET', '/targets')).data.setup.auto_loan_bands, 0);
+  assert.equal((await mis('POST', '/import/auto_loan_points', { csv: bands })).data.ok, 3);
+  assert.equal((await mis('GET', '/targets')).data.setup.auto_loan_bands, 3);
+  // A completed auto loan of AED 150,000 earns 12 points; a card earns the product list's points.
+  const car = await sales('POST', '/cases', { ...newCase, product: 'auto_loan', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, amount: 150000, core_product: 'auto_loan' });
+  assert.equal(car.status, 201, JSON.stringify(car.data));
+  await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  assert.equal((await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_disbursal', al_disbursed_amount: 150000 })).status, 200);
+  const now = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId);
+  assert.equal(now.achieved.auto_loan, 12);
+  assert.equal(now.cases.auto_loan, 1);
+  const cardsBefore = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.credit_card;
+  const card = await sales('POST', '/cases', { ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'New Cashback Credit Card', card_fee_type: 'fyf' });
+  assert.equal(card.status, 201, JSON.stringify(card.data));
+  await mis('POST', `/cases/${card.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  assert.equal((await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.credit_card, cardsBefore + 40);
 });

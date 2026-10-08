@@ -3,23 +3,50 @@
 // Sales cycle: the 21st of one month to the 20th of the next, named after the month it ends in
 // (21 May – 20 June is the June cycle), in UAE time. A case counts towards a cycle when its case
 // status is set to Completed in that cycle: a temp end for credit cards, a disbursal for loans.
-// Credit cards and accounts are counted; personal and auto loans are measured by the AED amount
-// disbursed. A bundle counts for each product in it.
+// Credit cards and auto loans are measured in points (each card's points from the product list;
+// an auto loan's points from the amount band table), personal loans by the AED disbursed and
+// accounts by count. Until points are loaded, each card or auto loan counts 1 point. A bundle
+// counts for each product in it.
 import { transaction } from './db.js';
 import { PRODUCTS, CARD_STATES, DISBURSAL_FIELDS, REGIONS, STATUS, sweepCardAgeing, WorkflowError, caseProducts, caseScope, includesCard, COMPLETED_IN_SQL } from './cases.js';
 import { uaeDay, cycleOf, isCycle, cycleRange, cycleLabel } from './cycles.js';
+import { cardProducts } from './credit-cards.js';
 
 // Credit cards first: the main product for sales staff.
 export const TARGET_PRODUCTS = Object.fromEntries(['credit_card', 'personal_loan', 'auto_loan', 'accounts'].map((k) => [k, PRODUCTS[k]]));
 // How each product's target is measured: completed cases, or AED disbursed.
-export const TARGET_UNITS = { credit_card: 'count', personal_loan: 'aed', auto_loan: 'aed', accounts: 'count' };
+export const TARGET_UNITS = { credit_card: 'points', personal_loan: 'aed', auto_loan: 'points', accounts: 'count' };
+
+/** The auto loan points bands. */
+export const autoLoanBands = (db) => db.prepare('SELECT amount_from, amount_to, points FROM auto_loan_points ORDER BY amount_from').all();
+/** What one completed file adds to a product's achievement. */
+export function achievedBy(product, row, bands = []) {
+  if (product === 'personal_loan') return row.pl_disbursed_amount ?? 0;
+  if (product === 'credit_card') return row.card_points ?? 1;
+  if (product === 'auto_loan') {
+    const amount = row.al_disbursed_amount ?? 0;
+    const band = bands.find((b) => amount >= b.amount_from && amount <= b.amount_to);
+    return band ? band.points : 1;
+  }
+  return 1;
+}
+/** How targets and points are set up, for the Targets page. */
+export function targetSetup(db) {
+  return {
+    salary_bands: db.prepare('SELECT product, COUNT(*) AS n FROM target_rules GROUP BY product').all().reduce((o, r) => ({ ...o, [r.product]: r.n }), {}),
+    auto_loan_bands: db.prepare('SELECT COUNT(*) AS n FROM auto_loan_points').get().n,
+    card_points_set: cardProducts().some((p) => p.points != null),
+    staff_with_salary: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'sales' AND active = 1 AND salary IS NOT NULL").get().n,
+    staff: db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'sales' AND active = 1").get().n,
+  };
+}
 // Who sets targets and maps card activation.
 export const TARGET_SETTERS = ['mis', 'business_head'];
 const VIEWERS = ['sales', 'team_leader', 'sales_manager', 'asm', 'mis', 'business_head', 'governance'];
 /** Sales staff whose numbers this user may see, optionally only those in one region. */
 function staffInScope(db, user, region = null) {
   if (!VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Targets are for sales staff, team leaders, sales managers, MIS and business heads');
-  const base = `SELECT u.id, u.name, u.sales_code, u.active, u.region, u.team_leader_id, u.sales_manager_id, u.asm_id,
+  const base = `SELECT u.id, u.name, u.sales_code, u.active, u.region, u.salary, u.team_leader_id, u.sales_manager_id, u.asm_id,
       tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name
     FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id
     WHERE u.role = 'sales'${region ? ` AND u.region = '${region}'` : ''}`;
@@ -58,7 +85,8 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
     const s = byId.get(t.user_id);
     if (s && TARGET_PRODUCTS[t.product]) s.target[t.product] = t.target;
   }
-  const done = db.prepare(`SELECT c.sales_staff_id, c.product, c.bundle_products, c.card_status, c.pl_disbursed_amount, c.al_disbursed_amount
+  const bands = autoLoanBands(db);
+  const done = db.prepare(`SELECT c.sales_staff_id, c.product, c.bundle_products, c.card_status, c.card_points, c.pl_disbursed_amount, c.al_disbursed_amount
     FROM cases c WHERE ${COMPLETED_IN_SQL}`).all(start, end);
   for (const c of done) {
     const s = byId.get(c.sales_staff_id);
@@ -66,15 +94,17 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
     for (const p of caseProducts(c)) {
       if (!(p in s.achieved)) continue;
       s.cases[p]++;
-      s.achieved[p] += TARGET_UNITS[p] === 'aed' ? c[DISBURSAL_FIELDS[p]] ?? 0 : 1;
+      s.achieved[p] += achievedBy(p, c, bands);
     }
     if (includesCard(c)) {
       s.cards.temp_end++;
       s.cards[CARD_STATES[c.card_status] ? c.card_status : 'unmapped']++;
     }
   }
-  // Former staff only appear when they have numbers in this cycle.
-  const rows = [...byId.values()].filter((s) => s.active || Object.keys(s.target).length || Object.values(s.achieved).some(Boolean));
+  // Former staff only appear when they have numbers in this cycle. Salaries are for MIS and business heads.
+  const seesSalary = TARGET_SETTERS.includes(user.role);
+  const rows = [...byId.values()].filter((s) => s.active || Object.keys(s.target).length || Object.values(s.achieved).some(Boolean))
+    .map((s) => (seesSalary ? s : { ...s, salary: undefined }));
 
   const rollup = (list) => {
     const out = { target: {}, achieved: emptyCounts(), cases: emptyCounts(), cards: emptyCards(), staff_count: list.length };
@@ -108,6 +138,7 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
     products: TARGET_PRODUCTS,
     units: TARGET_UNITS,
     can_set: TARGET_SETTERS.includes(user.role),
+    setup: seesSalary ? targetSetup(db) : undefined,
     staff: rows,
     total: rollup(rows),
   };
@@ -145,10 +176,11 @@ export function hierarchy(db, user, { cycle, region } = {}) {
   const where = [scope?.sql].filter(Boolean);
   const params = [...(scope?.params || [])];
   const rows = db.prepare(`SELECT c.sales_staff_id, c.sales_staff_name, c.team_leader_id, c.sales_manager_id, c.asm_id, c.status, c.sourcing_date, c.case_status,
-      c.product, c.bundle_products, c.card_status, c.pl_disbursed_amount, c.al_disbursed_amount,
+      c.product, c.bundle_products, c.card_status, c.card_points, c.pl_disbursed_amount, c.al_disbursed_amount,
       date(c.verified_at, '+4 hours') AS verified_day, date(c.case_status_at, '+4 hours') AS completed_day
     FROM cases c ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`).all(...params);
   // Numbers per sales person per team they filed under.
+  const bands = autoLoanBands(db);
   const keyOf = (r) => `${r.sales_staff_id ?? 0}|${r.team_leader_id ?? 0}|${r.sales_manager_id ?? 0}|${r.asm_id ?? 0}`;
   const agg = new Map();
   for (const r of rows) {
@@ -164,7 +196,7 @@ export function hierarchy(db, user, { cycle, region } = {}) {
       k.completed++;
       for (const p of caseProducts(r)) {
         if (!(p in k.achieved)) continue;
-        k.achieved[p] += TARGET_UNITS[p] === 'aed' ? r[DISBURSAL_FIELDS[p]] ?? 0 : 1;
+        k.achieved[p] += achievedBy(p, r, bands);
       }
       k.disbursed_aed += (r.pl_disbursed_amount || 0) + (r.al_disbursed_amount || 0);
       if (includesCard(r)) { k.cards.temp_end++; k.cards[CARD_STATES[r.card_status] ? r.card_status : 'unmapped']++; }
@@ -212,19 +244,50 @@ export function hierarchy(db, user, { cycle, region } = {}) {
   return { cycle: rep.cycle, label: rep.label, start, end, days_left: rep.days_left, is_current: rep.is_current, region, products: rep.products, units: rep.units, levels: LEVELS.slice(top).map(([l]) => l), level_labels: LEVEL_LABELS, nodes, total };
 }
 
-// Case targets are whole numbers of cases; loan targets are whole AED amounts ("1,500,000" is fine).
+// Count targets are whole numbers; points and AED targets are whole numbers too ("1,500,000" is fine).
 const parseTarget = (value, label, unit) => {
   const text = String(value ?? '').replace(/,/g, '').replace(/^aed\s*/i, '').trim();
   if (text === '') return null;
   const n = Number(text);
-  const max = unit === 'aed' ? 1e10 : 100000;
+  const max = unit === 'count' ? 100000 : 1e10;
   if (!Number.isInteger(n) || n < 0 || n > max) {
     throw new Error(unit === 'aed'
       ? `${label} target is the AED amount to disburse: a whole number, e.g. 1500000`
-      : `${label} target must be a whole number of cases from 0 to 100000`);
+      : unit === 'points' ? `${label} target is a whole number of points`
+        : `${label} target must be a whole number of cases from 0 to 100000`);
   }
   return n;
 };
+
+/**
+ * Sets every active sales person's targets for a cycle from their salary and the salary-band rules
+ * (Bulk upload → Salary targets). Staff without a salary or outside every band are listed as skipped.
+ * Targets already set by hand for the cycle are replaced for the products that have a rule.
+ */
+export function generateTargets(db, user, cycle) {
+  if (!TARGET_SETTERS.includes(user.role)) throw new WorkflowError(403, 'Only MIS and business heads can set targets');
+  cycle = cycle ? String(cycle) : cycleOf(uaeDay());
+  if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
+  const rules = db.prepare('SELECT product, salary_from, salary_to, target FROM target_rules ORDER BY product, salary_from').all();
+  if (!rules.length) throw new WorkflowError(400, 'No salary-band rules yet. Upload them from Bulk upload → Salary targets first');
+  const staff = db.prepare("SELECT id, name, salary FROM users WHERE role = 'sales' AND active = 1 ORDER BY name").all();
+  const set = [];
+  const skipped = [];
+  transaction(db, () => {
+    for (const s of staff) {
+      if (s.salary == null) { skipped.push({ name: s.name, reason: 'no salary on the profile' }); continue; }
+      const values = {};
+      for (const p of Object.keys(TARGET_PRODUCTS)) {
+        const rule = rules.find((r) => r.product === p && s.salary >= r.salary_from && s.salary <= r.salary_to);
+        if (rule) values[p] = Math.round(rule.target);
+      }
+      if (!Object.keys(values).length) { skipped.push({ name: s.name, reason: `salary AED ${s.salary.toLocaleString('en-US')} is outside every band` }); continue; }
+      setTargetsFor(db, user, s.id, cycle, values);
+      set.push({ name: s.name, salary: s.salary, targets: values });
+    }
+  });
+  return { cycle, set, skipped, report: targetReport(db, user, cycle) };
+}
 
 /** Sets one sales person's targets for a cycle: { product: number | null }. Null or blank clears. */
 export function setTargetsFor(db, user, staffId, cycle, values) {

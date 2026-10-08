@@ -487,7 +487,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|auto_loan_points)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
@@ -1815,7 +1815,7 @@ const cycleOfIso = (iso) => {
 const pct = (a, t) => (t ? Math.round((a / t) * 100) : null);
 /** Achieved against target: a thin meter plus "7 / 20". Over target turns green. */
 function meter(achieved, target, { compact = false, unit = 'count' } = {}) {
-  const f = unit === 'aed' ? fmtAedShort : String;
+  const f = unit === 'aed' ? fmtAedShort : (n) => Number(n).toLocaleString();
   if (target == null) {
     return html`<div class="meter-text${compact ? ' compact' : ''}"><strong>${f(achieved)}</strong> <span class="muted small">no target</span></div>`;
   }
@@ -1824,7 +1824,20 @@ function meter(achieved, target, { compact = false, unit = 'count' } = {}) {
     <div class="meter ${p >= 100 ? 'done' : ''}" role="meter" aria-valuemin="0" aria-valuemax="${target}" aria-valuenow="${achieved}" aria-label="${achieved} of ${target}"><span style="width:${Math.min(p, 100)}%"></span></div>`;
 }
 
+const setupReady = (s) => Object.keys(s.salary_bands).length > 0 && s.staff_with_salary === s.staff;
+function setupSummary(s) {
+  const bands = Object.entries(s.salary_bands).map(([p, n]) => `${state.meta.products[p]} ${n}`).join(', ');
+  return [
+    Object.keys(s.salary_bands).length ? `Salary bands loaded: ${bands}.` : 'No salary bands yet: upload them from Bulk upload → Salary targets.',
+    `${s.staff_with_salary} of ${s.staff} sales staff have a salary on their profile.`,
+    s.card_points_set ? 'Card points come from the product list.' : 'Card points not loaded yet: each card counts 1 point until the product list has points.',
+    s.auto_loan_bands ? `Auto loan points: ${s.auto_loan_bands} amount bands.` : 'Auto loan points not loaded yet: each auto loan counts 1 point until the bands are uploaded.',
+  ].join(' ');
+}
+
 const activationRate = (cards) => (cards.temp_end ? Math.round((cards.active / cards.temp_end) * 100) : null);
+
+const unitSuffix = (unit) => (unit === 'aed' ? ' (AED)' : unit === 'points' ? ' (points)' : '');
 
 /** Product tiles and the card activation tile for one person or a whole team. */
 function targetTiles(rep, block) {
@@ -1832,14 +1845,16 @@ function targetTiles(rep, block) {
   const cards = block.cards;
   return html`<div class="target-tiles">
     ${products.map(([k, name]) => {
-      const aed = rep.units[k] === 'aed';
+      const unit = rep.units[k];
+      const aed = unit === 'aed';
+      const points = unit === 'points';
       const n = block.cases[k];
-      const what = aed ? `${n} ${n === 1 ? 'disbursal' : 'disbursals'}` : k === 'credit_card' ? `${n === 1 ? 'temp end' : 'temp ends'}` : 'completed';
+      const what = aed ? `${n} ${n === 1 ? 'disbursal' : 'disbursals'}` : k === 'credit_card' ? `${n} ${n === 1 ? 'temp end' : 'temp ends'}` : points ? `${n} ${n === 1 ? 'disbursal' : 'disbursals'}` : `${n} completed`;
       const left = block.target[k] - block.achieved[k];
       return html`<div class="target-tile">
-        <div class="kpi-label">${name}${aed ? ' disbursed' : ''}</div>
-        ${meter(block.achieved[k], block.target[k] ?? null, { unit: rep.units[k] })}
-        <div class="muted small">${aed ? `${what} · ` : ''}${block.target[k] == null ? (aed ? 'no target' : what) : left > 0 ? `${aed ? fmtAedShort(left) : left} to go` : 'Target met'}</div>
+        <div class="kpi-label">${name}${aed ? ' disbursed' : points ? ' points' : ''}</div>
+        ${meter(block.achieved[k], block.target[k] ?? null, { unit })}
+        <div class="muted small">${aed || points ? `${what} · ` : ''}${block.target[k] == null ? 'no target' : left > 0 ? `${aed ? fmtAedShort(left) : left.toLocaleString()} to go` : 'Target met'}</div>
       </div>`;
     })}
     <a class="target-tile card-tile" href="#/cards?cycle=${rep.cycle}">
@@ -1863,7 +1878,7 @@ async function viewTargets(cycleParam) {
     <div class="card">
       <h2>${title}</h2>
       <div class="table-wrap"><table class="target-table">
-        <thead><tr><th>${title.replace('By ', '')}</th><th>Staff</th>${products.map(([k, n]) => html`<th>${n}${rep.units[k] === 'aed' ? ' (AED)' : ''}</th>`)}<th>Cards active</th></tr></thead>
+        <thead><tr><th>${title.replace('By ', '')}</th><th>Staff</th>${products.map(([k, n]) => html`<th>${n}${unitSuffix(rep.units[k])}</th>`)}<th>Cards active</th></tr></thead>
         <tbody>${groups.map((g) => html`<tr>
           <td><strong>${g.name}</strong></td><td>${g.staff_count}</td>
           ${products.map(([k]) => html`<td>${meter(g.achieved[k], g.target[k] ?? null, { compact: true, unit: rep.units[k] })}</td>`)}
@@ -1875,13 +1890,13 @@ async function viewTargets(cycleParam) {
   // Staff table; MIS and business heads can switch it to an editable grid of targets.
   const staffTable = (editing) => html`
     <div class="table-wrap"><table class="target-table${editing ? ' editing' : ''}">
-      <thead><tr><th>Sales staff</th>${products.map(([k, n]) => html`<th>${n}${rep.units[k] === 'aed' ? ' (AED)' : ''}</th>`)}${editing ? '' : html`<th>Cards active</th>`}</tr></thead>
+      <thead><tr><th>Sales staff</th>${products.map(([k, n]) => html`<th>${n}${unitSuffix(rep.units[k])}</th>`)}${editing ? '' : html`<th>Cards active</th>`}</tr></thead>
       <tbody>${rep.staff.map((p) => html`<tr ${editing ? '' : raw(`data-href="${casesLink(p.id)}"`)} data-staff="${p.id}">
-        <td><strong>${p.name}</strong>${p.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><span class="mono">${p.sales_code || '—'}</span>${r !== 'team_leader' && p.team_leader_name ? ` · TL ${p.team_leader_name}` : ''}</div></td>
+        <td><strong>${p.name}</strong>${p.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small"><span class="mono">${p.sales_code || '—'}</span>${r !== 'team_leader' && p.team_leader_name ? ` · TL ${p.team_leader_name}` : ''}${p.salary != null ? ` · salary AED ${p.salary.toLocaleString('en-US')}` : rep.can_set ? ' · no salary' : ''}</div></td>
         ${products.map(([k, n]) => (editing
           ? (rep.units[k] === 'aed'
             ? html`<td><input class="target-input aed" inputmode="numeric" name="${k}" value="${p.target[k] != null ? p.target[k].toLocaleString('en-US') : ''}" aria-label="${n} disbursal target in AED for ${p.name}" placeholder="AED"></td>`
-            : html`<td><input class="target-input" type="number" min="0" step="1" inputmode="numeric" name="${k}" value="${p.target[k] ?? ''}" aria-label="${n} target for ${p.name}" placeholder="—"></td>`)
+            : html`<td><input class="target-input" type="number" min="0" step="1" inputmode="numeric" name="${k}" value="${p.target[k] ?? ''}" aria-label="${n} target for ${p.name}" placeholder="${rep.units[k] === 'points' ? 'points' : '—'}"></td>`)
           : html`<td>${meter(p.achieved[k], p.target[k] ?? null, { compact: true, unit: rep.units[k] })}</td>`))}
         ${editing ? '' : html`<td class="small">${p.cards.active}/${p.cards.temp_end}${p.cards.inactive + p.cards.out_of_range ? html`<div class="muted">${p.cards.inactive} inactive${p.cards.out_of_range ? ` · ${p.cards.out_of_range} out of range` : ''}</div>` : ''}</td>`}
       </tr>`)}</tbody>
@@ -1892,7 +1907,7 @@ async function viewTargets(cycleParam) {
       <div>
         <div class="eyebrow">Sales cycle · ${cycleSpan(rep.cycle)}${rep.is_current ? ` · ${rep.days_left} ${rep.days_left === 1 ? 'day' : 'days'} left` : ''}</div>
         <h1>${scopeTitle} — ${cycleName(rep.cycle)}</h1>
-        <p class="muted lede">The ${cycleName(rep.cycle).split(' ')[0]} cycle runs from ${cycleSpan(rep.cycle).replace(' – ', ' to ')}. Credit cards (temp ends) and accounts count completed cases; personal and auto loans count the AED amount disbursed. A case counts when its case status is set to Completed in the cycle, and a bundle counts for each product in it.</p>
+        <p class="muted lede">The ${cycleName(rep.cycle).split(' ')[0]} cycle runs from ${cycleSpan(rep.cycle).replace(' – ', ' to ')}. Credit cards and auto loans count points (each card's points from the product list, an auto loan's from its amount band), personal loans count the AED disbursed and accounts count cases. A case counts when its case status is set to Completed in the cycle, and a bundle counts for each product in it. Targets come from each person's salary through the salary bands.</p>
       </div>
       <div class="cycle-nav">
         <a class="btn" href="#/targets?cycle=${shiftCycle(rep.cycle, -1)}" aria-label="Previous cycle">‹ ${cycleName(shiftCycle(rep.cycle, -1)).split(' ')[0]}</a>
@@ -1911,14 +1926,26 @@ async function viewTargets(cycleParam) {
         <h2>Sales staff</h2>
         ${rep.can_set ? html`<div class="actions" id="target-actions">
           <a class="btn" href="#/import/targets">Upload targets</a>
+          <button id="generate-targets" title="Set every sales person's targets from their salary and the salary bands">Generate from salaries</button>
           <button class="btn-primary" id="edit-targets">Set targets</button>
         </div>` : ''}
       </div>
       <p class="muted small" id="staff-hint">${rep.can_set ? 'Select a row to see the cases completed in this cycle. Team leaders and sales managers see their team with these targets added up.' : 'Select a row to see the cases completed in this cycle.'}</p>
+      ${rep.setup ? html`<div class="callout ${setupReady(rep.setup) ? 'info' : 'warn'} small"><strong>Salary-based targets.</strong> ${setupSummary(rep.setup)}</div>` : ''}
       <div id="staff-table">${rep.staff.length ? staffTable(false) : html`<div class="empty">No sales staff ${r === 'sales_manager' || r === 'team_leader' ? 'report to you yet' : 'yet'}</div>`}</div>
     </div>` : ''}`);
   bindRows();
 
+  const gen = document.getElementById('generate-targets');
+  if (gen) gen.onclick = async () => {
+    if (!confirm(`Set targets for the ${cycleName(rep.cycle)} cycle from each sales person's salary? Targets already set for products that have a salary band will be replaced.`)) return;
+    gen.disabled = true;
+    try {
+      const res = await api('/targets/generate', { method: 'POST', body: { cycle: rep.cycle } });
+      toast(`Targets set for ${res.set.length} sales staff${res.skipped.length ? `; ${res.skipped.length} skipped: ${res.skipped.map((s) => `${s.name} (${s.reason})`).join(', ')}` : ''}`);
+      viewTargets(rep.cycle);
+    } catch (ex) { toast(ex.message, true); gen.disabled = false; }
+  };
   const edit = document.getElementById('edit-targets');
   if (!edit || !rep.staff.length) return;
   edit.onclick = () => {
@@ -2287,6 +2314,20 @@ const BULK = {
     template: 'card-products-template.csv',
     done: ['#/cases/new', 'Open the New case form'],
   },
+  target_rules: {
+    tab: 'Salary targets',
+    title: 'Upload salary-band targets',
+    lede: 'The target each product gives a sales person by their monthly salary: one row per product and salary band, bands must not overlap. Credit card and auto loan targets are points, personal loan targets are AED to disburse, account targets are a count. Then press Generate from salaries on the Targets page for each cycle.',
+    template: 'salary-targets-template.csv',
+    done: ['#/targets', 'Open targets'],
+  },
+  auto_loan_points: {
+    tab: 'Auto loan points',
+    title: 'Upload auto loan points',
+    lede: 'The points an auto loan earns by the amount disbursed: one row per amount band, bands must not overlap. Until this is uploaded each auto loan counts 1 point. Card points come from the card product list.',
+    template: 'auto-loan-points-template.csv',
+    done: ['#/targets', 'Open targets'],
+  },
   targets: {
     tab: 'Targets',
     title: 'Upload targets',
@@ -2303,6 +2344,8 @@ const BULK_WORDS = {
   cards: { one: 'card', many: 'cards', verb: 'Mapped', who: 'Case', names: ['reference'], sep: ' ', after: 'Activation now shows on each case and in the sales staff\'s numbers.', excel: 'Reference (App ID and Emirates ID)' },
   targets: { one: 'target row', many: 'target rows', verb: 'Saved', who: 'Sales staff', names: ['salescode', 'cycle'], sep: ' · ', after: 'Staff see them on their Targets page.', excel: '' },
   card_products: { one: 'card', many: 'cards', verb: 'Listed', who: 'Card', names: ['cardname'], sep: ' ', after: 'The New case form now offers exactly these cards.', excel: '' },
+  target_rules: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['product', 'salaryfromaed'], sep: ' · ', after: 'Press Generate from salaries on the Targets page to apply them.', excel: '' },
+  auto_loan_points: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['loanamountfromaed'], sep: ' ', after: 'Auto loan points now use these bands.', excel: '' },
 };
 
 function viewBulkUpload(kind) {
@@ -2456,15 +2499,14 @@ function teamRows(nodes, rep, depth = 0, parent = '') {
     const id = `${parent}${i}`;
     const k = n.kpis;
     const group = n.level !== 'staff';
-    const loans = (k.achieved.personal_loan || 0) + (k.achieved.auto_loan || 0);
-    const loanTarget = k.target.personal_loan != null || k.target.auto_loan != null ? (k.target.personal_loan || 0) + (k.target.auto_loan || 0) : null;
     const row = html`<tr class="team-row level-${n.level}" data-node="${id}" data-parent="${parent}" ${group ? raw('data-open="1"') : raw(`data-href="#/cases?cycle=${rep.cycle}&staff=${n.id}"`)} style="--depth:${depth}">
       <td><div class="team-name">${group ? html`<button class="tree-toggle" type="button" aria-expanded="true" aria-label="Collapse ${n.name}">▾</button>` : html`<span class="tree-leaf"></span>`}
         <div><strong>${n.name}</strong>${n.previous_team ? html` <span class="chip" title="Files sourced under this team before the sales person moved">Previous team</span>` : ''}<div class="muted small">${rep.level_labels[n.level]}${n.sales_code ? html` · <span class="mono">${n.sales_code}</span>` : ''}${n.level === 'staff' && n.region && rep.levels[0] !== 'region' ? ` · ${n.region}` : ''}${n.active === 0 ? ' · disabled' : ''}</div></div></div></td>
       <td>${k.staff}</td>
       ${KPI_COLS.map(([key]) => html`<td>${key === 'disbursed_aed' ? (k[key] ? fmtAedShort(k[key]) : '—') : k[key]}</td>`)}
-      <td>${meter(k.achieved.credit_card || 0, k.target.credit_card ?? null, { compact: true })}</td>
-      <td>${meter(loans, loanTarget, { compact: true, unit: 'aed' })}</td>
+      <td>${meter(k.achieved.credit_card || 0, k.target.credit_card ?? null, { compact: true, unit: 'points' })}</td>
+      <td>${meter(k.achieved.personal_loan || 0, k.target.personal_loan ?? null, { compact: true, unit: 'aed' })}</td>
+      <td>${meter(k.achieved.auto_loan || 0, k.target.auto_loan ?? null, { compact: true, unit: 'points' })}</td>
       <td class="small">${k.cards.active}/${k.cards.temp_end}${k.cards.temp_end ? html` <span class="muted">(${activationRate(k.cards)}%)</span>` : ''}</td>
     </tr>`;
     return html`${row}${group ? teamRows(n.children, rep, depth + 1, `${id}.`) : ''}`;
@@ -2473,10 +2515,10 @@ function teamRows(nodes, rep, depth = 0, parent = '') {
 
 function teamTable(rep) {
   return html`<div class="table-wrap"><table class="team-table">
-    <thead><tr><th>${rep.level_labels[rep.levels[0]]}</th><th>Staff</th>${KPI_COLS.map(([, l]) => html`<th>${l}</th>`)}<th>Credit cards vs target</th><th>Loans vs target (AED)</th><th>Cards active</th></tr></thead>
+    <thead><tr><th>${rep.level_labels[rep.levels[0]]}</th><th>Staff</th>${KPI_COLS.map(([, l]) => html`<th>${l}</th>`)}<th>Card points vs target</th><th>Personal loan vs target (AED)</th><th>Auto loan points vs target</th><th>Cards active</th></tr></thead>
     <tbody>${teamRows(rep.nodes, rep)}</tbody>
     ${rep.nodes.length > 1 ? html`<tfoot><tr><td><strong>Total</strong></td><td>${rep.total.staff}</td>${KPI_COLS.map(([key]) => html`<td>${key === 'disbursed_aed' ? (rep.total[key] ? fmtAedShort(rep.total[key]) : '—') : rep.total[key]}</td>`)}
-      <td>${meter(rep.total.achieved.credit_card || 0, rep.total.target.credit_card ?? null, { compact: true })}</td><td>${meter((rep.total.achieved.personal_loan || 0) + (rep.total.achieved.auto_loan || 0), rep.total.target.personal_loan != null || rep.total.target.auto_loan != null ? (rep.total.target.personal_loan || 0) + (rep.total.target.auto_loan || 0) : null, { compact: true, unit: 'aed' })}</td><td class="small">${rep.total.cards.active}/${rep.total.cards.temp_end}</td></tr></tfoot>` : ''}
+      <td>${meter(rep.total.achieved.credit_card || 0, rep.total.target.credit_card ?? null, { compact: true, unit: 'points' })}</td><td>${meter(rep.total.achieved.personal_loan || 0, rep.total.target.personal_loan ?? null, { compact: true, unit: 'aed' })}</td><td>${meter(rep.total.achieved.auto_loan || 0, rep.total.target.auto_loan ?? null, { compact: true, unit: 'points' })}</td><td class="small">${rep.total.cards.active}/${rep.total.cards.temp_end}</td></tr></tfoot>` : ''}
   </table></div>`;
 }
 
@@ -2541,7 +2583,7 @@ const fmtCell = (v, unit) => {
   if (unit === 'date') return fmtDay(v);
   if (unit === 'datetime') return fmtDate(v);
   if (unit === 'role') return ROLE_LABEL[v] || v;
-  if (unit === 'count') return Number(v).toLocaleString();
+  if (unit === 'count' || unit === 'points') return Number(v).toLocaleString();
   return v;
 };
 
@@ -2641,7 +2683,10 @@ async function viewUsers() {
     <div class="field-row"><label for="${prefix}-sm">Sales manager <span class="req">*</span></label>
       <select id="${prefix}-sm" name="sales_manager_id" required><option value="">Choose…</option>${options(managers, u.sales_manager_id)}</select></div>
     <div class="field-row"><label for="${prefix}-asm">Assistant sales manager</label>
-      <select id="${prefix}-asm" name="asm_id"><option value="">None</option>${options(asms, u.asm_id)}</select></div>`;
+      <select id="${prefix}-asm" name="asm_id"><option value="">None</option>${options(asms, u.asm_id)}</select></div>
+    <div class="field-row"><label for="${prefix}-salary">Monthly salary (AED)</label>
+      <input id="${prefix}-salary" name="salary" inputmode="numeric" value="${u.salary != null ? u.salary.toLocaleString('en-US') : ''}" placeholder="e.g. 5,000">
+      <div class="muted small">Sets this person's targets through the salary bands. Seen by MIS and business heads only.</div></div>`;
 
   // Email, local mobile and WhatsApp for any user.
   const contactFields = (u = {}, prefix = 'n') => html`

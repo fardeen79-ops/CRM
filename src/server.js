@@ -182,7 +182,7 @@ function routes(db, dispatch, bot) {
         it_email: cases.config.itEmail,
         call_bot: cases.config.callBot,
         ocr: ocrAssets(),
-        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS },
+        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, auto_loan_points: imports.AUTO_LOAN_POINTS_IMPORT_COLUMNS },
         card_statuses: cases.CARD_STATES,
         card_range_days: cases.CARD_RANGE_DAYS,
         card_mappers: cases.CARD_MAPPERS,
@@ -301,6 +301,10 @@ function routes(db, dispatch, bot) {
     // Targets and achievement for a sales cycle (?cycle=2026-06, default the current one).
     ['GET', /^\/api\/targets$/, async ({ user, query }) => performance.targetReport(db, user, query.get('cycle'), { region: query.get('region') })],
     ['PUT', /^\/api\/targets$/, async ({ user, body }) => performance.saveTargets(db, user, body)],
+    // Sets every sales person's targets for a cycle from their salary and the salary-band rules.
+    ['POST', /^\/api\/targets\/generate$/, async ({ user, body }) => performance.generateTargets(db, user, body.cycle)],
+    ['POST', /^\/api\/import\/target_rules$/, async ({ user, body }) => imports.importTargetRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+    ['POST', /^\/api\/import\/auto_loan_points$/, async ({ user, body }) => imports.importAutoLoanPoints(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
@@ -329,7 +333,7 @@ function routes(db, dispatch, bot) {
           throw new HttpError(400, err.message);
         }
       }
-      if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id'].some((f) => f in body)) {
+      if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'salary'].some((f) => f in body)) {
         if (target.role !== 'sales') throw new HttpError(400, 'Only sales staff have a sales code, team leader and sales manager');
         let profile;
         try {
@@ -337,8 +341,8 @@ function routes(db, dispatch, bot) {
         } catch (err) {
           throw new HttpError(400, err.message);
         }
-        db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ? WHERE id = ?')
-          .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, id);
+        db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ?, salary = ? WHERE id = ?')
+          .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, profile.salary, id);
         if (['team_leader_id', 'sales_manager_id', 'asm_id'].some((f) => (profile[f] ?? null) !== (target[f] ?? null))) moved = cases.moveOpenCases(db, user, id);
       }
       if ('active' in body) {

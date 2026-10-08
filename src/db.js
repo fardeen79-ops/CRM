@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   mobile_number    TEXT, -- UAE local mobile, stored as 05XXXXXXXX
   whatsapp_number  TEXT, -- international format, +9715XXXXXXXX
   region           TEXT, -- DXB or AUH: processors verify only their region's files
-  asm_id           INTEGER REFERENCES users(id) -- sales staff: their assistant sales manager
+  asm_id           INTEGER REFERENCES users(id), -- sales staff: their assistant sales manager
+  salary           REAL -- sales staff: monthly salary in AED, which sets their targets
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -219,6 +220,27 @@ CREATE TABLE IF NOT EXISTS card_products (
   updated_at TEXT NOT NULL
 );
 
+-- Salary-based target rules: a sales person whose salary falls in a band gets that target for the
+-- product (points for cards and auto loans, AED for personal loans, a count for accounts).
+CREATE TABLE IF NOT EXISTS target_rules (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  product     TEXT NOT NULL,
+  salary_from REAL NOT NULL,
+  salary_to   REAL NOT NULL,
+  target      REAL NOT NULL,
+  set_by      INTEGER REFERENCES users(id),
+  set_at      TEXT NOT NULL
+);
+-- Points an auto loan earns by the amount disbursed.
+CREATE TABLE IF NOT EXISTS auto_loan_points (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  amount_from REAL NOT NULL,
+  amount_to   REAL NOT NULL,
+  points      REAL NOT NULL,
+  set_by      INTEGER REFERENCES users(id),
+  set_at      TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS report_runs (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -293,7 +315,7 @@ const ADDED_COLUMNS = {
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
-  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)',
+  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)', salary: 'REAL',
 };
 
 function migrate(db) {

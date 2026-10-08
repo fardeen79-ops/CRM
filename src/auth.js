@@ -33,13 +33,13 @@ export function createUser(db, input, { requireMobile = false } = {}) {
   if (db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(contact.email)) {
     throw new Error(`A user with the email ${contact.email} already exists`);
   }
-  const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null };
+  const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null, salary: null };
   const region = regionOf(input.region);
   const { lastInsertRowid } = db
-    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(contact.name, contact.email, role, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number,
-      profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, region);
+      profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, region, profile.salary);
   return getUser(db, Number(lastInsertRowid));
 }
 

@@ -5,7 +5,7 @@
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword } from './auth.js';
 import { PRODUCTS, PERSONAL_LOAN_TYPES, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
-import { setTargetsFor, TARGET_UNITS } from './performance.js';
+import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
 import { BANKS } from './banks.js';
@@ -35,6 +35,7 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader, or one added earlier in this file' },
   { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only. An active sales manager, or one added earlier in this file' },
   { key: 'asm_email', header: 'Assistant sales manager email', example: '', help: 'Sales staff only, optional. An active assistant sales manager' },
+  { key: 'salary', header: 'Monthly salary (AED)', example: '5000', help: 'Sales staff only. Sets their targets through the salary bands' },
   { key: 'password', header: 'Temporary password', example: '', help: 'Optional, 8+ characters. Left blank, one is generated and shown after the upload' },
 ];
 
@@ -82,6 +83,19 @@ export const CARD_PRODUCT_IMPORT_COLUMNS = [
   { key: 'family', header: 'Family', required: true, example: 'Skywards', help: 'Groups the cards in the drop-down' },
   { key: 'category', header: 'Card category', required: true, example: 'Signature', help: 'Shown on the form when the card is chosen, and saved on each file' },
   { key: 'points', header: 'Points', example: '', help: 'Optional. Points the card earns the sales person; a number' },
+];
+
+export const TARGET_RULE_IMPORT_COLUMNS = [
+  { key: 'product', header: 'Product', required: true, example: 'Personal Loan', allowed: Object.values(TARGET_PRODUCTS) },
+  { key: 'salary_from', header: 'Salary from (AED)', required: true, example: '5000', help: 'Lowest monthly salary in the band, inclusive' },
+  { key: 'salary_to', header: 'Salary to (AED)', required: true, example: '7999', help: 'Highest monthly salary in the band, inclusive' },
+  { key: 'target', header: 'Target', required: true, example: '600000', help: 'Credit card and auto loan: points. Personal loan: AED to disburse. Accounts: number of accounts' },
+];
+
+export const AUTO_LOAN_POINTS_IMPORT_COLUMNS = [
+  { key: 'amount_from', header: 'Loan amount from (AED)', required: true, example: '0', help: 'Lowest disbursed amount in the band, inclusive' },
+  { key: 'amount_to', header: 'Loan amount to (AED)', required: true, example: '99999', help: 'Highest disbursed amount in the band, inclusive' },
+  { key: 'points', header: 'Points', required: true, example: '1', help: 'Points an auto loan in this band earns' },
 ];
 
 export const TARGET_IMPORT_COLUMNS = [
@@ -304,6 +318,82 @@ export function importCardProducts(db, user, csv, { dryRun = false } = {}) {
   return { ...summarize(header, unknown, results, dryRun), offered: cardProducts().length };
 }
 
+const money = (value, label) => {
+  const n = Number(String(value ?? '').replace(/,/g, '').replace(/^aed\s*/i, '').trim());
+  if (String(value ?? '').trim() === '' || !Number.isFinite(n) || n < 0) throw new Error(`${label} must be an amount, e.g. 5000`);
+  return n;
+};
+
+/** Checks a set of bands do not overlap, in insertion order. */
+function noOverlap(bands, label) {
+  const sorted = [...bands].sort((a, b) => a.from - b.from);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].from <= sorted[i - 1].to) throw new Error(`${label} ${sorted[i].from.toLocaleString('en-US')}–${sorted[i].to.toLocaleString('en-US')} overlaps ${sorted[i - 1].from.toLocaleString('en-US')}–${sorted[i - 1].to.toLocaleString('en-US')} (line ${sorted[i - 1].line})`);
+  }
+}
+
+/**
+ * Replaces the salary-band target rules with a CSV file: one row per product and salary band. The
+ * file replaces the rules for every product it mentions; other products keep theirs.
+ */
+export function importTargetRules(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user);
+  const { header, records, unknown } = readFile(csv, TARGET_RULE_IMPORT_COLUMNS);
+  const ts = new Date().toISOString();
+  const results = run(db, dryRun, () => {
+    const parsed = records.map((record) => rowResult(record, () => {
+      const v = record.values;
+      const product = choose(v.product, TARGET_PRODUCTS, 'Product');
+      const from = money(v.salary_from, 'Salary from');
+      const to = money(v.salary_to, 'Salary to');
+      if (to < from) throw new Error('Salary to is below salary from');
+      const target = money(v.target, 'Target');
+      return { product, from, to, target, line: record.line, label: `${TARGET_PRODUCTS[product]} · AED ${from.toLocaleString('en-US')}–${to.toLocaleString('en-US')}`, email: `${TARGET_UNITS[product] === 'aed' ? 'AED ' : ''}${target.toLocaleString('en-US')}${TARGET_UNITS[product] === 'points' ? ' points' : TARGET_UNITS[product] === 'count' ? ' accounts' : ''}` };
+    }));
+    for (const product of new Set(parsed.filter((r) => r.ok).map((r) => r.product))) {
+      try {
+        noOverlap(parsed.filter((r) => r.ok && r.product === product), `${TARGET_PRODUCTS[product]} band`);
+      } catch (err) {
+        for (const r of parsed) if (r.ok && r.product === product) { r.ok = false; r.error = err.message; }
+      }
+      if (parsed.some((r) => r.ok && r.product === product)) db.prepare('DELETE FROM target_rules WHERE product = ?').run(product);
+    }
+    for (const r of parsed.filter((r) => r.ok)) {
+      db.prepare('INSERT INTO target_rules (product, salary_from, salary_to, target, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?)').run(r.product, r.from, r.to, r.target, user.id, ts);
+    }
+    return parsed;
+  });
+  return summarize(header, unknown, results, dryRun);
+}
+
+/** Replaces the auto loan points bands with a CSV file. */
+export function importAutoLoanPoints(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user);
+  const { header, records, unknown } = readFile(csv, AUTO_LOAN_POINTS_IMPORT_COLUMNS);
+  const ts = new Date().toISOString();
+  const results = run(db, dryRun, () => {
+    const parsed = records.map((record) => rowResult(record, () => {
+      const v = record.values;
+      const from = money(v.amount_from, 'Loan amount from');
+      const to = money(v.amount_to, 'Loan amount to');
+      if (to < from) throw new Error('Loan amount to is below loan amount from');
+      const points = money(v.points, 'Points');
+      return { from, to, points, line: record.line, label: `AED ${from.toLocaleString('en-US')}–${to.toLocaleString('en-US')}`, email: `${points} points` };
+    }));
+    try {
+      noOverlap(parsed.filter((r) => r.ok), 'Band');
+    } catch (err) {
+      for (const r of parsed) if (r.ok) { r.ok = false; r.error = err.message; }
+    }
+    if (parsed.some((r) => r.ok)) {
+      db.exec('DELETE FROM auto_loan_points');
+      for (const r of parsed.filter((r) => r.ok)) db.prepare('INSERT INTO auto_loan_points (amount_from, amount_to, points, set_by, set_at) VALUES (?, ?, ?, ?, ?)').run(r.from, r.to, r.points, user.id, ts);
+    }
+    return parsed;
+  });
+  return summarize(header, unknown, results, dryRun);
+}
+
 /** Adds users from a CSV file. Team leaders and sales managers in the file are added before sales staff. */
 export function importUsers(db, user, csv, { dryRun = false } = {}) {
   requireBulkRole(user);
@@ -435,7 +525,7 @@ export function importTargets(db, user, csv, { dryRun = false } = {}) {
     const [y, m] = cycle.split('-');
     return {
       label: `${staff.name} · ${new Date(Date.UTC(+y, +m - 1, 1)).toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })} cycle`,
-      email: Object.entries(values).map(([p, n]) => `${PRODUCTS[p]} ${TARGET_UNITS[p] === 'aed' ? 'AED ' : ''}${n}`).join(' · '),
+      email: Object.entries(values).map(([p, n]) => `${PRODUCTS[p]} ${TARGET_UNITS[p] === 'aed' ? 'AED ' : ''}${n}${TARGET_UNITS[p] === 'points' ? ' pts' : ''}`).join(' · '),
     };
   }))));
   return summarize(header, unknown, results, dryRun);

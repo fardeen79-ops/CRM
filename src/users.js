@@ -1,7 +1,7 @@
 // User profiles. Sales staff carry a sales code plus their team leader and sales manager,
 // which pre-fill the "Sales staff" section of every file they source.
 
-export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region,
+export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary,
   u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
   tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name`;
 export const USER_FROM = `users u
@@ -53,6 +53,7 @@ export function salesProfile(db, input, current = null) {
     sales_manager_id: manager('sales_manager_id', 'sales_manager', 'sales manager'),
     // Optional: an assistant sales manager between the team leader and the sales manager.
     asm_id: manager('asm_id', 'asm', 'assistant sales manager', { optional: true }),
+    salary: salaryOf(pick('salary')),
   };
 }
 
@@ -88,6 +89,15 @@ export function whatsappNumber(value, label = 'WhatsApp number') {
     throw new Error(`${label} must include the country code, e.g. +971 50 123 4567`);
   }
   return `+${digits}`;
+}
+
+/** A sales person's monthly salary in AED (blank allowed until HR provides it); sets their targets. */
+export function salaryOf(value) {
+  const text = String(value ?? '').replace(/,/g, '').replace(/^aed\s*/i, '').trim();
+  if (text === '') return null;
+  const n = Number(text);
+  if (!Number.isFinite(n) || n < 0 || n > 1e7) throw new Error('Monthly salary must be an AED amount, e.g. 5000');
+  return Math.round(n);
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
