@@ -176,6 +176,8 @@ What a credit card sales person earns on the points they make beyond their card 
 - **Excess** = points beyond the credit card target for the cycle.
 - **Rate**: **AED 1.25 per excess point** when at least **33% of the cards sold are Premium or Super Premium**, or at least **AED 50,000 of personal loans** (counted amount) were cross-sold; otherwise **AED 0.70**.
 
+Two points settled with the business: the 50% rule for Emirates Islamic buy-outs applies to the AED 50,000 cross-sell test as well as to the points, and the premium mix is measured by the number of cards, not their points.
+
 Sales staff whose core product is credit cards see their own working on **My targets** (points, excess, which criterion they meet, incentive so far). The business head and DXB MIS run the **Credit card incentives** report for a cycle (one row per card seller with every input and the amount; totals and how many are on the higher rate). Nobody else sees incentives. The rates live in `src/incentives.js`.
 
 ### Payouts: what the bank pays per file
