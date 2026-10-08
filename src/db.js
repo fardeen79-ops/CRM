@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
   salary           REAL, -- sales staff: monthly salary in AED, which sets their targets
   hrms_code        TEXT, -- the bank's HRMS staff code: unique, and the username at sign-in
   doj              TEXT, -- date of joining, YYYY-MM-DD
-  dol              TEXT -- date of leaving, YYYY-MM-DD: the account is disabled from that day
+  dol              TEXT, -- date of leaving, YYYY-MM-DD: the account is disabled from that day
+  core_product     TEXT -- sales staff: the product line they mainly sell (credit_card, personal_loan, auto_loan, multi_product)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -318,7 +319,7 @@ const ADDED_COLUMNS = {
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
-  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)', salary: 'REAL', hrms_code: 'TEXT', doj: 'TEXT', dol: 'TEXT',
+  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)', salary: 'REAL', hrms_code: 'TEXT', doj: 'TEXT', dol: 'TEXT', core_product: 'TEXT',
 };
 
 function migrate(db) {

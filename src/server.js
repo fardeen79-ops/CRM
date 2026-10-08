@@ -6,7 +6,7 @@ import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { BANKS } from './banks.js';
-import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers } from './users.js';
+import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
 import * as reports from './reports.js';
@@ -141,8 +141,8 @@ function requireRole(user, ...roles) {
 // The CRM's own address as the caller reached it, for callback URLs when PUBLIC_URL is not set.
 const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http'}://${req.headers.host}`;
 
-// Who adds and edits staff: team leaders, MIS and business heads.
-const USER_ADMINS = ['team_leader', 'mis', 'business_head'];
+// Who adds and edits staff: MIS and business heads.
+const USER_ADMINS = ['mis', 'business_head'];
 
 function routes(db, dispatch, bot) {
   return [
@@ -175,6 +175,7 @@ function routes(db, dispatch, bot) {
         case_statuses: cases.CASE_STATUS,
         regions: cases.REGIONS,
         roles: auth.ROLES,
+        staff_core_products: STAFF_CORE_PRODUCTS,
         manager_roles: cases.MANAGER_ROLES,
         core_products: cases.CORE_PRODUCTS,
         settable_case_statuses: cases.SETTABLE_CASE_STATUSES,
@@ -278,8 +279,8 @@ function routes(db, dispatch, bot) {
       requireRole(user, 'team_leader', 'sales_manager', 'asm');
       const field = cases.TEAM_FIELDS[user.role];
       return {
-        staff: listUsers(db, { role: 'sales' }).filter((u) => u[field] === user.id).map(({ id, name, sales_code, team_leader_name, sales_manager_name, region }) =>
-          ({ id, name, sales_code, team_leader_name, sales_manager_name, region })),
+        staff: listUsers(db, { role: 'sales' }).filter((u) => u[field] === user.id).map(({ id, name, sales_code, team_leader_name, sales_manager_name, region, core_product }) =>
+          ({ id, name, sales_code, team_leader_name, sales_manager_name, region, core_product })),
       };
     }],
 
@@ -342,7 +343,7 @@ function routes(db, dispatch, bot) {
           throw new HttpError(400, err.message);
         }
       }
-      if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'salary'].some((f) => f in body)) {
+      if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'salary', 'core_product'].some((f) => f in body)) {
         if (target.role !== 'sales') throw new HttpError(400, 'Only sales staff have a sales code, team leader and sales manager');
         let profile;
         try {
@@ -350,8 +351,8 @@ function routes(db, dispatch, bot) {
         } catch (err) {
           throw new HttpError(400, err.message);
         }
-        db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ?, salary = ? WHERE id = ?')
-          .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, profile.salary, id);
+        db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ?, salary = ?, core_product = ? WHERE id = ?')
+          .run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, profile.salary, profile.core_product, id);
         if (['team_leader_id', 'sales_manager_id', 'asm_id'].some((f) => (profile[f] ?? null) !== (target[f] ?? null))) moved = cases.moveOpenCases(db, user, id);
       }
       if ('active' in body) {

@@ -1,7 +1,7 @@
 // User profiles. Sales staff carry a sales code plus their team leader and sales manager,
 // which pre-fill the "Sales staff" section of every file they source.
 
-export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj, u.dol,
+export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj, u.dol, u.core_product,
   u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
   tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name`;
 export const USER_FROM = `users u
@@ -11,6 +11,16 @@ export const USER_FROM = `users u
 
 // Where a user works. Sales staff's files default to their region; processors with a region
 // see only that region's files. Blank means no restriction.
+// The product line a sales person mainly sells; pre-fills the core product on their new files.
+export const STAFF_CORE_PRODUCTS = { credit_card: 'Credit Cards', personal_loan: 'Personal Loans', auto_loan: 'Auto Loans', multi_product: 'Multi product' };
+export function coreProductOf(value) {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  const key = Object.keys(STAFF_CORE_PRODUCTS).find((k) => k === v.toLowerCase() || STAFF_CORE_PRODUCTS[k].toLowerCase() === v.toLowerCase() || STAFF_CORE_PRODUCTS[k].toLowerCase().replace(/s$/, '') === v.toLowerCase());
+  if (!key) throw new Error(`Core product must be one of: ${Object.values(STAFF_CORE_PRODUCTS).join(', ')}`);
+  return key;
+}
+
 export const USER_REGIONS = { DXB: 'DXB (Dubai)', AUH: 'AUH (Abu Dhabi)' };
 export function regionOf(value) {
   const region = String(value ?? '').trim().toUpperCase();
@@ -54,6 +64,7 @@ export function salesProfile(db, input, current = null) {
     // Optional: an assistant sales manager between the team leader and the sales manager.
     asm_id: manager('asm_id', 'asm', 'assistant sales manager', { optional: true }),
     salary: salaryOf(pick('salary')),
+    core_product: coreProductOf(pick('core_product')),
   };
 }
 

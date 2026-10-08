@@ -198,7 +198,7 @@ Once a credit card case is completed (temp end), MIS records whether the custome
 
 ### Users and contact details
 
-The **Staff** page (team leaders, MIS and business heads) lists every user with counts by role, a search and filters by role, region and status, a **Download staff list** button, and the add and edit forms. Every user added there needs a full name, an **HRMS code**, an **email address** and a **local mobile** number; a **WhatsApp number** is optional. A **date of joining** is optional on every user (Users page or the bulk upload, DD/MM/YYYY). When someone resigns, a team leader sets their **date of leaving** (Edit on the Users page, or the bulk upload): the account is disabled from that day, up to 180 days ahead for a notice period, and cannot be re-enabled until the date is cleared. Their files, numbers and history stay. The HRMS code is the bank's staff code: it is unique, stored upper-case, and is the person's **username** at sign-in (the email address also works). The bulk users upload has an HRMS code column, and the sign-in details sheet it produces lists the HRMS code as the username.
+The **Staff** page (MIS and business heads only; team leaders no longer add users) lists every user with counts by role, a search and filters by role, region and status, a **Download staff list** button, and the add and edit forms. Every user added there needs a full name, an **HRMS code**, an **email address** and a **local mobile** number; a **WhatsApp number** is optional. Sales staff also carry a **core product** (Credit Cards, Personal Loans, Auto Loans or Multi product), the line they mainly sell, which pre-fills the core product on their new files. A **date of joining** is optional on every user (Users page or the bulk upload, DD/MM/YYYY). When someone resigns, a team leader sets their **date of leaving** (Edit on the Users page, or the bulk upload): the account is disabled from that day, up to 180 days ahead for a notice period, and cannot be re-enabled until the date is cleared. Their files, numbers and history stay. The HRMS code is the bank's staff code: it is unique, stored upper-case, and is the person's **username** at sign-in (the email address also works). The bulk users upload has an HRMS code column, and the sign-in details sheet it produces lists the HRMS code as the username.
 
 - The email is suggested from the name as `first.last@` plus your own email domain. Overwrite it if the person's address is different.
 - Local mobile numbers must be UAE mobiles. They are stored as `05XXXXXXXX`, whether typed as `050 123 4567`, `+971 50 123 4567` or `501234567`.
@@ -234,7 +234,7 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 
 ### Sales staff, region and core product
 
-When a team leader registers a sales person on the **Users** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users, and optionally an **assistant sales manager**. A team leader can change these later with **Edit**.
+When MIS or a business head registers a sales person on the **Staff** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users, and optionally an **assistant sales manager**. A team leader can change these later with **Edit**.
 
 At the top of every file, the **Sales staff** section shows the sales person's full name, sales code, team leader and sales manager:
 

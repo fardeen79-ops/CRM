@@ -9,7 +9,7 @@ Put it behind the bank's HTTPS gateway (or nginx) and it is ready for a pilot.
 - A **DNS name and TLS certificate** for it, e.g. `crm-test.yourbank.ae`. HTTPS is required: the sign-in
   cookie is marked Secure, and browsers only allow the camera (Emirates ID scanner) and microphone
   (voice typing) over HTTPS.
-- Decide who the **first team leader** is (`ADMIN_EMAIL` / `ADMIN_PASSWORD`). They add everyone else.
+- Decide who the **first business head** is (`ADMIN_EMAIL` / `ADMIN_PASSWORD`). They (or an MIS user they add) add everyone else.
 - If real customer data will be entered, compliance should know it is on this server.
 
 ## 2. Getting the code onto the server
@@ -117,7 +117,7 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 
 ## 5. First sign-in and setup
 
-1. Sign in as the first team leader (`ADMIN_EMAIL`). Change the password on the Users page.
+1. Sign in as the first business head (`ADMIN_EMAIL`). Change the password on the Staff page.
 2. Add an **MIS** user. Bulk upload and target setting are for MIS and business heads.
 3. As MIS: **Bulk upload → Users** (team leaders and sales managers first, then sales staff), then
    **Bulk upload → Targets** for the current cycle. Share the downloaded sign-in details securely.

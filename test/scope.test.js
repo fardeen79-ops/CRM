@@ -31,6 +31,9 @@ before(async () => {
 });
 after(() => server.close());
 
+/** Staff are managed by MIS (and business heads); tests reach the users API through an MIS sign-in. */
+const staffAdmin = async (...args) => (await login('mis@t.local'))(...args);
+
 async function login(email) {
   const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
   assert.equal(res.status, 200);
@@ -108,11 +111,11 @@ test('MIS and governance see every file; the region is saved and editable on a u
   assert.equal((await gov('GET', '/cases')).data.cases.length, 5);
   const tl = await login('tl-dxb@t.local');
   const proc = ids['proc-all@t.local'];
-  assert.equal((await tl('PATCH', `/users/${proc}`, { region: 'SHJ' })).status, 400);
-  assert.equal((await tl('PATCH', `/users/${proc}`, { region: 'auh' })).data.user.region, 'AUH');
+  assert.equal((await staffAdmin('PATCH', `/users/${proc}`, { region: 'SHJ' })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${proc}`, { region: 'auh' })).data.user.region, 'AUH');
   const nowAuh = await login('proc-all@t.local');
   assert.equal((await nowAuh('GET', '/cases')).data.cases.length, 2);
-  const users = (await tl('GET', '/users')).data.users;
+  const users = (await staffAdmin('GET', '/users')).data.users;
   assert.equal(users.find((u) => u.email === 'dana@t.local').asm_name, 'ASM One');
 });
 
@@ -178,7 +181,7 @@ test('a team change moves open files to the new team and leaves completed ones b
   const before = (await tl('GET', '/cases')).data.cases.length;
   assert.ok(before >= 2);
   // Dana moves to TL Abu Dhabi and SM Two.
-  const moved = await tl('PATCH', `/users/${ids['dana@t.local']}`, { team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm2@t.local'], asm_id: '' });
+  const moved = await staffAdmin('PATCH', `/users/${ids['dana@t.local']}`, { team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm2@t.local'], asm_id: '' });
   assert.equal(moved.status, 200);
   assert.equal(moved.data.moved_cases, before - 1);
   // The completed file stays with the old team; the open ones went to the new team.
@@ -210,11 +213,11 @@ async function loginCookie(email) {
 test('date of joining is saved on a user and validated', async () => {
   const tl = await login('tl-dxb@t.local');
   const id = ids['amal@t.local'];
-  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '01/03/2024' })).data.user.doj, '2024-03-01');
-  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '2024-13-01' })).status, 400);
-  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '2099-01-01' })).status, 400);
-  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '' })).data.user.doj, null);
-  const made = await tl('POST', '/users', { name: 'Joiner', email: 'joiner@t.local', role: 'processing', password: 'longenough', mobile_number: '0501239876', hrms_code: 'EN77777', doj: '2025-06-15' });
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { doj: '01/03/2024' })).data.user.doj, '2024-03-01');
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { doj: '2024-13-01' })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { doj: '2099-01-01' })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { doj: '' })).data.user.doj, null);
+  const made = await staffAdmin('POST', '/users', { name: 'Joiner', email: 'joiner@t.local', role: 'processing', password: 'longenough', mobile_number: '0501239876', hrms_code: 'EN77777', doj: '2025-06-15' });
   assert.equal(made.status, 201, JSON.stringify(made.data));
   assert.equal(made.data.user.doj, '2025-06-15');
 });
@@ -225,19 +228,19 @@ test('a date of leaving disables the account from that day', async () => {
   const today = new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10);
   const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
   // A future leaving date keeps the account working for now.
-  let r = await tl('PATCH', `/users/${id}`, { dol: soon });
+  let r = await staffAdmin('PATCH', `/users/${id}`, { dol: soon });
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.deepEqual([r.data.user.dol, r.data.user.active], [soon, 1]);
   assert.equal((await login('proc-all@t.local') && 'ok'), 'ok');
-  assert.equal((await tl('PATCH', `/users/${id}`, { dol: '2099-01-01' })).status, 400);
-  assert.equal((await tl('PATCH', `/users/${ids['amal@t.local']}`, { doj: '2025-01-01', dol: '2024-12-01' })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { dol: '2099-01-01' })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${ids['amal@t.local']}`, { doj: '2025-01-01', dol: '2024-12-01' })).status, 400);
   // A leaving date that has arrived disables the account and ends its sessions.
   const who = await login('proc-all@t.local');
-  r = await tl('PATCH', `/users/${id}`, { dol: today });
+  r = await staffAdmin('PATCH', `/users/${id}`, { dol: today });
   assert.equal(r.data.user.active, 0);
   assert.equal((await who('GET', '/me')).status, 401);
-  assert.equal((await tl('PATCH', `/users/${id}`, { active: true })).status, 400);
-  assert.equal((await tl('PATCH', `/users/${id}`, { dol: '' })).data.user.dol, null);
-  assert.equal((await tl('PATCH', `/users/${id}`, { active: true })).data.user.active, 1);
-  assert.equal((await tl('PATCH', `/users/${ids['tl-dxb@t.local']}`, { dol: today })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { active: true })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { dol: '' })).data.user.dol, null);
+  assert.equal((await staffAdmin('PATCH', `/users/${id}`, { active: true })).data.user.active, 1);
+  assert.equal((await staffAdmin('PATCH', `/users/${ids['mis@t.local']}`, { dol: today })).status, 400);
 });

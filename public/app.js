@@ -331,7 +331,7 @@ function navGroups() {
 
   const admin = [];
   if (r === 'mis' || r === 'business_head') admin.push(['#/import/cases', 'Bulk upload', 'upload']);
-  if (['team_leader', 'mis', 'business_head'].includes(r)) admin.push(['#/users', 'Staff', 'users']);
+  if (['mis', 'business_head'].includes(r)) admin.push(['#/users', 'Staff', 'users']);
   if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
   if (admin.length) groups.push(['Admin', admin]);
   return groups;
@@ -894,7 +894,7 @@ async function viewCaseForm(id) {
             <label for="f-core_product">Core product <span class="req">*</span></label>
             <select id="f-core_product" name="core_product" required>
               <option value="">Choose…</option>
-              ${Object.entries(state.meta.core_products).map(([k, l]) => html`<option value="${k}" ${c.core_product === k ? raw('selected') : ''}>${l}</option>`)}
+              ${Object.entries(state.meta.core_products).map(([k, l]) => html`<option value="${k}" ${(c.core_product || (!id && staffNow?.core_product)) === k ? raw('selected') : ''}>${l}</option>`)}
             </select>
           </div>
           <div>
@@ -1030,7 +1030,7 @@ async function viewCaseForm(id) {
   };
   // Suggest the core product from the product until the user picks one themselves.
   const coreSelect = $('#f-core_product');
-  let coreTouched = Boolean(c.core_product);
+  let coreTouched = Boolean(c.core_product || (!id && staffNow?.core_product));
   coreSelect.onchange = () => { coreTouched = true; };
   const suggestCore = () => {
     if (coreTouched) return;
@@ -1046,6 +1046,7 @@ async function viewCaseForm(id) {
       $('#f-team_leader_name').value = st.team_leader_name || '';
       $('#f-sales_manager_name').value = st.sales_manager_name || '';
       if (!id && st.region) $('#f-region').value = st.region;
+      if (!id && st.core_product) { coreSelect.value = st.core_product; coreTouched = true; }
     };
   }
   boxes.forEach((b) => (b.onchange = updateProductFields));
@@ -2667,8 +2668,9 @@ async function viewReports(params) {
   }
 }
 
-// ---------- staff (team leaders, MIS and business heads) ----------
+// ---------- staff (MIS and business heads) ----------
 async function viewUsers() {
+  if (!BULK_ROLES.includes(state.user.role)) throw new Error('Only MIS and business heads manage staff');
   const { users } = await api('/users');
   const leaders = users.filter((u) => u.role === 'team_leader' && u.active);
   const managers = users.filter((u) => u.role === 'sales_manager' && u.active);
@@ -2684,6 +2686,9 @@ async function viewUsers() {
       <select id="${prefix}-sm" name="sales_manager_id" required><option value="">Choose…</option>${options(managers, u.sales_manager_id)}</select></div>
     <div class="field-row"><label for="${prefix}-asm">Assistant sales manager</label>
       <select id="${prefix}-asm" name="asm_id"><option value="">None</option>${options(asms, u.asm_id)}</select></div>
+    <div class="field-row"><label for="${prefix}-core">Core product</label>
+      <select id="${prefix}-core" name="core_product"><option value="">Not set</option>${Object.entries(state.meta.staff_core_products).map(([k, l]) => html`<option value="${k}" ${u.core_product === k ? raw('selected') : ''}>${l}</option>`)}</select>
+      <div class="muted small">The product line this person mainly sells. Pre-fills the core product on their new files.</div></div>
     <div class="field-row"><label for="${prefix}-salary">Monthly salary (AED)</label>
       <input id="${prefix}-salary" name="salary" inputmode="numeric" value="${u.salary != null ? u.salary.toLocaleString('en-US') : ''}" placeholder="e.g. 5,000">
       <div class="muted small">Sets this person's targets through the salary bands. Seen by MIS and business heads only.</div></div>`;
@@ -2742,7 +2747,7 @@ async function viewUsers() {
           <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small">${u.hrms_code ? html`<span class="mono">${u.hrms_code}</span> · ` : html`<span class="lock">No HRMS code</span> · `}<a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}${u.doj ? html`<div class="muted small">Joined ${fmtDay(u.doj)}</div>` : ''}${u.dol ? html`<div class="small ${u.dol <= todayLocal() ? 'lock' : 'muted'}">${u.dol <= todayLocal() ? 'Left' : 'Leaving'} ${fmtDay(u.dol)}</div>` : ''}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
-              ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}</div>`
+              ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}${u.core_product ? html`<br>${state.meta.staff_core_products[u.core_product]}` : ''}</div>`
               : html`<span class="lock">Incomplete</span>`)
             : html`<span class="muted">—</span>`}</td>
           <td><div class="actions">

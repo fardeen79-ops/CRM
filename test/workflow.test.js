@@ -31,6 +31,9 @@ before(async () => {
 });
 after(() => server.close());
 
+/** Staff are managed by MIS (and business heads); tests reach the users API through an MIS sign-in. */
+const staffAdmin = async (...args) => (await login('mis@t.local'))(...args);
+
 async function login(email) {
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
@@ -195,22 +198,22 @@ test('team leaders, MIS and business heads manage users', async () => {
   assert.equal((await (await login('bh@t.local'))('PATCH', `/users/${byMis.data.user.id}`, { region: 'AUH' })).data.user.region, 'AUH');
   const newUser = { name: 'New', email: 'New@T.local', role: 'processing', password: 'longenough', hrms_code: 'en20001' };
   // A local mobile number and an HRMS code are required; WhatsApp is optional and stored with its country code.
-  assert.equal((await lead('POST', '/users', newUser)).status, 400);
-  assert.equal((await lead('POST', '/users', { ...newUser, hrms_code: '', mobile_number: '0501234567' })).status, 400);
-  const r = await lead('POST', '/users', { ...newUser, mobile_number: '+971 50 123 4567', whatsapp_number: '050 765 4321' });
+  assert.equal((await staffAdmin('POST', '/users', newUser)).status, 400);
+  assert.equal((await staffAdmin('POST', '/users', { ...newUser, hrms_code: '', mobile_number: '0501234567' })).status, 400);
+  const r = await staffAdmin('POST', '/users', { ...newUser, mobile_number: '+971 50 123 4567', whatsapp_number: '050 765 4321' });
   assert.equal(r.status, 201);
   assert.deepEqual([r.data.user.email, r.data.user.mobile_number, r.data.user.whatsapp_number, r.data.user.hrms_code], ['new@t.local', '0501234567', '+971507654321', 'EN20001']);
-  assert.equal((await lead('POST', '/users', { ...newUser, mobile_number: '0501234567' })).status, 409);
+  assert.equal((await staffAdmin('POST', '/users', { ...newUser, mobile_number: '0501234567' })).status, 409);
   // The HRMS code is unique and is the username at sign-in.
-  assert.equal((await lead('POST', '/users', { ...newUser, email: 'other@t.local', mobile_number: '0501234567', hrms_code: 'EN20001' })).status, 400);
+  assert.equal((await staffAdmin('POST', '/users', { ...newUser, email: 'other@t.local', mobile_number: '0501234567', hrms_code: 'EN20001' })).status, 400);
   const byCode = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'en20001', password: 'longenough' }) });
   assert.equal(byCode.status, 200);
   assert.equal((await byCode.json()).user.email, 'new@t.local');
-  assert.equal((await lead('POST', '/users', { ...newUser, email: 'x@t.local', mobile_number: '12345' })).status, 400);
-  const edited = await lead('PATCH', `/users/${r.data.user.id}`, { whatsapp_number: '+44 7700 900123', email: 'renamed@t.local' });
+  assert.equal((await staffAdmin('POST', '/users', { ...newUser, email: 'x@t.local', mobile_number: '12345' })).status, 400);
+  const edited = await staffAdmin('PATCH', `/users/${r.data.user.id}`, { whatsapp_number: '+44 7700 900123', email: 'renamed@t.local' });
   assert.deepEqual([edited.data.user.whatsapp_number, edited.data.user.email], ['+447700900123', 'renamed@t.local']);
-  assert.equal((await lead('PATCH', `/users/${r.data.user.id}`, { email: 'sales@t.local' })).status, 409);
-  await lead('PATCH', `/users/${r.data.user.id}`, { active: false });
+  assert.equal((await staffAdmin('PATCH', `/users/${r.data.user.id}`, { email: 'sales@t.local' })).status, 409);
+  await staffAdmin('PATCH', `/users/${r.data.user.id}`, { active: false });
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -624,30 +627,30 @@ test('files capture region, core product and the sales staff details from the us
   assert.ok((await lead('GET', '/cases?q=S-002')).data.cases.some((x) => x.id === r.data.case.id));
 
   // The details are a snapshot: changing the profile later does not rewrite old files
-  const users = (await lead('GET', '/users')).data.users;
+  const users = (await staffAdmin('GET', '/users')).data.users;
   const sally = users.find((u) => u.email === 'sales@t.local');
-  assert.equal((await lead('PATCH', `/users/${sally.id}`, { sales_code: 'S-002' })).status, 400); // taken by Sid
-  assert.equal((await lead('PATCH', `/users/${sally.id}`, { sales_code: 'S-101' })).data.user.sales_code, 'S-101');
+  assert.equal((await staffAdmin('PATCH', `/users/${sally.id}`, { sales_code: 'S-002' })).status, 400); // taken by Sid
+  assert.equal((await staffAdmin('PATCH', `/users/${sally.id}`, { sales_code: 'S-101' })).data.user.sales_code, 'S-101');
   assert.equal((await sales('GET', `/cases/${c.id}`)).data.case.sales_code, 'S-001');
-  await lead('PATCH', `/users/${sally.id}`, { sales_code: 'S-001' });
+  await staffAdmin('PATCH', `/users/${sally.id}`, { sales_code: 'S-001' });
 });
 
 test('registering sales staff requires a sales code, team leader and sales manager', async () => {
   const lead = await login('lead@t.local');
-  const users = (await lead('GET', '/users')).data.users;
+  const users = (await staffAdmin('GET', '/users')).data.users;
   const tl = users.find((u) => u.role === 'team_leader').id;
   const smId = users.find((u) => u.role === 'sales_manager').id;
   const mis = users.find((u) => u.role === 'mis').id;
   const base = { name: 'New Sales', email: 'ns@t.local', role: 'sales', password: 'longenough', mobile_number: '0501234567', hrms_code: 'EN30001' };
 
-  assert.equal((await lead('POST', '/users', base)).status, 400);
-  assert.equal((await lead('POST', '/users', { ...base, sales_code: 'S-900', team_leader_id: mis, sales_manager_id: smId })).status, 400);
-  assert.equal((await lead('POST', '/users', { ...base, sales_code: 'S-001', team_leader_id: tl, sales_manager_id: smId })).status, 400);
-  const r = await lead('POST', '/users', { ...base, sales_code: 's-900', team_leader_id: tl, sales_manager_id: smId });
+  assert.equal((await staffAdmin('POST', '/users', base)).status, 400);
+  assert.equal((await staffAdmin('POST', '/users', { ...base, sales_code: 'S-900', team_leader_id: mis, sales_manager_id: smId })).status, 400);
+  assert.equal((await staffAdmin('POST', '/users', { ...base, sales_code: 'S-001', team_leader_id: tl, sales_manager_id: smId })).status, 400);
+  const r = await staffAdmin('POST', '/users', { ...base, sales_code: 's-900', team_leader_id: tl, sales_manager_id: smId });
   assert.equal(r.status, 201);
   assert.deepEqual([r.data.user.sales_code, r.data.user.team_leader_name, r.data.user.sales_manager_name], ['S-900', 'Lead', 'Manager']);
   // Other roles don't need (or get) a profile
-  const p = await lead('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', mobile_number: '0501234567', hrms_code: 'EN30002', sales_code: 'X-1' });
+  const p = await staffAdmin('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', mobile_number: '0501234567', hrms_code: 'EN30002', sales_code: 'X-1' });
   assert.equal(p.data.user.sales_code, null);
 });
 
@@ -811,7 +814,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
   assert.equal(preview.status, 200);
   assert.deepEqual([preview.data.ok, preview.data.failed], [2, 3]);
   assert.equal(preview.data.rows[0].temp_password, undefined);
-  const users = () => lead('GET', '/users').then((r) => r.data.users.map((u) => u.email));
+  const users = () => staffAdmin('GET', '/users').then((r) => r.data.users.map((u) => u.email));
   assert.ok(!(await users()).includes('bulk.lead@t.local'));
 
   const done = await mis('POST', '/import/users', { csv });
@@ -882,7 +885,7 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   const sm = await login('sm@t.local');
   const sally = await login('sales@t.local');
   const proc = await login('proc@t.local');
-  const users = (await lead('GET', '/users')).data.users;
+  const users = (await staffAdmin('GET', '/users')).data.users;
   const sallyId = users.find((u) => u.email === 'sales@t.local').id;
 
   // Only MIS and business heads set targets.
@@ -1330,11 +1333,11 @@ test('salary-based targets: bands and points are uploaded, targets generated, po
   const lead = await login('lead@t.local');
   const sales = await login('sales@t.local');
   const cycle = '2031-03';
-  const sallyId = (await lead('GET', '/users')).data.users.find((u) => u.email === 'sales@t.local').id;
-  const sidId = (await lead('GET', '/users')).data.users.find((u) => u.email === 'sales2@t.local').id;
+  const sallyId = (await staffAdmin('GET', '/users')).data.users.find((u) => u.email === 'sales@t.local').id;
+  const sidId = (await staffAdmin('GET', '/users')).data.users.find((u) => u.email === 'sales2@t.local').id;
   // Salaries go on the profile; only MIS and business heads see them in the target report.
-  assert.equal((await lead('PATCH', `/users/${sallyId}`, { salary: 'AED 5,000' })).data.user.salary, 5000);
-  assert.equal((await lead('PATCH', `/users/${sallyId}`, { salary: 'lots' })).status, 400);
+  assert.equal((await staffAdmin('PATCH', `/users/${sallyId}`, { salary: 'AED 5,000' })).data.user.salary, 5000);
+  assert.equal((await staffAdmin('PATCH', `/users/${sallyId}`, { salary: 'lots' })).status, 400);
   assert.equal((await sales('GET', '/targets')).data.staff[0].salary, undefined);
   // No rules yet: generating fails with a clear message.
   assert.match((await mis('POST', '/targets/generate', { cycle })).data.error, /No salary-band rules/);

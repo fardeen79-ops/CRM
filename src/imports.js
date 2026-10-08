@@ -39,6 +39,7 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only. An active sales manager, or one added earlier in this file' },
   { key: 'asm_email', header: 'Assistant sales manager email', example: '', help: 'Sales staff only, optional. An active assistant sales manager' },
   { key: 'salary', header: 'Monthly salary (AED)', example: '5000', help: 'Sales staff only. Sets their targets through the salary bands' },
+  { key: 'core_product', header: 'Core product', example: 'Credit Cards', help: 'Sales staff only: Credit Cards, Personal Loans, Auto Loans or Multi product' },
   { key: 'password', header: 'Temporary password', example: '', help: 'Optional, 8+ characters. Left blank, one is generated and shown after the upload' },
 ];
 
