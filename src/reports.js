@@ -7,7 +7,7 @@ import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
-import { incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
+import { incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
@@ -27,6 +27,7 @@ export const REPORTS = {
   pl_incentives: { name: 'Personal loan incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each personal loan sales person earns on the cycle\'s disbursed production: 0.40% from AED 600K, 0.55% from 750K, 0.75% from 1M, 0.90% from 1.25M, 1.10% from 1.5M and 1.20% from 2M, on the whole production; nothing below AED 600K. An Emirates Islamic buy-out counts at half, a top-up at 70% of its incremental amount from the October 2026 cycle (100% before). Runs for a sales cycle only. All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank\'s data cut finalisation.' },
   al_incentives: { name: 'Auto loan incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each core auto loan sales person earns on points beyond target (core product Auto Loans only): a loan\'s points are its disbursed amount at the payout rate (new and used 0.80%, algo 0.25%, low-payout non-algo nil), paid AED 1.10 a point once new and used disbursal reaches AED 250,000 in the cycle, else AED 0.60.' },
   tl_incentives: { name: 'Credit card team leader incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each team leader of core credit card staff earns: the team\'s card points beyond 75% of its combined card targets, at AED 0.30 a point when the team\'s personal loan cross-sell reaches AED 50,000 or its Premium and Super Premium mix exceeds 20% (else AED 0.20), plus 0.15% of the gross personal loan cross-sell as a separate line.' },
+  pl_tl_incentives: { name: 'Personal loan team leader incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each team leader of core personal loan staff earns: a percentage of the team\'s whole counted production by its achievement of the combined targets (0.05% from 80%, 0.15% from 100%, 0.20% from 125%, 0.25% from 150%, nil below 80%), plus AED 20, 50 or 100 per Mass, Premium or Super Premium card the team cross-sells (noon nil) once the team is at 80%.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -466,7 +467,22 @@ function tl_incentives(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives };
+function pl_tl_incentives(db, user, { period, region }) {
+  if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
+  const rows = plTlIncentiveRows(db, period.cycle, region);
+  const r = PL_TL_RULES;
+  return {
+    columns: [col('leader', 'Team leader', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+      col('team_size', 'Core loan staff'), col('staff_without_target', 'Without a target'), col('combined_target', 'Combined targets (AED)', 'aed'), col('loans', 'Loans disbursed'), col('pl_disbursed', 'Disbursed (AED)', 'aed'), col('pl_counted', 'Production counted (AED)', 'aed'),
+      col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('core_aed', 'Core incentive (AED)', 'aed'),
+      col('mass_cards', 'Mass cards'), col('premium_cards', 'Premium cards'), col('super_premium_cards', 'Super Premium cards'), col('noon_cards', 'noon cards'), col('qualified', `At ${r.qualify_pct}%`, 'text'), col('cards_incentive_aed', 'Card cross-sell (AED)', 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed')],
+    rows,
+    note: `${INCENTIVE_CONDITIONS.join(' ')} Bands on the team's whole counted production: ${PL_TL_BANDS.map((b) => `${plTlBandLabel(b)} ${b.rate.toFixed(2)}%`).join(' · ')}; nil below ${r.qualify_pct}%. Cards cross-sold by the team: Mass AED ${r.card_aed.Mass}, Premium AED ${r.card_aed.Premium}, Super Premium AED ${r.card_aed['Super Premium']}, noon nil, paid only when the team is at ${r.qualify_pct}% of target.`,
+    totals: { leader: `${rows.length} leaders`, team_size: sum(rows, 'team_size'), staff_without_target: sum(rows, 'staff_without_target'), combined_target: sum(rows, 'combined_target'), loans: sum(rows, 'loans'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), core_aed: sum(rows, 'core_aed'), mass_cards: sum(rows, 'mass_cards'), premium_cards: sum(rows, 'premium_cards'), super_premium_cards: sum(rows, 'super_premium_cards'), noon_cards: sum(rows, 'noon_cards'), cards_incentive_aed: sum(rows, 'cards_incentive_aed'), incentive_aed: sum(rows, 'incentive_aed'), band: `${rows.filter((x) => x.rate_pct > 0).length} earning` },
+  };
+}
+
+const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {

@@ -2067,6 +2067,27 @@ function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [] }
   </div>`;
 }
 
+// A personal loan team leader's incentive for the cycle: a banded percentage of the team's whole production, plus cards cross-sold.
+function plTlIncentiveCard({ incentive: i, pl_tl_rules: r, pl_tl_bands = [], conditions = [] }) {
+  const cardBits = [['Mass', i.cards.Mass], ['Premium', i.cards.Premium], ['Super Premium', i.cards['Super Premium']], ['noon', i.cards.noon]].filter(([, n]) => n).map(([l, n]) => `${n} ${l}`).join(', ');
+  return html`<div class="card incentive">
+    <div class="card-head"><h2>My team incentive · personal loans · ${i.band}</h2>
+      <span class="chip ${i.rate_pct ? 'good' : ''}">${i.rate_pct.toFixed(2)}% of team production</span></div>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Team production</span><span class="kpi-value">AED ${fmtAmount(i.pl_counted)}</span><span class="kpi-sub">${i.loans} loans by ${i.team_size} core loan staff, AED ${fmtAmount(i.pl_disbursed)} disbursed</span></div>
+      <div class="kpi"><span class="kpi-label">Against team target</span><span class="kpi-value">${i.achievement_pct == null ? '—' : `${i.achievement_pct}%`}</span><span class="kpi-sub">combined targets AED ${fmtAmount(i.combined_target)}${i.staff_without_target ? ` · ${i.staff_without_target} without a target` : ''}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">AED ${fmtAmount(i.core_aed)} core (${i.rate_pct.toFixed(2)}% of AED ${fmtAmount(i.pl_counted)}) + AED ${fmtAmount(i.cards_incentive_aed)} cards</span></div>
+    </div>
+    <ul class="checklist">
+      <li>${i.qualified ? '✓' : '○'} Cards cross-sold: ${i.cards_sold ? `${cardBits} (AED ${fmtAmount(i.cards_aed)})` : 'none yet'}${i.qualified ? '' : ` · paid once the team reaches ${r.qualify_pct}% of target`}</li>
+    </ul>
+    <table class="bands"><thead><tr><th>Team achievement</th><th>Rate on the whole production</th></tr></thead>
+      <tbody>${pl_tl_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(2)}%</td></tr>`)}</tbody></table>
+    <p class="muted small">Production counts your core personal loan staff's loans on files completed in the cycle: regular loans in full, top-ups and Emirates Islamic buy-outs as for the staff themselves. Cards the team cross-sells pay AED ${r.card_aed.Mass} (Mass), AED ${r.card_aed.Premium} (Premium) or AED ${r.card_aed['Super Premium']} (Super Premium) each, nothing for noon.</p>
+    ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
+  </div>`;
+}
+
 // A credit card team leader's incentive for the cycle: the team's card points beyond 75% of its combined targets, plus the cross-sell line.
 function tlIncentiveCard({ incentive: i, tl_rules: r, conditions = [] }) {
   const met = i.criterion !== 'none';
@@ -2206,7 +2227,8 @@ async function viewTargets(cycleParam) {
     <h2 class="tiles-head">${r === 'sales' ? 'Achieved against target' : `${scopeTitle} · ${rep.staff.length} sales staff`}</h2>
     ${targetTiles(rep, rep.total)}
     ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
-    ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : mine.type === 'auto_loan' ? alIncentiveCard(mine) : mine.type === 'cc_team_leader' ? tlIncentiveCard(mine) : incentiveCard(mine)) : ''}
+    ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : mine.type === 'auto_loan' ? alIncentiveCard(mine) : incentiveCard(mine)) : ''}
+      ${(mine?.teams || []).map((t) => (t.type === 'pl_team_leader' ? plTlIncentiveCard({ ...mine, incentive: t.incentive }) : tlIncentiveCard({ ...mine, incentive: t.incentive })))}
     ${groupTable('By team leader', rep.by_team_leader)}
     ${groupTable('By sales manager', rep.by_sales_manager)}
     ${r !== 'sales' ? html`<div class="card" id="staff-card">

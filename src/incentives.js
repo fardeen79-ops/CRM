@@ -237,14 +237,80 @@ export function tlIncentiveRows(db, cycle, region = null) {
   }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.leader.localeCompare(b.leader));
 }
 
-/** The staff member's own incentive, for the Targets page: sales staff by core product, team leaders for their core card team. */
+
+// Personal loan team leaders: a percentage of the team's counted production (core personal loan staff;
+// regular loans in full, top-ups and Emirates Islamic buy-outs as for the staff themselves) by the
+// team's achievement of its combined targets, paid on the whole production. Cards the team cross-sells
+// pay a flat amount each, only once the team is at 80% of target; the noon card pays nothing.
+export const PL_TL_BANDS = [
+  { from: 80, to: 99.99, rate: 0.05 },
+  { from: 100, to: 124.99, rate: 0.15 },
+  { from: 125, to: 149.99, rate: 0.2 },
+  { from: 150, to: Infinity, rate: 0.25 },
+];
+export const PL_TL_RULES = { qualify_pct: 80, card_aed: { Mass: 20, Premium: 50, 'Super Premium': 100 }, noon_aed: 0 };
+export const plTlBandLabel = (b) => (b.to === Infinity ? `${b.from}% and above` : `${b.from}% to ${b.to}%`);
+const isNoonCard = (c) => /\bnoon\b/i.test(c.credit_card || '');
+
+/** The active core personal loan sales staff a team leader leads. */
+const plTeamOf = (db, leaderId) => db.prepare("SELECT id, name, sales_code FROM users WHERE role = 'sales' AND active = 1 AND core_product = 'personal_loan' AND team_leader_id = ? ORDER BY name").all(leaderId);
+
+/** One personal loan team leader's incentive for a cycle, from their core loan staff's completed files. */
+export function plTlIncentiveFor(db, leaderId, cycle) {
+  const team = plTeamOf(db, leaderId);
+  const { start, end } = cycleRange(cycle);
+  let combined_target = 0; let staff_without_target = 0; let loans = 0; let pl_disbursed = 0; let pl_counted = 0; let files = 0;
+  const cards = { noon: 0, Mass: 0, Premium: 0, 'Super Premium': 0, other: 0 };
+  let cards_aed = 0;
+  const staff = team.map((s) => {
+    const i = plIncentiveFor(db, s.id, cycle);
+    if (i.target == null) staff_without_target++; else combined_target += i.target;
+    loans += i.loans; pl_disbursed += i.pl_disbursed; pl_counted += i.pl_counted; files += i.files;
+    for (const c of db.prepare(`SELECT c.credit_card, c.card_category FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND c.credit_card IS NOT NULL AND ${COMPLETED_IN_SQL}`).all(s.id, start, end)) {
+      if (isNoonCard(c)) { cards.noon++; cards_aed += PL_TL_RULES.noon_aed; } else if (PL_TL_RULES.card_aed[c.card_category] != null) { cards[c.card_category]++; cards_aed += PL_TL_RULES.card_aed[c.card_category]; } else cards.other++;
+    }
+    return { id: s.id, name: s.name, sales_code: s.sales_code, target: i.target, pl_counted: i.pl_counted, loans: i.loans };
+  });
+  const achievement_pct = combined_target ? Math.round((pl_counted / combined_target) * 1000) / 10 : null;
+  const band = achievement_pct == null ? null : PL_TL_BANDS.find((b) => achievement_pct >= b.from && achievement_pct <= b.to) || null;
+  const rate_pct = band ? band.rate : 0;
+  const qualified = achievement_pct != null && achievement_pct >= PL_TL_RULES.qualify_pct;
+  const core_aed = round2((pl_counted * rate_pct) / 100);
+  const cards_incentive_aed = qualified ? round2(cards_aed) : 0;
+  return {
+    cycle, team_size: team.length, staff_without_target, combined_target, loans, pl_disbursed, pl_counted, achievement_pct, band: band ? plTlBandLabel(band) : `Below ${PL_TL_RULES.qualify_pct}%`, rate_pct, core_aed,
+    cards_sold: cards.noon + cards.Mass + cards.Premium + cards['Super Premium'] + cards.other, cards, cards_aed: round2(cards_aed), qualified, cards_incentive_aed, incentive_aed: round2(core_aed + cards_incentive_aed), files, staff,
+  };
+}
+
+/** Every personal loan team leader's incentive for the cycle (anyone leading active core loan staff), as report rows. */
+export function plTlIncentiveRows(db, cycle, region = null) {
+  const r = String(region || '').toUpperCase();
+  if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
+  const leaders = db.prepare(`SELECT DISTINCT l.id, l.name, l.hrms_code, l.region, l.role, sm.name AS sales_manager FROM users l
+    JOIN users s ON s.team_leader_id = l.id AND s.role = 'sales' AND s.active = 1 AND s.core_product = 'personal_loan'
+    LEFT JOIN users sm ON sm.id = l.sales_manager_id
+    WHERE l.active = 1${region ? ' AND l.region = ?' : ''} ORDER BY l.name`).all(...(region ? [r] : []));
+  return leaders.map((l) => {
+    const i = plTlIncentiveFor(db, l.id, cycle);
+    return { leader: l.name, hrms_code: l.hrms_code || '', role: l.role, sales_manager: l.sales_manager || '', region: l.region || '', ...i, staff: undefined, cards: undefined,
+      mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, rate: `${i.rate_pct.toFixed(2)}%`, qualified: i.qualified ? 'Yes' : 'No' };
+  }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.leader.localeCompare(b.leader));
+}
+
+/** The staff member's own incentive, for the Targets page: sales staff by core product, team leaders one calculation per team they lead (cards, loans). */
 export function myIncentive(db, user, cycle) {
   if (user.role !== 'sales' && !TEAM_LEADER_ROLES.includes(user.role)) throw new WorkflowError(403, 'Incentives are shown to sales staff and team leaders');
   cycle = cycle ? String(cycle) : cycleOf(uaeDay());
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const me = db.prepare('SELECT core_product FROM users WHERE id = ?').get(user.id);
-  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, al_rules: AL_INCENTIVE_RULES, tl_rules: TL_INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
-  if (user.role !== 'sales') return ccTeamOf(db, user.id).length ? { ...base, type: 'cc_team_leader', incentive: tlIncentiveFor(db, user.id, cycle) } : { ...base, type: null, incentive: null };
+  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, al_rules: AL_INCENTIVE_RULES, tl_rules: TL_INCENTIVE_RULES, pl_tl_rules: PL_TL_RULES, pl_tl_bands: PL_TL_BANDS.map((b) => ({ label: plTlBandLabel(b), rate: b.rate })), conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
+  if (user.role !== 'sales') {
+    const teams = [];
+    if (ccTeamOf(db, user.id).length) teams.push({ type: 'cc_team_leader', incentive: tlIncentiveFor(db, user.id, cycle) });
+    if (plTeamOf(db, user.id).length) teams.push({ type: 'pl_team_leader', incentive: plTlIncentiveFor(db, user.id, cycle) });
+    return { ...base, type: teams.length ? 'team_leader' : null, incentive: null, teams };
+  }
   if (me?.core_product === 'credit_card') return { ...base, type: 'credit_card', incentive: incentiveFor(db, user.id, cycle) };
   if (me?.core_product === 'personal_loan') return { ...base, type: 'personal_loan', incentive: plIncentiveFor(db, user.id, cycle) };
   if (me?.core_product === 'auto_loan') return { ...base, type: 'auto_loan', incentive: alIncentiveFor(db, user.id, cycle) };

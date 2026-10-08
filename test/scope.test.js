@@ -663,8 +663,9 @@ test('credit card team leader incentives: team card points beyond 75% of combine
   assert.equal((await mis('PATCH', `/users/${danaId}`, { core_product: 'credit_card', team_leader_id: tlId })).status, 200);
   assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: danaId, credit_card: 1000 }] })).status, 200);
   const mine = (await tl('GET', `/incentives/me?cycle=${cycle}`)).data;
-  assert.equal(mine.type, 'cc_team_leader');
-  const i = mine.incentive;
+  assert.equal(mine.type, 'team_leader');
+  assert.deepEqual(mine.teams.map((t) => t.type), ['cc_team_leader']);
+  const i = mine.teams[0].incentive;
   assert.deepEqual([i.team_size, i.combined_target, i.threshold, i.points, i.excess_points, i.mix_pct, i.criterion, i.rate], [1, 1000, 750, 2100, 1350, 33.3, 'mix', 0.3]);
   assert.deepEqual([i.core_aed, i.cross_sell_aed, i.cross_sell_incentive_aed, i.incentive_aed], [405, 200000, 300, 705]);
   // The bank's example: 100,000 combined targets, 95,000 points, 20,000 excess at AED 0.30 = 6,000.
@@ -672,7 +673,7 @@ test('credit card team leader incentives: team card points beyond 75% of combine
   // A leader with no core card staff has nothing to show; the report lists leaders of core card staff only.
   const amalId = (await mis('GET', '/users')).data.users.find((u) => u.email === 'amal@t.local').id;
   assert.equal((await mis('PATCH', `/users/${amalId}`, { core_product: 'personal_loan' })).status, 200);
-  assert.equal((await tlAuh('GET', `/incentives/me?cycle=${cycle}`)).data.incentive, null);
+  assert.equal((await tlAuh('GET', `/incentives/me?cycle=${cycle}`)).data.teams.some((t) => t.type === 'cc_team_leader'), false);
   const rep = (await mis('GET', `/reports/tl_incentives?cycle=${cycle}`)).data;
   const row = rep.rows.find((r) => r.leader === 'TL Dubai');
   assert.deepEqual([row.threshold, row.excess_points, row.criterion, row.rate, row.core_aed, row.cross_sell_incentive_aed, row.incentive_aed], [750, 1350, 'Premium mix', 'AED 0.30', 405, 300, 705]);
@@ -680,4 +681,36 @@ test('credit card team leader incentives: team card points beyond 75% of combine
   assert.match(rep.note, /60% of target in the next sales cycle/);
   assert.equal((await gov('GET', `/reports/tl_incentives?cycle=${cycle}`)).status, 404);
   assert.equal((await gov('GET', `/incentives/me?cycle=${cycle}`)).status, 403);
+});
+
+test('personal loan team leader incentives: banded percentage of the team\'s whole production, cards cross-sold paid from 80%', async () => {
+  const mis = await login('mis@t.local');
+  const tlAuh = await login('tl-auh@t.local');
+  const gov = await login('gov@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  const users = (await mis('GET', '/users')).data.users;
+  const amalId = users.find((u) => u.email === 'amal@t.local').id;
+  const tlId = users.find((u) => u.email === 'tl-auh@t.local').id;
+  // Amal: core personal loans, target 600,000, counted production 1,070,000 (178.3%) and one Mass card from the earlier tests.
+  assert.equal((await mis('PATCH', `/users/${amalId}`, { core_product: 'personal_loan', team_leader_id: tlId })).status, 200);
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: amalId, personal_loan: 600000 }] })).status, 200);
+  const mine = (await tlAuh('GET', `/incentives/me?cycle=${cycle}`)).data;
+  const team = mine.teams.find((t) => t.type === 'pl_team_leader');
+  assert.ok(team);
+  const i = team.incentive;
+  assert.deepEqual([i.team_size, i.combined_target, i.pl_counted, i.achievement_pct, i.band, i.rate_pct, i.core_aed], [1, 600000, 1070000, 178.3, '150% and above', 0.25, 2675]);
+  assert.deepEqual([i.cards.Mass, i.cards_aed, i.qualified, i.cards_incentive_aed, i.incentive_aed], [1, 20, true, 20, 2695]);
+  // Below 80% nothing is paid, cards included.
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: amalId, personal_loan: 2000000 }] })).status, 200);
+  const low = (await tlAuh('GET', `/incentives/me?cycle=${cycle}`)).data.teams.find((t) => t.type === 'pl_team_leader').incentive;
+  assert.deepEqual([low.achievement_pct, low.rate_pct, low.core_aed, low.qualified, low.cards_incentive_aed, low.incentive_aed], [53.5, 0, 0, false, 0, 0]);
+  // 80% to 99.99% pays 0.05% on the whole production.
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: amalId, personal_loan: 1200000 }] })).status, 200);
+  const mid = (await tlAuh('GET', `/incentives/me?cycle=${cycle}`)).data.teams.find((t) => t.type === 'pl_team_leader').incentive;
+  assert.deepEqual([mid.achievement_pct, mid.rate_pct, mid.core_aed, mid.cards_incentive_aed, mid.incentive_aed], [89.2, 0.05, 535, 20, 555]);
+  const rep = (await mis('GET', `/reports/pl_tl_incentives?cycle=${cycle}`)).data;
+  const row = rep.rows.find((r) => r.leader === 'TL Abu Dhabi');
+  assert.deepEqual([row.achievement_pct, row.rate, row.core_aed, row.mass_cards, row.qualified, row.incentive_aed], [89.2, '0.05%', 535, 1, 'Yes', 555]);
+  assert.match(rep.note, /60% of target in the next sales cycle/);
+  assert.equal((await gov('GET', `/reports/pl_tl_incentives?cycle=${cycle}`)).status, 404);
 });
