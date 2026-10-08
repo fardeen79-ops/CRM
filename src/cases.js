@@ -463,14 +463,65 @@ export function canViewSensitive(user, row) {
   return true;
 }
 
+// Personal identifiers are masked on every screen until someone chooses to reveal them, which is
+// logged. Masks keep enough to recognise the record: the last digits.
+export const MASKED_FIELDS = ['phone', 'alt_phone', 'eid_number', 'passport_number'];
+export function maskValue(field, value) {
+  if (value == null || value === '') return value;
+  const s = String(value);
+  if (field === 'eid_number') return s.replace(/^(784-)?(\d{4})-(\d{7})-(\d)$/, (_, p, y, n, c) => `784-••••-••••${n.slice(-3)}-${c}`);
+  if (field === 'passport_number') return s.length > 3 ? `${s[0]}${'•'.repeat(s.length - 3)}${s.slice(-2)}` : '•••';
+  // Phone numbers: keep the spacing and the last four digits.
+  return s.replace(/\d(?=(?:\D*\d){4})/g, '•');
+}
+
 // Strips sensitive fields the viewer may not see, before anything leaves the server.
-function present(user, row) {
+function present(user, row, { reveal = [] } = {}) {
   const out = withRef(row);
-  if (out && user.role === 'sales') for (const f of GOVERNANCE_FIELDS) delete out[f];
-  if (!out || canViewSensitive(user, row)) return out ? { ...out, hidden_fields: [] } : out;
-  for (const f of SENSITIVE_FIELDS) out[f] = null;
-  out.hidden_fields = SENSITIVE_FIELDS;
+  if (!out) return out;
+  if (user.role === 'sales') for (const f of GOVERNANCE_FIELDS) delete out[f];
+  out.hidden_fields = canViewSensitive(user, row) ? [] : SENSITIVE_FIELDS;
+  for (const f of out.hidden_fields) out[f] = null;
+  out.masked_fields = MASKED_FIELDS.filter((f) => out[f] != null && !out.hidden_fields.includes(f) && !reveal.includes(f));
+  for (const f of out.masked_fields) out[f] = maskValue(f, out[f]);
   return out;
+}
+
+/** Records that a user looked at personal data; repeats within a few minutes are not logged twice. */
+export function logAccess(db, user, caseId, what) {
+  const recent = db.prepare('SELECT id FROM access_log WHERE user_id = ? AND case_id = ? AND what = ? AND at > ? LIMIT 1')
+    .get(user.id, caseId, what, new Date(Date.now() - 5 * 60e3).toISOString());
+  if (recent) return false;
+  db.prepare('INSERT INTO access_log (user_id, case_id, what, at) VALUES (?, ?, ?, ?)').run(user.id, caseId, what, now());
+  return true;
+}
+
+/** Full values of masked fields for one case, each reveal logged against the user. */
+export function revealFields(db, user, id, fields) {
+  const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
+  if (!row || !canView(user, row)) throw new WorkflowError(404, 'Case not found');
+  const wanted = [...new Set(String(fields || '').split(',').map((f) => f.trim()).filter((f) => MASKED_FIELDS.includes(f)))];
+  if (!wanted.length) throw new WorkflowError(400, `Choose which to reveal: ${MASKED_FIELDS.join(', ')}`);
+  const hidden = canViewSensitive(user, row) ? [] : SENSITIVE_FIELDS;
+  const values = {};
+  for (const f of wanted) {
+    if (hidden.includes(f)) throw new WorkflowError(403, 'That detail is hidden for your role');
+    values[f] = row[f];
+    if (row[f] != null) logAccess(db, user, id, `reveal:${f}`);
+  }
+  return { values };
+}
+
+const ACCESS_LOG_VIEWERS = ['governance', 'business_head', 'mis'];
+/** Who looked at personal data: for one case (?case=) or everyone, newest first. */
+export function listAccessLog(db, user, { case: caseId, limit = 300 } = {}) {
+  if (!ACCESS_LOG_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Only governance, MIS and business heads can see the access log');
+  const where = caseId ? 'WHERE a.case_id = ?' : '';
+  const params = caseId ? [Number(caseId)] : [];
+  const rows = db.prepare(`SELECT a.id, a.case_id, a.what, a.at, u.name AS user_name, u.role AS user_role, c.customer_name, c.sales_staff_name
+    FROM access_log a JOIN users u ON u.id = a.user_id JOIN cases c ON c.id = a.case_id ${where} ORDER BY a.id DESC LIMIT ?`)
+    .all(...params, Math.min(Number(limit) || 300, 2000));
+  return { items: rows.map((r) => ({ ...r, ref: caseRef(r.case_id) })) };
 }
 
 function canView(user, row) {

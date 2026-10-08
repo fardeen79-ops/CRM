@@ -159,6 +159,17 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_r
 
 -- Monthly targets per sales person and product. A cycle runs from the 21st to the 20th and is
 -- named after the month it ends in ('2026-06' = 21 May to 20 June).
+-- Who looked at a customer's personal data: each reveal of a masked value, and each case opened.
+CREATE TABLE IF NOT EXISTS access_log (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  case_id INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  what    TEXT NOT NULL,
+  at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_access_log_case ON access_log(case_id, id);
+CREATE INDEX IF NOT EXISTS idx_access_log_user ON access_log(user_id, id);
+
 CREATE TABLE IF NOT EXISTS targets (
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   cycle   TEXT NOT NULL,

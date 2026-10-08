@@ -131,7 +131,7 @@ test('full workflow: source → verify incomplete → TL returns → sales resub
   assert.ok(salesNotes.data.items.some((n) => /returned to you/.test(n.message)));
   r = await sales('PUT', `/cases/${id}`, { phone: '+91 90000 00000' });
   assert.equal(r.status, 200);
-  assert.equal(r.data.case.phone, '+91 90000 00000');
+  assert.equal(r.data.case.phone, '+•• ••••• •0000'); // masked on screen; see the privacy test for reveals
   r = await sales('POST', `/cases/${id}/actions`, { action: 'resubmit' });
   assert.equal(r.data.case.status, 'pending_verification');
   assert.equal(r.data.case.assigned_to, null);
@@ -339,8 +339,9 @@ test('customer identity fields and personal loan amounts are captured and valida
   assert.equal(r.status, 201);
   const c = r.data.case;
   assert.equal(c.customer_name, 'Mohammed Ali Rahman');
-  assert.equal(c.eid_number, '784-1990-1234567-1');
-  assert.equal(c.passport_number, 'N1234567');
+  assert.equal(c.eid_number, '784-••••-••••567-1');
+  assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=eid_number`)).data.values.eid_number, '784-1990-1234567-1');
+  assert.equal(c.passport_number, 'N•••••67');
   assert.equal(c.salary, 25000);
   assert.equal(c.loan_amount, 120000);
   assert.equal(c.interest_rate, 5.99);
@@ -515,9 +516,13 @@ test('team leaders never see company, salary, Emirates ID or passport; processor
   const bh = await login('bh@t.local');
   const secret = { company_name: 'Hidden Trading LLC', salary: 41000, eid_number: '784-1991-7654321-0', passport_number: 'P7654321' };
   const id = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
+  // Emirates ID and passport are masked on screen, so read them through the logged reveal.
   const fields = async (who) => {
     const c = (await who('GET', `/cases/${id}`)).data.case;
-    return { company_name: c.company_name, salary: c.salary, eid_number: c.eid_number, passport_number: c.passport_number, hidden: c.hidden_fields };
+    const rv = await who('GET', `/cases/${id}/reveal?fields=eid_number,passport_number`);
+    const v = rv.status === 200 ? rv.data.values : { eid_number: null, passport_number: null };
+    if (rv.status !== 200) assert.equal(rv.status, 403);
+    return { company_name: c.company_name, salary: c.salary, eid_number: v.eid_number, passport_number: v.passport_number, hidden: c.hidden_fields };
   };
   const shown = { ...secret, hidden: [] };
   const hidden = { company_name: null, salary: null, eid_number: null, passport_number: null, hidden: ['company_name', 'salary', 'eid_number', 'passport_number'] };
@@ -541,7 +546,7 @@ test('team leaders never see company, salary, Emirates ID or passport; processor
 
   // Verification Pending: the processor still sees the details
   let r = await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'documents_pending', note: 'Missing slips' });
-  assert.equal(r.data.case.eid_number, secret.eid_number);
+  assert.equal(r.data.case.eid_number, '784-••••-••••321-0');
   assert.deepEqual(await fields(proc), shown);
   assert.ok((await proc('GET', '/cases?q=P7654321')).data.cases.some((c) => c.id === id));
   assert.deepEqual(await fields(lead), hidden);
@@ -1156,4 +1161,35 @@ test('changing verified product details after verification sends the file back f
   assert.equal(r.data.case.status, 'pending_verification');
   assert.equal(r.data.case.events.find((e) => e.type === 're_verification').detail, 'card sourced type');
   assert.equal(r.data.case.events.filter((e) => e.type === 're_verification').length, 3);
+});
+
+test('personal identifiers are masked everywhere, revealed on request, and every look is logged', async () => {
+  const sales = await login('sales@t.local');
+  const proc = await login('proc@t.local');
+  const lead = await login('lead@t.local');
+  const gov = await login('gov@t.local');
+  const data = { ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', eid_number: '784-1988-4821736-2', passport_number: 'Z4821736' };
+  const id = (await sales('POST', '/cases', data)).data.case.id;
+  const c = (await proc('GET', `/cases/${id}`)).data.case;
+  assert.deepEqual([c.phone, c.alt_phone, c.eid_number, c.passport_number], ['+••• •• ••• 4567', '••••••4567', '784-••••-••••736-2', 'Z•••••36']);
+  assert.deepEqual(c.masked_fields, ['phone', 'alt_phone', 'eid_number', 'passport_number']);
+  // Lists are masked too, and search still finds the full value.
+  const listed = (await proc('GET', '/cases?q=4821736')).data.cases.find((x) => x.id === id);
+  assert.equal(listed.eid_number, '784-••••-••••736-2');
+  // A team leader cannot reveal what is hidden for their role, but can reveal the phone.
+  assert.equal((await lead('GET', `/cases/${id}/reveal?fields=eid_number`)).status, 403);
+  assert.deepEqual((await lead('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
+  assert.equal((await proc('GET', `/cases/${id}/reveal?fields=nothing`)).status, 400);
+  const all = (await proc('GET', `/cases/${id}/reveal?fields=phone,eid_number,passport_number`)).data.values;
+  assert.deepEqual(all, { phone: '+971 50 123 4567', eid_number: '784-1988-4821736-2', passport_number: 'Z4821736' });
+
+  // The access log: views and reveals, who and when; repeats within minutes are not duplicated.
+  await proc('GET', `/cases/${id}/reveal?fields=phone`);
+  assert.equal((await sales('GET', '/access-log')).status, 403);
+  const log = (await gov('GET', `/access-log?case=${id}`)).data.items;
+  const mine = log.filter((e) => e.user_name === 'Pam').map((e) => e.what).sort();
+  assert.deepEqual(mine, ['reveal:eid_number', 'reveal:passport_number', 'reveal:phone', 'view']);
+  assert.ok(log.some((e) => e.user_name === 'Lead' && e.what === 'reveal:phone'));
+  assert.equal(log[0].ref, `CRM-${String(id).padStart(6, '0')}`);
+  assert.ok((await gov('GET', '/access-log')).data.items.length >= log.length);
 });

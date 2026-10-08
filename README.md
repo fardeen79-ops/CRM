@@ -233,6 +233,14 @@ While a file is in **Applicant review**, the sales person who sourced it can't e
 
 Each file also has a **sourcing date**, which defaults to today and can't be in the future.
 
+### Privacy controls: masking, watermark and access log
+
+A web page cannot stop screenshots or photos of the screen, so the CRM limits what a capture would show and makes it traceable:
+
+- **Masked identifiers.** Emirates ID, passport and phone numbers are masked on every screen (`784-••••-••••567-1`, `Z•••••36`, `+••• •• ••• 4567`) until someone clicks **Reveal** on the case page (**Reveal to call** turns a mobile number into a dial link). **Reveal all** uncovers everything at once. The mask is applied by the server, so the full value never reaches the browser until it is revealed. Search still works on full values. On the edit form a masked value stays as it is unless a new one is typed.
+- **Access log.** Every reveal, and every opening of a case, is recorded with who, what and when (repeats within five minutes count once). Governance, MIS and business heads see it on **Access log**, filterable by staff, customer or CRM ref, and can open it for one case with `#/access-log?case=ID`. The API is `GET /cases/:id/reveal?fields=phone,eid_number` and `GET /access-log?case=&limit=`.
+- **Watermark.** Every screen carries a faint repeating stamp of the signed-in user's name, sales code or role, and the time, refreshed each minute, so a leaked screenshot or photo can be traced to the session it came from. It prints darker.
+
 ### Personal details: who can see them
 
 Company name, salary, Emirates ID and passport number are restricted. The server removes them from every response, and from search, for people who may not see them:

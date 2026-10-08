@@ -548,3 +548,13 @@ input[type=date], input[type=datetime-local], input[type=time] {
 input[type=date]::-webkit-date-and-time-value { text-align: left; min-height: 1.5em; }
 .form-grid > *, fieldset.product-detail > * { min-width: 0; max-width: 100%; }
 fieldset.product-detail { min-width: 0; }
+
+/* Privacy: masked values, reveal buttons and the viewer watermark */
+.reveal { font-size: 12px; margin-left: 4px; }
+.privacy-note { margin: -4px 0 10px; }
+main { position: relative; }
+.watermark {
+  position: absolute; inset: 0; pointer-events: none; z-index: 5; user-select: none;
+  color: var(--text); opacity: .07; background-repeat: repeat; background-size: 420px 220px;
+}
+@media print { .watermark { opacity: .25; } }

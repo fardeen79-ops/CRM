@@ -162,6 +162,7 @@ function routes(db, dispatch, bot) {
         credit_cards: CREDIT_CARDS,
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         card_fee_types: cases.CARD_FEE_TYPES,
+        masked_fields: cases.MASKED_FIELDS,
         banks: BANKS,
         case_statuses: cases.CASE_STATUS,
         regions: cases.REGIONS,
@@ -193,7 +194,15 @@ function routes(db, dispatch, bot) {
       send(res, 201, { case: cases.createCase(db, user, body) });
     }],
 
-    ['GET', /^\/api\/cases\/(\d+)$/, async ({ user, params }) => ({ case: cases.getCase(db, user, Number(params[0])) })],
+    ['GET', /^\/api\/cases\/(\d+)$/, async ({ user, params }) => {
+      const result = cases.getCase(db, user, Number(params[0]));
+      cases.logAccess(db, user, Number(params[0]), 'view');
+      return { case: result };
+    }],
+
+    // Full value of a masked personal detail (?fields=phone,eid_number); every reveal is logged.
+    ['GET', /^\/api\/cases\/(\d+)\/reveal$/, async ({ user, params, query }) => cases.revealFields(db, user, Number(params[0]), query.get('fields'))],
+    ['GET', /^\/api\/access-log$/, async ({ user, query }) => cases.listAccessLog(db, user, Object.fromEntries(query))],
 
     ['PUT', /^\/api\/cases\/(\d+)$/, async ({ user, params, body }) => ({
       case: cases.updateCase(db, user, Number(params[0]), body),

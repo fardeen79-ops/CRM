@@ -276,6 +276,7 @@ const ICON_PATHS = {
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
   stamp: '<path d="M9 3h6v6l3 3v3H6v-3l3-3z"/><path d="M5 21h14"/>',
+  eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="3"/>',
 };
 const icon = (name) => raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`);
 
@@ -310,6 +311,7 @@ function navGroups() {
   const admin = [];
   if (r === 'mis' || r === 'business_head') admin.push(['#/import/cases', 'Bulk upload', 'upload']);
   if (r === 'team_leader') admin.push(['#/users', 'Users', 'users']);
+  if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
   if (admin.length) groups.push(['Admin', admin]);
   return groups;
 }
@@ -353,7 +355,7 @@ function shell(content) {
           <button class="bell" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot" ${state.unread ? '' : 'hidden'}>${state.unread}</span></button>
         </header>
         <div id="notif-panel"></div>
-        <main>${content}</main>
+        <main>${content}<div class="watermark" aria-hidden="true"></div></main>
       </div>
     </div>`.s;
   document.getElementById('logout').onclick = async () => {
@@ -363,6 +365,7 @@ function shell(content) {
     renderLogin();
   };
   document.getElementById('bell').onclick = toggleNotifications;
+  paintWatermark();
   // Phones and narrow windows: the sidebar slides in over the page.
   const sidebar = document.getElementById('sidebar');
   const scrim = document.getElementById('scrim');
@@ -459,6 +462,7 @@ async function route() {
     }
     if (path === '/users') return await viewUsers();
     if ((m = path.match(/^\/import\/(users|cases|cards|targets)$/))) return viewBulkUpload(m[1]);
+    if (path === '/access-log') return await viewAccessLog(params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
     if (path === '/cards') return await viewCards(params);
     shell(html`<div class="card empty">Page not found</div>`);
@@ -759,14 +763,15 @@ async function viewCaseForm(id) {
   const otherBank = Boolean(c.buyout_bank) && !listedBanks.includes(c.buyout_bank);
   // Fields this viewer may not read; they can still type a replacement without seeing the old value.
   const hiddenFields = new Set(c.hidden_fields || []);
+  const maskedFields = new Set(id ? c.masked_fields || [] : []);
   const field = (name, text, { type = 'text', required = false, full = false, placeholder = '', attrs = '', hint = '' } = {}) => {
-    const masked = hiddenFields.has(name);
+    const masked = hiddenFields.has(name) || maskedFields.has(name);
     return html`
     <div class="${full ? 'full' : ''}">
       <label for="f-${name}">${text}${required ? raw(' <span class="req">*</span>') : ''}${masked ? raw(' <span class="lock">Hidden</span>') : ''}</label>
       ${type === 'textarea'
         ? html`<textarea id="f-${name}" name="${name}" placeholder="${placeholder}">${c[name] ?? ''}</textarea>`
-        : html`<input id="f-${name}" name="${name}" type="${type}" value="${c[name] ?? ''}" placeholder="${masked ? 'Hidden. Type a new value only to replace it' : placeholder}" ${required ? raw('required') : ''} ${raw(attrs)} ${masked ? raw('data-masked') : ''}>`}
+        : html`<input id="f-${name}" name="${name}" type="${type}" value="${masked ? '' : c[name] ?? ''}" placeholder="${hiddenFields.has(name) ? 'Hidden. Type a new value only to replace it' : masked ? `${c[name]} — type a new value only to replace it` : placeholder}" ${required && !masked ? raw('required') : ''} ${raw(attrs)} ${masked ? raw('data-masked') : ''}>`}
       ${hint ? html`<div class="muted small">${hint}</div>` : ''}
     </div>`;
   };
@@ -1092,9 +1097,15 @@ async function viewCase(id) {
   const { case: c } = await api(`/cases/${id}`);
   // A detail row; ID-style values use a monospace face so digits are easy to read back on a call.
   const hiddenFields = new Set(c.hidden_fields || []);
+  const maskedFields = new Set(c.masked_fields || []);
   const row = (dt, value, mono = false, field = null) => (field && hiddenFields.has(field)
     ? html`<dt>${dt}</dt><dd><span class="lock">Hidden</span></dd>`
-    : html`<dt>${dt}</dt><dd class="${mono && value ? 'mono' : ''}">${value || '—'}</dd>`);
+    : field && maskedFields.has(field)
+      ? html`<dt>${dt}</dt><dd class="${mono ? 'mono' : ''}"><span data-masked-value="${field}">${value}</span> <button type="button" class="btn-link reveal" data-reveal="${field}">Reveal</button></dd>`
+      : html`<dt>${dt}</dt><dd class="${mono && value ? 'mono' : ''}">${value || '—'}</dd>`);
+  const phoneRow = (dt, field) => (maskedFields.has(field)
+    ? html`<dt>${dt}</dt><dd><span class="phone-link" data-masked-value="${field}">${c[field]}</span> <button type="button" class="btn-link reveal" data-reveal="${field}">Reveal to call</button></dd>`
+    : html`<dt>${dt}</dt><dd><a class="phone-link" href="tel:${String(c[field]).replace(/[^\d+]/g, '')}">${c[field]}</a></dd>`);
   const a = new Set(c.allowed_actions);
   const meta = state.meta;
 
@@ -1345,9 +1356,10 @@ async function viewCase(id) {
         <div class="card">
           <h2>Customer</h2>
           ${hiddenFields.size ? html`<p class="muted small">Company, salary, Emirates ID and passport details are hidden for your role${state.user.role === 'processing' ? ' once verification is completed or rejected' : ''}.</p>` : ''}
+          ${maskedFields.size ? html`<p class="muted small privacy-note">Personal identifiers are masked. Reveal only what you need; each reveal is recorded against your name. <button type="button" class="btn-link" id="reveal-all">Reveal all</button></p>` : ''}
           <dl class="details">
-            <dt>Mobile</dt><dd><a class="phone-link" href="tel:${c.phone.replace(/[^\d+]/g, '')}">${c.phone}</a></dd>
-            ${c.alt_phone ? html`<dt>Alternate phone</dt><dd><a href="tel:${c.alt_phone.replace(/[^\d+]/g, '')}">${c.alt_phone}</a></dd>` : ''}
+            ${phoneRow('Mobile', 'phone')}
+            ${c.alt_phone ? phoneRow('Alternate phone', 'alt_phone') : ''}
             ${row('Emirates ID', c.eid_number, true, 'eid_number')}
             ${row('Passport number', c.passport_number, true, 'passport_number')}
             ${row('Company', c.company_name, false, 'company_name')}
@@ -1451,6 +1463,25 @@ async function viewCase(id) {
       if (btn) btn.disabled = false;
     }
   };
+  // Reveal masked values one at a time or all at once; the server logs each reveal.
+  const reveal = async (fields) => {
+    const wanted = fields.filter((f) => app.querySelector(`[data-masked-value="${f}"]`));
+    if (!wanted.length) return;
+    try {
+      const { values } = await api(`/cases/${id}/reveal?fields=${wanted.join(',')}`);
+      for (const [f, v] of Object.entries(values)) {
+        const el = app.querySelector(`[data-masked-value="${f}"]`);
+        if (!el) continue;
+        if (el.classList.contains('phone-link')) {
+          const a = document.createElement('a'); a.className = 'phone-link'; a.href = `tel:${String(v).replace(/[^\d+]/g, '')}`; a.textContent = v; el.replaceWith(a);
+        } else el.textContent = v;
+        app.querySelector(`[data-reveal="${f}"]`)?.remove();
+      }
+      if (!app.querySelector('[data-masked-value]')) document.getElementById('reveal-all')?.remove();
+    } catch (ex) { toast(ex.message, true); }
+  };
+  app.querySelectorAll('[data-reveal]').forEach((b) => (b.onclick = () => reveal([b.dataset.reveal])));
+  document.getElementById('reveal-all')?.addEventListener('click', () => reveal(state.meta.masked_fields));
   document.getElementById('back-link').onclick = (e) => {
     if (history.length > 1) { e.preventDefault(); history.back(); }
   };
@@ -1845,6 +1876,65 @@ async function viewCards(params) {
       viewCards(params);
     } catch (ex) { toast(ex.message, true); b.disabled = false; }
   }));
+}
+
+// ---------- privacy: watermark and access log ----------
+// A faint, repeating stamp of who is signed in and when, so a photo or screenshot of the screen can
+// be traced to the person whose session it came from.
+let watermarkTimer;
+function paintWatermark() {
+  const el = document.querySelector('.watermark');
+  if (!el || !state.user) return;
+  const stamp = () => {
+    const when = new Date().toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const text = `${state.user.name} · ${state.user.sales_code || ROLE_LABEL[state.user.role]} · ${when}`;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='420' height='220'><text x='0' y='120' transform='rotate(-24 210 110)' font-family='IBM Plex Sans, system-ui, sans-serif' font-size='15' fill='currentColor'>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/'/g, '&#39;')}</text></svg>`;
+    el.style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+  };
+  stamp();
+  clearInterval(watermarkTimer);
+  watermarkTimer = setInterval(stamp, 60000);
+}
+
+const ACCESS_LABEL = { view: 'Opened the case', 'reveal:phone': 'Revealed mobile number', 'reveal:alt_phone': 'Revealed alternate phone', 'reveal:eid_number': 'Revealed Emirates ID', 'reveal:passport_number': 'Revealed passport number' };
+
+async function viewAccessLog(params) {
+  const caseId = params.get('case') || '';
+  const q = (params.get('q') || '').trim().toLowerCase();
+  const { items } = await api(`/access-log?limit=1000${caseId ? `&case=${encodeURIComponent(caseId)}` : ''}`);
+  const shown = q ? items.filter((e) => [e.user_name, e.customer_name, e.ref, e.sales_staff_name].some((v) => String(v || '').toLowerCase().includes(q))) : items;
+  const reveals = items.filter((e) => e.what.startsWith('reveal:')).length;
+  shell(html`
+    <div class="page-head">
+      <div><h1>Access log</h1><p class="muted lede">Who opened each customer's file and which personal details they revealed. Emirates ID, passport and phone numbers are masked on every screen until someone chooses to reveal them, and every reveal is recorded here. Each screen also carries a faint watermark of the signed-in user, so a photo or screenshot can be traced.</p></div>
+    </div>
+    <div class="kpis card-kpis" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="kpi"><span class="kpi-label">Entries</span><span class="kpi-value">${items.length}</span><span class="kpi-sub">most recent 1,000</span></div>
+      <div class="kpi"><span class="kpi-label">Reveals</span><span class="kpi-value">${reveals}</span><span class="kpi-sub">of masked personal data</span></div>
+      <div class="kpi"><span class="kpi-label">People</span><span class="kpi-value">${new Set(items.map((e) => e.user_name)).size}</span><span class="kpi-sub">who looked at files</span></div>
+    </div>
+    <div class="card">
+      <div class="toolbar">
+        <form id="log-search" style="display:flex;gap:8px;flex:1;min-width:240px"><input type="search" name="q" placeholder="Filter by staff, customer or CRM ref…" value="${params.get('q') || ''}"><button>Filter</button></form>
+        ${caseId ? html`<a class="btn" href="#/access-log">All cases</a>` : ''}
+      </div>
+      ${shown.length ? html`<div class="table-wrap"><table>
+        <thead><tr><th>When</th><th>Who</th><th>Did what</th><th>Customer</th><th>Sourced by</th></tr></thead>
+        <tbody>${shown.map((e) => html`<tr data-href="#/cases/${e.case_id}">
+          <td class="small nowrap">${fmtDate(e.at)}</td>
+          <td>${e.user_name}<div class="muted small">${ROLE_LABEL[e.user_role] || e.user_role}</div></td>
+          <td>${e.what.startsWith('reveal:') ? html`<span class="chip warn">${ACCESS_LABEL[e.what] || e.what}</span>` : ACCESS_LABEL[e.what] || e.what}</td>
+          <td><strong class="mono">${e.ref}</strong> ${e.customer_name}</td>
+          <td class="small">${e.sales_staff_name || '—'}</td>
+        </tr>`)}</tbody>
+      </table></div>` : html`<div class="empty">No access recorded yet</div>`}
+    </div>`);
+  bindRows();
+  document.getElementById('log-search').onsubmit = (e) => {
+    e.preventDefault();
+    const p = new URLSearchParams(params); const v = formData(e.target).q.trim(); v ? p.set('q', v) : p.delete('q');
+    go(`#/access-log${p.toString() ? `?${p}` : ''}`);
+  };
 }
 
 // ---------- bulk upload (MIS and business head) ----------
