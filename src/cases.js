@@ -732,6 +732,11 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   // MIS and business heads add files only by bulk upload (see imports.js), naming the sales person.
   const canAdd = ['sales', 'team_leader', ...MANAGER_ROLES].includes(user.role) || (bulk && ['mis', 'business_head'].includes(user.role));
   if (!canAdd) throw new WorkflowError(403, 'Only sales staff can add sourcing data');
+  // A file's region defaults to the sales person's own region; any region can still be chosen.
+  if (!String(input.region ?? '').trim()) {
+    const staffRegion = findUser(db, Number(user.role === 'sales' ? user.id : input.sales_staff_id))?.region;
+    if (staffRegion) input = { ...input, region: staffRegion };
+  }
   const data = validateCaseInput(input);
   // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));

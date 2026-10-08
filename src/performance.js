@@ -16,13 +16,13 @@ export const TARGET_UNITS = { credit_card: 'count', personal_loan: 'aed', auto_l
 // Who sets targets and maps card activation.
 export const TARGET_SETTERS = ['mis', 'business_head'];
 const VIEWERS = ['sales', 'team_leader', 'sales_manager', 'asm', 'mis', 'business_head', 'governance'];
-/** Sales staff whose numbers this user may see. */
-function staffInScope(db, user) {
+/** Sales staff whose numbers this user may see, optionally only those in one region. */
+function staffInScope(db, user, region = null) {
   if (!VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Targets are for sales staff, team leaders, sales managers, MIS and business heads');
   const base = `SELECT u.id, u.name, u.sales_code, u.active, u.region, u.team_leader_id, u.sales_manager_id, u.asm_id,
       tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name
     FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id
-    WHERE u.role = 'sales'`;
+    WHERE u.role = 'sales'${region ? ` AND u.region = '${region}'` : ''}`;
   const order = ' ORDER BY u.active DESC, u.name';
   if (user.role === 'sales') return db.prepare(`${base} AND u.id = ?`).all(user.id);
   if (user.role === 'team_leader') return db.prepare(`${base} AND u.team_leader_id = ?${order}`).all(user.id);
@@ -48,9 +48,9 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const { start, end } = cycleRange(cycle);
   sweepCardAgeing(db);
-  // A region view counts only files in that region; the staff list is unchanged.
+  // A region view: the sales staff whose own region it is (every file of theirs counts).
   region = REGIONS[String(region || '').toUpperCase()] ? String(region).toUpperCase() : null;
-  const staff = staffInScope(db, user);
+  const staff = staffInScope(db, user, region);
   // `achieved` is in each product's unit (cases or AED); `cases` counts completed cases per product.
   const byId = new Map(staff.map((s) => [s.id, { ...s, target: {}, achieved: emptyCounts(), cases: emptyCounts(), cards: emptyCards() }]));
 
@@ -59,7 +59,7 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
     if (s && TARGET_PRODUCTS[t.product]) s.target[t.product] = t.target;
   }
   const done = db.prepare(`SELECT c.sales_staff_id, c.product, c.bundle_products, c.card_status, c.pl_disbursed_amount, c.al_disbursed_amount
-    FROM cases c WHERE ${COMPLETED_IN_SQL}${region ? ' AND c.region = ?' : ''}`).all(start, end, ...(region ? [region] : []));
+    FROM cases c WHERE ${COMPLETED_IN_SQL}`).all(start, end);
   for (const c of done) {
     const s = byId.get(c.sales_staff_id);
     if (!s) continue;
@@ -112,14 +112,17 @@ export function targetReport(db, user, cycle, { region = null } = {}) {
     total: rollup(rows),
   };
   if (['sales_manager', 'asm', 'mis', 'business_head', 'governance'].includes(user.role)) result.by_team_leader = groupBy('team_leader_id', 'team_leader_name');
-  if (['mis', 'business_head', 'governance'].includes(user.role)) result.by_sales_manager = groupBy('sales_manager_id', 'sales_manager_name');
+  if (['mis', 'business_head', 'governance'].includes(user.role)) {
+    result.by_sales_manager = groupBy('sales_manager_id', 'sales_manager_name');
+    result.by_region = groupBy('region', 'region');
+  }
   return result;
 }
 
 // Each level of the sales hierarchy, top down: the file column that places a file in it.
-const LEVELS = [['sales_manager', 'sales_manager_id'], ['team_leader', 'team_leader_id'], ['staff', 'sales_staff_id']];
-const TOP_LEVEL = { business_head: 'sales_manager', mis: 'sales_manager', governance: 'sales_manager', sales_manager: 'team_leader', asm: 'team_leader', team_leader: 'staff', sales: 'staff' };
-export const LEVEL_LABELS = { sales_manager: 'Sales manager', team_leader: 'Team leader', staff: 'Sales staff' };
+const LEVELS = [['region', 'region'], ['sales_manager', 'sales_manager_id'], ['team_leader', 'team_leader_id'], ['staff', 'sales_staff_id']];
+const TOP_LEVEL = { business_head: 'region', mis: 'region', governance: 'region', sales_manager: 'team_leader', asm: 'team_leader', team_leader: 'staff', sales: 'staff' };
+export const LEVEL_LABELS = { region: 'Region', sales_manager: 'Sales manager', team_leader: 'Team leader', staff: 'Sales staff' };
 
 const emptyKpis = () => ({ staff: 0, sourced: 0, awaiting: 0, verified: 0, verification_pending: 0, completed: 0, disbursed_aed: 0, target: {}, achieved: emptyCounts(), cards: emptyCards() });
 const addKpis = (into, k) => {
@@ -128,18 +131,19 @@ const addKpis = (into, k) => {
 };
 
 /**
- * The viewer's part of the hierarchy for one cycle, as a tree: sales manager → team leader →
- * sales staff, with every number rolled up at each level. Files count under the team stored on
- * them, so when a sales person changes team their completed files stay with the old team (shown
- * as a "previous team" row) while open files follow them. `region` limits it to files in one region.
+ * The viewer's part of the hierarchy for one cycle, as a tree: region → sales manager → team
+ * leader → sales staff, with every number rolled up at each level. Region is the sales person's
+ * own region. Files count under the team stored on them, so when a sales person changes team
+ * their completed files stay with the old team (shown as a "previous team" row) while open files
+ * follow them. `region` limits it to the sales staff of one region.
  */
 export function hierarchy(db, user, { cycle, region } = {}) {
   const rep = targetReport(db, user, cycle, { region });
   const { start, end } = cycleRange(rep.cycle);
   region = rep.region;
   const scope = caseScope(user);
-  const where = [scope?.sql, region && 'c.region = ?'].filter(Boolean);
-  const params = [...(scope?.params || []), ...(region ? [region] : [])];
+  const where = [scope?.sql].filter(Boolean);
+  const params = [...(scope?.params || [])];
   const rows = db.prepare(`SELECT c.sales_staff_id, c.sales_staff_name, c.team_leader_id, c.sales_manager_id, c.asm_id, c.status, c.sourcing_date, c.case_status,
       c.product, c.bundle_products, c.card_status, c.pl_disbursed_amount, c.al_disbursed_amount,
       date(c.verified_at, '+4 hours') AS verified_day, date(c.case_status_at, '+4 hours') AS completed_day
@@ -174,15 +178,18 @@ export function hierarchy(db, user, { cycle, region } = {}) {
     const key = `${s.id}|${s.team_leader_id ?? 0}|${s.sales_manager_id ?? 0}|${s.asm_id ?? 0}`;
     used.add(key);
     const k = agg.get(key) || emptyKpis();
-    leaves.push({ level: 'staff', id: s.id, name: s.name, sales_code: s.sales_code, active: s.active, asm: s.asm_name, team_leader_id: s.team_leader_id, sales_manager_id: s.sales_manager_id,
+    leaves.push({ level: 'staff', id: s.id, name: s.name, sales_code: s.sales_code, active: s.active, asm: s.asm_name, region: s.region, team_leader_id: s.team_leader_id, sales_manager_id: s.sales_manager_id,
       kpis: { ...k, staff: 1, target: { ...s.target }, achieved: { ...k.achieved }, cards: { ...k.cards }, ids: undefined, name: undefined } });
   }
+  const people = new Map(db.prepare('SELECT id, name, region FROM users').all().map((u) => [u.id, u]));
   for (const [key, k] of agg) {
     if (used.has(key) || !k.ids.sales_staff_id) continue;
-    leaves.push({ level: 'staff', id: k.ids.sales_staff_id, name: k.name, previous_team: true, team_leader_id: k.ids.team_leader_id, sales_manager_id: k.ids.sales_manager_id,
+    const who = people.get(k.ids.sales_staff_id);
+    if (region && who?.region !== region) continue;
+    leaves.push({ level: 'staff', id: k.ids.sales_staff_id, name: who?.name || k.name, previous_team: true, region: who?.region ?? null, team_leader_id: k.ids.team_leader_id, sales_manager_id: k.ids.sales_manager_id,
       kpis: { ...k, staff: 0, achieved: { ...k.achieved }, cards: { ...k.cards }, ids: undefined, name: undefined } });
   }
-  const names = new Map(db.prepare('SELECT id, name FROM users').all().map((u) => [u.id, u.name]));
+
   const top = LEVELS.findIndex(([l]) => l === TOP_LEVEL[user.role]);
   const build = (list, depth) => {
     const [level, field] = LEVELS[depth];
@@ -190,7 +197,7 @@ export function hierarchy(db, user, { cycle, region } = {}) {
     const groups = new Map();
     for (const leaf of list) {
       const id = leaf[field] ?? 0;
-      if (!groups.has(id)) groups.set(id, { level, id, name: names.get(id) || `No ${LEVEL_LABELS[level].toLowerCase()}`, kpis: emptyKpis(), children: [] });
+      if (!groups.has(id)) groups.set(id, { level, id, name: level === 'region' ? (id || 'No region') : people.get(id)?.name || `No ${LEVEL_LABELS[level].toLowerCase()}`, kpis: emptyKpis(), children: [] });
       groups.get(id).children.push(leaf);
     }
     return [...groups.values()].map((g) => {
