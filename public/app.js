@@ -2067,6 +2067,40 @@ function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [] }
   </div>`;
 }
 
+// A credit card sales manager's or ASM's incentive: a flat amount per card the core card team sold, by the team's achievement.
+function smIncentiveCard({ incentive: i, cc_sm_slabs = [], sm_rules: r, conditions = [] }) {
+  return html`<div class="card incentive">
+    <div class="card-head"><h2>My team incentive · credit cards · ${i.slab}</h2>
+      <span class="chip ${i.aed_per_card ? 'good' : ''}">AED ${i.aed_per_card} per card</span></div>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Team card points</span><span class="kpi-value">${fmtAmount(i.points)}</span><span class="kpi-sub">${i.cards_sold} cards by ${i.team_size} core card staff</span></div>
+      <div class="kpi"><span class="kpi-label">Against team target</span><span class="kpi-value">${i.achievement_pct == null ? '—' : `${i.achievement_pct}%`}</span><span class="kpi-sub">combined targets ${fmtAmount(i.combined_target)} points${i.staff_without_target ? ` · ${i.staff_without_target} without a target` : ''}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">${i.cards_sold} cards × AED ${i.aed_per_card}</span></div>
+    </div>
+    <table class="bands"><thead><tr><th>Team achievement</th><th>Per card</th></tr></thead>
+      <tbody>${cc_sm_slabs.map((b) => html`<tr class="${b.label === i.slab ? 'on' : ''}"><td>${b.label}</td><td>AED ${b.aed}</td></tr>`)}</tbody></table>
+    <p class="muted small">Every card sold by your core credit card staff on files completed in the cycle pays the slab amount; nothing below ${r.cc_qualify_pct}% of the team's combined card targets.</p>
+    ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
+  </div>`;
+}
+
+// A sales manager's or ASM's personal loan incentive: a banded percentage of the team's whole loan production, cross-sell included.
+function plSmIncentiveCard({ incentive: i, pl_sm_bands = [], sm_rules: r, conditions = [] }) {
+  return html`<div class="card incentive">
+    <div class="card-head"><h2>My team incentive · personal loans · ${i.band}</h2>
+      <span class="chip ${i.rate_pct ? 'good' : ''}">${i.rate_pct.toFixed(4)}% of production</span></div>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Team loan production</span><span class="kpi-value">AED ${fmtAmount(i.pl_counted)}</span><span class="kpi-sub">AED ${fmtAmount(i.core_counted)} by ${i.core_staff} core loan staff + AED ${fmtAmount(i.cross_sell_counted)} cross-sold by the rest</span></div>
+      <div class="kpi"><span class="kpi-label">Against team target</span><span class="kpi-value">${i.achievement_pct == null ? '—' : `${i.achievement_pct}%`}</span><span class="kpi-sub">combined targets AED ${fmtAmount(i.combined_target)}${i.staff_without_target ? ` · ${i.staff_without_target} without a target` : ''}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">${i.rate_pct ? `${i.rate_pct.toFixed(4)}% of AED ${fmtAmount(i.pl_counted)}` : `nothing below ${r.pl_qualify_pct}%`}</span></div>
+    </div>
+    <table class="bands"><thead><tr><th>Team achievement</th><th>Rate on the whole production</th></tr></thead>
+      <tbody>${pl_sm_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(4)}%</td></tr>`)}</tbody></table>
+    <p class="muted small">Production counts loans on files completed in the cycle by everyone in your team, top-ups and Emirates Islamic buy-outs as for the staff; the target is the core loan staff's combined targets.</p>
+    ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
+  </div>`;
+}
+
 // A personal loan team leader's incentive for the cycle: a banded percentage of the team's whole production, plus cards cross-sold.
 function plTlIncentiveCard({ incentive: i, pl_tl_rules: r, pl_tl_bands = [], conditions = [] }) {
   const cardBits = [['Mass', i.cards.Mass], ['Premium', i.cards.Premium], ['Super Premium', i.cards['Super Premium']], ['noon', i.cards.noon]].filter(([, n]) => n).map(([l, n]) => `${n} ${l}`).join(', ');
@@ -2228,7 +2262,7 @@ async function viewTargets(cycleParam) {
     ${targetTiles(rep, rep.total)}
     ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
     ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : mine.type === 'auto_loan' ? alIncentiveCard(mine) : incentiveCard(mine)) : ''}
-      ${(mine?.teams || []).map((t) => (t.type === 'pl_team_leader' ? plTlIncentiveCard({ ...mine, incentive: t.incentive }) : tlIncentiveCard({ ...mine, incentive: t.incentive })))}
+      ${(mine?.teams || []).map((t) => ({ pl_team_leader: plTlIncentiveCard, cc_team_leader: tlIncentiveCard, cc_sales_manager: smIncentiveCard, pl_sales_manager: plSmIncentiveCard }[t.type])({ ...mine, incentive: t.incentive }))}
     ${groupTable('By team leader', rep.by_team_leader)}
     ${groupTable('By sales manager', rep.by_sales_manager)}
     ${r !== 'sales' ? html`<div class="card" id="staff-card">

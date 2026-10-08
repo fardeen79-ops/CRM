@@ -714,3 +714,33 @@ test('personal loan team leader incentives: banded percentage of the team\'s who
   assert.match(rep.note, /60% of target in the next sales cycle/);
   assert.equal((await gov('GET', `/reports/pl_tl_incentives?cycle=${cycle}`)).status, 404);
 });
+
+test('sales manager incentives: per-card slabs for card managers, a banded percentage of loan production for managers with loan staff', async () => {
+  const mis = await login('mis@t.local');
+  const sm1 = await login('sm1@t.local');
+  const asm = await login('asm1@t.local');
+  const sm2 = await login('sm2@t.local');
+  const gov = await login('gov@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  // Dana (cards, target 1,000, 2,100 points, 3 cards) reports to SM One and ASM One: 210% of target, AED 50 a card.
+  const users = (await mis('GET', '/users')).data.users;
+  const id = (email) => users.find((u) => u.email === email).id;
+  assert.equal((await mis('PATCH', `/users/${id('dana@t.local')}`, { core_product: 'credit_card', team_leader_id: id('tl-dxb@t.local'), sales_manager_id: id('sm1@t.local'), asm_id: id('asm1@t.local') })).status, 200);
+  assert.equal((await mis('PATCH', `/users/${id('amal@t.local')}`, { core_product: 'personal_loan', team_leader_id: id('tl-auh@t.local'), sales_manager_id: id('sm2@t.local') })).status, 200);
+  const mine = (await sm1('GET', `/incentives/me?cycle=${cycle}`)).data;
+  const cc = mine.teams.find((t) => t.type === 'cc_sales_manager');
+  assert.deepEqual([cc.incentive.team_size, cc.incentive.combined_target, cc.incentive.points, cc.incentive.achievement_pct, cc.incentive.slab, cc.incentive.cards_sold, cc.incentive.aed_per_card, cc.incentive.incentive_aed], [1, 1000, 2100, 210, '150% and above', 3, 50, 150]);
+  assert.equal((await asm('GET', `/incentives/me?cycle=${cycle}`)).data.teams.find((t) => t.type === 'cc_sales_manager').incentive.incentive_aed, 150);
+  // The bank's example: 120% achievement with 500 cards pays AED 35 each.
+  assert.equal(500 * mine.cc_sm_slabs.find((s) => s.label === '110% to 124.99%').aed, 17500);
+  // SM One has no core loan staff: no loan block, and Dana's AED 200,000 of cross-sold loans has no target to count against.
+  assert.equal(mine.teams.some((t) => t.type === 'pl_sales_manager'), false);
+  // SM Two manages Amal (core loans, target 1,200,000, production 1,070,000 = 89.2%): 0.02% of the whole production.
+  const pl = (await sm2('GET', `/incentives/me?cycle=${cycle}`)).data.teams.find((t) => t.type === 'pl_sales_manager').incentive;
+  assert.deepEqual([pl.core_staff, pl.combined_target, pl.core_counted, pl.cross_sell_counted, pl.achievement_pct, pl.band, pl.rate_pct, pl.incentive_aed], [1, 1200000, 1070000, 0, 89.2, '80% to 99.99%', 0.02, 214]);
+  const rep = (await mis('GET', `/reports/sm_incentives?cycle=${cycle}`)).data;
+  assert.deepEqual(rep.rows.filter((r) => ['SM One', 'ASM One'].includes(r.manager)).map((r) => [r.role, r.slab, r.incentive_aed]), [['asm', '150% and above', 150], ['sales_manager', '150% and above', 150]]);
+  const plRep = (await mis('GET', `/reports/pl_sm_incentives?cycle=${cycle}`)).data;
+  assert.deepEqual([plRep.rows.find((r) => r.manager === 'SM Two').rate, plRep.rows.find((r) => r.manager === 'SM Two').incentive_aed, plRep.rows.some((r) => r.manager === 'SM One')], ['0.0200%', 214, false]);
+  assert.equal((await gov('GET', `/reports/sm_incentives?cycle=${cycle}`)).status, 404);
+});
