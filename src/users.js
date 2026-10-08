@@ -12,6 +12,8 @@ export const USER_FROM = `users u
 // Where a user works. Sales staff's files default to their region; processors with a region
 // see only that region's files. Blank means no restriction.
 // The product line a sales person mainly sells; pre-fills the core product on their new files.
+/** Roles that can be named as a sales person's team leader: team leaders, or a manager leading a team directly. */
+export const TEAM_LEADER_ROLES = ['team_leader', 'sales_manager', 'asm'];
 export const STAFF_CORE_PRODUCTS = { credit_card: 'Credit Cards', personal_loan: 'Personal Loans', auto_loan: 'Auto Loans', multi_product: 'Multi product' };
 export function coreProductOf(value) {
   const v = String(value ?? '').trim();
@@ -50,19 +52,21 @@ export function salesProfile(db, input, current = null) {
   const clash = db.prepare('SELECT id FROM users WHERE sales_code = ? AND id != ?').get(code, current?.id ?? 0);
   if (clash) throw new Error(`Sales code ${code} is already used by another user`);
 
-  const manager = (field, role, label, { optional = false } = {}) => {
+  const manager = (field, roles, label, { optional = false } = {}) => {
     const id = Number(pick(field));
     if (!id && optional) return null;
-    const row = id ? db.prepare('SELECT id FROM users WHERE id = ? AND role = ? AND active = 1').get(id, role) : null;
+    const row = id ? db.prepare(`SELECT id FROM users WHERE id = ? AND role IN (${roles.map(() => '?').join(',')}) AND active = 1`).get(id, ...roles) : null;
     if (!row) throw new Error(`Choose the ${label} for this sales staff member`);
     return id;
   };
   return {
     sales_code: code,
-    team_leader_id: manager('team_leader_id', 'team_leader', 'team leader'),
-    sales_manager_id: manager('sales_manager_id', 'sales_manager', 'sales manager'),
+    // The team leader is usually a team leader, but a sales manager or ASM can lead a team directly.
+    team_leader_id: manager('team_leader_id', TEAM_LEADER_ROLES, 'team leader'),
+    // Optional: a team can report to the business head with no sales manager in between.
+    sales_manager_id: manager('sales_manager_id', ['sales_manager'], 'sales manager', { optional: true }),
     // Optional: an assistant sales manager between the team leader and the sales manager.
-    asm_id: manager('asm_id', 'asm', 'assistant sales manager', { optional: true }),
+    asm_id: manager('asm_id', ['asm'], 'assistant sales manager', { optional: true }),
     salary: salaryOf(pick('salary')),
     core_product: coreProductOf(pick('core_product')),
   };

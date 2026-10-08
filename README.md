@@ -164,6 +164,10 @@ Every credit card has a **family**, a **card category** and, when the bank provi
 
 The CRM ships with the bank's product list built in: 34 cards in 18 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
 
+### Go-live staff list
+
+`docs/go-live/` holds the upload files built from the agency's staff list (`staff-upload.csv`, `salary-targets.csv`) and a README on how the sheet was mapped and which placeholders to replace. Rules that came from that list: a sales person's **team leader may be a sales manager or ASM who leads the team directly**; the **sales manager is optional** (a team can report to the business head); **targets follow the core product** (a credit card seller gets only the card target, multi-product staff get every product with a band); and in the staff upload the **HRMS code is required for sales staff only** and the **mobile number is optional**.
+
 ### Payouts: what the bank pays per file
 
 Every file carries the revenue it earns the agency, from the bank's payout rates. **Only the business head and MIS staff whose region is DXB** see it (never sales staff, processors, team leaders, ASMs, sales managers, governance or MIS in AUH): on the case page (**Agency payout**, with the working), on the dashboard (**Payout from the bank**: earned on files completed this cycle, and what the open pipeline would earn) and in the reports: the sourcing report gains a **Payout (AED)** column, the case register a payout per file, and **Cards sold below eligibility** prices the lost upgrade (**Payout earned / possible / lost**). Everyone else gets no payout fields, no revenue tiles and no payout columns, and cannot open or use the Payout rules upload.

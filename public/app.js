@@ -2896,7 +2896,7 @@ async function viewReports(params) {
 async function viewUsers() {
   if (!BULK_ROLES.includes(state.user.role)) throw new Error('Only MIS and business heads manage staff');
   const { users } = await api('/users');
-  const leaders = users.filter((u) => u.role === 'team_leader' && u.active);
+  const leaders = users.filter((u) => ['team_leader', 'sales_manager', 'asm'].includes(u.role) && u.active).sort((a, b) => (a.role === 'team_leader' ? 0 : 1) - (b.role === 'team_leader' ? 0 : 1) || a.name.localeCompare(b.name));
   const managers = users.filter((u) => u.role === 'sales_manager' && u.active);
   const asms = users.filter((u) => u.role === 'asm' && u.active);
   const options = (list, selected) => list.map((u) => html`<option value="${u.id}" ${u.id === selected ? raw('selected') : ''}>${u.name}</option>`);
@@ -2906,8 +2906,8 @@ async function viewUsers() {
       <input id="${prefix}-code" name="sales_code" value="${u.sales_code || ''}" placeholder="e.g. DXB-S-014" required></div>
     <div class="field-row"><label for="${prefix}-tl">Team leader <span class="req">*</span></label>
       <select id="${prefix}-tl" name="team_leader_id" required><option value="">Choose…</option>${options(leaders, u.team_leader_id)}</select></div>
-    <div class="field-row"><label for="${prefix}-sm">Sales manager <span class="req">*</span></label>
-      <select id="${prefix}-sm" name="sales_manager_id" required><option value="">Choose…</option>${options(managers, u.sales_manager_id)}</select></div>
+    <div class="field-row"><label for="${prefix}-sm">Sales manager</label>
+      <select id="${prefix}-sm" name="sales_manager_id"><option value="">None (reports to the business head)</option>${options(managers, u.sales_manager_id)}</select></div>
     <div class="field-row"><label for="${prefix}-asm">Assistant sales manager</label>
       <select id="${prefix}-asm" name="asm_id"><option value="">None</option>${options(asms, u.asm_id)}</select></div>
     <div class="field-row"><label for="${prefix}-core">Core product</label>

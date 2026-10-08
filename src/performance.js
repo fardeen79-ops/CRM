@@ -270,14 +270,16 @@ export function generateTargets(db, user, cycle) {
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const rules = db.prepare('SELECT product, salary_from, salary_to, target FROM target_rules ORDER BY product, salary_from').all();
   if (!rules.length) throw new WorkflowError(400, 'No salary-band rules yet. Upload them from Bulk upload → Salary targets first');
-  const staff = db.prepare("SELECT id, name, salary FROM users WHERE role = 'sales' AND active = 1 ORDER BY name").all();
+  const staff = db.prepare("SELECT id, name, salary, core_product FROM users WHERE role = 'sales' AND active = 1 ORDER BY name").all();
   const set = [];
   const skipped = [];
   transaction(db, () => {
     for (const s of staff) {
       if (s.salary == null) { skipped.push({ name: s.name, reason: 'no salary on the profile' }); continue; }
+      // A staff member gets the target of their core product; multi-product staff get every product with a rule.
+      const wanted = TARGET_PRODUCTS[s.core_product] ? [s.core_product] : Object.keys(TARGET_PRODUCTS);
       const values = {};
-      for (const p of Object.keys(TARGET_PRODUCTS)) {
+      for (const p of wanted) {
         const rule = rules.find((r) => r.product === p && s.salary >= r.salary_from && s.salary <= r.salary_to);
         if (rule) values[p] = Math.round(rule.target);
       }

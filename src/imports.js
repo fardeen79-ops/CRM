@@ -10,6 +10,7 @@ import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
 import { BANKS } from './banks.js';
 import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
+import { TEAM_LEADER_ROLES, hrmsCodeOf } from './users.js';
 
 export const MAX_ROWS = 1000;
 // Only MIS and business heads can bulk upload, for users and cases alike.
@@ -27,17 +28,17 @@ const ROLE_LABELS = {
 // Column guide shared with the page (template download and the help table).
 export const USER_IMPORT_COLUMNS = [
   { key: 'name', header: 'Full name', required: true, example: 'Aisha Khan' },
-  { key: 'hrms_code', header: 'HRMS code', required: true, example: 'EN10234', help: 'The bank\'s staff code. Unique; it is the username at sign-in' },
+  { key: 'hrms_code', header: 'HRMS code', example: 'EN10234', help: 'The staff code. Unique; it is the username at sign-in. Required for sales staff; others can sign in by email until theirs is set' },
   { key: 'email', header: 'Email', required: true, example: 'aisha.khan@yourbank.ae' },
   { key: 'role', header: 'Role', required: true, example: 'Sales', allowed: Object.values(ROLE_LABELS) },
-  { key: 'mobile_number', header: 'Local mobile', required: true, example: '050 123 4567', help: 'UAE mobile number' },
+  { key: 'mobile_number', header: 'Local mobile', example: '050 123 4567', help: 'UAE mobile number, optional' },
   { key: 'whatsapp_number', header: 'WhatsApp number', example: '+971 50 123 4567', help: 'With country code; a UAE number without one gets +971' },
   { key: 'doj', header: 'Date of joining', example: '01/03/2024', help: 'DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'dol', header: 'Date of leaving', example: '', help: 'Only for staff who have resigned. The account is disabled from that day' },
   { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: 'DXB or AUH. Processors then see only that region\'s files; sales staff\'s files default to it' },
   { key: 'sales_code', header: 'Sales code', example: 'DXB-S-021', help: 'Sales staff only. Must be unique' },
-  { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader, or one added earlier in this file' },
-  { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only. An active sales manager, or one added earlier in this file' },
+  { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader (or a sales manager or ASM who leads the team directly), or one added earlier in this file' },
+  { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only, optional: an active sales manager, or one added earlier in this file. Blank when the team reports to the business head directly' },
   { key: 'asm_email', header: 'Assistant sales manager email', example: '', help: 'Sales staff only, optional. An active assistant sales manager' },
   { key: 'salary', header: 'Monthly salary (AED)', example: '5000', help: 'Sales staff only. Sets their targets through the salary bands' },
   { key: 'core_product', header: 'Core product', example: 'Credit Cards', help: 'Sales staff only: Credit Cards, Personal Loans, Auto Loans or Multi product' },
@@ -481,21 +482,22 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
         const email = v.email.toLowerCase();
         if (seen.has(email)) throw new Error(`${email} appears more than once in this file`);
         seen.add(email);
-        const manager = (field, wanted, label) => {
-          if (!v[field]) throw new Error(`${label} email is required for sales staff`);
+        const manager = (field, wanted, label, { optional = false } = {}) => {
+          if (!v[field]) { if (optional) return null; throw new Error(`${label} email is required for sales staff`); }
           const row = db.prepare('SELECT id, role, active FROM users WHERE email = ? COLLATE NOCASE').get(v[field]);
           if (!row) throw new Error(`No user with the email ${v[field]} (${label.toLowerCase()})`);
-          if (row.role !== wanted || !row.active) throw new Error(`${v[field]} is not an active ${label.toLowerCase()}`);
+          if (!wanted.includes(row.role) || !row.active) throw new Error(`${v[field]} is not an active ${label.toLowerCase()}`);
           return row.id;
         };
         const generated = v.password ? null : tempPassword();
         const input = { ...v, role, password: v.password || generated };
         if (role === 'sales') {
-          input.team_leader_id = manager('team_leader_email', 'team_leader', 'Team leader');
-          input.sales_manager_id = manager('sales_manager_email', 'sales_manager', 'Sales manager');
-          if (v.asm_email) input.asm_id = manager('asm_email', 'asm', 'Assistant sales manager');
+          input.team_leader_id = manager('team_leader_email', TEAM_LEADER_ROLES, 'Team leader');
+          input.sales_manager_id = manager('sales_manager_email', ['sales_manager'], 'Sales manager', { optional: true });
+          if (v.asm_email) input.asm_id = manager('asm_email', ['asm'], 'Assistant sales manager');
+          if (!hrmsCodeOf(v.hrms_code)) throw new Error('HRMS code is required for sales staff');
         }
-        const created = createUser(db, input, { requireMobile: true });
+        const created = createUser(db, input);
         return {
           id: created.id, label: `${created.name} · ${ROLE_LABELS[role]}`, email: created.email, hrms_code: created.hrms_code,
           ...(generated && { temp_password: generated }),

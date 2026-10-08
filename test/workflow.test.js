@@ -824,18 +824,18 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
   assert.equal((await lead('POST', '/import/users', { csv })).status, 403);
   const preview = await mis('POST', '/import/users', { csv, dry_run: true });
   assert.equal(preview.status, 200);
-  assert.deepEqual([preview.data.ok, preview.data.failed], [2, 3]);
+  assert.deepEqual([preview.data.ok, preview.data.failed], [3, 2]); // a mobile number is optional
   assert.equal(preview.data.rows[0].temp_password, undefined);
   const users = () => staffAdmin('GET', '/users').then((r) => r.data.users.map((u) => u.email));
   assert.ok(!(await users()).includes('bulk.lead@t.local'));
 
   const done = await mis('POST', '/import/users', { csv });
-  assert.deepEqual([done.data.ok, done.data.failed], [2, 3]);
+  assert.deepEqual([done.data.ok, done.data.failed], [3, 2]);
   // The sales row names a team leader added further down the same file.
   assert.equal(done.data.rows[0].ok, true);
   assert.match(done.data.rows[0].temp_password, /^\w{10}$/);
   assert.equal(done.data.rows[1].temp_password, undefined);
-  assert.match(done.data.rows[2].error, /mobile number is required/i);
+  assert.equal(done.data.rows[2].ok, true); // MIS staff with no mobile number still load
   assert.match(done.data.rows[3].error, /already exists/);
   assert.match(done.data.rows[4].error, /scientific notation/);
   assert.deepEqual(done.data.rows[4].cells.slice(0, 3), ['Excel', 'EN40005', 'excel@t.local']);
@@ -848,7 +848,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
 
   const bad = await mis('POST', '/import/users', { csv: 'Name,Email\nA,a@t.local' });
   assert.equal(bad.status, 400);
-  assert.match(bad.data.error, /missing these columns: HRMS code, Role, Local mobile/);
+  assert.match(bad.data.error, /missing these columns: Role/);
 });
 
 test('bulk upload of cases by sales code, with labels, UAE dates and duplicate App IDs', async () => {
