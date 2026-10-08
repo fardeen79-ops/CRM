@@ -31,6 +31,7 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'role', header: 'Role', required: true, example: 'Sales', allowed: Object.values(ROLE_LABELS) },
   { key: 'mobile_number', header: 'Local mobile', required: true, example: '050 123 4567', help: 'UAE mobile number' },
   { key: 'whatsapp_number', header: 'WhatsApp number', example: '+971 50 123 4567', help: 'With country code; a UAE number without one gets +971' },
+  { key: 'doj', header: 'Date of joining', example: '01/03/2024', help: 'DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: 'DXB or AUH. Processors then see only that region\'s files; sales staff\'s files default to it' },
   { key: 'sales_code', header: 'Sales code', example: 'DXB-S-021', help: 'Sales staff only. Must be unique' },
   { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader, or one added earlier in this file' },

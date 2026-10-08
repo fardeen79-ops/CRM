@@ -1,7 +1,7 @@
 // User profiles. Sales staff carry a sales code plus their team leader and sales manager,
 // which pre-fill the "Sales staff" section of every file they source.
 
-export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary, u.hrms_code,
+export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj,
   u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
   tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name`;
 export const USER_FROM = `users u
@@ -106,6 +106,21 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * Name, email, local mobile and WhatsApp for a user. `current` is the existing user when editing,
  * so only the fields being changed need to be sent.
  */
+/** Date of joining as YYYY-MM-DD (also accepts DD/MM/YYYY); blank allowed. Not in the future, not before 1970. */
+export function dojOf(value) {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  let m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  let day = m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null;
+  if (!day && (m = v.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/))) day = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  if (!day && /^\d{5}$/.test(v)) day = new Date(Date.UTC(1899, 11, 30) + Number(v) * 864e5).toISOString().slice(0, 10);
+  const t = day && Date.parse(`${day}T00:00:00Z`);
+  if (!day || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== day) throw new Error(`Date of joining "${v}" should be DD/MM/YYYY or YYYY-MM-DD`);
+  if (day < '1970-01-01') throw new Error('Date of joining is too far in the past');
+  if (t > Date.now() + 4 * 3600e3) throw new Error('Date of joining cannot be in the future');
+  return day;
+}
+
 /** The HRMS staff code: letters, digits and dashes, stored upper-case. It is the username at sign-in. */
 export function hrmsCodeOf(value) {
   const code = String(value ?? '').trim().toUpperCase();
@@ -136,5 +151,6 @@ export function contactDetails(input, { current = null, requireMobile = false } 
     if (!out.mobile_number && requireMobile) throw new Error('Local mobile number is required');
   }
   if (!current || 'whatsapp_number' in input) out.whatsapp_number = whatsappNumber(input.whatsapp_number);
+  if (!current || 'doj' in input) out.doj = dojOf(input.doj);
   return out;
 }

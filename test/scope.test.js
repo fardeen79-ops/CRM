@@ -206,3 +206,15 @@ async function loginCookie(email) {
   const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
   return res.headers.get('set-cookie').split(';')[0];
 }
+
+test('date of joining is saved on a user and validated', async () => {
+  const tl = await login('tl-dxb@t.local');
+  const id = ids['amal@t.local'];
+  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '01/03/2024' })).data.user.doj, '2024-03-01');
+  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '2024-13-01' })).status, 400);
+  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '2099-01-01' })).status, 400);
+  assert.equal((await tl('PATCH', `/users/${id}`, { doj: '' })).data.user.doj, null);
+  const made = await tl('POST', '/users', { name: 'Joiner', email: 'joiner@t.local', role: 'processing', password: 'longenough', mobile_number: '0501239876', hrms_code: 'EN77777', doj: '2025-06-15' });
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  assert.equal(made.data.user.doj, '2025-06-15');
+});

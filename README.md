@@ -198,7 +198,7 @@ Once a credit card case is completed (temp end), MIS records whether the custome
 
 ### Users and contact details
 
-Every user added on the **Users** page needs a full name, an **HRMS code**, an **email address** and a **local mobile** number; a **WhatsApp number** is optional. The HRMS code is the bank's staff code: it is unique, stored upper-case, and is the person's **username** at sign-in (the email address also works). The bulk users upload has an HRMS code column, and the sign-in details sheet it produces lists the HRMS code as the username.
+Every user added on the **Users** page needs a full name, an **HRMS code**, an **email address** and a **local mobile** number; a **WhatsApp number** is optional. A **date of joining** is optional on every user (Users page or the bulk upload, DD/MM/YYYY). The HRMS code is the bank's staff code: it is unique, stored upper-case, and is the person's **username** at sign-in (the email address also works). The bulk users upload has an HRMS code column, and the sign-in details sheet it produces lists the HRMS code as the username.
 
 - The email is suggested from the name as `first.last@` plus your own email domain. Overwrite it if the person's address is different.
 - Local mobile numbers must be UAE mobiles. They are stored as `05XXXXXXXX`, whether typed as `050 123 4567`, `+971 50 123 4567` or `501234567`.

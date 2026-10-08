@@ -2703,6 +2703,8 @@ async function viewUsers() {
     <div class="field-row"><label for="${prefix}-wa">WhatsApp number</label>
       <input id="${prefix}-wa" name="whatsapp_number" type="tel" inputmode="tel" value="${u.whatsapp_number || ''}" placeholder="+971 50 123 4567">
       <label class="check small wa-same"><input type="checkbox" data-wa-same> Same as local mobile</label></div>
+    <div class="field-row"><label for="${prefix}-doj">Date of joining</label>
+      <input id="${prefix}-doj" name="doj" type="date" value="${u.doj || ''}" max="${todayLocal()}"></div>
 `;
   // Every staff member has a region. A processor's region limits the files they verify; a sales
   // person's pre-fills their new files, which can still name any region.
@@ -2720,7 +2722,7 @@ async function viewUsers() {
       <div class="card"><div class="table-wrap"><table class="users-table">
         <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
         <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
-          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small">${u.hrms_code ? html`<span class="mono">${u.hrms_code}</span> · ` : html`<span class="lock">No HRMS code</span> · `}<a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}</td>
+          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small">${u.hrms_code ? html`<span class="mono">${u.hrms_code}</span> · ` : html`<span class="lock">No HRMS code</span> · `}<a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}${u.doj ? html`<div class="muted small">Joined ${fmtDay(u.doj)}</div>` : ''}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
               ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}</div>`

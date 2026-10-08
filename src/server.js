@@ -314,7 +314,7 @@ function routes(db, dispatch, bot) {
       const target = auth.getUser(db, id);
       if (!target) throw new HttpError(404, 'User not found');
       let moved = 0;
-      if (['name', 'email', 'mobile_number', 'whatsapp_number', 'hrms_code'].some((f) => f in body)) {
+      if (['name', 'email', 'mobile_number', 'whatsapp_number', 'hrms_code', 'doj'].some((f) => f in body)) {
         let contact;
         try {
           contact = contactDetails(body, { current: target });
