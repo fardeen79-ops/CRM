@@ -1082,6 +1082,23 @@ async function viewCaseForm(id) {
   }));
   window.addEventListener('hashchange', stopAll, { once: true });
 
+  // Emirates ID: dashes appear as the digits are typed (784-YYYY-NNNNNNN-C), and pasted numbers
+  // with or without dashes are tidied the same way.
+  const eidInput = $('#f-eid_number');
+  const formatEid = () => {
+    const digits = eidInput.value.replace(/\D/g, '').slice(0, 15);
+    const groups = [digits.slice(0, 3), digits.slice(3, 7), digits.slice(7, 14), digits.slice(14, 15)].filter(Boolean);
+    const pretty = groups.join('-');
+    if (eidInput.value !== pretty) {
+      // Keep the cursor at the end when typing forward; browsers move it after a value change.
+      const atEnd = eidInput.selectionStart === eidInput.value.length;
+      eidInput.value = pretty;
+      if (!atEnd) eidInput.setSelectionRange(pretty.length, pretty.length);
+    }
+  };
+  eidInput.addEventListener('input', formatEid);
+  if (eidInput.value) formatEid();
+
   let scanned = false;
   $('#scan-eid').onclick = async () => {
     const result = await openEidScanner(state.meta.ocr);
