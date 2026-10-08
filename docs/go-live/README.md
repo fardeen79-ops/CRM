@@ -45,5 +45,5 @@ The sheet's target column (points for CC and AL, AED for PL) follows the salary 
 ## Still needed
 
 - The **cross-sell incentive for personal loan sales staff** (not yet defined; the PL production bands and the card scheme are in).
-- The **team leader and sales manager grids** for the auto loan incentive (the SE scheme is in: points at the payout rate, AED 1.10 or 0.60 per excess point).
+- The **team leader grids for personal loans and auto loans**, and the **sales manager grids** for every product (the credit card team leader scheme is in).
 - The ASM distinction, if any of the SM / ASM names are ASMs rather than sales managers.

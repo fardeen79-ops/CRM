@@ -8,6 +8,7 @@ import { caseProducts, includesCard, COMPLETED_IN_SQL, REGIONS, WorkflowError } 
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { isEibBuyout } from './payouts.js';
 import { achievedBy, autoLoanRate, autoLoanPoints, AUTO_LOAN_POINT_RATES } from './performance.js';
+import { TEAM_LEADER_ROLES } from './users.js';
 
 export const INCENTIVE_RULES = {
   rate_high: 1.25, // AED per excess point when a criterion is met
@@ -178,13 +179,72 @@ export function incentiveFor(db, staffId, cycle) {
   };
 }
 
-/** The staff member's own incentive, for the Targets page; null unless they sell cards or loans. */
+
+// Core credit card team leaders: the team's card points (from its core credit card staff) beyond a
+// team threshold of 75% of the team's combined card targets, paid AED 0.30 a point when the team's
+// personal loan cross-sell reaches AED 50,000 or its Premium and Super Premium mix exceeds 20%,
+// else AED 0.20. Personal loan points stay out of the team's points; the cross-sell earns 0.15% of
+// the gross amount disbursed, as a separate line.
+export const TL_INCENTIVE_RULES = {
+  threshold_share: 75, // % of the team's combined card targets that is the team leader's threshold
+  rate_high: 0.3, // AED per excess point when a criterion is met
+  rate_low: 0.2, // AED per excess point otherwise
+  mix_share: 20, // Premium + Super Premium share of the team's cards that must be exceeded
+  cross_sell_aed: 50000, // team personal loan cross-sell (gross disbursed) that qualifies on its own
+  cross_sell_pct: 0.15, // % of the team's gross personal loan cross-sell paid separately
+};
+
+/** The active core credit card sales staff a team leader leads. */
+const ccTeamOf = (db, leaderId) => db.prepare("SELECT id, name, sales_code FROM users WHERE role = 'sales' AND active = 1 AND core_product = 'credit_card' AND team_leader_id = ? ORDER BY name").all(leaderId);
+
+/** One credit card team leader's incentive for a cycle, from their core card staff's completed files. */
+export function tlIncentiveFor(db, leaderId, cycle) {
+  const team = ccTeamOf(db, leaderId);
+  let combined_target = 0; let staff_without_target = 0; let cards_sold = 0; let premium_cards = 0; let points = 0; let cross_sell_aed = 0; let files = 0;
+  const staff = team.map((s) => {
+    const i = incentiveFor(db, s.id, cycle);
+    if (i.target == null) staff_without_target++; else combined_target += i.target;
+    cards_sold += i.cards_sold; premium_cards += i.premium_cards; points += i.card_points; cross_sell_aed += i.pl_disbursed; files += i.files;
+    return { id: s.id, name: s.name, sales_code: s.sales_code, target: i.target, card_points: i.card_points, cards_sold: i.cards_sold, premium_cards: i.premium_cards, pl_disbursed: i.pl_disbursed };
+  });
+  const r = TL_INCENTIVE_RULES;
+  const threshold = round2((combined_target * r.threshold_share) / 100);
+  const mix_pct = cards_sold ? Math.round((premium_cards / cards_sold) * 1000) / 10 : 0;
+  const mix_met = cards_sold > 0 && mix_pct > r.mix_share;
+  const cross_sell_met = cross_sell_aed >= r.cross_sell_aed;
+  const criterion = mix_met ? 'mix' : cross_sell_met ? 'cross_sell' : 'none';
+  const rate = mix_met || cross_sell_met ? r.rate_high : r.rate_low;
+  const excess_points = Math.max(0, round2(points - threshold));
+  const core_aed = round2(excess_points * rate);
+  const cross_sell_incentive_aed = round2((cross_sell_aed * r.cross_sell_pct) / 100);
+  return {
+    cycle, team_size: team.length, staff_without_target, combined_target, threshold, cards_sold, premium_cards, mix_pct, points, excess_points,
+    criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, core_aed, cross_sell_aed, cross_sell_incentive_aed, incentive_aed: round2(core_aed + cross_sell_incentive_aed), files, staff,
+  };
+}
+
+/** Every credit card team leader's incentive for the cycle (anyone leading active core card staff), as report rows. */
+export function tlIncentiveRows(db, cycle, region = null) {
+  const r = String(region || '').toUpperCase();
+  if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
+  const leaders = db.prepare(`SELECT DISTINCT l.id, l.name, l.hrms_code, l.region, l.role, sm.name AS sales_manager FROM users l
+    JOIN users s ON s.team_leader_id = l.id AND s.role = 'sales' AND s.active = 1 AND s.core_product = 'credit_card'
+    LEFT JOIN users sm ON sm.id = l.sales_manager_id
+    WHERE l.active = 1${region ? ' AND l.region = ?' : ''} ORDER BY l.name`).all(...(region ? [r] : []));
+  return leaders.map((l) => {
+    const i = tlIncentiveFor(db, l.id, cycle);
+    return { leader: l.name, hrms_code: l.hrms_code || '', role: l.role, sales_manager: l.sales_manager || '', region: l.region || '', ...i, staff: undefined, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
+  }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.leader.localeCompare(b.leader));
+}
+
+/** The staff member's own incentive, for the Targets page: sales staff by core product, team leaders for their core card team. */
 export function myIncentive(db, user, cycle) {
-  if (user.role !== 'sales') throw new WorkflowError(403, 'Incentives are shown to sales staff');
+  if (user.role !== 'sales' && !TEAM_LEADER_ROLES.includes(user.role)) throw new WorkflowError(403, 'Incentives are shown to sales staff and team leaders');
   cycle = cycle ? String(cycle) : cycleOf(uaeDay());
   if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-06');
   const me = db.prepare('SELECT core_product FROM users WHERE id = ?').get(user.id);
-  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, al_rules: AL_INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
+  const base = { cycle, label: cycleLabel(cycle), rules: INCENTIVE_RULES, al_rules: AL_INCENTIVE_RULES, tl_rules: TL_INCENTIVE_RULES, conditions: INCENTIVE_CONDITIONS, pl_bands: PL_INCENTIVE_BANDS.map((b) => ({ label: plBandLabel(b), rate: b.rate })) };
+  if (user.role !== 'sales') return ccTeamOf(db, user.id).length ? { ...base, type: 'cc_team_leader', incentive: tlIncentiveFor(db, user.id, cycle) } : { ...base, type: null, incentive: null };
   if (me?.core_product === 'credit_card') return { ...base, type: 'credit_card', incentive: incentiveFor(db, user.id, cycle) };
   if (me?.core_product === 'personal_loan') return { ...base, type: 'personal_loan', incentive: plIncentiveFor(db, user.id, cycle) };
   if (me?.core_product === 'auto_loan') return { ...base, type: 'auto_loan', incentive: alIncentiveFor(db, user.id, cycle) };

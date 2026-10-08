@@ -2067,6 +2067,26 @@ function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [] }
   </div>`;
 }
 
+// A credit card team leader's incentive for the cycle: the team's card points beyond 75% of its combined targets, plus the cross-sell line.
+function tlIncentiveCard({ incentive: i, tl_rules: r, conditions = [] }) {
+  const met = i.criterion !== 'none';
+  return html`<div class="card incentive">
+    <div class="card-head"><h2>My team incentive · ${met ? 'higher rate' : 'standard rate'}</h2>
+      <span class="chip ${met ? 'good' : ''}">AED ${i.rate.toFixed(2)} per excess point</span></div>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Team card points</span><span class="kpi-value">${fmtAmount(i.points)}</span><span class="kpi-sub">${i.cards_sold} cards by ${i.team_size} core card staff</span></div>
+      <div class="kpi"><span class="kpi-label">Excess over team threshold</span><span class="kpi-value">${fmtAmount(i.excess_points)}</span><span class="kpi-sub">threshold ${fmtAmount(i.threshold)} points (${r.threshold_share}% of ${fmtAmount(i.combined_target)} combined targets)${i.staff_without_target ? ` · ${i.staff_without_target} without a target` : ''}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">AED ${fmtAmount(i.core_aed)} core (${fmtAmount(i.excess_points)} × AED ${i.rate.toFixed(2)}) + AED ${fmtAmount(i.cross_sell_incentive_aed)} cross-sell</span></div>
+    </div>
+    <ul class="checklist">
+      <li>${i.criterion === 'mix' ? '✓' : '○'} Premium mix: ${i.premium_cards} of ${i.cards_sold} team cards Premium or above (${i.mix_pct}% · must exceed ${r.mix_share}%)</li>
+      <li>${i.cross_sell_aed >= r.cross_sell_aed ? '✓' : '○'} Cross-sell: AED ${fmtAmount(i.cross_sell_aed)} of personal loans disbursed by the team (needs AED ${fmtAmount(r.cross_sell_aed)})</li>
+    </ul>
+    <p class="muted small">Team points are card points only, from your core credit card staff's files completed in the cycle. Meet either criterion and excess points pay AED ${r.rate_high.toFixed(2)} each, otherwise AED ${r.rate_low.toFixed(2)}. The team's personal loan cross-sell earns ${r.cross_sell_pct.toFixed(2)}% of the gross amount disbursed on top.</p>
+    ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
+  </div>`;
+}
+
 // An auto loan sales person's incentive for the cycle: points from disbursal, excess over target and the multiplier.
 function alIncentiveCard({ incentive: i, al_rules: r, conditions = [] }) {
   const kinds = [['new_loans', 'new'], ['used_loans', 'used'], ['algo_loans', 'algo'], ['low_loans', 'low-payout']].filter(([k]) => i[k]).map(([k, l]) => `${i[k]} ${l}`).join(', ');
@@ -2136,7 +2156,7 @@ async function viewTargets(cycleParam) {
   const cycle = cycleParam || state.meta.current_cycle;
   const rep = await api(`/targets?cycle=${encodeURIComponent(cycle)}`);
   const r = effRole();
-  const mine = r === 'sales' ? await api(`/incentives/me?cycle=${encodeURIComponent(cycle)}`).catch(() => null) : null;
+  const mine = ['sales', 'team_leader', 'sales_manager', 'asm'].includes(r) ? await api(`/incentives/me?cycle=${encodeURIComponent(cycle)}`).catch(() => null) : null;
   const products = Object.entries(rep.products);
   const scopeTitle = { sales: 'My targets', team_leader: 'My team', sales_manager: 'My team' }[r] || 'All sales staff';
   const casesLink = (staffId) => `#/cases?cycle=${rep.cycle}${staffId ? `&staff=${staffId}` : ''}`;
@@ -2186,7 +2206,7 @@ async function viewTargets(cycleParam) {
     <h2 class="tiles-head">${r === 'sales' ? 'Achieved against target' : `${scopeTitle} · ${rep.staff.length} sales staff`}</h2>
     ${targetTiles(rep, rep.total)}
     ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
-    ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : mine.type === 'auto_loan' ? alIncentiveCard(mine) : incentiveCard(mine)) : ''}
+    ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : mine.type === 'auto_loan' ? alIncentiveCard(mine) : mine.type === 'cc_team_leader' ? tlIncentiveCard(mine) : incentiveCard(mine)) : ''}
     ${groupTable('By team leader', rep.by_team_leader)}
     ${groupTable('By sales manager', rep.by_sales_manager)}
     ${r !== 'sales' ? html`<div class="card" id="staff-card">
