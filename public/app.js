@@ -1753,6 +1753,7 @@ async function viewCase(id) {
         <div class="card" id="discussion">
           <h2>Discussion</h2>
           <p class="muted small">Talk about this file with everyone who can see it. Type @ and a colleague's name to alert them. Keep customers' ID and phone numbers out of messages; they are on the file.</p>
+          ${audienceList(c.audience)}
           <div class="thread" id="case-thread"><div class="muted small">Loading…</div></div>
           ${composer('case-composer', 'Write a message about this file…')}
         </div>
@@ -2297,6 +2298,22 @@ const messageRow = (m) => {
  * Renders a thread into `list`, posts from `form`, and polls for new messages while the page is
  * open. Works for a case discussion and a conversation alike.
  */
+// Who can read a case discussion: everyone the file is visible to, grouped by role.
+const AUDIENCE_ORDER = ['sales', 'team_leader', 'asm', 'sales_manager', 'processing', 'mis', 'business_head', 'governance'];
+function audienceList(audience) {
+  if (!audience?.length) return '';
+  const byRole = new Map();
+  for (const u of audience) { if (!byRole.has(u.role)) byRole.set(u.role, []); byRole.get(u.role).push(u); }
+  const roles = [...byRole.keys()].sort((a, b) => (AUDIENCE_ORDER.indexOf(a) + 100) % 100 - (AUDIENCE_ORDER.indexOf(b) + 100) % 100);
+  const me = state.user.id;
+  return html`<details class="audience">
+    <summary><strong>Visible to ${audience.length} ${audience.length === 1 ? 'person' : 'people'}</strong> <span class="muted small">· who can read and post here</span></summary>
+    <dl class="audience-list">
+      ${roles.map((r) => html`<dt>${ROLE_LABEL[r] || label(r)}</dt><dd>${byRole.get(r).map((u) => html`<span class="chip ${u.id === me ? 'good' : ''}">${u.name}${u.id === me ? ' (you)' : ''}${u.role === 'processing' && u.region ? ` · ${u.region}` : ''}</span>`)}</dd>`)}
+    </dl>
+  </details>`;
+}
+
 function mountThread({ list, form, url, onPosted }) {
   let lastId = 0;
   let timer;

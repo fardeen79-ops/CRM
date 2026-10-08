@@ -1238,6 +1238,11 @@ test('chat: case discussions with @mentions, direct messages, team groups, overs
   assert.equal(r.status, 201);
   assert.equal(r.data.message.user_name, 'Pam');
   assert.equal((await sid('GET', `/cases/${id}/messages`)).status, 404); // not Sid's case
+  // The file lists everyone who can read its discussion: Sid is not among them, Pam and Sally are.
+  const audience = (await sales('GET', `/cases/${id}`)).data.case.audience;
+  assert.ok(audience.some((u) => u.name === 'Pam' && u.role === 'processing'));
+  assert.ok(audience.some((u) => u.name === 'Sally'));
+  assert.ok(!audience.some((u) => u.name === 'Sid'));
   const thread = (await sales('GET', `/cases/${id}/messages`)).data.items;
   assert.deepEqual(thread.map((m) => m.body), ['@Sally can you confirm the employer name?']);
   assert.match((await sales('GET', '/notifications')).data.items[0].message, /Pam mentioned you on CRM-/);

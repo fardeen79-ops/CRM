@@ -720,6 +720,12 @@ function canView(db, user, row) {
   return Boolean(db.prepare(`SELECT 1 FROM cases c WHERE c.id = ? AND ${scope.sql}`).get(row.id, ...scope.params));
 }
 
+/** Everyone who can open this file, and so read its discussion: active users whose scope includes it, by role. */
+export function caseAudience(db, row) {
+  const users = db.prepare('SELECT id, name, role, region FROM users WHERE active = 1 ORDER BY name').all();
+  return users.filter((u) => canView(db, u, row)).map((u) => ({ id: u.id, name: u.name, role: u.role, region: u.region }));
+}
+
 function latestBotCall(db, caseId) {
   const call = db.prepare(
     `SELECT b.id, b.status, b.requested_at, b.finished_at, b.outcome, b.checks, b.summary, b.transcript, b.recording_url, b.error,
@@ -740,7 +746,7 @@ export function getCase(db, user, id) {
        LEFT JOIN users u ON u.id = e.user_id WHERE e.case_id = ? ORDER BY e.id DESC`
     )
     .all(id);
-  const out = { ...present(user, row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row) };
+  const out = { ...present(user, row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
   if (user.role !== 'sales' && row.bot_call_status) out.bot_call = latestBotCall(db, id);
   if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
     out.recording_email = recordingEmail(row);
