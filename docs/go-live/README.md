@@ -44,5 +44,5 @@ The sheet's target column (points for CC and AL, AED for PL) follows the salary 
 
 ## Still needed
 
-- The **auto loan grids for team leaders and managers**, a confirmed **core personal loan manager grid** (the card-manager grid is applied meanwhile) and the **AUH-specific treatment** the workflow mentions.
+- A confirmed **core personal loan manager grid** (the card-manager grid is applied meanwhile) and the **AUH-specific treatment** the workflow mentions. Auto loan leaders and managers have no incentive (confirmed).
 - The ASM distinction, if any of the SM / ASM names are ASMs rather than sales managers.
