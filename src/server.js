@@ -169,6 +169,7 @@ function routes(db, dispatch, bot) {
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
         buyout_kinds: cases.BUYOUT_KINDS,
+        secondary_buyout_kinds: cases.SECONDARY_BUYOUT_KINDS,
         tenure_max: { personal_loan: cases.PL_TENURE_MAX, auto_loan: cases.AL_TENURE_MAX },
         card_fee_types: cases.CARD_FEE_TYPES,
         card_exceptions: cases.CARD_EXCEPTIONS,

@@ -68,7 +68,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'personal_loan_type', header: 'Personal loan type', example: 'Top Up', allowed: Object.values(PERSONAL_LOAN_TYPES) },
   { key: 'fpd', header: 'FPD', example: '05/11/2026', help: 'Personal loan first payment date, DD/MM/YYYY' },
   { key: 'buyout_bank', header: 'Buy-out bank', example: '', help: 'For Buy Out: the primary buyout bank when Buyouts is left blank' },
-  { key: 'buyouts', header: 'Buyouts', example: '', help: 'Primary|Non-STL loan|RAKBANK|120000; Secondary|Credit card|FAB|15000 — role, kind (Credit card, Non-STL loan, Auto loan, Mortgage), bank, amount or card limit; entries separated by ;' },
+  { key: 'buyouts', header: 'Buyouts', example: '', help: 'Primary|Personal loan|RAKBANK|120000; Secondary|Credit card|FAB|15000 — role, kind (Personal loan for the primary; Credit card, Non-STL loan, Auto loan, Mortgage), bank, amount or card limit; entries separated by ;' },
   { key: 'secondary_buyout', header: 'Secondary buyout', example: '', allowed: ['Yes', 'No'], help: 'Fresh and Buy Out loans: whether there are secondary buyouts' },
   { key: 'loan_amount', header: 'Loan amount', example: '150000', help: 'Personal loan' },
   { key: 'interest_rate', header: 'Interest rate', example: '6.5', help: 'Personal loan, % a year' },

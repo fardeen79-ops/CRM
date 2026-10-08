@@ -344,9 +344,14 @@ test('fresh loans confirm secondary buyouts; buy-out loans list the primary buyo
   assert.deepEqual(dropped.data.case.pl_buyouts, []);
   // Buy-out: the primary buyout is required and names the bank the loan is bought out from.
   assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no' })).status, 400);
-  const buy = await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'yes', pl_buyouts: [{ role: 'primary', kind: 'non_stl_loan', bank: 'RAKBANK', amount: 180000 }, { role: 'secondary', kind: 'auto_loan', bank: 'Emirates NBD', amount: 60000 }] });
+  // The primary buyout must be the personal loan being bought out; a personal loan cannot be a secondary buyout.
+  const noLoan = await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'non_stl_loan', bank: 'RAKBANK', amount: 180000 }] });
+  assert.equal(noLoan.status, 400);
+  assert.match(noLoan.data.error, /personal loan/);
+  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'personal_loan', bank: 'RAKBANK', amount: 1000 }] })).status, 400);
+  const buy = await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'yes', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'RAKBANK', amount: 180000 }, { role: 'primary', kind: 'credit_card', bank: 'Mashreq', amount: 10000 }, { role: 'secondary', kind: 'auto_loan', bank: 'Emirates NBD', amount: 60000 }] });
   assert.equal(buy.status, 201, JSON.stringify(buy.data));
-  assert.deepEqual([buy.data.case.buyout_bank, buy.data.case.product_label, buy.data.case.pl_buyouts.length], ['RAKBANK', 'Personal Loan (Buy Out from RAKBANK)', 2]);
+  assert.deepEqual([buy.data.case.buyout_bank, buy.data.case.product_label, buy.data.case.pl_buyouts.length], ['RAKBANK', 'Personal Loan (Buy Out from RAKBANK)', 3]);
   // A primary entry on a fresh loan is ignored; the bulk upload format reads into the same list.
   const stray = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'mortgage', bank: 'ADCB', amount: 1 }] });
   assert.deepEqual(stray.data.case.pl_buyouts, []);

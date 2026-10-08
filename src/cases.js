@@ -61,7 +61,9 @@ export const PL_TENURE_MAX = 48;
 export const AL_TENURE_MAX = 60;
 export const AUTO_LOAN_TYPES = { new: 'New', used: 'Used' };
 // What a personal loan buys out: a liability the customer already has.
-export const BUYOUT_KINDS = { credit_card: 'Credit card', non_stl_loan: 'Non-STL loan', auto_loan: 'Auto loan', mortgage: 'Mortgage' };
+export const BUYOUT_KINDS = { personal_loan: 'Personal loan', credit_card: 'Credit card', non_stl_loan: 'Non-STL loan', auto_loan: 'Auto loan', mortgage: 'Mortgage' };
+// A buy-out loan always buys out a personal loan (its primary buyout); the other kinds are extras or secondary.
+export const SECONDARY_BUYOUT_KINDS = ['credit_card', 'non_stl_loan', 'auto_loan', 'mortgage'];
 export const BUYOUT_ROLES = ['primary', 'secondary'];
 
 // A completed case is a temp end for credit cards and a disbursal for loans. After a card's temp
@@ -395,12 +397,14 @@ function validateProduct(input, current, out) {
       const bankOnly = 'buyout_bank' in input && !('pl_buyouts' in input) ? clean(input.buyout_bank, 200) : null;
       if (primary.length && bankOnly) primary = [{ ...primary[0], bank: bankOnly }, ...primary.slice(1)];
       if (!primary.length) {
-        // Older clients and the bulk upload name only the bank: that is the primary buyout of a loan.
+        // Older clients and the bulk upload name only the bank: that is the personal loan being bought out.
         const bank = clean(pick('buyout_bank'), 200);
-        if (!bank) throw new WorkflowError(400, 'Add the primary buyout: what is being bought out, from which bank and for how much');
-        primary = [{ role: 'primary', kind: 'non_stl_loan', bank, amount: out.loan_amount }];
+        if (!bank) throw new WorkflowError(400, 'Add the primary buyout: the personal loan being bought out, from which bank and for how much');
+        primary = [{ role: 'primary', kind: 'personal_loan', bank, amount: out.loan_amount }];
       }
-      out.buyout_bank = primary[0].bank;
+      const loan = primary.find((b) => b.kind === 'personal_loan');
+      if (!loan) throw new WorkflowError(400, 'A buy-out must include the personal loan being bought out as its primary buyout');
+      out.buyout_bank = loan.bank;
       buyouts.splice(0, buyouts.length, ...primary, ...buyouts.filter((b) => b.role === 'secondary'));
     } else {
       for (let i = buyouts.length - 1; i >= 0; i--) if (buyouts[i].role === 'primary') buyouts.splice(i, 1);
@@ -408,6 +412,7 @@ function validateProduct(input, current, out) {
     if (type === 'fresh' || type === 'buy_out') {
       const answer = clean(pick('secondary_buyout'), 3)?.toLowerCase() ?? null;
       const secondary = buyouts.filter((b) => b.role === 'secondary');
+      if (secondary.some((b) => !SECONDARY_BUYOUT_KINDS.includes(b.kind))) throw new WorkflowError(400, 'Secondary buyouts can be a credit card, non-STL loan, auto loan or mortgage');
       if (answer && !['yes', 'no'].includes(answer)) throw new WorkflowError(400, 'Secondary buyouts: answer Yes or No');
       out.secondary_buyout = answer ?? (secondary.length ? 'yes' : 'no');
       if (out.secondary_buyout === 'yes' && !secondary.length) throw new WorkflowError(400, 'Add at least one secondary buyout, or answer No');

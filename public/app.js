@@ -945,7 +945,7 @@ async function viewCaseForm(id) {
             </div>
             <div id="primary-buyout" class="buyout-block" hidden>
               <div class="sub-label">Primary buyout <span class="req">*</span></div>
-              <p class="muted small" style="margin:0 0 8px">What this loan buys out: the liability, the bank and the amount (for cards, each card's limit).</p>
+              <p class="muted small" style="margin:0 0 8px">The personal loan being bought out, its bank and the outstanding amount. Add any other liabilities this loan also clears.</p>
               <div data-builder="primary"></div>
             </div>
             <div id="secondary-buyout" class="buyout-block" hidden>
@@ -1156,24 +1156,26 @@ async function viewCaseForm(id) {
     const cards = existing.filter((b) => b.kind === 'credit_card');
     if (cards.length) entries.push({ kind: 'credit_card', cards: cards.map((b) => ({ bank: b.bank, amount: b.amount })) });
     for (const b of existing.filter((b) => b.kind !== 'credit_card')) entries.push({ kind: b.kind, bank: b.bank, amount: b.amount });
+    if (role === 'primary' && !entries.some((e) => e.kind === 'personal_loan')) entries.unshift({ kind: 'personal_loan', bank: c.buyout_bank || '', amount: '' });
+    const kinds = role === 'primary' ? state.meta.buyout_kinds : Object.fromEntries(state.meta.secondary_buyout_kinds.map((k) => [k, state.meta.buyout_kinds[k]]));
     builders[role] = entries;
     const render = () => {
       const rows = entries.map((e, i) => html`<div class="buyout-row" data-i="${i}">
         <div class="buyout-head">
-          <select data-kind aria-label="What is being bought out"><option value="">What is bought out…</option>${Object.entries(state.meta.buyout_kinds).map(([k, l]) => html`<option value="${k}" ${e.kind === k ? raw('selected') : ''}>${l}</option>`)}</select>
+          ${role === 'primary' && e.kind === 'personal_loan' ? html`<strong class="small" style="flex:1">Personal loan being bought out <span class="req">*</span></strong>` : html`<select data-kind aria-label="What is being bought out"><option value="">What is bought out…</option>${Object.entries(kinds).map(([k, l]) => html`<option value="${k}" ${e.kind === k ? raw('selected') : ''}>${l}</option>`)}</select>`}
           ${e.kind === 'credit_card' ? html`<label class="small">How many cards? <input type="number" min="1" max="10" step="1" data-count value="${e.cards?.length || 1}" style="width:70px"></label>` : ''}
-          <button type="button" class="btn-link" data-remove title="Remove">Remove</button>
+          ${role === 'primary' && e.kind === 'personal_loan' ? '' : html`<button type="button" class="btn-link" data-remove title="Remove">Remove</button>`}
         </div>
         ${e.kind === 'credit_card'
           ? html`${(e.cards || [{}]).map((card, j) => html`<div class="buyout-line" data-j="${j}"><span class="muted small">Card ${j + 1}</span><select data-bank aria-label="Card ${j + 1} bank">${bankOptions(card.bank)}</select><input data-bank-other placeholder="Bank name" value="${card.bank && !listedBanks.includes(card.bank) ? card.bank : ''}" ${card.bank && !listedBanks.includes(card.bank) ? '' : raw('hidden')}><input type="number" data-amount inputmode="decimal" min="0" step="any" placeholder="Card limit (AED)" value="${card.amount ?? ''}" aria-label="Card ${j + 1} limit"></div>`)}`
           : e.kind ? html`<div class="buyout-line"><select data-bank aria-label="Bank">${bankOptions(e.bank)}</select><input data-bank-other placeholder="Bank name" value="${e.bank && !listedBanks.includes(e.bank) ? e.bank : ''}" ${e.bank && !listedBanks.includes(e.bank) ? '' : raw('hidden')}><input type="number" data-amount inputmode="decimal" min="0" step="any" placeholder="${e.kind === 'mortgage' ? 'Outstanding (AED)' : 'Loan amount (AED)'}" value="${e.amount ?? ''}" aria-label="Amount"></div>` : ''}
       </div>`);
-      host.innerHTML = html`${rows}<button type="button" class="btn" data-add>+ Add ${entries.length ? 'another' : 'a'} ${role} buyout</button>`.s;
+      host.innerHTML = html`${rows}<button type="button" class="btn" data-add>${role === 'primary' ? '+ Add another liability bought out' : `+ Add ${entries.length ? 'another' : 'a'} secondary buyout`}</button>`.s;
       host.querySelector('[data-add]').onclick = () => { entries.push({ kind: '' }); render(); };
       host.querySelectorAll('.buyout-row').forEach((rowEl) => {
         const e = entries[Number(rowEl.dataset.i)];
-        rowEl.querySelector('[data-remove]').onclick = () => { entries.splice(Number(rowEl.dataset.i), 1); render(); };
-        rowEl.querySelector('[data-kind]').onchange = (ev) => { e.kind = ev.target.value; if (e.kind === 'credit_card' && !e.cards) e.cards = [{}]; render(); };
+        rowEl.querySelector('[data-remove]')?.addEventListener('click', () => { entries.splice(Number(rowEl.dataset.i), 1); render(); });
+        rowEl.querySelector('[data-kind]')?.addEventListener('change', (ev) => { e.kind = ev.target.value; if (e.kind === 'credit_card' && !e.cards) e.cards = [{}]; render(); });
         rowEl.querySelector('[data-count]')?.addEventListener('change', (ev) => { const n = Math.max(1, Math.min(10, Number(ev.target.value) || 1)); e.cards = Array.from({ length: n }, (_, j) => e.cards?.[j] || {}); render(); });
         rowEl.querySelectorAll('.buyout-line').forEach((line) => {
           const target = e.kind === 'credit_card' ? e.cards[Number(line.dataset.j)] : e;
