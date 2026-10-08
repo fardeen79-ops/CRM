@@ -635,3 +635,7 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .report-form .field-row { margin-bottom: 12px; }
 .report-result { min-width: 0; }
 .report-table td, .report-table th { font-size: 13px; padding: 8px 10px; }
+
+.staff-kpis { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 960px) { .kpis.staff-kpis { grid-template-columns: repeat(2, 1fr); } }
+.toolbar select { width: auto; }

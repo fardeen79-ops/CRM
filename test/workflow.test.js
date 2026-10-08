@@ -183,10 +183,16 @@ test('sales staff only see their own cases and input is validated', async () => 
   assert.equal((await sales('POST', '/cases', { customer_name: 'X', phone: '9876543210', email: 'bad' })).status, 400);
 });
 
-test('only team leaders manage users', async () => {
+test('team leaders, MIS and business heads manage users', async () => {
   const sales = await login('sales@t.local');
   const lead = await login('lead@t.local');
   assert.equal((await sales('GET', '/users')).status, 403);
+  // MIS and business heads see the whole staff list and can add individual staff too.
+  const misUser = await login('mis@t.local');
+  assert.ok((await misUser('GET', '/users')).data.users.length >= 9);
+  const byMis = await misUser('POST', '/users', { name: 'Added By MIS', email: 'bymis@t.local', role: 'processing', password: 'longenough', mobile_number: '0501230001', hrms_code: 'EN50001' });
+  assert.equal(byMis.status, 201, JSON.stringify(byMis.data));
+  assert.equal((await (await login('bh@t.local'))('PATCH', `/users/${byMis.data.user.id}`, { region: 'AUH' })).data.user.region, 'AUH');
   const newUser = { name: 'New', email: 'New@T.local', role: 'processing', password: 'longenough', hrms_code: 'en20001' };
   // A local mobile number and an HRMS code are required; WhatsApp is optional and stored with its country code.
   assert.equal((await lead('POST', '/users', newUser)).status, 400);

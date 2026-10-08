@@ -141,6 +141,9 @@ function requireRole(user, ...roles) {
 // The CRM's own address as the caller reached it, for callback URLs when PUBLIC_URL is not set.
 const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http'}://${req.headers.host}`;
 
+// Who adds and edits staff: team leaders, MIS and business heads.
+const USER_ADMINS = ['team_leader', 'mis', 'business_head'];
+
 function routes(db, dispatch, bot) {
   return [
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
@@ -266,7 +269,7 @@ function routes(db, dispatch, bot) {
     }],
 
     ['GET', /^\/api\/users$/, async ({ user }) => {
-      requireRole(user, 'team_leader');
+      requireRole(user, ...USER_ADMINS);
       return { users: listUsers(db) };
     }],
 
@@ -281,7 +284,7 @@ function routes(db, dispatch, bot) {
     }],
 
     ['POST', /^\/api\/users$/, async ({ user, body, res }) => {
-      requireRole(user, 'team_leader');
+      requireRole(user, ...USER_ADMINS);
       try {
         send(res, 201, { user: auth.createUser(db, body, { requireMobile: true }) });
       } catch (err) {
@@ -309,7 +312,7 @@ function routes(db, dispatch, bot) {
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     ['PATCH', /^\/api\/users\/(\d+)$/, async ({ user, params, body }) => {
-      requireRole(user, 'team_leader');
+      requireRole(user, ...USER_ADMINS);
       const id = Number(params[0]);
       const target = auth.getUser(db, id);
       if (!target) throw new HttpError(404, 'User not found');

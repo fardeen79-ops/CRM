@@ -331,7 +331,7 @@ function navGroups() {
 
   const admin = [];
   if (r === 'mis' || r === 'business_head') admin.push(['#/import/cases', 'Bulk upload', 'upload']);
-  if (r === 'team_leader') admin.push(['#/users', 'Users', 'users']);
+  if (['team_leader', 'mis', 'business_head'].includes(r)) admin.push(['#/users', 'Staff', 'users']);
   if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
   if (admin.length) groups.push(['Admin', admin]);
   return groups;
@@ -2667,7 +2667,7 @@ async function viewReports(params) {
   }
 }
 
-// ---------- users (team leader) ----------
+// ---------- staff (team leaders, MIS and business heads) ----------
 async function viewUsers() {
   const { users } = await api('/users');
   const leaders = users.filter((u) => u.role === 'team_leader' && u.active);
@@ -2721,8 +2721,20 @@ async function viewUsers() {
     ${u.whatsapp_number ? html`<a class="wa" href="https://wa.me/${u.whatsapp_number.slice(1)}" target="_blank" rel="noopener" title="Open a WhatsApp chat">WhatsApp ${u.whatsapp_number}</a>` : ''}`;
 
   shell(html`
-    <div class="page-head"><div><h1>Users</h1><p class="muted" style="margin:0">Add sales staff, processors, team leaders, assistant sales managers, sales managers, MIS and business heads. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
-</div>
+    <div class="page-head"><div><h1>Staff</h1><p class="muted" style="margin:0">Every user of the CRM: sales staff, processors, team leaders, assistant sales managers, sales managers, MIS, business heads and governance. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
+      <div class="actions">${BULK_ROLES.includes(state.user.role) ? html`<a class="btn" href="#/import/users">Bulk upload</a>` : ''}<button class="btn" id="staff-csv">Download staff list</button></div>
+    </div>
+    <div class="kpis staff-kpis">
+      ${[['Total staff', users.length, `${users.filter((u) => u.active).length} active`], ['Sales staff', users.filter((u) => u.role === 'sales' && u.active).length, 'active'], ['Processors', users.filter((u) => u.role === 'processing' && u.active).length, 'active'], ['Managers', users.filter((u) => ['team_leader', 'asm', 'sales_manager'].includes(u.role) && u.active).length, 'TL, ASM and SM'], ['Left or disabled', users.filter((u) => !u.active).length, users.filter((u) => u.dol && u.dol > todayLocal()).length ? `${users.filter((u) => u.dol && u.dol > todayLocal()).length} leaving soon` : ' ']]
+        .map(([l, v, sub]) => html`<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-value">${v}</span><span class="kpi-sub">${sub}</span></div>`)}
+    </div>
+    <div class="toolbar">
+      <input type="search" id="staff-q" placeholder="Search name, HRMS code, email or sales code…" aria-label="Search staff">
+      <select id="staff-role" aria-label="Role"><option value="">All roles</option>${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}</select>
+      <select id="staff-region" aria-label="Region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}">${l}</option>`)}</select>
+      <select id="staff-status" aria-label="Status"><option value="">Active and disabled</option><option value="active">Active only</option><option value="inactive">Disabled or left</option></select>
+      <span class="muted small" id="staff-count"></span>
+    </div>
     <div class="grid two-col">
       <div class="card"><div class="table-wrap"><table class="users-table">
         <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
@@ -2756,6 +2768,31 @@ async function viewUsers() {
       </form>
     </div>`);
 
+  // Filters narrow the list without reloading it.
+  const rows = [...app.querySelectorAll('tr[data-user-row]')];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  const applyFilters = () => {
+    const q = document.getElementById('staff-q').value.trim().toLowerCase();
+    const roleF = document.getElementById('staff-role').value;
+    const regionF = document.getElementById('staff-region').value;
+    const statusF = document.getElementById('staff-status').value;
+    let shown = 0;
+    for (const tr of rows) {
+      const u = byId.get(Number(tr.dataset.userRow));
+      const hay = [u.name, u.hrms_code, u.email, u.sales_code, u.team_leader_name, u.sales_manager_name].join(' ').toLowerCase();
+      const ok = (!q || hay.includes(q)) && (!roleF || u.role === roleF) && (!regionF || u.region === regionF) && (!statusF || (statusF === 'active' ? u.active : !u.active));
+      tr.hidden = !ok;
+      if (tr.nextElementSibling?.dataset.profileEditor) tr.nextElementSibling.hidden = !ok;
+      if (ok) shown++;
+    }
+    document.getElementById('staff-count').textContent = shown === users.length ? `${users.length} staff` : `${shown} of ${users.length} staff`;
+  };
+  ['staff-q', 'staff-role', 'staff-region', 'staff-status'].forEach((id) => (document.getElementById(id).oninput = applyFilters));
+  applyFilters();
+  document.getElementById('staff-csv').onclick = () => saveFile('staff-list.csv', toCsv([
+    ['Name', 'HRMS code', 'Email', 'Role', 'Region', 'Local mobile', 'WhatsApp', 'Sales code', 'Team leader', 'Sales manager', 'ASM', 'Date of joining', 'Date of leaving', 'Status'],
+    ...users.map((u) => [u.name, u.hrms_code || '', u.email, ROLE_LABEL[u.role] || u.role, u.region || '', u.mobile_number || '', u.whatsapp_number || '', u.sales_code || '', u.team_leader_name || '', u.sales_manager_name || '', u.asm_name || '', u.doj || '', u.dol || '', u.active ? 'Active' : 'Disabled']),
+  ]));
   const form = document.getElementById('user-form');
   const role = document.getElementById('nu-role');
   const profile = document.getElementById('nu-profile');
