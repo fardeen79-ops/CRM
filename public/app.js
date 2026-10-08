@@ -2046,14 +2046,14 @@ function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [] }
     <div class="card-head"><h2>My incentive · ${i.band}</h2>
       <span class="chip ${i.rate_pct ? 'good' : ''}">${i.rate_pct.toFixed(2)}% of production</span></div>
     <div class="kpis">
-      <div class="kpi"><span class="kpi-label">Production this cycle</span><span class="kpi-value">AED ${fmtAmount(i.pl_counted)}</span><span class="kpi-sub">${i.loans} ${i.loans === 1 ? 'loan' : 'loans'} disbursed, AED ${fmtAmount(i.pl_disbursed)}${i.eib_loans ? ` · ${i.eib_loans} Emirates Islamic buy-out${i.eib_loans === 1 ? '' : 's'} at ${rules.eib_buyout_share}%` : ''}${i.top_ups ? ` · ${i.top_ups} top-up${i.top_ups === 1 ? '' : 's'} at ${rules.topup_share}% of the increment` : ''}</span></div>
+      <div class="kpi"><span class="kpi-label">Production this cycle</span><span class="kpi-value">AED ${fmtAmount(i.pl_counted)}</span><span class="kpi-sub">${i.loans} ${i.loans === 1 ? 'loan' : 'loans'} disbursed, AED ${fmtAmount(i.pl_disbursed)}${i.eib_loans ? ` · ${i.eib_loans} Emirates Islamic buy-out${i.eib_loans === 1 ? '' : 's'} at ${rules.eib_buyout_share}%` : ''}${i.top_ups ? ` · ${i.top_ups} top-up${i.top_ups === 1 ? '' : 's'} at ${i.topup_share}% of the increment` : ''}</span></div>
       <div class="kpi"><span class="kpi-label">Against target</span><span class="kpi-value">${i.achievement_pct == null ? '—' : `${i.achievement_pct}%`}</span><span class="kpi-sub">${i.target == null ? 'no personal loan target set for this cycle' : `target AED ${fmtAmount(i.target)}`}</span></div>
       <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">AED ${fmtAmount(i.incentive_aed)}</span><span class="kpi-sub">${i.rate_pct ? `${i.rate_pct.toFixed(2)}% of AED ${fmtAmount(i.pl_counted)}` : i.next_band ? `AED ${fmtAmount(i.next_band.short_by)} more reaches ${i.next_band.label} at ${i.next_band.rate.toFixed(2)}%` : ''}</span></div>
     </div>
     ${i.rate_pct && i.next_band ? html`<p class="muted small">AED ${fmtAmount(i.next_band.short_by)} more production reaches ${i.next_band.label}, paid at ${i.next_band.rate.toFixed(2)}% on the whole.</p>` : ''}
     <table class="bands"><thead><tr><th>Production in the cycle</th><th>Rate on the whole production</th></tr></thead>
       <tbody>${pl_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(2)}%</td></tr>`)}</tbody></table>
-    <p class="muted small">Only loans disbursed on files completed in the cycle count. An Emirates Islamic buy-out counts at ${rules.eib_buyout_share}% of its disbursed amount; a top-up at ${rules.topup_share}% of its incremental amount.</p>
+    <p class="muted small">Only loans disbursed on files completed in the cycle count. An Emirates Islamic buy-out counts at ${rules.eib_buyout_share}% of its disbursed amount; a top-up at ${i.topup_share}% of its incremental amount${i.topup_share < 100 ? '' : ' (70% from the October 2026 cycle)'}.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
 }
@@ -2073,7 +2073,7 @@ function incentiveCard({ incentive: i, rules, conditions = [] }) {
       <li>${i.criterion === 'mix' ? '✓' : '○'} Premium mix: ${i.premium_cards} of ${i.cards_sold} cards Premium or above (${i.mix_pct}% · needs ${rules.mix_share}%)</li>
       <li>${i.criterion === 'cross_sell' || i.pl_counted >= rules.cross_sell_aed ? '✓' : '○'} Cross-sell: AED ${fmtAmount(i.pl_counted)} of personal loans counted (needs AED ${fmtAmount(rules.cross_sell_aed)}${i.eib_loans ? `; Emirates Islamic buy-outs count at ${rules.eib_buyout_share}%` : ''})</li>
     </ul>
-    <p class="muted small">Meet either and excess points pay AED ${rules.rate_high.toFixed(2)} each, otherwise AED ${rules.rate_low.toFixed(2)}. Personal loans count AED ${rules.pl_aed_per_point} per point (Emirates Islamic buy-outs at ${rules.eib_buyout_share}%, top-ups at ${rules.topup_share}% of the incremental amount). Only completed files in the cycle count.</p>
+    <p class="muted small">Meet either and excess points pay AED ${rules.rate_high.toFixed(2)} each, otherwise AED ${rules.rate_low.toFixed(2)}. Personal loans count AED ${rules.pl_aed_per_point} per point (Emirates Islamic buy-outs at ${rules.eib_buyout_share}%, top-ups at ${i.topup_share}% of the incremental amount). Only completed files in the cycle count.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
 }

@@ -16,7 +16,8 @@ export const INCENTIVE_RULES = {
   cross_sell_aed: 50000, // personal loans cross-sold (counted amount) that qualify on their own
   pl_aed_per_point: 100, // AED 50,000 of personal loans = 500 points
   eib_buyout_share: 50, // % of an Emirates Islamic buy-out's disbursed amount that counts
-  topup_share: 70, // % of a top-up's incremental amount that counts
+  topup_share: 70, // % of a top-up's incremental amount that counts, from the cycle below; 100% before it
+  topup_share_from_cycle: '2026-10',
   next_cycle_minimum_pct: 60, // paid only if the staff member achieves at least this much of target in the next cycle
 };
 /** Conditions every incentive is subject to, shown wherever an incentive amount is shown. */
@@ -47,7 +48,7 @@ export function plIncentiveFor(db, staffId, cycle) {
   const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'personal_loan'").get(staffId, cycle)?.target ?? null;
   let loans = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
-    const loan = countedLoan(c);
+    const loan = countedLoan(c, cycle);
     if (!loan) continue;
     loans++;
     pl_disbursed += loan.disbursed;
@@ -59,7 +60,7 @@ export function plIncentiveFor(db, staffId, cycle) {
   const rate_pct = band ? band.rate : 0;
   const next = band ? PL_INCENTIVE_BANDS[PL_INCENTIVE_BANDS.indexOf(band) + 1] || null : PL_INCENTIVE_BANDS[0];
   return {
-    cycle, target, loans, eib_loans, top_ups, pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
+    cycle, target, loans, eib_loans, top_ups, topup_share: topupShare(cycle), pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
     band: band ? plBandLabel(band) : `Below ${aedK(PL_INCENTIVE_BANDS[0].from)}`, rate_pct, incentive_aed: round2((pl_counted * rate_pct) / 100),
     next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length,
   };
@@ -68,12 +69,15 @@ export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell'
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-/** What a completed personal loan counts for incentives: top-ups 70% of the incremental amount, Emirates Islamic buy-outs 50%, else the amount disbursed. */
-export function countedLoan(c) {
+/** The share of a top-up's incremental amount that counts in a cycle: 70% from October 2026, 100% before. */
+export const topupShare = (cycle) => (String(cycle) >= INCENTIVE_RULES.topup_share_from_cycle ? INCENTIVE_RULES.topup_share : 100);
+
+/** What a completed personal loan counts for incentives: top-ups a share of the incremental amount, Emirates Islamic buy-outs 50%, else the amount disbursed. */
+export function countedLoan(c, cycle) {
   if (!caseProducts(c).includes('personal_loan') || !(c.pl_disbursed_amount > 0)) return null;
   if (c.personal_loan_type === 'top_up') {
     const base = c.incremental_amount ?? c.pl_disbursed_amount;
-    return { kind: 'top_up', disbursed: c.pl_disbursed_amount, counted: (base * INCENTIVE_RULES.topup_share) / 100 };
+    return { kind: 'top_up', disbursed: c.pl_disbursed_amount, counted: (base * topupShare(cycle)) / 100 };
   }
   if (isEibBuyout(c)) return { kind: 'eib', disbursed: c.pl_disbursed_amount, counted: (c.pl_disbursed_amount * INCENTIVE_RULES.eib_buyout_share) / 100 };
   return { kind: 'other', disbursed: c.pl_disbursed_amount, counted: c.pl_disbursed_amount };
@@ -91,7 +95,7 @@ export function incentiveFor(db, staffId, cycle) {
       card_points += achievedBy('credit_card', c);
       if (PREMIUM_CATEGORIES.includes(c.card_category)) premium_cards++;
     }
-    const loan = countedLoan(c);
+    const loan = countedLoan(c, cycle);
     if (loan) {
       pl_disbursed += loan.disbursed;
       pl_counted += loan.counted;
@@ -109,7 +113,7 @@ export function incentiveFor(db, staffId, cycle) {
   const excess_points = target == null ? null : Math.max(0, round2(total_points - target));
   const incentive_aed = excess_points == null ? null : round2(excess_points * rate);
   return {
-    cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, eib_loans, top_ups, pl_points, total_points,
+    cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, eib_loans, top_ups, topup_share: topupShare(cycle), pl_points, total_points,
     excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, incentive_aed, files: rows.length,
   };
 }
