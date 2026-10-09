@@ -24,6 +24,7 @@ import * as reports from './reports.js';
 import * as chat from './chat.js';
 import { cycleOf, uaeDay } from './cycles.js';
 import { canTeachBot, makeCallBot, playbookView, practice, savePlaybook } from './bot.js';
+import { aiConfigured, makeInterpreter } from './bot-ai.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -157,7 +158,7 @@ const USER_ADMINS = ['mis', 'business_head'];
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
 const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/;
 
-function routes(db, dispatch, bot) {
+function routes(db, dispatch, bot, interpret) {
   return [
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
       const result = auth.login(db, body.email, body.password);
@@ -295,13 +296,10 @@ function routes(db, dispatch, bot) {
     })],
 
     ['POST', /^\/api\/cases\/(\d+)\/actions$/, async ({ req, user, params, body }) => {
+      // Approving, declining or withdrawing a bot call; a fully approved call is placed.
+      if (cases.BOT_DECISIONS.includes(body.action)) return { case: await bot.decide(user, Number(params[0]), body, originOf(req)) };
       const result = cases.applyAction(db, user, Number(params[0]), body);
       dispatch(result.triggers);
-      // Wait for the bot service to accept the call, so a refusal shows on the case straight away.
-      if (result.triggers.some((t) => t.event === 'bot_call.request')) {
-        await bot.deliver(result.triggers, originOf(req));
-        return { case: cases.getCase(db, user, Number(params[0])) };
-      }
       return { case: result.case };
     }],
 
@@ -314,9 +312,10 @@ function routes(db, dispatch, bot) {
     }, { public: true }],
 
     // Teaching the bot: its playbook, and practice calls typed on the teaching page.
+    ['GET', /^\/api\/bot\/requests$/, async ({ user }) => bot.requests(user)],
     ['GET', /^\/api\/bot\/playbook$/, async ({ user }) => playbookView(db, user, { enabled: bot.enabled })],
     ['PUT', /^\/api\/bot\/playbook$/, async ({ user, body }) => savePlaybook(db, user, body)],
-    ['POST', /^\/api\/bot\/practice$/, async ({ user, body }) => practice(user, body)],
+    ['POST', /^\/api\/bot\/practice$/, async ({ user, body }) => practice(user, body, { interpret })],
 
     ['GET', /^\/api\/notifications$/, async ({ user }) => cases.listNotifications(db, user)],
 
@@ -508,7 +507,7 @@ function serveFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {} } = {}) {
+export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, interpret = aiConfigured() ? makeInterpreter() : null } = {}) {
   cases.config.itEmail = itEmail;
   loadCardProducts(db);
   holidays.loadHolidays(db);
@@ -518,7 +517,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;
-  const table = routes(db, dispatch, bot);
+  const table = routes(db, dispatch, bot, interpret);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -566,7 +565,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   const timer = setInterval(() => {
     try { dispatch(cases.triggerDueCallbacks(db)); } catch (err) { console.error('[callbacks]', err); }
     try { sweepLeavers(db); } catch (err) { console.error('[leavers]', err); }
-    // The bot's own calls: new files and retries, when its playbook says so.
+    // Approved bot calls that were waiting for calling hours.
     bot.sweep().catch((err) => console.error('[bot]', err));
   }, 30e3);
   timer.unref();

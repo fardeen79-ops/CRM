@@ -5,8 +5,10 @@
 // A call goes: greeting and identity ("Am I speaking with Asha?") → a short introduction asking if
 // now is a good time → one question per check → closing. The bot re-asks when it hears nothing it
 // understands, asks once more when an answer does not match, and records every check as confirmed,
-// mismatch or not_answered. It is rule-based and deterministic, so the same answers always get the
-// same judgment, and teaching it means changing its wording, its checks and the words it knows.
+// mismatch or not_answered. Its rules are deterministic, so the same answers always get the same
+// judgment, and teaching it means changing its wording, its checks and the words it knows. When the
+// playbook switches the AI on, answers the rules cannot settle are read by Claude (bot-ai.js); the
+// AI only interprets, and everything the bot says still comes from the playbook.
 
 export const CHECK_RESULTS = ['confirmed', 'mismatch', 'not_answered'];
 
@@ -48,7 +50,7 @@ export const LANGUAGES = { 'en-GB': 'English (UK)', 'en-US': 'English (US)', 'en
 export const RULE_CHOICES = {
   all_confirmed: { review: 'Leave it for a processor to review', complete: 'Complete the verification' },
   mismatch: { review: 'Leave it for a processor to review', pending: 'Mark verification pending (team leader decides)' },
-  not_reached: { review: 'Leave it for a processor to review', pending: 'Mark verification pending (customer unreachable)' },
+  not_reached: { review: 'Leave it for a processor to review', pending: 'Mark verification pending (customer unreachable) after the set number of unanswered bot calls' },
 };
 
 export const DEFAULT_PLAYBOOK = Object.freeze({
@@ -60,9 +62,11 @@ export const DEFAULT_PLAYBOOK = Object.freeze({
   intro: 'Thank you, {first_name}. I am calling to verify your application for {product}. It takes about a minute. Is now a good time?',
   call_later: 'No problem. We will call you back later. Goodbye.',
   didnt_catch: "Sorry, I didn't catch that.",
+  who_we_are: 'I am the automated verification assistant calling on behalf of {bank} about your recent application.',
   ask_again: 'Sorry, could you say that once more?',
   closing: 'Thank you, {first_name}. That is everything we needed. Have a good day.',
   max_reprompts: 2,
+  ai: false,
   checks: [
     { key: 'full_name', label: 'Full name', field: 'full_name', match: 'name', strictness: 'normal', enabled: true, question: 'Please confirm your full name.' },
     { key: 'product', label: 'Product applied for', field: 'product', match: 'text', strictness: 'relaxed', enabled: true, question: 'Which product did you apply for?' },
@@ -76,21 +80,21 @@ export const DEFAULT_PLAYBOOK = Object.freeze({
     mismatch: 'review',
     not_reached: 'review',
     max_attempts: 3,
-    retry_minutes: 120,
-    auto_call_new: false,
+    ai_confirms_count: false,
     call_from: '09:00',
     call_to: '20:00',
     call_sunday: false,
   },
 });
 
-const SCRIPT_LINES = ['greeting', 'wrong_person', 'intro', 'call_later', 'didnt_catch', 'ask_again', 'closing'];
+const SCRIPT_LINES = ['greeting', 'wrong_person', 'intro', 'call_later', 'didnt_catch', 'who_we_are', 'ask_again', 'closing'];
 export const SCRIPT_LABELS = {
   greeting: 'Greeting and identity question',
   wrong_person: 'If someone else answers',
   intro: 'Introduction (asks if now is a good time)',
   call_later: 'If it is not a good time',
   didnt_catch: 'When it did not understand',
+  who_we_are: 'When asked who is calling (said before repeating the question)',
   ask_again: 'When an answer does not match (asked once more)',
   closing: 'Closing',
 };
@@ -144,6 +148,7 @@ export function normalizePlaybook(input = {}) {
     language: pick(p.language, LANGUAGES, 'Language'),
     voice: str(p.voice, 60, 'Voice', { required: false }),
     max_reprompts: int(p.max_reprompts, 0, 3, 'Times to re-ask'),
+    ai: Boolean(p.ai),
   };
   for (const line of SCRIPT_LINES) out[line] = checkPlaceholders(str(p[line], 500, SCRIPT_LABELS[line]), SCRIPT_LABELS[line]);
 
@@ -182,9 +187,8 @@ export function normalizePlaybook(input = {}) {
     all_confirmed: pick(r.all_confirmed, RULE_CHOICES.all_confirmed, 'When every detail is confirmed'),
     mismatch: pick(r.mismatch, RULE_CHOICES.mismatch, 'When a detail does not match'),
     not_reached: pick(r.not_reached, RULE_CHOICES.not_reached, 'When the customer cannot be reached'),
-    max_attempts: int(r.max_attempts, 1, 10, 'Call attempts'),
-    retry_minutes: int(r.retry_minutes, 10, 1440, 'Minutes between attempts'),
-    auto_call_new: Boolean(r.auto_call_new),
+    max_attempts: int(r.max_attempts, 1, 10, 'Unanswered bot calls before verification is marked pending'),
+    ai_confirms_count: Boolean(r.ai_confirms_count),
     call_from: time(r.call_from, 'Calling hours start'),
     call_to: time(r.call_to, 'Calling hours end'),
     call_sunday: Boolean(r.call_sunday),
@@ -300,6 +304,7 @@ export function judge(check, heard, playbook) {
     const yn = yesNo(heard, playbook);
     return yn === 'yes' ? 'confirmed' : yn === 'no' ? 'mismatch' : null;
   }
+  if (check.match === 'number' && !amountsIn(heard).length) return null;
   const accepted = Array.isArray(check.expected) ? check.expected : [check.expected];
   const test = { name: matchName, text: matchWords, number: matchAmount }[check.match];
   if (accepted.some((e) => e != null && e !== '' && test(String(e), heard, check.strictness || 'normal'))) return 'confirmed';
@@ -375,17 +380,88 @@ function reprompt(state, playbook, repeat, giveUp) {
   return botSays(state, `${fill(playbook.didnt_catch, state.values)} ${repeat}`);
 }
 
-/** What the customer said (empty when they said nothing). Returns the updated state. */
-export function hear(state, playbook, text) {
+/** What the bot's own rules make of an answer: 'yes' / 'no' before the checks, 'confirmed' / 'mismatch' during them, or null. */
+export function ruleReading(state, playbook, text) {
+  if (state.stage === 'identity' || state.stage === 'intro') return yesNo(text, playbook);
+  return judge(current(state), text, playbook);
+}
+
+/**
+ * Whether to ask the AI about this answer: the playbook has it switched on, something was said,
+ * and the rules could not settle it, or heard a different name or wording (which may be mishearing
+ * or a paraphrase, like "the national oil company" for ADNOC).
+ */
+export function needsAI(state, playbook, text) {
+  if (!playbook.ai || state.done || !tokens(text).length) return false;
+  const reading = ruleReading(state, playbook, text);
+  if (reading === null) return true;
+  return state.stage === 'check' && reading === 'mismatch' && ['name', 'text'].includes(current(state).match);
+}
+
+/** What the AI is told about the answer. The value on file goes only to the AI, never into speech. */
+export function aiContext(state, playbook, text) {
+  const check = state.stage === 'check' ? current(state) : null;
+  return {
+    language: playbook.language, stage: state.stage, question: state.say, heard: String(text ?? '').trim(),
+    check: check && { label: check.label, match: check.match, strictness: check.strictness, expected: check.expected ?? null },
+  };
+}
+
+/** hear(), asking the AI first when the rules need help. `interpret` comes from bot-ai.js. */
+export async function hearWithAI(state, playbook, text, interpret) {
+  let ai = null;
+  if (interpret && needsAI(state, playbook, text)) ai = await interpret(aiContext(state, playbook, text)).catch(() => null);
+  return hear(state, playbook, text, ai);
+}
+
+// What the AI's reading means for a check: 'confirmed', 'mismatch' or null.
+function aiVerdict(check, ai, playbook) {
+  if (!ai || ai.intent !== 'answer') return null;
+  if (check.match === 'yes') return ai.yes_no === 'yes' ? 'confirmed' : ai.yes_no === 'no' ? 'mismatch' : null;
+  if (check.match === 'number') return ai.amount == null ? null : judge(check, String(ai.amount), playbook);
+  return ai.matches_file === 'yes' ? 'confirmed' : ai.matches_file === 'no' ? 'mismatch' : null;
+}
+
+/**
+ * What the customer said (empty when they said nothing), and optionally the AI's reading of it.
+ * Returns the updated state.
+ */
+export function hear(state, playbook, text, ai = null) {
   if (state.done) return state;
   const said = String(text ?? '').trim();
   const turn = { who: 'customer', text: said };
+  if (ai) turn.ai = ai.intent;
   state.turns.push(turn);
+  const check = state.stage === 'check' ? current(state) : null;
+  const prompt = check ? check.question : fill(state.stage === 'identity' ? playbook.greeting : playbook.intro, state.values);
 
-  if (state.stage === 'identity' || state.stage === 'intro') {
-    const yn = yesNo(said, playbook);
+  // The AI noticed the customer asking something or steering the call; the bot answers with its
+  // own taught lines.
+  switch (ai?.intent) {
+    case 'asks_who':
+    case 'asks_repeat':
+      turn.understood = ai.intent;
+      if (state.tries >= playbook.max_reprompts + 1) break;
+      state.tries++;
+      return botSays(state, `${ai.intent === 'asks_who' ? `${fill(playbook.who_we_are, state.values)} ` : ''}${prompt}`);
+    case 'call_later':
+      turn.understood = 'call_later';
+      return end(state, fill(playbook.call_later, state.values), 'call_back_later', 'not_a_good_time');
+    case 'wrong_person':
+      turn.understood = 'wrong_person';
+      return end(state, fill(playbook.wrong_person, state.values), 'call_back_later', 'not_the_customer');
+    case 'refuses':
+      turn.understood = 'refuses';
+      if (check) { check.result = 'not_answered'; check.heard = said; return nextCheck(state, playbook); }
+      return end(state, fill(playbook.call_later, state.values), 'call_back_later', 'declined');
+    default:
+  }
+
+  if (!check) {
+    const aiYn = ai?.yes_no && ai.yes_no !== 'none' ? ai.yes_no : null;
+    const yn = yesNo(said, playbook) || aiYn;
     turn.understood = yn || 'unclear';
-    const prompt = fill(state.stage === 'identity' ? playbook.greeting : playbook.intro, state.values);
+    if (yn && !yesNo(said, playbook)) turn.by_ai = true;
     if (yn === 'yes') {
       if (state.stage === 'identity') { state.stage = 'intro'; state.tries = 0; return botSays(state, fill(playbook.intro, state.values)); }
       return nextCheck(state, playbook);
@@ -398,10 +474,15 @@ export function hear(state, playbook, text) {
     return reprompt(state, playbook, prompt, () => end(state, fill(playbook.call_later, state.values), 'call_back_later', 'not_understood'));
   }
 
-  const check = current(state);
-  const verdict = judge(check, said, playbook);
+  // The rules judge first; the AI settles what they could not, and can overrule a name or wording
+  // the rules heard as different (the bot still asks once more before recording a mismatch).
+  const byRules = judge(check, said, playbook);
+  const byAI = aiVerdict(check, ai, playbook);
+  const verdict = byRules === 'confirmed' ? 'confirmed' : byAI || byRules;
+  const fromAI = Boolean(byAI) && verdict !== byRules;
   turn.check = check.key;
   turn.understood = verdict || 'unclear';
+  if (fromAI) turn.by_ai = true;
   if (!verdict) {
     return reprompt(state, playbook, check.question, () => { check.result = 'not_answered'; return nextCheck(state, playbook); });
   }
@@ -412,6 +493,7 @@ export function hear(state, playbook, text) {
     return botSays(state, `${fill(playbook.ask_again, state.values)} ${check.question}`);
   }
   check.result = verdict;
+  if (fromAI) check.by = 'ai';
   return nextCheck(state, playbook);
 }
 
@@ -427,6 +509,7 @@ const ENDINGS = {
   not_the_customer: 'Someone other than the customer answered.',
   not_a_good_time: 'The customer asked to be called back later.',
   not_understood: 'The bot could not understand the person who answered.',
+  declined: 'The customer did not want to go ahead with the call.',
   hung_up: 'The call ended before the bot finished.',
 };
 
@@ -437,13 +520,15 @@ export function callResult(state) {
   if (state.outcome === 'connected') {
     const confirmed = list('confirmed'); const mismatch = list('mismatch'); const missing = list('not_answered');
     if (confirmed.length) parts.push(`Confirmed: ${confirmed.join(', ')}.`);
+    const byAI = state.checks.filter((c) => c.by === 'ai' && c.result !== 'not_answered').map((c) => c.label);
+    if (byAI.length) parts.push(`Understood by the AI: ${byAI.join(', ')}.`);
     if (mismatch.length) parts.push(`Did not match: ${mismatch.join(', ')}.`);
     if (missing.length) parts.push(`Not answered: ${missing.join(', ')}.`);
   }
   return {
     status: 'completed',
     outcome: state.outcome,
-    checks: state.checks.map((c) => ({ key: c.key, result: c.result })),
+    checks: state.checks.map((c) => ({ key: c.key, result: c.result, ...(c.by === 'ai' && { by: 'ai' }) })),
     summary: parts.filter(Boolean).join(' '),
     transcript: state.turns.map((t) => `${t.who === 'bot' ? 'Bot' : 'Customer'}: ${t.text || '(silence)'}`).join('\n'),
   };

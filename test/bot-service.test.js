@@ -39,6 +39,9 @@ before(async () => {
   botService = createBotService({
     secret: SECRET, publicUrl: botBase, accountSid: 'AC123', authToken: AUTH_TOKEN, from: '+97140000000',
     twilioApi: `http://localhost:${twilio.address().port}`, log: { info() {}, warn() {}, error() {} },
+    // A stand-in for Claude on live calls: reads one paraphrased employer.
+    interpret: async (ctx) => (ctx.heard === 'the steel company in Abu Dhabi' && ctx.check?.label === 'Employer'
+      ? { intent: 'answer', yes_no: 'none', matches_file: 'yes', amount: null } : null),
   });
   await new Promise((r) => botService.listen(botPort, r));
 
@@ -48,6 +51,7 @@ before(async () => {
   createUser(db, { name: 'Pam', email: 'proc@t.local', role: 'processing', password: PASSWORD });
   createUser(db, { name: 'Vera', email: 'vlead@t.local', role: 'processing_lead', password: PASSWORD });
   createUser(db, { name: 'Boss', email: 'bh@t.local', role: 'business_head', password: PASSWORD, region: 'DXB' });
+  createUser(db, { name: 'Gina', email: 'gov@t.local', role: 'governance', password: PASSWORD });
   createUser(db, { name: 'Sally', email: 'sales@t.local', role: 'sales', password: PASSWORD, sales_code: 'S-001', team_leader_id: lead.id, sales_manager_id: sm.id });
   crm = createServer(db, { dispatch: () => {}, callBot: { url: `${botBase}/calls`, secret: SECRET } });
   await new Promise((r) => crm.listen(0, r));
@@ -91,6 +95,15 @@ async function converse(call, answers) {
   return { lines, last: r.text };
 }
 
+// The verification team leader asks; governance and a business head approve; then the bot calls.
+async function pushBotCall(id) {
+  for (const [email, body] of [['vlead@t.local', { action: 'bot_call', note: 'Customer did not pick up our calls' }], ['gov@t.local', { action: 'approve_bot_call' }], ['bh@t.local', { action: 'approve_bot_call' }]]) {
+    const r = await (await login(email))('POST', `/cases/${id}/actions`, body);
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    if (email === 'bh@t.local') return r;
+  }
+}
+
 async function until(fn) {
   for (let i = 0; i < 100; i++) {
     const v = await fn();
@@ -130,7 +143,7 @@ test('teaching: only business heads and the verification team leader; practice w
   assert.match(r.data.error, /\{first_nam\} is not a detail the bot knows/);
 
   const taught = { ...playbook, bank_name: 'Emirates NBD', yes_words: [...playbook.yes_words, 'tamam'],
-    rules: { ...playbook.rules, all_confirmed: 'complete', mismatch: 'pending', not_reached: 'pending', max_attempts: 2, retry_minutes: 30 } };
+    rules: { ...playbook.rules, all_confirmed: 'complete', mismatch: 'pending', not_reached: 'pending', max_attempts: 2 } };
   r = await vera('POST', '/bot/practice', { playbook: taught, sample: { full_name: 'Omar Haddad', product: 'Credit Card', company_name: 'Etisalat', salary: '30,000' },
     answers: ['tamam', 'yes', 'Omar Hadad', 'a credit card', 'Etisalat', '15000', '15000'] });
   assert.equal(r.status, 200);
@@ -152,8 +165,7 @@ test('the bot calls, holds the conversation and completes the verification', asy
   const pam = await login('proc@t.local');
   const id = (await sales('POST', '/cases', newCase())).data.case.id;
 
-  let r = await pam('POST', `/cases/${id}/actions`, { action: 'bot_call' });
-  assert.equal(r.status, 200);
+  const r = await pushBotCall(id);
   assert.equal(r.data.case.bot_call_status, 'requested');
   const call = dialled.at(-1);
   assert.equal(call.path, '/2010-04-01/Accounts/AC123/Calls.json');
@@ -177,7 +189,8 @@ test('the bot calls, holds the conversation and completes the verification', asy
   assert.deepEqual(c.bot_call.checks.map((x) => x.result), ['confirmed', 'confirmed', 'confirmed', 'confirmed']);
   assert.match(c.bot_call.transcript, /Customer: Emirates Steel/);
   assert.ok(c.events.some((e) => e.type === 'complete' && /Verified by the calling bot: all 4 details confirmed/.test(e.note)));
-  const notes = (await pam('GET', '/notifications')).data.items;
+  // The verification team leader who asked for the call hears the result.
+  const notes = (await (await login('vlead@t.local'))('GET', '/notifications')).data.items;
   assert.ok(notes.some((n) => /verified by the calling bot/.test(n.message)));
 });
 
@@ -186,7 +199,7 @@ test('a detail that does not match goes to the team leader', async () => {
   const pam = await login('proc@t.local');
   const lead = await login('lead@t.local');
   const id = (await sales('POST', '/cases', newCase({ first_name: 'Ravi', last_name: 'Menon' }))).data.case.id;
-  await pam('POST', `/cases/${id}/actions`, { action: 'bot_call' });
+  await pushBotCall(id);
   await converse(dialled.at(-1), ['yes', 'yes', 'Ravi Menon', 'personal loan', 'Emirates Steel', '12000', '12000']);
   const c = await until(async () => { const x = (await pam('GET', `/cases/${id}`)).data.case; return x.status === 'incomplete' && x; });
   assert.equal(c.incomplete_reason, 'incorrect_details');
@@ -194,33 +207,21 @@ test('a detail that does not match goes to the team leader', async () => {
   assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /Action required/.test(n.message)));
 });
 
-test('the bot calls new files by itself, retries the unreachable and gives up after the set attempts', async () => {
+test('after the set number of unanswered bot calls the file goes to the team leader', async () => {
   const sales = await login('sales@t.local');
-  const boss = await login('bh@t.local');
   const pam = await login('proc@t.local');
-  const { playbook } = (await boss('GET', '/bot/playbook')).data;
-  await boss('PUT', '/bot/playbook', { playbook: { ...playbook, rules: { ...playbook.rules, auto_call_new: true } } });
-
   const id = (await sales('POST', '/cases', newCase({ first_name: 'Lina', last_name: 'Saeed', phone: '0559876543' }))).data.case.id;
-  let placed = await crm.bot.sweep();
-  assert.ok(placed.includes(id));
-  let c = (await pam('GET', `/cases/${id}`)).data.case;
-  assert.equal(c.status, 'pending_verification', "the bot's own call leaves the file in the queue");
-  assert.equal(c.assigned_to, null);
 
-  // Nobody answers.
+  // Nobody answers the first call.
+  await pushBotCall(id);
   await hook(pathOf(dialled.at(-1).form.get('StatusCallback')), { CallSid: 'CA', CallStatus: 'no-answer' });
-  c = await until(async () => { const x = (await pam('GET', `/cases/${id}`)).data.case; return x.bot_call?.status === 'completed' && x; });
+  let c = await until(async () => { const x = (await pam('GET', `/cases/${id}`)).data.case; return x.bot_call?.status === 'completed' && x; });
   assert.equal(c.bot_call.outcome, 'no_answer');
-  assert.equal(c.status, 'pending_verification', 'one more attempt to go');
+  assert.equal(c.status, 'pending_verification', 'one more attempt allowed');
+  assert.equal((await crm.bot.sweep()).length, 0, 'the bot never tries again on its own');
 
-  placed = await crm.bot.sweep();
-  assert.ok(!placed.includes(id), 'not before the retry interval');
-  db.prepare("UPDATE bot_calls SET finished_at = '2000-01-01T00:00:00.000Z' WHERE case_id = ?").run(id);
-  placed = await crm.bot.sweep();
-  assert.ok(placed.includes(id), 'tries again after the interval');
-
-  // A voicemail picks up the second time.
+  // A second call, approved again, reaches a voicemail.
+  await pushBotCall(id);
   const call = dialled.at(-1);
   const r = await hook(pathOf(call.form.get('Url')), { CallSid: 'CA', AnsweredBy: 'machine_end_beep' });
   assert.match(r.text, /<Hangup\/>/);
@@ -232,9 +233,32 @@ test('the bot calls new files by itself, retries the unreachable and gives up af
 
 test('the bot service explains why it cannot call', async () => {
   const sales = await login('sales@t.local');
-  const pam = await login('proc@t.local');
   const id = (await sales('POST', '/cases', newCase({ first_name: 'Tom', last_name: 'Lee', phone: '0500000000' }))).data.case.id;
-  const r = await pam('POST', `/cases/${id}/actions`, { action: 'bot_call' });
+  const r = await pushBotCall(id);
   assert.equal(r.data.case.bot_call_status, 'failed');
   assert.equal(r.data.case.bot_call.error, "Twilio refused the call: The 'To' number is not a valid phone number.");
+});
+
+test('with the AI on, a paraphrased answer is understood; AI-confirmed details complete only when allowed', async () => {
+  const sales = await login('sales@t.local');
+  const boss = await login('bh@t.local');
+  const vera = await login('vlead@t.local');
+  const { playbook } = (await boss('GET', '/bot/playbook')).data;
+  await boss('PUT', '/bot/playbook', { playbook: { ...playbook, ai: true } });
+
+  const call = async (first) => {
+    const id = (await sales('POST', '/cases', newCase({ first_name: first, last_name: 'Karim' }))).data.case.id;
+    await pushBotCall(id);
+    await converse(dialled.at(-1), ['yes', 'yes', `${first} Karim`, 'personal loan', 'the steel company in Abu Dhabi', '25000']);
+    return until(async () => { const x = (await vera('GET', `/cases/${id}`)).data.case; return x.bot_call?.status === 'completed' && x; });
+  };
+  let c = await call('Nadia');
+  assert.deepEqual(c.bot_call.checks.find((x) => x.key === 'company_name'), { key: 'company_name', label: 'Employer', result: 'confirmed', by: 'ai' });
+  assert.match(c.bot_call.summary, /Understood by the AI: Employer/);
+  assert.equal(c.status, 'pending_verification', 'an AI-confirmed detail does not complete the verification by default');
+
+  await boss('PUT', '/bot/playbook', { playbook: { ...playbook, ai: true, rules: { ...playbook.rules, ai_confirms_count: true } } });
+  c = await call('Hana');
+  assert.equal(c.status, 'completed');
+  assert.equal(c.verified_by_name, 'Verification Bot');
 });

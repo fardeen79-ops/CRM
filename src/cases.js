@@ -235,8 +235,15 @@ export const config = { itEmail: null, callBot: false };
 // A bot call with no result after this long no longer blocks placing another one.
 export const BOT_CALL_TIMEOUT_MINUTES = 30;
 const BOT_CALL_OPEN = ['requested', 'in_progress'];
-const botCallPending = (row) => BOT_CALL_OPEN.includes(row.bot_call_status)
-  && Date.now() - Date.parse(row.bot_call_at) < BOT_CALL_TIMEOUT_MINUTES * 60_000;
+// A bot call is never automatic: the verification team leader asks for it, and governance and a
+// business head both approve it before it is placed. Waiting requests do not time out.
+export const BOT_CALL_WAITING = ['awaiting_approval', 'approved'];
+export const BOT_APPROVERS = ['governance', 'business_head'];
+export const BOT_DECISIONS = ['approve_bot_call', 'decline_bot_call', 'withdraw_bot_call'];
+export const botApprovals = (row) => String(row.bot_approvals || '').split(',').filter(Boolean);
+const botCallPending = (row) => BOT_CALL_WAITING.includes(row.bot_call_status) || (BOT_CALL_OPEN.includes(row.bot_call_status)
+  && Date.now() - Date.parse(row.bot_call_at) < BOT_CALL_TIMEOUT_MINUTES * 60_000);
+const isVerificationLead = (user) => user.role === 'processing' && user.role_key === 'processing_lead';
 
 /** A file whose customer is on the Do Not Call Register and whose verification is on hold for it. */
 export const isDncr = (row) => row.incomplete_reason === 'customer_in_dncr' && [STATUS.INCOMPLETE, STATUS.REJECTED, STATUS.RETURNED].includes(row.status);
@@ -522,8 +529,9 @@ export const ACTIONS = {
   claim:           { roles: ['processing'],  from: [STATUS.PENDING],      to: STATUS.IN_VERIFICATION },
   release:         { roles: ['processing'],  from: [STATUS.IN_VERIFICATION], to: STATUS.PENDING },
   log_call:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: null },
-  // Asks the calling bot to phone the customer; its result is logged like a call (see bot.js).
-  bot_call:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: null },
+  // The verification team leader asks for a bot call, with a reason; governance and a business
+  // head approve it before the bot phones the customer (see bot.js).
+  bot_call:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: null, noteRequired: true },
   complete:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.COMPLETED },
   // Completed without reaching the customer, on a deviation the processor must explain.
   complete_deviation: { roles: ['processing'], from: OPEN_FOR_PROCESSING, to: STATUS.COMPLETED, noteRequired: true },
@@ -1040,8 +1048,11 @@ export function caseAudience(db, row) {
 function latestBotCall(db, caseId) {
   const call = db.prepare(
     `SELECT b.id, b.status, b.requested_at, b.finished_at, b.outcome, b.checks, b.summary, b.transcript, b.recording_url, b.error,
-            u.name AS requested_by_name
-     FROM bot_calls b JOIN users u ON u.id = b.requested_by WHERE b.case_id = ? ORDER BY b.id DESC LIMIT 1`
+            b.request_note, b.gov_at, b.bh_at, b.decision_note, b.placed_at,
+            u.name AS requested_by_name, g.name AS gov_by_name, h.name AS bh_by_name, d.name AS decided_by_name
+     FROM bot_calls b JOIN users u ON u.id = b.requested_by
+       LEFT JOIN users g ON g.id = b.gov_by LEFT JOIN users h ON h.id = b.bh_by LEFT JOIN users d ON d.id = b.decided_by
+     WHERE b.case_id = ? ORDER BY b.id DESC LIMIT 1`
   ).get(caseId);
   return call && { ...call, checks: call.checks ? JSON.parse(call.checks) : [] };
 }
@@ -1314,6 +1325,12 @@ export function updateCase(db, user, id, input) {
 
 function allowedCaseActions(user, row) {
   const out = [];
+  // Bot call requests: governance and a business head each approve (or decline) once; the
+  // verification team leader can withdraw one until the bot calls.
+  if (OPEN_FOR_PROCESSING.includes(row.status)) {
+    if (row.bot_call_status === 'awaiting_approval' && BOT_APPROVERS.includes(user.role) && !botApprovals(row).includes(user.role)) out.push('approve_bot_call', 'decline_bot_call');
+    if (BOT_CALL_WAITING.includes(row.bot_call_status) && isVerificationLead(user)) out.push('withdraw_bot_call');
+  }
   if (CASE_STATUS_ROLES.includes(user.role)) out.push('set_case_status');
   const hasLoan = Object.keys(DISBURSAL_FIELDS).some((p) => caseProducts(row).includes(p));
   if (CASE_STATUS_ROLES.includes(user.role) && row.case_status === 'completed' && hasLoan) out.push('set_disbursal');
@@ -1346,9 +1363,10 @@ function verificationActions(user, row) {
     .filter(([name, rule]) => {
       if (!rule.roles.includes(user.role) || !rule.from.includes(row.status)) return false;
       if (user.role === 'sales') return isOwner(user, row);
+      // Only the verification team leader pushes a bot call, on any open file.
+      if (name === 'bot_call') return config.callBot && isVerificationLead(user) && !botCallPending(row);
       // The calling bot records its results on any file, including one a processor has picked up.
       if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id && !user.is_bot) return false;
-      if (name === 'bot_call') return config.callBot && !botCallPending(row);
       if (name === 'approve_card' || name === 'decline_card') return needsCardApproval(row);
       if (name === 'approve_timing' || name === 'decline_timing') return needsTimingApproval(row);
       return name !== 'claim' || !row.assigned_to;
@@ -1452,18 +1470,14 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         if (callbackAt) detail = `${outcome} ${callbackAt}`;
         break;
       case 'bot_call': {
-        // The bot's own calls (new files, retries) leave the file in the queue for processors.
-        if (!user.is_bot) {
-          set.assigned_to = row.assigned_to ?? user.id;
-          if (row.status === STATUS.PENDING) set.status = STATUS.IN_VERIFICATION;
-        }
-        Object.assign(set, { bot_call_status: 'requested', bot_call_at: ts });
-        // A newer call replaces one the bot never reported back on; a late result for it is refused.
+        // Nothing is dialled yet: the request waits for governance and a business head.
+        Object.assign(set, { bot_call_status: 'awaiting_approval', bot_call_at: ts, bot_approvals: '' });
         db.prepare(`UPDATE bot_calls SET status = 'expired', finished_at = ? WHERE case_id = ? AND status IN ('requested', 'in_progress')`).run(ts, id);
         const token = randomBytes(24).toString('hex');
-        const call = db.prepare('INSERT INTO bot_calls (case_id, token, status, requested_by, requested_at) VALUES (?, ?, ?, ?, ?)')
-          .run(id, token, 'requested', user.id, ts);
-        triggers.push({ event: 'bot_call.request', case_id: id, call_id: Number(call.lastInsertRowid), token, ref });
+        db.prepare('INSERT INTO bot_calls (case_id, token, status, requested_by, requested_at, request_note) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(id, token, 'awaiting_approval', user.id, ts, note);
+        notify(db, [...activeUserIds(db, 'governance'), ...activeUserIds(db, 'business_head')], id,
+          `Bot call approval needed: ${ref} (${row.customer_name}), asked for by ${user.name} — ${note}`);
         break;
       }
       case 'complete':
@@ -1807,6 +1821,10 @@ export function stats(db, user, { region } = {}) {
       WHERE callback_at IS NOT NULL AND status IN (${OPEN_FOR_PROCESSING.map(() => '?').join(',')}) AND (assigned_to = ? OR assigned_to IS NULL)`)
       .get(now(), now(), ...OPEN_FOR_PROCESSING, user.id);
     result.callbacks = { due: cb.due ?? 0, upcoming: cb.upcoming ?? 0 };
+  }
+  if (BOT_APPROVERS.includes(user.role)) {
+    result.bot_approvals = db.prepare(`SELECT COUNT(*) AS n FROM cases WHERE bot_call_status = 'awaiting_approval'
+      AND status IN (${OPEN_FOR_PROCESSING.map(() => '?').join(',')}) AND ',' || COALESCE(bot_approvals, '') || ',' NOT LIKE ?`).get(...OPEN_FOR_PROCESSING, `%,${user.role},%`).n;
   }
   if (user.role !== 'sales') {
     result.governance = db.prepare(

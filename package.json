@@ -13,5 +13,8 @@
     "test": "node --disable-warning=ExperimentalWarning --import ./test/setup.mjs --test test/*.test.js",
     "setup:ocr": "node scripts/setup-ocr.js",
     "bot": "node bot/server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0"
   }
 }

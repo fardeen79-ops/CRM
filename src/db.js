@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS cases (
   -- Latest automated verification call (details in bot_calls).
   bot_call_status    TEXT,
   bot_call_at        TEXT,
+  bot_approvals      TEXT, -- roles that approved the waiting bot call: governance, business_head
   core_product       TEXT,
   sales_staff_id     INTEGER REFERENCES users(id),
   sales_staff_name   TEXT,
@@ -474,6 +475,14 @@ CREATE TABLE IF NOT EXISTS bot_calls (
   transcript   TEXT,
   recording_url TEXT,
   error        TEXT,
+  request_note TEXT, -- why the verification team leader wants the bot to call
+  gov_by       INTEGER REFERENCES users(id), -- governance approval
+  gov_at       TEXT,
+  bh_by        INTEGER REFERENCES users(id), -- business head approval
+  bh_at        TEXT,
+  decided_by   INTEGER REFERENCES users(id), -- declined or withdrawn by
+  decision_note TEXT,
+  placed_at    TEXT, -- when the approved call was sent to the bot
   asked        TEXT  -- JSON [{key, label}]: the checks sent to the bot, so later playbook changes don't affect the result
 );
 CREATE INDEX IF NOT EXISTS idx_bot_calls_case ON bot_calls(case_id);
@@ -518,7 +527,7 @@ const ADDED_COLUMNS = {
   qc_score: 'REAL', recording_decided_by: 'INTEGER REFERENCES users(id)', recording_decided_at: 'TEXT',
   recording_decision_note: 'TEXT', recording_it_email_at: 'TEXT', qc_score_note: 'TEXT', qc_scored_by: 'INTEGER REFERENCES users(id)', qc_scored_at: 'TEXT',
   card_status: 'TEXT', card_activation_date: 'TEXT', card_status_by: 'INTEGER REFERENCES users(id)', card_status_at: 'TEXT',
-  pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT',
+  pl_disbursed_amount: 'REAL', al_disbursed_amount: 'REAL', bot_call_status: 'TEXT', bot_call_at: 'TEXT', bot_approvals: 'TEXT',
   card_fee_type: 'TEXT', fpd: 'TEXT', card_category: 'TEXT', card_points: 'REAL', salary_bank: 'TEXT',
   pl_tenure: 'INTEGER', pl_buyouts: 'TEXT', secondary_buyout: 'TEXT', auto_loan_type: 'TEXT', al_payout_class: 'TEXT', car_make: 'TEXT', car_model: 'TEXT', car_year: 'INTEGER', dealer_details: 'TEXT', al_lead_source: 'TEXT', al_interest_rate: 'REAL', al_tenure: 'INTEGER',
   card_min_salary: 'REAL', card_higher_options: 'INTEGER', card_eligible_category: 'TEXT', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
@@ -532,7 +541,9 @@ const ADDED_USER_COLUMNS = {
 
 function migrate(db) {
   const botCols = db.prepare('PRAGMA table_info(bot_calls)').all().map((c) => c.name);
-  if (!botCols.includes('asked')) db.exec('ALTER TABLE bot_calls ADD COLUMN asked TEXT');
+  for (const [name, type] of Object.entries({ asked: 'TEXT', request_note: 'TEXT', gov_by: 'INTEGER REFERENCES users(id)', gov_at: 'TEXT', bh_by: 'INTEGER REFERENCES users(id)', bh_at: 'TEXT', decided_by: 'INTEGER REFERENCES users(id)', decision_note: 'TEXT', placed_at: 'TEXT' })) {
+    if (!botCols.includes(name)) db.exec(`ALTER TABLE bot_calls ADD COLUMN ${name} ${type}`);
+  }
   if (!db.prepare('PRAGMA table_info(notifications)').all().some((c) => c.name === 'link')) db.exec('ALTER TABLE notifications ADD COLUMN link TEXT');
   const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
   for (const [name, type] of Object.entries(ADDED_COLUMNS)) {

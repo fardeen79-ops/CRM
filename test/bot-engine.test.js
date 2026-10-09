@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_PLAYBOOK, amountsIn, buildChecks, callResult, hangUp, hear, judge, normalizePlaybook, startCall, yesNo } from '../src/bot-engine.js';
+import { DEFAULT_PLAYBOOK, amountsIn, buildChecks, callResult, hangUp, hear, hearWithAI, judge, normalizePlaybook, startCall, yesNo } from '../src/bot-engine.js';
+import { makeInterpreter } from '../src/bot-ai.js';
 
 const pb = normalizePlaybook(DEFAULT_PLAYBOOK);
 const values = { full_name: 'Mohammed Al Mansoori', first_name: 'Mohammed', product: ['Personal Loan', 'Personal Loan (Fresh)'], company_name: 'Abu Dhabi National Oil Company LLC', salary: 25000 };
@@ -78,4 +79,74 @@ test('teaching: new words, custom questions and skipped checks', () => {
   assert.throws(() => normalizePlaybook({ yes_words: ['yes', 'no'] }), /cannot mean both yes and no/);
   assert.throws(() => normalizePlaybook({ checks: [{ label: 'X', field: 'none', match: 'name', question: 'Q?' }] }), /must be a yes \/ no question/);
   assert.throws(() => normalizePlaybook({ rules: { call_from: '20:00', call_to: '09:00' } }), /end after they start/);
+});
+
+test('with the AI switched on, it settles what the rules cannot, using only taught lines', async () => {
+  const withAI = normalizePlaybook({ ...DEFAULT_PLAYBOOK, ai: true });
+  const seen = [];
+  // A stand-in for Claude: reads a few known phrases.
+  const interpret = async (ctx) => {
+    seen.push(ctx);
+    const read = {
+      'hang on, who is this?': { intent: 'asks_who', yes_no: 'none', matches_file: 'unsure', amount: null },
+      'mm-hmm': { intent: 'answer', yes_no: 'yes', matches_file: 'unsure', amount: null },
+      'the national oil company': { intent: 'answer', yes_no: 'none', matches_file: 'yes', amount: null },
+      'a quarter of a lakh, more or less': { intent: 'answer', yes_no: 'none', matches_file: 'unsure', amount: 25000 },
+      "I'd rather not say": { intent: 'refuses', yes_no: 'none', matches_file: 'unsure', amount: null },
+    }[ctx.heard];
+    return read ?? null;
+  };
+  let s = startCall(withAI, { values });
+  for (const a of ['hang on, who is this?', 'mm-hmm', 'yes', 'Mohammed Al Mansoori', 'personal loan', 'the national oil company', 'a quarter of a lakh, more or less']) {
+    s = await hearWithAI(s, withAI, a, interpret);
+  }
+  assert.match(s.turns[2].text, /^I am the automated verification assistant calling on behalf of the bank about your recent application\. Hello, this is the verification team/);
+  assert.equal(s.turns[3].by_ai, true);
+  assert.equal(s.done, true);
+  const r = callResult(s);
+  assert.deepEqual(r.checks, [
+    { key: 'full_name', result: 'confirmed' }, { key: 'product', result: 'confirmed' },
+    { key: 'company_name', result: 'confirmed', by: 'ai' }, { key: 'salary', result: 'confirmed', by: 'ai' },
+  ]);
+  assert.match(r.summary, /Understood by the AI: Employer, Monthly salary\./);
+  assert.ok(!seen.some((c) => c.heard === 'Mohammed Al Mansoori'), 'answers the rules settle never go to the AI');
+  assert.equal(seen.find((c) => c.heard === 'the national oil company').check.expected, 'Abu Dhabi National Oil Company LLC');
+
+  // Refusing a question skips it; the AI being unavailable leaves the rules in charge.
+  s = startCall(withAI, { values });
+  for (const a of ['yes', 'yes', "I'd rather not say"]) s = await hearWithAI(s, withAI, a, interpret);
+  assert.equal(s.checks[0].result, 'not_answered');
+  assert.match(s.say, /Which product did you apply for\?/);
+  s = await hearWithAI(s, withAI, 'something odd', async () => { throw new Error('timeout'); });
+  assert.match(s.say, /^Sorry, could you say that once more\?/, 'the rules heard a different product and ask once more');
+
+  // Switched off in the playbook: never asked.
+  seen.length = 0;
+  s = startCall(pb, { values });
+  await hearWithAI(s, pb, 'hang on, who is this?', interpret);
+  assert.equal(seen.length, 0);
+});
+
+test('the AI request: structured output, low effort, refusal fallbacks; failures leave the rules in charge', async () => {
+  const sent = [];
+  let reply = { stop_reason: 'end_turn', content: [{ type: 'text', text: '{"intent":"answer","yes_no":"yes","matches_file":"unsure","amount":null}' }] };
+  const client = { beta: { messages: { create: async (body, opts) => { sent.push({ body, opts }); if (reply instanceof Error) throw reply; return reply; } } } };
+  const interpret = makeInterpreter({ client, log: {} });
+  const ctx = { language: 'en-GB', stage: 'identity', question: 'Am I speaking with Asha?', heard: 'mm-hmm', check: null };
+  assert.deepEqual(await interpret(ctx), { intent: 'answer', yes_no: 'yes', matches_file: 'unsure', amount: null });
+  const { body, opts } = sent[0];
+  assert.equal(body.model, 'claude-opus-5-5');
+  assert.deepEqual(body.betas, ['server-side-fallback-2026-07-01']);
+  assert.equal(body.fallbacks, 'default');
+  assert.equal(body.output_config.effort, 'low');
+  assert.equal(body.output_config.format.type, 'json_schema');
+  assert.match(body.messages[0].content, /Speech recognition heard: <customer>mm-hmm<\/customer>/);
+  assert.equal(opts.timeout, 6000);
+
+  await interpret(ctx);
+  assert.equal(sent.length, 1, 'the same answer is not asked twice');
+  reply = { stop_reason: 'refusal', content: [] };
+  assert.equal(await interpret({ ...ctx, heard: 'something else' }), null);
+  reply = new Error('Request timed out');
+  assert.equal(await interpret({ ...ctx, heard: 'a third thing' }), null);
 });

@@ -11,7 +11,8 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { callResult, hangUp, hear, normalizePlaybook, startCall } from '../src/bot-engine.js';
+import { callResult, hangUp, hearWithAI, normalizePlaybook, startCall } from '../src/bot-engine.js';
+import { aiConfigured, makeInterpreter } from '../src/bot-ai.js';
 
 const MAX_BODY = 256 * 1024;
 const SESSION_TTL = 2 * 3600e3;
@@ -73,6 +74,8 @@ export function createBotService({
   record = process.env.BOT_RECORD === '1',
   country = process.env.BOT_COUNTRY_CODE || '971',
   log = console,
+  // Claude reads answers the rules cannot settle, when the playbook switches the AI on.
+  interpret = aiConfigured() ? makeInterpreter({ log }) : null,
 } = {}) {
   const telephony = Boolean(accountSid && authToken && from && publicUrl);
   const base = String(publicUrl || '').replace(/\/$/, '');
@@ -172,7 +175,7 @@ export function createBotService({
   }
 
   // Twilio webhooks. Each must carry Twilio's signature for the URL it was sent to.
-  function twilio(kind, id, params, signature, path) {
+  async function twilio(kind, id, params, signature, path) {
     if (!safeEqual(signature, twilioSignature(authToken, base + path, params))) throw new HttpError(403, 'Invalid Twilio signature');
     const s = sessions.get(id);
     if (!s) return kind === 'voice' || kind === 'gather' ? '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>' : '';
@@ -189,7 +192,7 @@ export function createBotService({
     }
     if (kind === 'gather') {
       if (!s.state) return goodbye(s, '');
-      s.state = hear(s.state, s.playbook, params.SpeechResult || '');
+      s.state = await hearWithAI(s.state, s.playbook, params.SpeechResult || '', interpret);
       if (s.state.done) {
         finish(s, callResult(s.state));
         return goodbye(s, s.state.say);
@@ -231,7 +234,7 @@ export function createBotService({
       const m = url.pathname.match(/^\/twilio\/(voice|gather|status|recording)\/([a-f0-9]{32})$/);
       if (!m || !telephony) throw new HttpError(404, 'Not found');
       const params = Object.fromEntries(new URLSearchParams(raw));
-      const out = twilio(m[1], m[2], params, req.headers['x-twilio-signature'], url.pathname + url.search);
+      const out = await twilio(m[1], m[2], params, req.headers['x-twilio-signature'], url.pathname + url.search);
       return out ? reply(200, out, 'text/xml') : reply(204, '', 'text/plain');
     } catch (err) {
       const status = err.status || 500;
@@ -257,5 +260,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(`Calling bot listening on http://localhost:${port} (point the CRM's CALL_BOT_URL at http://<this host>:${port}/calls)`);
     if (!process.env.TWILIO_ACCOUNT_SID) console.log('  Telephony is not set up: set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM and BOT_PUBLIC_URL.');
     if (!process.env.CALL_BOT_SECRET) console.log('  CALL_BOT_SECRET is not set: requests and results are not signed.');
+    console.log(aiConfigured() ? '  AI: on for playbooks that switch it on.' : '  AI: off (set ANTHROPIC_API_KEY to let the bot use it).');
   });
 }

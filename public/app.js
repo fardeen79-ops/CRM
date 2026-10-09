@@ -38,6 +38,10 @@ const ACTION_LABEL = {
   release: 'Released back to queue',
   log_call: 'Call logged',
   bot_call: 'Bot call requested',
+  approve_bot_call: 'Bot call approved',
+  decline_bot_call: 'Bot call declined',
+  withdraw_bot_call: 'Bot call withdrawn',
+  bot_call_placed: 'Bot call placed',
   bot_call_result: 'Bot call finished',
   bot_call_failed: 'Bot call failed',
   complete: 'Verification completed',
@@ -269,6 +273,7 @@ async function refreshCounters() {
       // Business heads see requests awaiting approval; governance sees ones waiting on IT.
       state.recordings = state.user.role === 'business_head' ? s.governance?.recordings_pending ?? 0 : s.governance?.recordings_with_it ?? 0;
       state.callbacksDue = s.callbacks?.due ?? 0;
+      state.botApprovals = s.bot_approvals ?? 0;
     }
     updateBadges();
   } catch { /* ignore polling errors */ }
@@ -281,7 +286,7 @@ function updateBadges() {
   if (ar) { ar.textContent = state.actionRequired; ar.hidden = !state.actionRequired; }
   const er = document.querySelector('[data-er-count]');
   if (er) { er.textContent = state.editRequests; er.hidden = !state.editRequests; }
-  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings], ['[data-urgent-count]', state.urgent], ['[data-cb-count]', state.callbacksDue], ['[data-msg-count]', state.unreadMessages]]) {
+  for (const [sel, n] of [['[data-qc-count]', state.qc], ['[data-rec-count]', state.recordings], ['[data-urgent-count]', state.urgent], ['[data-cb-count]', state.callbacksDue], ['[data-msg-count]', state.unreadMessages], ['[data-bot-count]', state.botApprovals]]) {
     const el = document.querySelector(sel);
     if (el) { el.textContent = n; el.hidden = !n; }
   }
@@ -362,6 +367,9 @@ function navGroups() {
   if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
   if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users', 'data-roles-count', state.meta.roles_pending || 0]);
   if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
+  if (state.meta.call_bot && (r === 'governance' || r === 'business_head' || state.meta.can_teach_bot)) {
+    admin.push(['#/bot-calls', r === 'processing' ? 'Bot calls' : 'Bot call approvals', 'phone', ...(r === 'processing' ? [] : ['data-bot-count', state.botApprovals || 0])]);
+  }
   if (state.meta.can_teach_bot) admin.push(['#/bot', 'Verification bot', 'bot']);
   if (state.meta.can_manage_boosters) admin.push(['#/boosters', 'Boosters', 'flag']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/holidays', 'Holidays', 'calendar']);
@@ -479,6 +487,7 @@ async function route() {
     if (path === '/roles') return await viewRoles();
     if (path === '/allocation') return await viewAllocation();
     if (path === '/bot') return await viewBot();
+    if (path === '/bot-calls') return await viewBotCalls();
     if (path === '/boosters') return await viewBoosters();
     if (path === '/holidays') return await viewHolidays();
     if (path === '/pnl') return await viewPnl(params);
@@ -1765,16 +1774,25 @@ function eventDetail(e) {
   return label(e.detail);
 }
 
-const BOT_CALL_STATUS = { requested: 'Waiting for the bot', in_progress: 'On the call', completed: 'Finished', failed: 'Failed', expired: 'No result' };
+const BOT_CALL_STATUS = {
+  awaiting_approval: 'Waiting for approval', approved: 'Approved, waiting for calling hours', declined: 'Declined', withdrawn: 'Withdrawn',
+  requested: 'Waiting for the bot', in_progress: 'On the call', completed: 'Finished', failed: 'Failed', expired: 'No result',
+};
+// Who still has to approve a bot call: governance and a business head.
+const botApprovalChips = (b) => html`<span class="chip ${b.gov_at ? 'good' : ''}">Governance${b.gov_at ? ` ✓ ${b.gov_by_name}` : ': waiting'}</span>
+  <span class="chip ${b.bh_at ? 'good' : ''}">Business head${b.bh_at ? ` ✓ ${b.bh_by_name}` : ': waiting'}</span>`;
 const CHECK_RESULT = { confirmed: ['Confirmed', 'good'], mismatch: ['Did not match', 'bad'], not_answered: ['Not answered', ''] };
 
 // The latest bot verification call: what the customer confirmed, the summary and the transcript.
 function botCallCard(b) {
   return html`<div class="card">
     <h2>Bot call</h2>
-    <p class="muted small">${BOT_CALL_STATUS[b.status] || label(b.status)} · requested by ${b.requested_by_name} ${ago(b.requested_at)}${b.outcome ? ` · ${label(b.outcome)}` : ''}</p>
+    <p class="muted small">${BOT_CALL_STATUS[b.status] || label(b.status)} · asked for by ${b.requested_by_name} ${ago(b.requested_at)}${b.outcome ? ` · ${label(b.outcome)}` : ''}</p>
+    ${b.request_note ? html`<p class="small"><span class="muted">Reason:</span> ${b.request_note}</p>` : ''}
+    <p class="badges">${botApprovalChips(b)}</p>
+    ${b.decision_note ? html`<div class="callout ${b.status === 'declined' ? 'danger' : 'info'}"><strong>${b.status === 'declined' ? `Declined by ${b.decided_by_name}` : b.decided_by_name ? `Withdrawn by ${b.decided_by_name}` : 'Not called'}</strong>${b.decision_note}</div>` : ''}
     ${b.error ? html`<div class="callout danger"><strong>The bot could not place the call</strong>${b.error}</div>` : ''}
-    ${b.checks.length ? html`<dl class="details">${b.checks.map((ch) => html`<dt>${ch.label}</dt><dd><span class="chip ${CHECK_RESULT[ch.result][1]}">${CHECK_RESULT[ch.result][0]}</span></dd>`)}</dl>` : ''}
+    ${b.checks.length ? html`<dl class="details">${b.checks.map((ch) => html`<dt>${ch.label}</dt><dd><span class="chip ${CHECK_RESULT[ch.result][1]}">${CHECK_RESULT[ch.result][0]}</span>${ch.by === 'ai' ? html` <span class="chip" title="The bot's rules could not settle this answer; the AI read it">AI</span>` : ''}</dd>`)}</dl>` : ''}
     ${b.summary ? html`<div class="note">${b.summary}</div>` : ''}
     ${b.recording_url ? html`<p class="small"><a href="${b.recording_url}" target="_blank" rel="noopener noreferrer">Listen to the recording</a></p>` : ''}
     ${b.transcript ? html`<details><summary class="small">Transcript</summary><pre class="transcript">${b.transcript}</pre></details>` : ''}
@@ -1850,10 +1868,26 @@ async function viewCase(id) {
       </form>`);
   }
   if (a.has('bot_call')) {
-    panel.push(html`<h3>Call with bot</h3><p class="muted small">The bot calls the customer and asks them to confirm their details. Depending on what it has been taught, it completes the verification, sends it to the team leader, or leaves it for you.</p>
-      <button data-action="bot_call">🤖 Call with bot</button>`);
+    panel.push(html`<h3>Ask for a bot call</h3><p class="muted small">The bot calls only after governance and a business head both approve. It then asks the customer to confirm their details and acts on the result as it has been taught.</p>
+      <form data-form="bot_call">
+        <div class="field-row"><textarea name="note" required maxlength="2000" placeholder="Why should the bot call this customer?"></textarea></div>
+        <button>🤖 Ask for approval</button>
+      </form>`);
+  }
+  if (a.has('approve_bot_call')) {
+    panel.push(html`<h3>Bot call approval</h3>
+      <p class="small"><b>${c.bot_call?.requested_by_name}</b> asks for the bot to call: ${c.bot_call?.request_note}</p>
+      <p class="badges">${c.bot_call ? botApprovalChips(c.bot_call) : ''}</p>
+      <div class="actions"><button class="btn-primary" data-action="approve_bot_call">Approve the bot call</button></div>
+      <form data-form="decline_bot_call" style="margin-top:10px">
+        <div class="field-row"><textarea name="note" required maxlength="1000" placeholder="Reason for declining"></textarea></div>
+        <button class="btn-danger">Decline</button>
+      </form>`);
+  }
+  if (a.has('withdraw_bot_call')) {
+    panel.push(html`<h3>Bot call</h3><p class="muted small">${BOT_CALL_STATUS[c.bot_call_status]}.</p><button data-action="withdraw_bot_call">Withdraw the request</button>`);
   } else if (meta.call_bot && ['requested', 'in_progress'].includes(c.bot_call_status) && a.has('log_call')) {
-    panel.push(html`<h3>Call with bot</h3><p class="muted small">${c.bot_call_status === 'in_progress' ? 'The bot is on the call now.' : 'Waiting for the bot to call the customer.'}
+    panel.push(html`<h3>Bot call</h3><p class="muted small">${c.bot_call_status === 'in_progress' ? 'The bot is on the call now.' : 'Waiting for the bot to call the customer.'}
       Refresh the page for the result.</p>`);
   }
   if (a.has('complete') || a.has('mark_incomplete') || a.has('reject_verification')) {
@@ -3843,10 +3877,52 @@ async function viewAllocation() {
   }));
 }
 
+// Bot calls: requests from the verification team leader, approved by governance and a business head.
+async function viewBotCalls() {
+  const { calls, calling_hours: h } = await api('/bot/requests');
+  const r = effRole();
+  const waiting = calls.filter((c) => ['awaiting_approval', 'approved'].includes(c.status));
+  const done = calls.filter((c) => !['awaiting_approval', 'approved'].includes(c.status));
+  const row = (c) => html`<tr>
+    <td><a href="#/cases/${c.case_id}"><strong>${c.ref}</strong></a><div class="small">${c.customer_name}</div><div class="muted small">${c.product_label || ''}${c.region ? ` · ${c.region}` : ''}</div></td>
+    <td class="small">${c.requested_by_name} · ${ago(c.requested_at)}<div>${c.request_note || ''}</div></td>
+    <td class="small"><span class="chip ${c.gov_at ? 'good' : ''}">${c.gov_at ? `✓ ${c.gov_by_name}` : 'Waiting'}</span></td>
+    <td class="small"><span class="chip ${c.bh_at ? 'good' : ''}">${c.bh_at ? `✓ ${c.bh_by_name}` : 'Waiting'}</span></td>
+    <td class="small">${BOT_CALL_STATUS[c.status] || label(c.status)}${c.outcome ? html`<div class="muted">${label(c.outcome)}</div>` : ''}${c.decision_note ? html`<div class="muted">${c.decided_by_name ? `${c.decided_by_name}: ` : ''}${c.decision_note}</div>` : ''}</td>
+    <td class="small nowrap">${c.can_decide ? html`<button type="button" class="btn-link" data-approve="${c.case_id}">Approve</button> · <button type="button" class="btn-link" data-decline="${c.case_id}">Decline</button>` : ''}${c.can_withdraw ? html`<button type="button" class="btn-link" data-withdraw="${c.case_id}">Withdraw</button>` : ''}</td>
+  </tr>`;
+  const table = (list) => html`<div class="table-wrap"><table>
+    <thead><tr><th>File</th><th>Asked for by</th><th>Governance</th><th>Business head</th><th>Status</th><th></th></tr></thead>
+    <tbody>${list.map(row)}</tbody></table></div>`;
+  shell(html`
+    <div class="page-head"><div><h1>${r === 'processing' ? 'Bot calls' : 'Bot call approvals'}</h1>
+      <p class="muted">The bot never calls on its own. The verification team leader asks for a bot call on a file, with a reason; governance and a business head both approve it, and either can decline. An approved call is placed straight away during calling hours (${h.call_from} to ${h.call_to} UAE time${h.call_sunday ? '' : ', not on Sundays'}), otherwise when they next open.</p></div></div>
+    <div class="card"><h2>Waiting</h2>${waiting.length ? table(waiting) : html`<p class="muted">Nothing is waiting.</p>`}</div>
+    <div class="card"><h2>Last 30 days</h2>${done.length ? table(done) : html`<p class="muted">No bot calls yet.</p>`}</div>`);
+  const act = async (id, body, btn) => {
+    btn.disabled = true;
+    try {
+      await api(`/cases/${id}/actions`, { method: 'POST', body });
+      toast(`${ACTION_LABEL[body.action]} ✓`);
+      await refreshCounters();
+      await viewBotCalls();
+    } catch (err) { toast(err.message, true); btn.disabled = false; }
+  };
+  document.querySelectorAll('[data-approve]').forEach((b) => (b.onclick = () => act(b.dataset.approve, { action: 'approve_bot_call' }, b)));
+  document.querySelectorAll('[data-withdraw]').forEach((b) => (b.onclick = () => act(b.dataset.withdraw, { action: 'withdraw_bot_call' }, b)));
+  document.querySelectorAll('[data-decline]').forEach((b) => (b.onclick = () => {
+    const note = prompt('Why should the bot not call this customer?');
+    if (note && note.trim()) act(b.dataset.decline, { action: 'decline_bot_call', note }, b);
+  }));
+}
+
 // Verification bot: teach the calling bot what to say, what to check and what it may decide, and
 // practise with it by typing a customer's answers. Business heads and the verification team leader.
 const BOT_RESULT = { confirmed: ['Confirmed', 'good'], mismatch: ['Did not match', 'bad'], not_answered: ['Not answered', ''] };
-const BOT_HEARD = { yes: 'Understood: yes', no: 'Understood: no', confirmed: 'Matches the file', mismatch: 'Does not match the file', unclear: 'Did not understand' };
+const BOT_HEARD = {
+  yes: 'Understood: yes', no: 'Understood: no', confirmed: 'Matches the file', mismatch: 'Does not match the file', unclear: 'Did not understand',
+  asks_who: 'Asked who is calling', asks_repeat: 'Asked to repeat', call_later: 'Asked to be called later', wrong_person: 'Not the customer', refuses: 'Would not answer',
+};
 async function viewBot() {
   const data = await api('/bot/playbook');
   const m = data.meta;
@@ -3912,18 +3988,22 @@ async function viewBot() {
           <p class="muted small">Separate words and phrases with commas. When the bot does not understand an answer in practice, you can teach it the answer there.</p>
           <div class="field-row"><label>Times to re-ask when it hears nothing it understands</label><select name="max_reprompts">${[0, 1, 2, 3].map((n) => html`<option ${n === draft.max_reprompts ? raw('selected') : ''}>${n}</option>`)}</select></div>
         </div>
+        <div class="card"><h2>AI</h2>
+          <p class="muted small">With the AI on, Claude reads answers the bot's rules cannot settle: "who's calling?", "hang on, I'm driving", "the national oil company" for ADNOC, "twenty-five K". It only interprets. Everything the bot says still comes from the lines above, so it never reads a customer's details back to them. The answer and the value on file are sent to Anthropic for that reading.</p>
+          ${m.ai_available ? html`<p class="small"><span class="chip good">Connected</span> ${m.ai_model}</p>` : html`<div class="callout warn"><strong>Not connected</strong>Set <code>ANTHROPIC_API_KEY</code> on the CRM (for practice) and on the calling service (for calls). Until then the bot uses its rules only.</div>`}
+          <label class="check"><input type="checkbox" name="ai" ${draft.ai ? raw('checked') : ''}> Let the AI read answers the bot's rules cannot settle</label>
+          <label class="check"><input type="checkbox" name="rule_ai_confirms_count" ${r.ai_confirms_count ? raw('checked') : ''}> Details the AI confirmed count towards completing a verification (otherwise a processor reviews them)</label>
+        </div>
         <div class="card"><h2>What the bot may decide</h2>
           <div class="form-grid">
             <div class="field-row"><label>When every detail is confirmed</label><select name="rule_all_confirmed">${opts(m.rule_choices.all_confirmed, r.all_confirmed)}</select></div>
             <div class="field-row"><label>When a detail does not match</label><select name="rule_mismatch">${opts(m.rule_choices.mismatch, r.mismatch)}</select></div>
             <div class="field-row"><label>When the customer cannot be reached</label><select name="rule_not_reached">${opts(m.rule_choices.not_reached, r.not_reached)}</select></div>
-            <div class="field-row"><label>Call attempts before giving up</label><input type="number" name="rule_max_attempts" min="1" max="10" value="${r.max_attempts}"></div>
-            <div class="field-row"><label>Minutes between attempts</label><input type="number" name="rule_retry_minutes" min="10" max="1440" value="${r.retry_minutes}"></div>
+            <div class="field-row"><label>Unanswered bot calls before marking it pending</label><input type="number" name="rule_max_attempts" min="1" max="10" value="${r.max_attempts}"></div>
             <div class="field-row"><label>Calling hours (UAE time)</label><div class="actions"><input type="time" name="rule_call_from" value="${r.call_from}" aria-label="From"> <input type="time" name="rule_call_to" value="${r.call_to}" aria-label="To"></div></div>
           </div>
-          <label class="check"><input type="checkbox" name="rule_auto_call_new" ${r.auto_call_new ? raw('checked') : ''}> Call new files on its own, without waiting for a processor</label>
           <label class="check"><input type="checkbox" name="rule_call_sunday" ${r.call_sunday ? raw('checked') : ''}> Call on Sundays</label>
-          <p class="muted small">Retries and the bot's own calls happen only within calling hours. Processors can still press <b>Call with bot</b> on any file, at any time. The bot never rejects a verification: a team leader decides files it marks pending.</p>
+          <p class="muted small">The bot never calls on its own: each call is asked for by the verification team leader and approved by governance and a business head, and is placed only within calling hours. The bot never rejects a verification: a team leader decides files it marks pending.</p>
         </div>
         <div class="actions bot-save"><button class="btn-primary">Save what the bot has learned</button> <button type="button" id="bot-reset">Start again from the defaults</button>
           <span class="muted small">${data.updated_at ? `Last saved by ${data.updated_by_name || 'someone'} ${ago(data.updated_at)}` : 'Using the defaults'}</span></div>
@@ -3946,7 +4026,7 @@ async function viewBot() {
   const words = (v) => v.split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
   const collect = () => {
     const f = formData(form);
-    const out = { bank_name: f.bank_name, language: f.language, voice: f.voice, max_reprompts: Number(f.max_reprompts), yes_words: words(f.yes_words), no_words: words(f.no_words) };
+    const out = { bank_name: f.bank_name, language: f.language, voice: f.voice, max_reprompts: Number(f.max_reprompts), yes_words: words(f.yes_words), no_words: words(f.no_words), ai: form.ai.checked };
     for (const k of Object.keys(m.script_labels)) out[k] = f[`line_${k}`];
     out.checks = [...form.querySelectorAll('.bot-check')].map((el) => ({
       key: el.dataset.key, enabled: el.querySelector('[name=enabled]').checked, label: el.querySelector('[name=label]').value,
@@ -3955,8 +4035,8 @@ async function viewBot() {
     }));
     out.rules = {
       all_confirmed: f.rule_all_confirmed, mismatch: f.rule_mismatch, not_reached: f.rule_not_reached,
-      max_attempts: Number(f.rule_max_attempts), retry_minutes: Number(f.rule_retry_minutes), call_from: f.rule_call_from, call_to: f.rule_call_to,
-      auto_call_new: form.rule_auto_call_new.checked, call_sunday: form.rule_call_sunday.checked,
+      max_attempts: Number(f.rule_max_attempts), call_from: f.rule_call_from, call_to: f.rule_call_to,
+      call_sunday: form.rule_call_sunday.checked, ai_confirms_count: form.rule_ai_confirms_count.checked,
     };
     return out;
   };
@@ -4009,9 +4089,12 @@ async function viewBot() {
     && (!t.check || collect().checks.find((c) => c.key === t.check)?.match === 'yes');
   const outcomeRule = (res) => {
     const rules = collect().rules; const ch = m.rule_choices;
-    if (res.outcome !== 'connected') return `${ch.not_reached[rules.not_reached]} (after ${rules.max_attempts} ${rules.max_attempts === 1 ? 'attempt' : 'attempts'})`;
+    if (res.outcome !== 'connected') return ch.not_reached[rules.not_reached];
     if (res.checks.some((c) => c.result === 'mismatch')) return ch.mismatch[rules.mismatch];
-    if (res.checks.length && res.checks.every((c) => c.result === 'confirmed')) return ch.all_confirmed[rules.all_confirmed];
+    if (res.checks.length && res.checks.every((c) => c.result === 'confirmed')) {
+      if (rules.all_confirmed === 'complete' && res.checks.some((c) => c.by === 'ai') && !rules.ai_confirms_count) return 'Leave it for a processor to review, because the AI confirmed some details';
+      return ch.all_confirmed[rules.all_confirmed];
+    }
     return 'Leave it for a processor to review';
   };
   const drawChat = () => {
@@ -4019,12 +4102,12 @@ async function viewBot() {
     if (!res) { chat.innerHTML = ''; return; }
     chat.innerHTML = html`<div class="chat">${res.turns.map((t, i) => html`<div class="bubble ${t.who}">
         <div>${t.text || html`<span class="muted">(says nothing)</span>`}</div>
-        ${t.who === 'customer' ? html`<div class="bubble-note ${t.understood === 'unclear' || t.understood === 'mismatch' ? 'warn' : ''}">${BOT_HEARD[t.understood] || ''}
+        ${t.who === 'customer' ? html`<div class="bubble-note ${t.understood === 'unclear' || t.understood === 'mismatch' ? 'warn' : ''}">${BOT_HEARD[t.understood] || ''}${t.by_ai || (t.ai && t.ai !== 'answer') ? ' · read by the AI' : ''}
           ${teachable(t) ? html` · teach it: <button type="button" class="btn-link" data-teach="yes" data-turn="${i}">means yes</button> / <button type="button" class="btn-link" data-teach="no" data-turn="${i}">means no</button>` : ''}</div>` : ''}
       </div>`)}</div>
       ${res.done ? html`<div class="bot-outcome">
           <h3>Call ended · ${res.outcome === 'connected' ? 'customer reached' : label(res.outcome)}</h3>
-          <dl class="details">${res.checks.map((c) => html`<dt>${c.label}</dt><dd><span class="chip ${BOT_RESULT[c.result][1]}">${BOT_RESULT[c.result][0]}</span>${c.heard ? html` <span class="muted small">heard “${c.heard}”</span>` : ''}</dd>`)}</dl>
+          <dl class="details">${res.checks.map((c) => html`<dt>${c.label}</dt><dd><span class="chip ${BOT_RESULT[c.result][1]}">${BOT_RESULT[c.result][0]}</span>${c.by === 'ai' ? html` <span class="chip">AI</span>` : ''}${c.heard ? html` <span class="muted small">heard “${c.heard}”</span>` : ''}</dd>`)}</dl>
           ${res.summary ? html`<p class="small">${res.summary}</p>` : ''}
           <p class="small"><b>With these rules the bot would:</b> ${outcomeRule(res)}.</p>
           <div class="actions"><button type="button" id="bot-again">Practise again</button></div>

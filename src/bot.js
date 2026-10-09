@@ -3,12 +3,14 @@ import { transaction } from './db.js';
 import { hashPassword } from './auth.js';
 import { BOT_EMAIL } from './users.js';
 import {
-  CALL_OUTCOMES, PRODUCTS, STATUS, WorkflowError, addEvent, applyAction, caseProducts, caseRef, notify, processorsFor, productLabel, timing,
+  BOT_APPROVERS, BOT_DECISIONS, CALL_OUTCOMES, PRODUCTS, STATUS, WorkflowError, addEvent, applyAction, botApprovals, caseProducts, caseRef,
+  getCase, notify, processorsFor, productLabel, timing,
 } from './cases.js';
 import {
   CHECK_RESULTS, DEFAULT_PLAYBOOK, FIELDS, LANGUAGES, MATCH_TYPES, PLACEHOLDERS, RULE_CHOICES, SCRIPT_LABELS, STRICTNESS,
-  buildChecks, callResult, hear, normalizePlaybook, spoken, startCall,
+  buildChecks, callResult, hearWithAI, normalizePlaybook, spoken, startCall,
 } from './bot-engine.js';
+import { AI_MODEL, aiConfigured } from './bot-ai.js';
 
 export { CHECK_RESULTS };
 
@@ -19,8 +21,12 @@ export { CHECK_RESULTS };
  * page: what it says, which details it checks and how strictly, the words it understands as yes and
  * no, and what it may do with a result. They practise with it by typing a customer's answers.
  *
- * Calling: a processor chooses "Call with bot" (or the bot calls new files and retries on its own,
- * if taught to). The CRM POSTs the call to CALL_BOT_URL with the customer's number, the playbook,
+ * Approval: the bot never calls on its own. The verification team leader asks for a bot call on a
+ * file, with a reason; governance and a business head both approve it (either can decline). The
+ * call is then placed, straight away within the playbook's calling hours or at the start of the
+ * next calling window.
+ *
+ * Calling: the CRM POSTs the call to CALL_BOT_URL with the customer's number, the playbook,
  * the checks with the values on file, and a callback URL with a one-time token. The calling service
  * (bot/server.js, or any service speaking the same protocol) phones the customer and POSTs the
  * result back.
@@ -90,6 +96,8 @@ export function playbookView(db, user, { enabled }) {
       default_match: Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.match])),
       match_types: MATCH_TYPES, strictness: STRICTNESS, languages: LANGUAGES, rule_choices: RULE_CHOICES,
       script_labels: SCRIPT_LABELS, placeholders: PLACEHOLDERS,
+      // The AI needs Anthropic credentials on the CRM (for practice) and on the calling service.
+      ai_available: aiConfigured(), ai_model: AI_MODEL,
     },
   };
 }
@@ -107,7 +115,7 @@ export function savePlaybook(db, user, input) {
  * A practice call on the teaching page, replayed from the start with the answers typed so far.
  * Uses a made-up customer, so nothing from a real file is shown to the person teaching.
  */
-export function practice(user, { playbook, sample = {}, answers = [] } = {}) {
+export async function practice(user, { playbook, sample = {}, answers = [] } = {}, { interpret = null } = {}) {
   requireTeacher(user);
   const pb = normalizePlaybook(playbook);
   if (!Array.isArray(answers) || answers.length > 60) throw new WorkflowError(400, 'Too many answers for one practice call');
@@ -119,15 +127,16 @@ export function practice(user, { playbook, sample = {}, answers = [] } = {}) {
   values.full_name ||= [values.first_name, values.last_name].filter(Boolean).join(' ') || null;
   values.first_name ||= values.full_name?.split(' ')[0] || null;
   let state = startCall(pb, { values });
-  for (const a of answers) state = hear(state, pb, String(a ?? '').slice(0, 500));
+  for (const a of answers) state = await hearWithAI(state, pb, String(a ?? '').slice(0, 500), interpret);
   const result = state.done ? callResult(state) : null;
   return {
     turns: state.turns,
     done: state.done,
     outcome: state.outcome,
-    checks: state.checks.map(({ key, label, result: r, heard }) => ({ key, label, result: r, heard })),
+    checks: state.checks.map(({ key, label, result: r, heard, by }) => ({ key, label, result: r, heard, by: by ?? null })),
     summary: result?.summary ?? null,
     stage: state.stage,
+    ai_used: Boolean(pb.ai && interpret),
   };
 }
 
@@ -204,7 +213,7 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
       const call = db.prepare('SELECT * FROM bot_calls WHERE id = ?').get(callId);
       if (!call || !['requested', 'in_progress'].includes(call.status)) return;
       db.prepare("UPDATE bot_calls SET status = 'failed', finished_at = ?, error = ? WHERE id = ?").run(ts, error, callId);
-      db.prepare("UPDATE cases SET bot_call_status = 'failed' WHERE id = ? AND bot_call_at = ?").run(call.case_id, call.requested_at);
+      db.prepare("UPDATE cases SET bot_call_status = 'failed' WHERE id = ? AND bot_call_at = ?").run(call.case_id, call.placed_at ?? call.requested_at);
       addEvent(db, call.case_id, null, 'bot_call_failed', { note: error });
       const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(call.case_id);
       notify(db, humanFor(row, call), call.case_id, `${caseRef(call.case_id)}: the bot could not place the call (${error}). Call the customer yourself or try again.`);
@@ -285,7 +294,7 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
 
     if (status === 'in_progress') {
       db.prepare("UPDATE bot_calls SET status = 'in_progress' WHERE id = ?").run(call.id);
-      db.prepare("UPDATE cases SET bot_call_status = 'in_progress' WHERE id = ? AND bot_call_at = ?").run(call.case_id, call.requested_at);
+      db.prepare("UPDATE cases SET bot_call_status = 'in_progress' WHERE id = ? AND bot_call_at = ?").run(call.case_id, call.placed_at ?? call.requested_at);
       return { ok: true, triggers: [] };
     }
     if (status === 'failed') {
@@ -299,9 +308,14 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
     for (const c of given) {
       if (!asked.some((a) => a.key === c?.key)) throw new BotError(400, `Unknown check: ${c?.key}`);
       if (!CHECK_RESULTS.includes(c.result)) throw new BotError(400, `Check result must be one of: ${CHECK_RESULTS.join(', ')}`);
+      if (c.by != null && c.by !== 'ai') throw new BotError(400, 'by must be "ai" when given');
     }
     // Only the outcome of each check is kept; what the customer said stays in the transcript.
-    const checks = asked.map(({ key, label }) => ({ key, label, result: given.find((c) => c.key === key)?.result || 'not_answered' }));
+    // A check marked by: 'ai' was settled by the AI rather than the bot's rules.
+    const checks = asked.map(({ key, label }) => {
+      const g = given.find((c) => c.key === key);
+      return { key, label, result: g?.result || 'not_answered', ...(g?.by === 'ai' && g.result !== 'not_answered' && { by: 'ai' }) };
+    });
     const recordingUrl = clean(input.recording_url, 1000);
     if (recordingUrl && !/^https?:\/\//i.test(recordingUrl)) throw new BotError(400, 'recording_url must be an http(s) link');
     const summary = clean(input.summary, 2000);
@@ -327,7 +341,9 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
     const open = OPEN.includes(row.status);
     const missed = reached ? 0 : missedAttempts(call.case_id);
     let verdict = null;
-    if (open && reached && checks.length && confirmed.length === checks.length && rules.all_confirmed === 'complete') {
+    // Details confirmed with the AI's help count towards completing only when the playbook allows it.
+    const aiConfirmed = confirmed.filter((c) => c.by === 'ai');
+    if (open && reached && checks.length && confirmed.length === checks.length && rules.all_confirmed === 'complete' && (!aiConfirmed.length || rules.ai_confirms_count)) {
       verdict = { action: 'complete', note: `Verified by the calling bot: ${headline}.` };
     } else if (open && reached && mismatched.length && rules.mismatch === 'pending') {
       verdict = { action: 'mark_incomplete', reason: 'incorrect_details', note: `Calling bot: ${headline}.${summary ? ` ${summary}` : ''}` };
@@ -343,51 +359,49 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
         verdict = null;
       }
     }
-    const retrying = open && !reached && !verdict && missed < rules.max_attempts;
     let message;
     if (verdict?.action === 'complete') message = `${ref} (${row.customer_name}) verified by the calling bot: ${headline}.`;
     else if (verdict) message = `${ref} (${row.customer_name}) bot call: ${headline}. Verification marked pending for the team leader.`;
-    else if (retrying) message = null; // The bot tries again later; nobody needs to act yet.
     else message = `${ref} (${row.customer_name}) bot call: ${headline}.${open ? ' Review it and save the verification result.' : ''}`;
     if (message) notify(db, humanFor(row, call), call.case_id, message);
     return { ok: true, triggers };
   }
 
+  /** Sends an approved call to the calling service. */
+  async function place(call, origin) {
+    const ts = new Date().toISOString();
+    transaction(db, () => {
+      db.prepare("UPDATE bot_calls SET status = 'requested', placed_at = ? WHERE id = ?").run(ts, call.id);
+      db.prepare("UPDATE cases SET bot_call_status = 'requested', bot_call_at = ? WHERE id = ?").run(ts, call.case_id);
+      addEvent(db, call.case_id, null, 'bot_call_placed');
+    });
+    await deliver([{ event: 'bot_call.request', case_id: call.case_id, call_id: call.id, token: call.token, ref: caseRef(call.case_id) }], origin);
+  }
+
   /**
-   * The bot's own calls, run on the server's timer: new files (when taught to call them) and
-   * another attempt at customers it could not reach, within the playbook's calling hours.
+   * Approved calls waiting for calling hours, run on the server's timer. The bot never calls on its
+   * own: every call it places was asked for by the verification team leader and approved by
+   * governance and a business head.
    */
   async function sweep() {
     if (!enabled || sweeping) return [];
     const origin = publicUrl || lastOrigin;
     if (!origin) return [];
-    const { rules } = getPlaybook(db);
-    if (!withinCallingHours(rules)) return [];
+    if (!withinCallingHours(getPlaybook(db).rules)) return [];
     sweeping = true;
     const placed = [];
     try {
-      const due = [];
-      if (rules.auto_call_new) {
-        due.push(...db.prepare(`SELECT id FROM cases WHERE status = ? AND assigned_to IS NULL AND bot_call_status IS NULL ORDER BY created_at LIMIT 5`).all(STATUS.PENDING).map((r) => r.id));
-      }
-      const missed = db.prepare(`SELECT c.id, b.finished_at FROM cases c JOIN bot_calls b ON b.id = (SELECT MAX(id) FROM bot_calls WHERE case_id = c.id)
-        WHERE c.status IN (?, ?) AND c.bot_call_status = 'completed' AND b.outcome != 'connected' ORDER BY b.finished_at LIMIT 20`).all(...OPEN);
-      for (const m of missed) {
-        if (Date.now() - Date.parse(m.finished_at) < rules.retry_minutes * 60e3) continue;
-        if (missedAttempts(m.id) >= rules.max_attempts) continue;
-        // A processor has called the customer since: leave the file to them.
-        if (db.prepare("SELECT 1 FROM case_events WHERE case_id = ? AND type = 'log_call' AND created_at > ?").get(m.id, m.finished_at)) continue;
-        due.push(m.id);
-      }
-      const bot = botUser(db);
-      for (const id of [...new Set(due)].slice(0, 10)) {
-        try {
-          const { triggers } = applyAction(db, bot, id, { action: 'bot_call' });
-          await deliver(triggers, origin);
-          placed.push(id);
-        } catch (err) {
-          if (!(err instanceof WorkflowError)) console.error(`[bot] automatic call for ${caseRef(id)} failed: ${err.message}`);
+      const approved = db.prepare(`SELECT b.*, c.status AS case_status FROM bot_calls b JOIN cases c ON c.id = b.case_id
+        WHERE b.status = 'approved' ORDER BY b.id LIMIT 10`).all();
+      for (const call of approved) {
+        if (!OPEN.includes(call.case_status)) {
+          // Verified (or sent back) by a person before the bot's turn came: no need to call.
+          db.prepare("UPDATE bot_calls SET status = 'withdrawn', decision_note = 'The file was no longer open for verification' WHERE id = ?").run(call.id);
+          db.prepare("UPDATE cases SET bot_call_status = 'withdrawn' WHERE id = ?").run(call.case_id);
+          continue;
         }
+        await place(call, origin);
+        placed.push(call.case_id);
       }
     } finally {
       sweeping = false;
@@ -395,8 +409,71 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
     return placed;
   }
 
+  /**
+   * Governance and business head approve or decline a requested bot call; the verification team
+   * leader can withdraw it. With both approvals the call is placed straight away within calling
+   * hours, otherwise at the start of the next calling window.
+   */
+  async function decide(user, caseId, { action, note } = {}, origin) {
+    if (!BOT_DECISIONS.includes(action)) throw new WorkflowError(400, `Unknown action: ${action}`);
+    const c = getCase(db, user, caseId); // also checks the person may see the file
+    if (!c.allowed_actions.includes(action)) throw new WorkflowError(409, 'That is not possible on this bot call now');
+    const call = db.prepare("SELECT * FROM bot_calls WHERE case_id = ? AND status IN ('awaiting_approval', 'approved') ORDER BY id DESC LIMIT 1").get(caseId);
+    if (!call) throw new WorkflowError(409, 'There is no bot call waiting on this file');
+    note = clean(note, 1000);
+    const ref = caseRef(caseId);
+    const ts = new Date().toISOString();
+    const approvers = () => [...db.prepare("SELECT id FROM users WHERE role IN ('governance', 'business_head') AND active = 1").all().map((u) => u.id)];
+    let ready = false;
+    transaction(db, () => {
+      if (action === 'approve_bot_call') {
+        const col = user.role === 'governance' ? 'gov' : 'bh';
+        const roles = [...new Set([...botApprovals(c), user.role])];
+        ready = BOT_APPROVERS.every((r) => roles.includes(r));
+        db.prepare(`UPDATE bot_calls SET ${col}_by = ?, ${col}_at = ?${ready ? ", status = 'approved'" : ''} WHERE id = ?`).run(user.id, ts, call.id);
+        db.prepare(`UPDATE cases SET bot_approvals = ?${ready ? ", bot_call_status = 'approved'" : ''} WHERE id = ?`).run(roles.join(','), caseId);
+        addEvent(db, caseId, user.id, 'approve_bot_call', { note });
+        if (ready) notify(db, [call.requested_by], caseId, `${ref} (${c.customer_name}): bot call approved by governance and the business head`);
+      } else {
+        if (action === 'decline_bot_call' && !note) throw new WorkflowError(400, 'Say why the bot should not call');
+        const status = action === 'decline_bot_call' ? 'declined' : 'withdrawn';
+        db.prepare('UPDATE bot_calls SET status = ?, decided_by = ?, decision_note = ?, finished_at = ? WHERE id = ?').run(status, user.id, note, ts, call.id);
+        db.prepare('UPDATE cases SET bot_call_status = ? WHERE id = ?').run(status, caseId);
+        addEvent(db, caseId, user.id, action, { note });
+        const to = action === 'decline_bot_call' ? [call.requested_by, ...approvers().filter((id) => id !== user.id)] : approvers();
+        notify(db, to, caseId, `${ref} (${c.customer_name}): bot call ${status} by ${user.name}${note ? ` — ${note}` : ''}`);
+      }
+    });
+    if (ready && withinCallingHours(getPlaybook(db).rules)) await place(db.prepare('SELECT * FROM bot_calls WHERE id = ?').get(call.id), publicUrl || origin || lastOrigin);
+    return getCase(db, user, caseId);
+  }
+
+  /** The bot calls page: requests waiting on approvals first, then recent calls. */
+  function requests(user) {
+    const lead = user.role === 'processing' && user.role_key === 'processing_lead';
+    if (!lead && !BOT_APPROVERS.includes(user.role)) throw new WorkflowError(403, 'Only governance, business heads and the verification team leader see bot calls');
+    const rows = db.prepare(`SELECT b.id, b.case_id, b.status, b.requested_at, b.request_note, b.gov_at, b.bh_at, b.placed_at, b.finished_at, b.outcome, b.decision_note,
+        c.customer_name, c.status AS verification_status, c.bot_approvals, c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.region,
+        u.name AS requested_by_name, g.name AS gov_by_name, h.name AS bh_by_name, d.name AS decided_by_name
+      FROM bot_calls b JOIN cases c ON c.id = b.case_id JOIN users u ON u.id = b.requested_by
+        LEFT JOIN users g ON g.id = b.gov_by LEFT JOIN users h ON h.id = b.bh_by LEFT JOIN users d ON d.id = b.decided_by
+      WHERE b.status IN ('awaiting_approval', 'approved') OR b.requested_at >= ?
+      ORDER BY (b.status = 'awaiting_approval') DESC, (b.status = 'approved') DESC, b.id DESC LIMIT 200`).all(new Date(Date.now() - 30 * 864e5).toISOString());
+    return {
+      calling_hours: (({ call_from, call_to, call_sunday }) => ({ call_from, call_to, call_sunday }))(getPlaybook(db).rules),
+      calls: rows.map(({ product, bundle_products, credit_card, personal_loan_type, buyout_bank, bot_approvals, ...r }) => ({
+        ...r,
+        ref: caseRef(r.case_id),
+        product_label: productLabel(product, bundle_products, credit_card, personal_loan_type, buyout_bank),
+        // Can this person approve it right here?
+        can_decide: r.status === 'awaiting_approval' && OPEN.includes(r.verification_status) && BOT_APPROVERS.includes(user.role) && !String(bot_approvals || '').split(',').includes(user.role),
+        can_withdraw: lead && ['awaiting_approval', 'approved'].includes(r.status),
+      })),
+    };
+  }
+
   return {
-    enabled, deliver, receive, sweep,
+    enabled, deliver, receive, sweep, decide, requests,
     /** Remembers the CRM's address from requests, for callback URLs when PUBLIC_URL is not set. */
     seen(origin) { lastOrigin = origin; },
   };

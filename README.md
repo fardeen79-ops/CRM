@@ -6,11 +6,12 @@ A small CRM for one workflow:
 2. The **processing team** calls each customer to verify the details, then marks the case **Completed** or **Incomplete**.
 3. **Incomplete cases trigger the team leader.** The team leader gets an in-app alert (plus an optional webhook such as Slack or Teams) and must decide what happens next.
 
-It needs no dependencies, only Node.js 22.13 or newer. Data is stored in SQLite through the built-in `node:sqlite` module.
+It needs Node.js 22.13 or newer and one package, Anthropic's SDK (`@anthropic-ai/sdk`), used only by the verification bot's AI. Data is stored in SQLite through the built-in `node:sqlite` module.
 
 ## Quick start
 
 ```bash
+npm install               # once
 npm start                 # http://localhost:3000
 ```
 
@@ -510,7 +511,14 @@ Every step is recorded in the case's activity timeline. People are notified in-a
 
 ### Verification bot
 
-The CRM has a **calling bot** that phones customers and runs the verification call by voice. It is taught on the **Verification bot** page (Admin), by business heads and the verification team leader. It can complete verifications on its own when every detail is confirmed, if you allow it.
+The CRM has a **calling bot** that phones customers and runs the verification call by voice. It is taught on the **Verification bot** page (Admin), by business heads and the verification team leader. It can complete verifications on its own when every detail is confirmed, if you allow it. An optional **AI** (Claude) reads answers its rules cannot settle.
+
+**A bot call is never automatic.** Every call is pushed through by people:
+1. The **verification team leader** asks for a bot call on a file (**Ask for a bot call** on the file), with a reason. Processors cannot.
+2. **Governance** and a **business head** both approve it, in either order, on the file or on the **Bot call approvals** page (with a count in the sidebar). Either can **decline** it with a reason. The verification team leader can **withdraw** it until the bot calls. Approvers are notified of each request; the team leader hears when it is approved, declined or the result comes in.
+3. Once both have approved, the call is placed straight away within the **calling hours** (UAE time, 09:00 to 20:00 by default, not on Sundays unless allowed), otherwise when they next open. A file verified by a person in the meantime is not called.
+
+The bot never calls new files on its own and never retries an unanswered call: another attempt is a new request with new approvals. The **Bot calls** page lists waiting requests and the last 30 days, with who approved what.
 
 **How a bot call goes.**
 1. The bot greets the customer and checks it is speaking to them: "Hello, this is the verification team calling on behalf of Emirates NBD. Am I speaking with Asha?"
@@ -528,6 +536,7 @@ The bot re-asks (up to twice, by default) when it hears nothing it understands. 
 | What the bot says | Every line: greeting, introduction, closing, what to say if someone else answers, when it is not a good time, when it did not understand, and when an answer does not match. Lines can use details from the file: `{first_name}`, `{name}`, `{product}`, `{bank}`, `{company_name}`, `{salary}`… A typo such as `{firstname}` is refused when you save. |
 | What the bot checks | The questions, in order: switch each on or off, reword it, choose the detail on the file it is compared with and how (**Name**: sounds-alike spelling is fine but the first and last name must be heard; **Key words**: most of the words on file, or their initials, so "ADNOC" matches *Abu Dhabi National Oil Company*; **Amount**: within 20%, 10% or 2%; **Yes / no**: the customer must say yes), and how strict to be. Add your own questions, for example "Do you agree to a credit check with {bank}?" as a yes / no question. Up to 12. |
 | Words the bot understands | The words and phrases that mean yes and no, in any language (it ships with English and common Arabic and Hindi words such as *aiwa*, *naam*, *haan*, *la*). |
+| AI | Whether the AI reads answers the rules cannot settle, and whether details it confirmed count towards completing a verification. See below. |
 | What the bot may decide | See below. |
 
 **Practising.** The practice panel plays a call with a made-up customer, using your unsaved changes. Type what the customer says (or **Say nothing**), and each answer shows how the bot understood it: *Understood: yes*, *Matches the file*, *Does not match the file* or *Did not understand*. When it did not understand a yes or no, click **teach it: means yes / means no** and the call replays with the new word. At the end you see each check's result and what the bot would do with these rules. Nothing from real files is shown on the teaching page. **Save** to use the changes on the next call.
@@ -536,12 +545,19 @@ The bot re-asks (up to twice, by default) when it hears nothing it understands. 
 - **Complete the verification** when every detail is confirmed. It is recorded as verified by *Verification Bot*, with a note, and the sales person is told as usual.
 - **Mark verification pending** when a detail does not match (reason *Incorrect details*), so the team leader decides, as when a processor marks it pending.
 - **Mark verification pending** when the customer cannot be reached after the set number of attempts (reason *Customer unreachable*).
-- **Try again** after a set number of minutes when nobody answers, the line is busy or the customer asks to be called later, up to the set number of attempts. A retry is skipped once a processor has logged their own call.
-- **Call new files on its own**, without waiting for a processor. Its own calls leave the file in the queue, so a processor can still pick it up.
 
-Retries and its own calls happen only within the **calling hours** (UAE time, 09:00 to 20:00 by default, not on Sundays unless allowed). The bot never rejects a verification: rejection stays with people.
+Unanswered calls are counted per file since it last went back into the queue; each one was separately asked for and approved. The bot never rejects a verification: rejection stays with people.
 
-**On the file.** Processors can press **Call with bot** on any file they can verify, at any time; it picks the file up like logging a call. Only one bot call per file runs at a time. A call with no result after 30 minutes no longer blocks a new one, and a late result for it is refused. The **Bot call** card shows each detail as *Confirmed*, *Did not match* or *Not answered*, the summary, the transcript and the recording link when calls are recorded. The call counts as a call attempt and appears in the activity history. The processor on the file is told the result (or, for the bot's own calls, the processors the file is routed to), except while a retry is still to come. Only the result of each check is saved with the file, not the value the customer gave; what was said is in the transcript. Sales staff don't see bot calls. The dashboard's processor table counts the bot's verifications under *Verification Bot*. The bot's account cannot sign in and is not listed on the Staff page.
+**The AI.** With the AI switched on (Verification bot page, **AI**), answers the bot's rules cannot settle are read by Claude (`claude-opus-5-5` by default):
+- **When it is asked:** only when the rules could not understand an answer ("mm-hmm", "twenty-five K") or heard a name or wording that differs from the file and may be mishearing or a paraphrase ("the national oil company" for *Abu Dhabi National Oil Company*). Answers the rules settle never go to the AI.
+- **What it does:** it only interprets. It returns what the customer meant (answered, asked who is calling, asked to repeat, wants a call later, is not the customer, will not answer) and whether the answer matches the file. Everything the bot says still comes from the taught lines; when asked who is calling it says the taught **When asked who is calling** line and repeats the question. It cannot read a customer's details back to them, and customers' words are treated as data, not instructions.
+- **What it is sent:** the question, what speech recognition heard, and for detail checks the label and the value on file. Nothing else from the file.
+- **How results show:** details it settled carry an **AI** chip on the file and in practice, and the summary says "Understood by the AI: Employer". In practice, answers it read are marked *read by the AI*.
+- **Completing:** by default, details the AI confirmed do **not** count towards completing a verification automatically: the file is left for a processor to review. Tick **Details the AI confirmed count towards completing a verification** to change that.
+- **When it is unavailable:** if it is slow (more than 6 seconds, as a caller is waiting), declines, or is not set up, the bot carries on with its rules and re-asks. Requests opt into Anthropic's refusal fallback (`fallbacks: "default"`), so a declined reading is retried on Anthropic's recommended fallback model.
+- **Setting it up:** set `ANTHROPIC_API_KEY` on the CRM (practice calls) and on the calling service (live calls), then switch the AI on in the playbook. `BOT_AI_MODEL` picks another model (a smaller one answers faster) and `BOT_AI_TIMEOUT_MS` the time limit. Check with the bank's compliance team before switching it on: customer answers and file values are sent to Anthropic.
+
+**On the file.** The **Bot call** card shows the request, its reason and both approvals, then the call. Asking for a bot call does not pick the file up, so processors keep working it. Only one bot call per file runs at a time. A call with no result after 30 minutes no longer blocks a new one, and a late result for it is refused. The **Bot call** card shows each detail as *Confirmed*, *Did not match* or *Not answered*, the summary, the transcript and the recording link when calls are recorded. The call counts as a call attempt and appears in the activity history. The processor on the file is told the result, or else the verification team leader who asked for the call. Only the result of each check is saved with the file, not the value the customer gave; what was said is in the transcript. Sales staff don't see bot calls. The dashboard's processor table counts the bot's verifications under *Verification Bot*. The bot's account cannot sign in and is not listed on the Staff page.
 
 #### Running the calling service
 
@@ -565,6 +581,7 @@ CALL_BOT_URL=https://bot.example.com/calls CALL_BOT_SECRET=<same secret> PUBLIC_
 | `BOT_RECORD` | `1` to record calls; the result then waits up to two minutes for the recording link |
 | `BOT_COUNTRY_CODE` | Country code for numbers written locally (default `971`, so `050 123 4567` is dialled as `+971501234567`) |
 | `BOT_PORT` | Port (default `4000`) |
+| `ANTHROPIC_API_KEY` | For the AI on live calls, when the playbook switches it on (`BOT_AI_MODEL`, `BOT_AI_TIMEOUT_MS` optional) |
 
 - Twilio's webhooks are checked against Twilio's signature, and requests from the CRM against `CALL_BOT_SECRET`.
 - Without the Twilio settings the service refuses calls with a clear reason, which shows on the file.
@@ -597,13 +614,13 @@ Any voice-bot or IVR provider can stand in for `bot/server.js` if it speaks the 
   "transcript": "Bot: …\nCustomer: …", "recording_url": "https://…" }
 ```
 
-or `{"status": "failed", "error": "number not in service"}`. Checks left out count as not answered.
+or `{"status": "failed", "error": "number not in service"}`. Checks left out count as not answered. A check settled by an AI rather than fixed rules carries `"by": "ai"`, so the playbook's rule on AI-confirmed details applies.
 
 **Security.**
 - The callback URL holds a random one-time token for that call. A result is accepted once.
 - Set `CALL_BOT_SECRET` to sign both directions. Each request carries `x-crm-signature: sha256=<hex>`, an HMAC-SHA256 of the raw body with the secret. The CRM signs its requests to the bot and refuses results without a valid signature.
 - The request contains the customer's details so the bot can compare answers. Only point `CALL_BOT_URL` at a service your bank has approved to handle them.
-- Set `PUBLIC_URL` to the address the bot can reach the CRM at (for example `https://crm.example.com`). Without it, the callback URL uses the address someone last opened the CRM with, and the bot's own calls wait until someone has signed in.
+- Set `PUBLIC_URL` to the address the bot can reach the CRM at (for example `https://crm.example.com`). Without it, the callback URL uses the address the approver opened the CRM with (or, for calls held for calling hours, the address someone last opened it with).
 
 ### Team-leader webhook
 
@@ -630,7 +647,8 @@ See [`deploy/DEPLOY.md`](deploy/DEPLOY.md): Docker (`deploy/Dockerfile`, `deploy
 | `PROCESSING_WEBHOOK_URL` | – | Webhook for due call-back alerts (`callback.due`) |
 | `IT_EMAIL` | – | IT department address that approved call recording requests are emailed to |
 | `IT_EMAIL_WEBHOOK_URL` | – | Email relay (Power Automate, Zapier, an SMTP bridge…) that receives `POST {to, subject, text}` and sends it |
-| `CALL_BOT_URL` | – | The calling bot service (`npm run bot`, at `…/calls`); turns on **Call with bot** and the bot's own calls |
+| `CALL_BOT_URL` | – | The calling bot service (`npm run bot`, at `…/calls`); turns on bot calls |
+| `ANTHROPIC_API_KEY` | – | Lets the verification bot's AI read answers in practice calls (`BOT_AI_MODEL`, `BOT_AI_TIMEOUT_MS` optional) |
 | `CALL_BOT_SECRET` | – | Shared secret for signing bot requests and results (recommended) |
 | `PUBLIC_URL` | – | The CRM's address as the bot reaches it, for callback URLs |
 | `COOKIE_SECURE` | – | Set to `1` when serving over HTTPS |
@@ -644,6 +662,7 @@ src/
   cases.js     case workflow / state machine, notifications, stats
   bot.js       verification calls through the calling bot: playbook, practice, requests, signed results, the bot's decisions and own calls
   bot-engine.js  the bot's conversation and answer matching (shared with bot/server.js)
+  bot-ai.js    the bot's AI: Claude reads answers the rules cannot settle
   chat.js      case discussions, direct messages, groups, mentions
   imports.js   bulk upload of users, cases, card activation and targets (CSV parsing, row checks, column guide)
   cycles.js    sales cycles (21st to 20th, UAE time)
@@ -668,8 +687,10 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `GET /cases?status=a,b&q=…&assigned=me&callbacks=all\|due\|upcoming` | List cases (sales only see their own) |
 | `POST /cases`, `GET /cases/:id`, `PUT /cases/:id` | Create, read, edit |
 | `POST /cases/:id/actions` | `{action, note?, outcome?, reason?, callback_at?}` (`callback_at` is required with `outcome: 'call_back_later'`: an ISO date-time), where action is one of `claim`, `release`, `log_call`, `complete`, `mark_incomplete`, `return_to_sales`, `reverify`, `reject`, `resubmit` |
-| `POST /cases/:id/actions` with `bot_call` | Asks the calling bot to phone the customer (processing) |
+| `POST /cases/:id/actions` with `bot_call` | Asks for a bot call, with a `note` giving the reason (verification team leader) |
 | `POST /bot/calls/:token` | Result from the calling bot (no session; one-time token, plus signature when `CALL_BOT_SECRET` is set) |
+| `POST /cases/:id/actions` with `approve_bot_call` / `decline_bot_call` (note) / `withdraw_bot_call` | Governance and business heads approve or decline a requested bot call; the verification team leader withdraws one |
+| `GET /bot/requests` | Bot calls waiting for approval and the last 30 days (governance, business heads, verification team leader) |
 | `GET/PUT /bot/playbook`, `POST /bot/practice` | Teach the bot and practise with it (`{playbook, sample, answers}`); business heads and the verification team leader |
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
