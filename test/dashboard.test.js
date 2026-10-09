@@ -100,7 +100,11 @@ test('the business head dashboard shows core team vs cross-sell contribution per
   assert.ok(pl.core.files >= 3 && pl.cross.files >= 1, JSON.stringify(pl));
   assert.equal(pl.core.amount + pl.cross.amount, pl.total.amount);
   assert.equal(Math.round(pl.core.pct + pl.cross.pct), 100);
-  assert.equal(d.contribution.find((x) => x.product === 'credit_card').unit, 'points');
+  const cc = d.contribution.find((x) => x.product === 'credit_card');
+  assert.equal(cc.unit, 'points');
+  // The card breakdown counts Mass, Premium and Super Premium on each side.
+  assert.deepEqual(Object.keys(cc.core.cards), ['Mass', 'Premium', 'Super Premium', 'noon', 'other']);
+  assert.equal(Object.values(cc.core.cards).reduce((a, b) => a + b, 0) + Object.values(cc.cross.cards).reduce((a, b) => a + b, 0), cc.total.files);
   assert.equal((await tl2('GET', '/dashboard')).data.contribution, null);
   const loans = (await head('GET', `/reports/personal_loans?cycle=${cycle}`)).data;
   const cara = loans.rows.find((r) => r.staff === 'Cara');

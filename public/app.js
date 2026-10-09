@@ -589,6 +589,8 @@ function contributionCard(rows, cycleLabel) {
   if (!rows?.length) return '';
   const fmtAmt = (x, v) => (x.unit === 'aed' ? `AED ${fmtAmount(v)}` : `${fmtAmount(v)} pts`);
   const pctOf = (v) => (v == null ? '—' : `${v}%`);
+  // Cards: how many Mass, Premium and Super Premium (noon and uncategorised shown only when present).
+  const mix = (side) => (side.cards ? [['Mass', side.cards.Mass], ['Premium', side.cards.Premium], ['Super Premium', side.cards['Super Premium']], ['noon', side.cards.noon], ['other', side.cards.other]].filter(([k, n]) => n || ['Mass', 'Premium', 'Super Premium'].includes(k)).map(([k, n]) => `${k} ${n}`).join(' · ') : '');
   return html`<div class="card dash-contribution">
     <div class="card-head"><h2>Core team vs cross-sell · ${cycleLabel} cycle</h2>
       <div class="legend small"><span class="swatch core"></span> Core team <span class="swatch cross"></span> Cross-sold by other teams</div></div>
@@ -601,10 +603,10 @@ function contributionCard(rows, cycleLabel) {
             ${total ? html`<div class="seg core" style="width:${corePct}%" title="Core team: ${fmtAmt(x, x.core.amount)} · ${x.core.files} files · ${pctOf(x.core.pct)}">${corePct >= 18 ? html`<span>${pctOf(x.core.pct)}</span>` : ''}</div>
             <div class="seg cross" style="width:${crossPct}%" title="Cross-sold: ${fmtAmt(x, x.cross.amount)} · ${x.cross.files} files · ${pctOf(x.cross.pct)}">${crossPct >= 18 ? html`<span>${pctOf(x.cross.pct)}</span>` : ''}</div>` : html`<div class="seg none"><span class="muted small">Nothing completed yet</span></div>`}
           </div>
-          <div class="contrib-nums small"><span><i class="swatch core"></i> ${fmtAmt(x, x.core.amount)} · ${x.core.files} ${x.core.files === 1 ? 'file' : 'files'} · ${pctOf(x.core.pct)}</span><span><i class="swatch cross"></i> ${fmtAmt(x, x.cross.amount)} · ${x.cross.files} ${x.cross.files === 1 ? 'file' : 'files'} · ${pctOf(x.cross.pct)}</span></div>
+          <div class="contrib-nums small"><span><i class="swatch core"></i> ${fmtAmt(x, x.core.amount)} · ${x.core.files} ${x.core.files === 1 ? 'file' : 'files'} · ${pctOf(x.core.pct)}${x.core.cards ? html`<span class="contrib-mix">${mix(x.core)}</span>` : ''}</span><span><i class="swatch cross"></i> ${fmtAmt(x, x.cross.amount)} · ${x.cross.files} ${x.cross.files === 1 ? 'file' : 'files'} · ${pctOf(x.cross.pct)}${x.cross.cards ? html`<span class="contrib-mix">${mix(x.cross)}</span>` : ''}</span></div>
         </div>`; })}
     </div>
-    <details class="small"><summary class="muted">Numbers</summary>${miniTable(['Product', 'Core team', 'Core files', 'Core %', 'Cross-sold', 'Cross files', 'Cross %', 'Total'], rows.map((x) => [x.label, fmtAmt(x, x.core.amount), x.core.files, pctOf(x.core.pct), fmtAmt(x, x.cross.amount), x.cross.files, pctOf(x.cross.pct), fmtAmt(x, x.total.amount)]))}</details>
+    <details class="small"><summary class="muted">Numbers</summary>${miniTable(['Product', 'Core team', 'Core files', 'Core %', 'Core cards', 'Cross-sold', 'Cross files', 'Cross %', 'Cross cards', 'Total'], rows.map((x) => [x.label, fmtAmt(x, x.core.amount), x.core.files, pctOf(x.core.pct), mix(x.core) || '—', fmtAmt(x, x.cross.amount), x.cross.files, pctOf(x.cross.pct), mix(x.cross) || '—', fmtAmt(x, x.total.amount)]))}</details>
     <p class="muted small">Completed files in the cycle within your scope. Cards count card points, loans the AED disbursed. Multi product staff count as core for every product.</p>
   </div>`;
 }

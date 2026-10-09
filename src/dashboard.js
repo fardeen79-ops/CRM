@@ -26,12 +26,13 @@ const DISBURSED = { personal_loan: 'pl_disbursed_amount', auto_loan: 'al_disburs
  * for cards), with each side's share. Multi product staff count as core for every product.
  */
 export function contributionFor(db, scope, params, start, end) {
-  const rows = db.prepare(`SELECT c.product, c.bundle_products, c.credit_card, c.card_points, c.pl_disbursed_amount, c.al_disbursed_amount, u.core_product
+  const rows = db.prepare(`SELECT c.product, c.bundle_products, c.credit_card, c.card_category, c.card_points, c.pl_disbursed_amount, c.al_disbursed_amount, u.core_product
     FROM cases c LEFT JOIN users u ON u.id = COALESCE(c.sales_staff_id, c.created_by)
     WHERE ${COMPLETED_IN_SQL} ${scope}`).all(start, end, ...params);
   const amountOf = { credit_card: (r) => r.card_points ?? 1, personal_loan: (r) => r.pl_disbursed_amount ?? 0, auto_loan: (r) => r.al_disbursed_amount ?? 0 };
   const units = { credit_card: 'points', personal_loan: 'aed', auto_loan: 'aed' };
-  const out = CROSS_SELL_PRODUCTS.map((p) => ({ product: p, label: STAFF_CORE_PRODUCTS[p], unit: units[p], core: { files: 0, amount: 0 }, cross: { files: 0, amount: 0 } }));
+  const cardMix = () => ({ Mass: 0, Premium: 0, 'Super Premium': 0, noon: 0, other: 0 });
+  const out = CROSS_SELL_PRODUCTS.map((p) => ({ product: p, label: STAFF_CORE_PRODUCTS[p], unit: units[p], core: { files: 0, amount: 0, ...(p === 'credit_card' && { cards: cardMix() }) }, cross: { files: 0, amount: 0, ...(p === 'credit_card' && { cards: cardMix() }) } }));
   for (const r of rows) {
     const sold = new Set(caseProducts(r).filter((p) => CROSS_SELL_PRODUCTS.includes(p)));
     if (sold.has('credit_card') && !r.credit_card) sold.delete('credit_card');
@@ -40,6 +41,8 @@ export function contributionFor(db, scope, params, start, end) {
       const cell = out.find((x) => x.product === p)[side];
       cell.files++;
       cell.amount += amountOf[p](r);
+      // Cards by category, so the breakdown can say how many Mass, Premium and Super Premium.
+      if (p === 'credit_card') cell.cards[/\bnoon\b/i.test(r.credit_card) ? 'noon' : cell.cards[r.card_category] != null ? r.card_category : 'other']++;
     }
   }
   for (const x of out) {
