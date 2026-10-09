@@ -481,7 +481,7 @@ When the product is Credit Card, or a bundle that includes Credit Card, staff mu
 
 Every step is recorded in the case's activity timeline. People are notified in-app (the 🔔 icon) when something needs them:
 
-- team leaders when a case is marked incomplete (reasons include *Customer in DNCR*, for customers on the Do Not Call Register who cannot be phoned; such files show a DNCR chip)
+- team leaders when a case is marked incomplete (reasons include *Customer in DNCR*, for customers on the Do Not Call Register who cannot be phoned; such files show a DNCR chip and carry a **drafted permission email** to the customer, naming the product they applied for and asking them to reply with their consent to be contacted; the sales person copies it or opens it in their mailbox, and the draft disappears once the file is back in verification. The agency name in the email comes from `AGENCY_NAME`, default Derby Group)
 - sales when their case is verified, returned or rejected
 - the processor when a case they handled is sent back or rejected
 

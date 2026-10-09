@@ -547,6 +547,33 @@ function followUpCard(fu, r) {
   </div>`;
 }
 
+// An email drafted by the system: shown with Copy and Open in email; the text is kept for the copy handler.
+const EMAIL_DRAFTS = {};
+function emailDraft(key, em, title, { missingTo = 'No email address on the file.' } = {}) {
+  EMAIL_DRAFTS[key] = em;
+  return html`<div class="email-draft">
+    <div class="email-head"><strong>${title}</strong>
+      <span class="actions">
+        <button type="button" class="btn-link" data-copy-email="${key}">Copy email</button>
+        ${em.to ? html`<a href="mailto:${em.to}?subject=${encodeURIComponent(em.subject)}&body=${encodeURIComponent(em.body)}">Open in email</a>` : ''}
+      </span>
+    </div>
+    <div class="small"><span class="muted">To:</span> ${em.to || html`<span class="error">${missingTo}</span>`}</div>
+    <div class="small"><span class="muted">Subject:</span> ${em.subject}</div>
+    <pre data-email-body="${key}">${em.body}</pre>
+  </div>`;
+}
+function bindEmailCopies() {
+  document.querySelectorAll('[data-copy-email]').forEach((b) => (b.onclick = async () => {
+    const em = EMAIL_DRAFTS[b.dataset.copyEmail];
+    const text = `To: ${em.to || ''}\nSubject: ${em.subject}\n\n${em.body}`;
+    try { await navigator.clipboard.writeText(text); toast('Email copied'); } catch {
+      const range = document.createRange(); range.selectNodeContents(document.querySelector(`[data-email-body="${b.dataset.copyEmail}"]`));
+      const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range); toast('Select-all is done; press Ctrl+C / Cmd+C to copy');
+    }
+  }));
+}
+
 // The incentive so far this cycle, for the people who earn one.
 const INCENTIVE_TYPE = { credit_card: 'credit cards', personal_loan: 'personal loans', auto_loan: 'auto loans', cc_team_leader: 'card team', pl_team_leader: 'loan team', cc_sales_manager: 'card teams', pl_sales_manager: 'loan teams' };
 function incentiveTile(inc) {
@@ -1845,6 +1872,8 @@ async function viewCase(id) {
         <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} ${isDncr(c) ? html`<span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
+    ${c.dncr_email ? html`<div class="callout warn dncr-draft"><strong>Customer on the Do Not Call Register.</strong> The customer cannot be phoned until they give permission. Send them this email from your own mailbox and log their reply on the file; once they agree, resubmit the file for verification.
+      ${emailDraft('dncr', c.dncr_email, 'Email to the customer', { missingTo: 'No email address on the file. Add the customer\'s email under Edit details, or copy the text and send it another way.' })}</div>` : ''}
     ${c.callback_at && ['pending_verification', 'in_verification'].includes(c.status) ? html`<div class="callout ${callbackDue(c) ? 'danger' : 'warn'}">
       <strong>${callbackDue(c) ? 'Call back now' : 'Call-back scheduled'} — ${fmtWhen(c.callback_at)} (${untilText(c.callback_at)})</strong>
       The customer asked to be called at this time${c.callback_by_name ? `, noted by ${c.callback_by_name}` : ''}. Log the call when you make it; any outcome other than "call back later" closes this reminder.</div>` : ''}
@@ -2031,6 +2060,7 @@ async function viewCase(id) {
     if (history.length > 1) { e.preventDefault(); history.back(); }
   };
   app.querySelectorAll('[data-action]').forEach((b) => (b.onclick = () => run({ action: b.dataset.action }, b)));
+  bindEmailCopies();
   document.getElementById('copy-email')?.addEventListener('click', async () => {
     const em = c.recording_email;
     const text = `To: ${em.to || ''}\nSubject: ${em.subject}\n\n${em.body}`;

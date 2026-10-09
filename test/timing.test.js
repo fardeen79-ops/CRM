@@ -137,3 +137,26 @@ test('governance marks a complaint valid or invalid; a valid one removes the fil
   assert.equal((await gov('POST', `/cases/${a.id}/actions`, { action: 'decide_complaint', complaint_status: 'invalid' })).data.case.complaint_status, 'invalid');
   assert.equal((await cara('GET', `/incentives/me?cycle=${cycle}`)).data.incentive.cards_sold, 2);
 });
+
+test('a file marked Customer in DNCR carries a permission email to the customer, naming the product', async () => {
+  const cara = await login('cara@t.local');
+  const proc = await login('proc@t.local');
+  const tl2 = await login('tl2@t.local');
+  timing.now = () => UAE('2026-10-05T10:00:00');
+  const c = (await cara('POST', '/cases', { region: 'DXB', core_product: 'credit_card', first_name: 'Hind', last_name: 'Saeed', email: 'hind@example.com', phone: '+971 50 777 1234', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' })).data.case;
+  assert.equal('dncr_email' in c, false);
+  assert.equal((await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' })).status, 200);
+  const marked = (await proc('POST', `/cases/${c.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'Number is on the DNCR' })).data.case;
+  assert.equal(marked.status, 'incomplete');
+  const seen = (await cara('GET', `/cases/${c.id}`)).data.case;
+  assert.equal(seen.dncr_email.to, 'hind@example.com');
+  assert.match(seen.dncr_email.subject, /Credit Card \(Skywards Signature Credit Card\) application/);
+  assert.match(seen.dncr_email.body, /^Dear Hind,/);
+  assert.match(seen.dncr_email.body, /Do Not Call Register/);
+  assert.match(seen.dncr_email.body, /Yes, you may contact me about my Credit Card/);
+  assert.match(seen.dncr_email.body, /Cara \(D-2\)/);
+  // The team leader gets the same draft; once the file is back in verification it goes away.
+  assert.equal((await tl2('GET', `/cases/${c.id}`)).data.case.dncr_email.subject, seen.dncr_email.subject);
+  assert.equal((await tl2('POST', `/cases/${c.id}/actions`, { action: 'reverify' })).status, 200);
+  assert.equal('dncr_email' in (await cara('GET', `/cases/${c.id}`)).data.case, false);
+});

@@ -229,6 +229,40 @@ const BOT_CALL_OPEN = ['requested', 'in_progress'];
 const botCallPending = (row) => BOT_CALL_OPEN.includes(row.bot_call_status)
   && Date.now() - Date.parse(row.bot_call_at) < BOT_CALL_TIMEOUT_MINUTES * 60_000;
 
+/** The agency's name as customers see it in emails. */
+export const AGENCY_NAME = (typeof process !== 'undefined' && process.env?.AGENCY_NAME) || 'Derby Group';
+
+/** A file whose customer is on the Do Not Call Register and whose verification is on hold for it. */
+export const isDncr = (row) => row.incomplete_reason === 'customer_in_dncr' && [STATUS.INCOMPLETE, STATUS.REJECTED, STATUS.RETURNED].includes(row.status);
+
+/**
+ * The email the sales person sends a customer on the Do Not Call Register, asking for permission to
+ * contact them about the product they applied for. Drafted from the file; sent from the sales
+ * person's own mailbox.
+ */
+export function dncrEmail(row, user) {
+  const product = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) || 'the product';
+  const first = row.first_name || String(row.customer_name || '').split(' ')[0] || 'Customer';
+  const subject = `Your permission to contact you about your ${product} application`;
+  const lines = [
+    `Dear ${first},`,
+    '',
+    `Thank you for applying for a ${product} through ${AGENCY_NAME}.`,
+    '',
+    `Your mobile number is listed on the UAE Do Not Call Register, so we are not able to call you about your application unless you give us your permission.`,
+    '',
+    `If you would like us to go ahead, please reply to this email with "Yes, you may contact me about my ${product} application" and the best time to reach you. You can also tell us if you would prefer to continue by email only.`,
+    '',
+    'If you did not apply, or you no longer wish to proceed, please ignore this email and we will take it no further.',
+    '',
+    'Kind regards,',
+    `${user?.name || row.sales_staff_name || ''}${row.sales_code || user?.sales_code ? ` (${row.sales_code || user.sales_code})` : ''}`.trim(),
+    AGENCY_NAME,
+    `Reference: ${caseRef(row.id)}`,
+  ];
+  return { to: row.email || null, subject, body: lines.join('\n'), product };
+}
+
 export function recordingEmail(row) {
   const lines = [
     'Hello IT team,',
@@ -828,6 +862,8 @@ export function getCase(db, user, id) {
   if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
     out.recording_email = recordingEmail(row);
   }
+  // A customer on the Do Not Call Register: a permission email the sales person can send.
+  if (isDncr(row)) out.dncr_email = dncrEmail(row, user);
   return out;
 }
 
