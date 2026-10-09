@@ -592,6 +592,34 @@ function potentialBlock(p, { unit, scheme }) {
   </div>`;
 }
 
+// The submission calendar: one cell per day of the cycle. Sales: green with a submission, red without.
+// Leaders: green when 70%+ of the team submitted, orange from 50%, red below. Weekends with nothing are days off.
+function calendarCard(cal, r) {
+  if (!cal?.days?.length) return '';
+  const leader = r !== 'sales';
+  const first = cal.days[0];
+  const lead = (first.dow + 6) % 7; // Monday first
+  const title = (d) => {
+    const day = new Date(d.date + 'T00:00:00Z').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    if (d.status === 'future') return `${day}: still to come`;
+    if (leader) return `${day}: ${d.staff} of ${d.team} team members submitted (${d.pct ?? 0}%) · ${d.files} ${d.files === 1 ? 'file' : 'files'}`;
+    return `${day}: ${d.files ? `${d.files} ${d.files === 1 ? 'file' : 'files'} submitted` : d.status === 'off' ? 'day off, nothing submitted' : 'no submission'}`;
+  };
+  const s = cal.summary;
+  return html`<div class="card dash-calendar">
+    <div class="card-head"><h2>${leader ? 'Team submissions' : 'My submissions'} · ${cycleName(cal.cycle)} cycle</h2>
+      <div class="legend small">${leader
+        ? html`<span class="swatch green"></span> ${state.meta.calendar_green_pct ?? 70}%+ of the team <span class="swatch orange"></span> ${state.meta.calendar_orange_pct ?? 50}% to ${(state.meta.calendar_green_pct ?? 70) - 0.01}% <span class="swatch red"></span> below`
+        : html`<span class="swatch green"></span> Submitted <span class="swatch red"></span> No submission`}</div></div>
+    <div class="cal-grid" role="img" aria-label="${leader ? 'Team submissions by day' : 'My submissions by day'}: ${s.green} green, ${s.orange ? `${s.orange} orange, ` : ''}${s.red} red of ${s.days} working days so far">
+      ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => html`<div class="cal-dow">${d}</div>`)}
+      ${Array.from({ length: lead }, () => html`<div class="cal-cell blank"></div>`)}
+      ${cal.days.map((d) => html`<div class="cal-cell ${d.status} ${d.date === cal.today ? 'today' : ''}" title="${title(d)}"><span class="cal-date">${Number(d.date.slice(8))}</span>${d.status !== 'future' && (leader ? d.team : d.files) ? html`<span class="cal-n">${leader ? `${d.pct ?? 0}%` : d.files}</span>` : ''}</div>`)}
+    </div>
+    <p class="muted small">${s.green} ${leader ? 'green' : 'submission'} ${s.green === 1 ? 'day' : 'days'}${s.orange ? `, ${s.orange} orange` : ''} and ${s.red} red of ${s.days} working ${s.days === 1 ? 'day' : 'days'} so far this cycle. Weekends with nothing submitted are shown as days off.${leader && !cal.team ? ' No active sales staff are on your team yet.' : ''}</p>
+  </div>`;
+}
+
 // The incentive so far this cycle, for the people who earn one.
 const INCENTIVE_TYPE = { credit_card: 'credit cards', personal_loan: 'personal loans', auto_loan: 'auto loans', cc_team_leader: 'card team', pl_team_leader: 'loan team', cc_sales_manager: 'card teams', pl_sales_manager: 'loan teams' };
 function incentiveTile(inc) {
@@ -806,6 +834,7 @@ async function viewDashboard() {
     <h2 class="tiles-head">${r === 'processing' ? 'Your queue' : 'Needs your attention'}</h2>
     ${attention.length ? tileGrid(attention) : html`<p class="muted small dash-quiet">Nothing is waiting on you right now.</p>`}
     ${fu && (fu.overdue.length || fu.due_today.length || fu.due_tomorrow.length) ? followUpCard(fu, r) : ''}
+    ${d.calendar ? calendarCard(d.calendar, r) : ''}
     ${main}
     <h2 class="tiles-head">${r === 'sales' ? 'My files' : r === 'processing' ? 'Files' : 'Files in your scope'} <a class="tiles-link" href="#/cases">All cases →</a></h2>
     ${tileGrid(fileTiles)}

@@ -1,7 +1,7 @@
 // Each user's own dashboard: what they (or their team, or the agency) did this cycle and over the
 // last six, with the incentive so far for the people who earn one. Everything is within the
 // viewer's case scope, so a sales person sees their files, a leader their team's, MIS everything.
-import { caseScope, caseProducts, REGIONS, STATUS, COMPLETED_IN_SQL } from './cases.js';
+import { caseScope, caseProducts, REGIONS, STATUS, COMPLETED_IN_SQL, TEAM_FIELDS } from './cases.js';
 import { cycleOf, cycleRange, cycleLabel, shiftCycle, uaeDay } from './cycles.js';
 import { myIncentive } from './incentives.js';
 import { TEAM_LEADER_ROLES, STAFF_CORE_PRODUCTS } from './users.js';
@@ -53,6 +53,46 @@ export function contributionFor(db, scope, params, start, end) {
     x.core.amount = Math.round(x.core.amount * 100) / 100; x.cross.amount = Math.round(x.cross.amount * 100) / 100; x.total.amount = Math.round(amount * 100) / 100;
   }
   return out;
+}
+
+// Submission calendar thresholds for leaders: the share of the team that sourced a file on the day.
+export const CALENDAR_GREEN_PCT = 70;
+export const CALENDAR_ORANGE_PCT = 50;
+export const CALENDAR_ROLES = ['sales', ...TEAM_LEADER_ROLES];
+
+/**
+ * One cell per day of the cycle up to today. A sales person's day is green when they sourced a file
+ * and red when not; a leader's day is green when 70% or more of the team sourced one, orange from
+ * 50%, red below. Saturdays and Sundays with nothing sourced are days off, not red. Days still to
+ * come are blank.
+ */
+export function submissionCalendar(db, user, scope, params, cycle) {
+  const { start, end } = cycleRange(cycle);
+  const today = uaeDay();
+  const dayOf = "COALESCE(c.sourcing_date, date(c.created_at, '+4 hours'))";
+  const rows = db.prepare(`SELECT ${dayOf} AS day, COUNT(*) AS files, COUNT(DISTINCT COALESCE(c.sales_staff_id, c.created_by)) AS staff
+    FROM cases c WHERE ${dayOf} BETWEEN ? AND ? ${scope} GROUP BY day`).all(start, end, ...params);
+  const byDay = new Map(rows.map((r) => [r.day, r]));
+  const leader = TEAM_LEADER_ROLES.includes(user.role);
+  const team = leader ? db.prepare(`SELECT COUNT(*) AS n FROM users u WHERE u.role = 'sales' AND u.active = 1 AND u.${TEAM_FIELDS[user.role]} = ?`).get(user.id).n : null;
+  const days = [];
+  for (let ms = Date.parse(start); ms <= Date.parse(end); ms += 864e5) {
+    const date = new Date(ms).toISOString().slice(0, 10);
+    const dow = new Date(ms).getUTCDay();
+    const r = byDay.get(date);
+    const files = r?.files ?? 0; const staff = r?.staff ?? 0;
+    let status;
+    if (date > today) status = 'future';
+    else if (leader) {
+      const pct = team ? Math.round((staff / team) * 1000) / 10 : null;
+      status = pct == null ? 'none' : pct >= CALENDAR_GREEN_PCT ? 'green' : pct >= CALENDAR_ORANGE_PCT ? 'orange' : (dow === 0 || dow === 6) && !files ? 'off' : 'red';
+      days.push({ date, dow, files, staff, team, pct, status });
+      continue;
+    } else status = files ? 'green' : (dow === 0 || dow === 6) ? 'off' : 'red';
+    days.push({ date, dow, files, status });
+  }
+  const counted = days.filter((d) => !['future', 'off', 'none'].includes(d.status));
+  return { cycle, start, end, today, team, days, summary: { green: counted.filter((d) => d.status === 'green').length, orange: counted.filter((d) => d.status === 'orange').length, red: counted.filter((d) => d.status === 'red').length, days: counted.length } };
 }
 
 export function crossSellFor(db, scope, params, start, end) {
@@ -121,5 +161,6 @@ export function dashboardFor(db, user, { region } = {}) {
   const days = Math.floor((Date.parse(end) - Date.parse(start)) / 864e5) + 1;
   const cross_sell = CROSS_SELL_VIEWERS.includes(user.role) ? crossSellFor(db, scope, params, start, end) : null;
   const contribution = ['business_head', 'mis'].includes(user.role) ? contributionFor(db, scope, params, start, end) : null;
-  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, follow_ups: followUps(db, user) };
+  const calendar = CALENDAR_ROLES.includes(user.role) ? submissionCalendar(db, user, scope, params, cycle) : null;
+  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, calendar, follow_ups: followUps(db, user) };
 }

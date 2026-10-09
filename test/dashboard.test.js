@@ -138,3 +138,28 @@ test('sales staff see what their open files could earn and how much more they ne
   const d = (await lina('GET', '/dashboard')).data.incentive;
   assert.deepEqual([d.open_files, d.potential], [2, p.incentive_aed]);
 });
+
+test('the submission calendar: green days for a sales person, team-share colours for a team leader', async () => {
+  const lina = await login('lina@t.local');
+  const cara = await login('cara@t.local');
+  const tl2 = await login('tl2@t.local');
+  const mis = await login('mis@t.local');
+  const cal = (await lina('GET', '/dashboard')).data.calendar;
+  assert.ok(cal.days.length >= 28 && cal.start <= cal.today && cal.today <= cal.end);
+  // Lina sourced files on 2026-10-05 in earlier tests: a green day; a weekday with nothing is red; weekends off; future blank.
+  const oct5 = cal.days.find((d) => d.date === '2026-10-05');
+  assert.deepEqual([oct5.status, oct5.files > 0], ['green', true]);
+  assert.ok(cal.days.filter((d) => d.date > cal.today).every((d) => d.status === 'future'));
+  assert.ok(cal.days.filter((d) => d.date <= cal.today && !d.files && [0, 6].includes(d.dow)).every((d) => d.status === 'off'));
+  assert.ok(cal.days.filter((d) => d.date <= cal.today && !d.files && ![0, 6].includes(d.dow)).every((d) => d.status === 'red'));
+  // The team leader: TL Two has Cara, Lina and Rina; on 2026-10-05 Lina and Rina sourced → 2 of 3 = 66.7% → orange.
+  const tcal = (await tl2('GET', '/dashboard')).data.calendar;
+  const t5 = tcal.days.find((d) => d.date === '2026-10-05');
+  assert.deepEqual([t5.team, t5.staff, t5.pct, t5.status], [3, 2, 66.7, 'orange']);
+  // Cara submits too: 3 of 3 → green.
+  const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  assert.equal((await cara('POST', '/cases', { region: 'DXB', core_product: 'personal_loan', customer_name: 'Cal Day', phone: '+971 50 123 4321', city: 'Dubai', salary: 15000, source: 'Walk-in', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd, sourcing_date: '2026-10-05' })).status, 201);
+  assert.equal((await tl2('GET', '/dashboard')).data.calendar.days.find((d) => d.date === '2026-10-05').status, 'green');
+  // MIS has no calendar.
+  assert.equal((await mis('GET', '/dashboard')).data.calendar, null);
+});

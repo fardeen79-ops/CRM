@@ -10,7 +10,7 @@ import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
 import * as assets from './assets.js';
 import * as roles from './roles.js';
-import { dashboardFor } from './dashboard.js';
+import { dashboardFor, CALENDAR_GREEN_PCT, CALENDAR_ORANGE_PCT } from './dashboard.js';
 import { profitAndLoss, payrollFor, profitAndLossTree } from './pnl.js';
 import * as leads from './leads.js';
 import { BANKS } from './banks.js';
@@ -181,7 +181,7 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
-        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
+        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
         asset_status: assets.ASSET_STATUS, networks: assets.NETWORKS, accessories: assets.ACCESSORIES, asset_admins: assets.ASSET_ADMINS,
         auto_loan_classes: cases.AUTO_LOAN_CLASSES,
         al_incentive_rules: AL_INCENTIVE_RULES,
