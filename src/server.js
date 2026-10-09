@@ -257,6 +257,7 @@ function routes(db, dispatch, bot) {
     ['POST', /^\/api\/leads$/, async ({ user, body, res }) => send(res, 201, { lead: leads.createLead(db, user, body) })],
     ['GET', /^\/api\/leads\/(\d+)$/, async ({ user, params }) => ({ lead: leads.getLead(db, user, Number(params[0])) })],
     ['PATCH', /^\/api\/leads\/(\d+)$/, async ({ user, params, body }) => ({ lead: leads.updateLead(db, user, Number(params[0]), body) })],
+    ['POST', /^\/api\/leads\/(\d+)\/follow-up$/, async ({ user, params, body }) => ({ lead: leads.setFollowUp(db, user, Number(params[0]), body) })],
     ['POST', /^\/api\/leads\/(\d+)\/status$/, async ({ user, params, body }) => ({ lead: leads.setLeadStatus(db, user, Number(params[0]), body) })],
 
     ['GET', /^\/api\/cases\/(\d+)$/, async ({ user, params }) => {

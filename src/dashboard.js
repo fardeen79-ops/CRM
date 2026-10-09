@@ -5,6 +5,7 @@ import { caseScope, REGIONS, STATUS, COMPLETED_IN_SQL } from './cases.js';
 import { cycleOf, cycleRange, cycleLabel, shiftCycle, uaeDay } from './cycles.js';
 import { myIncentive } from './incentives.js';
 import { TEAM_LEADER_ROLES } from './users.js';
+import { followUps } from './leads.js';
 
 export const TREND_CYCLES = 6;
 
@@ -47,5 +48,5 @@ export function dashboardFor(db, user, { region } = {}) {
   }
   const dayNo = Math.floor((Date.parse(uaeDay()) - Date.parse(start)) / 864e5) + 1;
   const days = Math.floor((Date.parse(end) - Date.parse(start)) / 864e5) + 1;
-  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive };
+  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, follow_ups: followUps(db, user) };
 }

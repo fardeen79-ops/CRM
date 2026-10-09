@@ -30,7 +30,7 @@ export function listLeads(db, user, { status, q } = {}) {
   const where = [scope.sql]; const params = [...scope.params];
   if (status) { if (!LEAD_STATUS[status]) throw new WorkflowError(400, 'Unknown lead status'); where.push('l.status = ?'); params.push(status); }
   if (q) { const like = `%${String(q).trim()}%`; where.push('(l.customer_name LIKE ? OR l.phone LIKE ? OR l.company_name LIKE ? OR u.name LIKE ?)'); params.push(like, like, like, like); }
-  const leads = db.prepare(`${LEAD_SELECT} WHERE ${where.join(' AND ')} ORDER BY l.status = 'open' DESC, COALESCE(l.follow_up_at, '9999') , l.updated_at DESC`).all(...params);
+  const leads = db.prepare(`${LEAD_SELECT} WHERE ${where.join(' AND ')} ORDER BY l.status = 'open' DESC, COALESCE(l.follow_up_at, '9999'), COALESCE(l.follow_up_time, '99'), l.updated_at DESC`).all(...params);
   const counts = { open: 0, converted: 0, not_interested: 0, not_eligible: 0, due: 0 };
   const today = new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10);
   for (const l of db.prepare(`SELECT l.status, l.follow_up_at FROM leads l JOIN users u ON u.id = l.owner_id WHERE ${scope.sql}`).all(...scope.params)) {
@@ -47,6 +47,7 @@ function leadDetails(input, current = null) {
     phone: pick('phone', 30), email: pick('email', 200) || null, company_name: pick('company_name', 200) || null,
     product: pick('product', 30) || null, source: pick('source', 200) || null, city: pick('city', 100) || null, notes: pick('notes', 2000) || null,
     follow_up_at: pick('follow_up_at', 10) || null,
+    follow_up_time: pick('follow_up_time', 5) || null,
   };
   const salary = input.salary === undefined ? current?.salary ?? null : (String(input.salary).trim() === '' ? null : Number(String(input.salary).replace(/,/g, '')));
   if (salary != null && !(salary >= 0)) throw new WorkflowError(400, 'Salary must be a number');
@@ -55,6 +56,8 @@ function leadDetails(input, current = null) {
   if (!/^[+\d][\d\s-]{6,29}$/.test(out.phone)) throw new WorkflowError(400, 'Enter a mobile number');
   if (out.product && !PRODUCTS[out.product]) throw new WorkflowError(400, 'Choose a product: Personal Loan, Credit Card, Auto Loan or Accounts');
   if (out.follow_up_at && !/^\d{4}-\d{2}-\d{2}$/.test(out.follow_up_at)) throw new WorkflowError(400, 'Follow-up date must be YYYY-MM-DD');
+  if (out.follow_up_time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(out.follow_up_time)) throw new WorkflowError(400, 'Follow-up time must be HH:MM');
+  if (out.follow_up_time && !out.follow_up_at) throw new WorkflowError(400, 'Give the follow-up a date as well as a time');
   out.customer_name = [out.first_name, out.middle_name, out.last_name].filter(Boolean).join(' ');
   return out;
 }
@@ -70,9 +73,9 @@ export function createLead(db, user, input) {
   }
   const d = leadDetails(input);
   const ts = leadNow();
-  const { lastInsertRowid } = db.prepare(`INSERT INTO leads (owner_id, customer_name, first_name, middle_name, last_name, phone, email, company_name, salary, product, source, city, notes, follow_up_at, status, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`)
-    .run(owner, d.customer_name, d.first_name, d.middle_name, d.last_name, d.phone, d.email, d.company_name, d.salary, d.product, d.source, d.city, d.notes, d.follow_up_at, user.id, ts, ts);
+  const { lastInsertRowid } = db.prepare(`INSERT INTO leads (owner_id, customer_name, first_name, middle_name, last_name, phone, email, company_name, salary, product, source, city, notes, follow_up_at, follow_up_time, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`)
+    .run(owner, d.customer_name, d.first_name, d.middle_name, d.last_name, d.phone, d.email, d.company_name, d.salary, d.product, d.source, d.city, d.notes, d.follow_up_at, d.follow_up_time, user.id, ts, ts);
   return getLead(db, user, Number(lastInsertRowid));
 }
 
@@ -82,8 +85,8 @@ export function updateLead(db, user, id, input) {
   if (lead.owner_id !== user.id) throw new WorkflowError(403, 'Only the sales person who owns the lead can change it');
   if (lead.status !== 'open') throw new WorkflowError(409, `The lead is ${LEAD_STATUS[lead.status].toLowerCase()}; reopen it first`);
   const d = leadDetails(input, lead);
-  db.prepare(`UPDATE leads SET customer_name = ?, first_name = ?, middle_name = ?, last_name = ?, phone = ?, email = ?, company_name = ?, salary = ?, product = ?, source = ?, city = ?, notes = ?, follow_up_at = ?, updated_at = ? WHERE id = ?`)
-    .run(d.customer_name, d.first_name, d.middle_name, d.last_name, d.phone, d.email, d.company_name, d.salary, d.product, d.source, d.city, d.notes, d.follow_up_at, leadNow(), id);
+  db.prepare(`UPDATE leads SET customer_name = ?, first_name = ?, middle_name = ?, last_name = ?, phone = ?, email = ?, company_name = ?, salary = ?, product = ?, source = ?, city = ?, notes = ?, follow_up_at = ?, follow_up_time = ?, updated_at = ? WHERE id = ?`)
+    .run(d.customer_name, d.first_name, d.middle_name, d.last_name, d.phone, d.email, d.company_name, d.salary, d.product, d.source, d.city, d.notes, d.follow_up_at, d.follow_up_time, leadNow(), id);
   return getLead(db, user, id);
 }
 
@@ -97,6 +100,23 @@ export function setLeadStatus(db, user, id, { status, note } = {}) {
   const ts = leadNow();
   db.prepare('UPDATE leads SET status = ?, status_note = ?, status_at = ?, updated_at = ? WHERE id = ?').run(status, leadText(note, 500) || null, ts, ts, id);
   return getLead(db, user, id);
+}
+
+/** Just the follow-up: a date and time on an open lead, by its owner. */
+export function setFollowUp(db, user, id, { follow_up_at, follow_up_time } = {}) {
+  return updateLead(db, user, id, { follow_up_at: follow_up_at ?? '', follow_up_time: follow_up_time ?? '' });
+}
+
+const uaeToday = () => new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10);
+const plusDays = (ymd, n) => new Date(Date.parse(ymd) + n * 864e5).toISOString().slice(0, 10);
+/** Open leads with a follow-up: overdue, today and tomorrow, for the viewer's dashboard (own, or the team's for a leader). */
+export function followUps(db, user) {
+  let scope;
+  try { scope = leadScope(user); } catch { return null; }
+  const today = uaeToday(); const tomorrow = plusDays(today, 1);
+  const rows = db.prepare(`${LEAD_SELECT} WHERE ${scope.sql} AND l.status = 'open' AND l.follow_up_at IS NOT NULL AND l.follow_up_at <= ? ORDER BY l.follow_up_at, COALESCE(l.follow_up_time, '99'), l.customer_name`).all(...scope.params, tomorrow);
+  const pick = (l) => ({ id: l.id, customer_name: l.customer_name, phone: l.phone, product: l.product, company_name: l.company_name, notes: l.notes, follow_up_at: l.follow_up_at, follow_up_time: l.follow_up_time, owner_name: l.owner_name });
+  return { today, tomorrow, overdue: rows.filter((l) => l.follow_up_at < today).map(pick), due_today: rows.filter((l) => l.follow_up_at === today).map(pick), due_tomorrow: rows.filter((l) => l.follow_up_at === tomorrow).map(pick) };
 }
 
 /** Called when a file is created from a lead: the lead becomes Converted and points at the file. */

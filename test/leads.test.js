@@ -81,3 +81,28 @@ test('a lead converts into a case with its details, or is marked not interested 
   const { counts } = (await dana('GET', '/leads?status=converted')).data;
   assert.deepEqual([counts.converted, counts.not_eligible, counts.open], [1, 1, 2]);
 });
+
+test('a follow-up date and time on a lead shows on the dashboard a day ahead, today, and when overdue', async () => {
+  const dana = await login('dana@t.local');
+  const tlDxb = await login('tl-dxb@t.local');
+  const amal = await login('amal@t.local');
+  const day = (n) => new Date(Date.now() + (4 + n * 24) * 3600e3).toISOString().slice(0, 10);
+  const l = (await dana('POST', '/leads', { first_name: 'Faris', last_name: 'Qasim', phone: '+971 50 444 5555', follow_up_at: day(1), follow_up_time: '10:30' })).data.lead;
+  assert.deepEqual([l.follow_up_at, l.follow_up_time], [day(1), '10:30']);
+  assert.equal((await dana('POST', `/leads/${l.id}/follow-up`, { follow_up_at: day(1), follow_up_time: '25:00' })).status, 400);
+  assert.equal((await dana('POST', `/leads/${l.id}/follow-up`, { follow_up_time: '09:00' })).status, 400);
+  const m = (await dana('POST', '/leads', { first_name: 'Hind', last_name: 'Rashid', phone: '+971 50 444 6666' })).data.lead;
+  assert.equal((await dana('POST', `/leads/${m.id}/follow-up`, { follow_up_at: day(0), follow_up_time: '14:00' })).data.lead.follow_up_time, '14:00');
+  const o = (await dana('POST', '/leads', { first_name: 'Old', last_name: 'Lead', phone: '+971 50 444 7777', follow_up_at: day(-2) })).data.lead;
+  const fu = (await dana('GET', '/dashboard')).data.follow_ups;
+  assert.deepEqual([fu.due_tomorrow.map((x) => x.customer_name), fu.due_today.map((x) => x.customer_name), fu.overdue.map((x) => x.customer_name)], [['Faris Qasim'], ['Hind Rashid'], ['Old Lead']]);
+  assert.equal(fu.due_tomorrow[0].follow_up_time, '10:30');
+  // The team leader sees the team's follow-ups; another sales person sees none of Dana's.
+  assert.equal((await tlDxb('GET', '/dashboard')).data.follow_ups.due_tomorrow[0].owner_name, 'Dana');
+  assert.equal((await amal('GET', '/dashboard')).data.follow_ups.due_tomorrow.length, 0);
+  // Clearing the follow-up takes it off the list; a converted or closed lead is not a task.
+  assert.equal((await dana('POST', `/leads/${o.id}/follow-up`, {})).data.lead.follow_up_at, null);
+  assert.equal((await dana('POST', `/leads/${m.id}/status`, { status: 'not_interested' })).status, 200);
+  const after = (await dana('GET', '/dashboard')).data.follow_ups;
+  assert.deepEqual([after.overdue.length, after.due_today.length, after.due_tomorrow.length], [0, 0, 1]);
+});

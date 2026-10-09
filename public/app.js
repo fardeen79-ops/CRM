@@ -530,6 +530,19 @@ async function route() {
 }
 
 // ---------- dashboard ----------
+// Lead follow-ups as tasks: tomorrow's (shown a day ahead), today's and anything overdue.
+function followUpCard(fu, r) {
+  const list = (items, cls) => html`<ul class="task-list">${items.map((l) => html`<li class="${cls}">
+    <span class="task-when mono">${l.follow_up_time || '—'}</span>
+    <span class="task-what"><strong>${l.customer_name}</strong>${r !== 'sales' ? html` <span class="muted small">· ${l.owner_name}</span>` : ''}${l.product ? html` <span class="muted small">· ${state.meta.products[l.product]}</span>` : ''}${l.company_name ? html` <span class="muted small">· ${l.company_name}</span>` : ''}${l.notes ? html`<div class="muted small">${l.notes}</div>` : ''}</span>
+    <span class="task-act">${r === 'sales' ? html`<a class="call-link mono" href="tel:${telHref(l.phone)}" data-call="${l.phone}" data-call-name="${l.customer_name}">📞 ${l.phone}</a> · <a href="#/cases/new?lead=${l.id}">Convert</a>` : html`<span class="mono">${l.phone}</span>`}</span></li>`)}</ul>`;
+  return html`<div class="card follow-ups"><div class="card-head"><h2>${r === 'sales' ? 'My follow-ups' : 'Team follow-ups'}</h2><a class="tiles-link" href="#/leads?status=open">${r === 'sales' ? 'My leads' : 'Team leads'} →</a></div>
+    ${fu.due_tomorrow.length ? html`<h3 class="task-head">Tasks for tomorrow · ${fmtDay(fu.tomorrow)}</h3>${list(fu.due_tomorrow, 'tomorrow')}` : ''}
+    ${fu.due_today.length ? html`<h3 class="task-head">Today · ${fmtDay(fu.today)}</h3>${list(fu.due_today, 'today')}` : ''}
+    ${fu.overdue.length ? html`<h3 class="task-head overdue">Overdue</h3>${list(fu.overdue, 'overdue')}` : ''}
+  </div>`;
+}
+
 // The incentive so far this cycle, for the people who earn one.
 const INCENTIVE_TYPE = { credit_card: 'credit cards', personal_loan: 'personal loans', auto_loan: 'auto loans', cc_team_leader: 'card team', pl_team_leader: 'loan team', cc_sales_manager: 'card teams', pl_sales_manager: 'loan teams' };
 function incentiveTile(inc) {
@@ -657,6 +670,12 @@ async function viewDashboard() {
   </div>`;
 
   const d = dash || { files: {}, trend: [], incentive: null };
+  const fu = d.follow_ups;
+  if (fu) {
+    if (fu.overdue.length) verifyTiles.unshift(['Follow-ups overdue', fu.overdue.length, '#/leads?status=open', true, 'leads not followed up']);
+    if (fu.due_today.length) verifyTiles.unshift(['Follow-ups today', fu.due_today.length, '#/leads?status=open', true, 'leads to call today']);
+    if (fu.due_tomorrow.length) verifyTiles.unshift([`Tasks for tomorrow`, fu.due_tomorrow.length, '#/leads?status=open', true, 'lead follow-ups due tomorrow']);
+  }
   const attention = r === 'processing' ? verifyTiles : verifyTiles.filter((t) => t[3]);
   const fileTiles = [
     ['Sourced', d.files.sourced, `#/cases?cycle=${d.cycle}`, false, 'this cycle'],
@@ -700,11 +719,13 @@ async function viewDashboard() {
     ])}` : ''}
     <h2 class="tiles-head">${r === 'processing' ? 'Your queue' : 'Needs your attention'}</h2>
     ${attention.length ? tileGrid(attention) : html`<p class="muted small dash-quiet">Nothing is waiting on you right now.</p>`}
+    ${fu && (fu.overdue.length || fu.due_today.length || fu.due_tomorrow.length) ? followUpCard(fu, r) : ''}
     ${main}
     <h2 class="tiles-head">${r === 'sales' ? 'My files' : r === 'processing' ? 'Files' : 'Files in your scope'} <a class="tiles-link" href="#/cases">All cases →</a></h2>
     ${tileGrid(fileTiles)}
     ${team && team.nodes.length ? html`<div class="card team-card"><div class="card-head"><h2>${team.levels[0] === 'staff' ? 'My team' : `By ${team.level_labels[team.levels[0]].toLowerCase()}`} · ${cycleName(team.cycle)} cycle</h2><a class="tiles-link" href="#/team">Team view →</a></div>
       ${teamTable({ ...team, nodes: team.nodes.map((n) => ({ ...n, children: [] })) })}</div>` : ''}`);
+  document.querySelectorAll('.follow-ups [data-call]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); confirmCall(a.dataset.call, a.dataset.callName); }));
   bindRows();
 }
 
@@ -3178,7 +3199,7 @@ async function viewLeads(params = new URLSearchParams()) {
       <div class="field-row"><label for="${p}-product">Interested in</label><select id="${p}-product" name="product"><option value="">Not sure yet</option>${Object.entries(state.meta.products).map(([k, v]) => html`<option value="${k}" ${l.product === k ? raw('selected') : ''}>${v}</option>`)}</select></div>
       <div class="field-row"><label for="${p}-source">Lead source</label><input id="${p}-source" name="source" value="${l.source || ''}" placeholder="Referral, walk-in, field visit…"></div>
       <div class="field-row"><label for="${p}-city">City</label><input id="${p}-city" name="city" value="${l.city || ''}"></div>
-      <div class="field-row"><label for="${p}-follow">Follow up on</label><input id="${p}-follow" name="follow_up_at" type="date" value="${l.follow_up_at || ''}"></div>
+      <div class="field-row"><label for="${p}-follow">Follow up on</label><div class="field-pair"><input id="${p}-follow" name="follow_up_at" type="date" value="${l.follow_up_at || ''}"><input name="follow_up_time" type="time" value="${l.follow_up_time || ''}" aria-label="Follow-up time"></div><div class="muted small">It appears on your dashboard the day before, as a task for the next day.</div></div>
     </div>
     <div class="field-row"><label for="${p}-notes">Notes</label><textarea id="${p}-notes" name="notes" placeholder="What the customer said, best time to call…">${l.notes || ''}</textarea></div>`;
   shell(html`
@@ -3198,7 +3219,7 @@ async function viewLeads(params = new URLSearchParams()) {
           ${mine ? '' : html`<td>${l.owner_name}<div class="muted small">${l.owner_sales_code || ''}</div></td>`}
           <td><strong>${l.customer_name}</strong><div class="muted small"><a class="mono call-link" href="tel:${telHref(l.phone)}" data-call="${l.phone}" data-call-name="${l.customer_name}" title="Call ${l.customer_name}">📞 ${l.phone}</a>${l.company_name ? ` · ${l.company_name}` : ''}${l.salary != null ? ` · AED ${fmtAmount(l.salary)}` : ''}</div>${l.notes ? html`<div class="small">${l.notes}</div>` : ''}</td>
           <td class="small">${l.product ? state.meta.products[l.product] : html`<span class="muted">—</span>`}${l.source ? html`<div class="muted">${l.source}</div>` : ''}</td>
-          <td class="small">${l.follow_up_at ? html`<span class="${l.status === 'open' && l.follow_up_at <= today ? 'lock' : ''}">${l.follow_up_at}</span>` : html`<span class="muted">—</span>`}</td>
+          <td class="small">${l.follow_up_at ? html`<span class="${l.status === 'open' && l.follow_up_at <= today ? 'lock' : ''}">${l.follow_up_at}${l.follow_up_time ? html`<br>${l.follow_up_time}` : ''}</span>` : html`<span class="muted">—</span>`}${mine && l.status === 'open' ? html`<form class="follow-form" data-follow="${l.id}"><input name="follow_up_at" type="date" value="${l.follow_up_at || ''}" aria-label="Follow-up date"><input name="follow_up_time" type="time" value="${l.follow_up_time || ''}" aria-label="Follow-up time"><button class="btn-link">Set</button></form>` : ''}</td>
           <td><span class="chip ${LEAD_CHIP[l.status] || ''}">${state.meta.lead_status[l.status]}</span>${l.case_id ? html`<div class="small"><a href="#/cases/${l.case_id}">Open the file →</a></div>` : ''}${l.status_note ? html`<div class="muted small">${l.status_note}</div>` : ''}<div class="muted small">${fmtDate(l.status_at || l.created_at)}</div></td>
           <td>${mine ? html`<div class="actions">
             ${l.status === 'open' ? html`<a class="btn-link" href="#/cases/new?lead=${l.id}">Convert to case</a><button class="btn-link" data-lead-edit="${l.id}">Edit</button><button class="btn-link" data-lead-status="${l.id}" data-status="not_interested">Not interested</button><button class="btn-link" data-lead-status="${l.id}" data-status="not_eligible">Not eligible</button>` : l.status === 'converted' ? '' : html`<button class="btn-link" data-lead-status="${l.id}" data-status="open">Reopen</button>`}
@@ -3229,6 +3250,7 @@ async function viewLeads(params = new URLSearchParams()) {
   };
   document.getElementById('lead-new').onsubmit = async (e) => { e.preventDefault(); try { await api('/leads', { method: 'POST', body: formData(e.target) }); toast('Lead added'); reload(); } catch (err) { toast(err.message, true); } };
   app.querySelectorAll('[data-call]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); confirmCall(a.dataset.call, a.dataset.callName); }));
+  app.querySelectorAll('[data-follow]').forEach((f) => (f.onsubmit = async (e) => { e.preventDefault(); try { await api(`/leads/${f.dataset.follow}/follow-up`, { method: 'POST', body: formData(f) }); toast(f.follow_up_at.value ? 'Follow-up set' : 'Follow-up cleared'); reload(); } catch (err) { toast(err.message, true); } }));
   app.querySelectorAll('[data-lead-edit]').forEach((b) => (b.onclick = () => { const row = app.querySelector(`[data-lead-editor="${b.dataset.leadEdit}"]`); row.hidden = !row.hidden; }));
   app.querySelectorAll('[data-lead-cancel]').forEach((b) => (b.onclick = () => { app.querySelector(`[data-lead-editor="${b.dataset.leadCancel}"]`).hidden = true; }));
   app.querySelectorAll('[data-lead-form]').forEach((f) => (f.onsubmit = async (e) => { e.preventDefault(); try { await api(`/leads/${f.dataset.leadForm}`, { method: 'PATCH', body: formData(f) }); toast('Lead saved'); reload(); } catch (err) { toast(err.message, true); } }));

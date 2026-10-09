@@ -359,7 +359,8 @@ CREATE TABLE IF NOT EXISTS leads (
   source        TEXT,
   city          TEXT,
   notes         TEXT,
-  follow_up_at  TEXT,
+  follow_up_at  TEXT, -- YYYY-MM-DD
+  follow_up_time TEXT, -- HH:MM, UAE time
   status        TEXT NOT NULL DEFAULT 'open', -- open, converted, not_interested or not_eligible
   status_note   TEXT,
   status_at     TEXT,
@@ -495,6 +496,8 @@ function migrate(db) {
     }
   }
 
+  const leadCols = db.prepare('PRAGMA table_info(leads)').all().map((c) => c.name);
+  if (!leadCols.includes('follow_up_time')) db.exec('ALTER TABLE leads ADD COLUMN follow_up_time TEXT');
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   for (const [name, type] of Object.entries(ADDED_USER_COLUMNS)) {
     if (!userCols.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);

@@ -706,6 +706,17 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .dash-quiet { margin: -10px 0 22px; }
 .lead-scan-view { aspect-ratio: 3 / 4; max-height: 60vh; }
 .call-link { text-decoration: none; color: var(--primary); }
+.field-pair { display: grid; grid-template-columns: 1fr 120px; gap: 8px; }
+.follow-form { display: flex; gap: 4px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.follow-form input { font-size: 12px; padding: 4px 6px; width: auto; }
+.task-head { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 12px 0 6px; }
+.task-head.overdue { color: var(--s-incomplete); }
+.task-list { list-style: none; margin: 0; padding: 0; }
+.task-list li { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: start; padding: 8px 0; border-top: 1px solid var(--border); }
+.task-list li.overdue .task-when { color: var(--s-incomplete); }
+.task-when { font-weight: 600; }
+.task-act { white-space: nowrap; font-size: 13px; }
+@media (max-width: 720px) { .task-list li { grid-template-columns: 56px 1fr; } .task-list .task-act { grid-column: 2; } }
 .call-link:hover { text-decoration: underline; }
 .call-sheet { max-width: 380px; text-align: center; }
 .call-sheet .call-number { font-size: 24px; font-weight: 600; margin: 6px 0 10px; }
