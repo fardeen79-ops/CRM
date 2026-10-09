@@ -879,4 +879,4 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .bot-outcome h3 { margin-top: 0; }
 @media (max-width: 900px) { .bot-practice { position: static; } }
 .bot-recording audio, .row-audio { width: 100%; max-width: 420px; margin-top: 6px; }
-.row-audio { display: block; height: 32px; }
+.row-audio { display: block; height: 32px; min-width: 240px; }
