@@ -844,3 +844,9 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .stage-table td.num, .stage-table th.num { text-align: right; }
 .stage-table tbody tr { cursor: default; }
 .stage-table tr.slowest td { background: color-mix(in srgb, var(--danger) 7%, transparent); }
+
+/* TAT switch */
+.tat-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.tat-switch-state { font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
+.tat-switch.is-on { border-color: var(--s-pending); background: linear-gradient(0deg, var(--s-pending-bg), var(--s-pending-bg)), var(--surface); }
+.tat-switch.is-on .tat-switch-state { color: var(--s-pending); }

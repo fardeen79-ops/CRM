@@ -344,8 +344,60 @@ const tatCutoff = (today) => {
   return shiftDay(d, 1);
 };
 // Not verified yet and still able to be: the files the TAT clock runs on.
-const TAT_OPEN_SQL = `c.verified_at IS NULL AND c.status <> 'rejected' AND c.case_status NOT IN ('completed', 'rejected')`;
+const TAT_OPEN_SQL = `c.verified_at IS NULL AND c.status NOT IN ('rejected', 'completed') AND c.case_status NOT IN ('completed', 'rejected')`;
 const TAT_SOURCED_SQL = 'COALESCE(c.sourcing_date, substr(c.created_at, 1, 10))';
+// The TAT switch, for business heads and Dubai MIS: while it is on, every file past its verification
+// TAT shows as verified (status completed) and leaves the processing queue; files that pass their TAT
+// while it is on follow. Switching it off puts each one back at the stage it was at. Only the
+// verification status moves: the case status, targets and payouts stay on what the bank completes.
+export const canUseTatSwitch = (user) => user?.role === 'business_head' || (user?.role === 'mis' && String(user.region || '').toUpperCase() === 'DXB');
+export const tatSwitchOn = (db) => db.prepare('SELECT switched_on FROM tat_switch_log ORDER BY id DESC LIMIT 1').get()?.switched_on === 1;
+
+/** While the switch is on, holds every file now past its TAT as completed. Returns how many moved. */
+export function holdOverdueFiles(db, userId = null) {
+  if (!tatSwitchOn(db)) return 0;
+  const rows = db.prepare(`SELECT c.id, c.status FROM cases c WHERE ${TAT_OPEN_SQL} AND ${TAT_SOURCED_SQL} < ?`).all(tatCutoff(uaeDay()));
+  const ts = now();
+  const hold = db.prepare('UPDATE cases SET tat_override_from = ?, status = ?, updated_at = ? WHERE id = ?');
+  for (const r of rows) {
+    hold.run(r.status, STATUS.COMPLETED, ts, r.id);
+    addEvent(db, r.id, userId, 'tat_hold', { from: r.status, to: STATUS.COMPLETED, detail: 'Past verification TAT while the TAT switch is on' });
+  }
+  return rows.length;
+}
+
+/** Puts every file the switch is holding back at the stage it was at. */
+function releaseHeldFiles(db, userId) {
+  const rows = db.prepare('SELECT id, tat_override_from FROM cases WHERE tat_override_from IS NOT NULL').all();
+  const ts = now();
+  const back = db.prepare('UPDATE cases SET status = ?, tat_override_from = NULL, updated_at = ? WHERE id = ?');
+  for (const r of rows) {
+    back.run(r.tat_override_from, ts, r.id);
+    addEvent(db, r.id, userId, 'tat_release', { from: STATUS.COMPLETED, to: r.tat_override_from, detail: 'TAT switch turned off' });
+  }
+  return rows.length;
+}
+
+export function tatSwitchStatus(db, user) {
+  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can see the TAT switch');
+  const log = db.prepare('SELECT l.switched_on, l.files, l.at, u.name AS user_name FROM tat_switch_log l LEFT JOIN users u ON u.id = l.user_id ORDER BY l.id DESC LIMIT 20').all()
+    .map((l) => ({ ...l, switched_on: l.switched_on === 1 }));
+  const held = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE tat_override_from IS NOT NULL').get().n;
+  return { on: log[0]?.switched_on ?? false, held, log };
+}
+
+export function setTatSwitch(db, user, on) {
+  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can use the TAT switch');
+  const want = Boolean(on);
+  if (want === tatSwitchOn(db)) return tatSwitchStatus(db, user);
+  transaction(db, () => {
+    const id = db.prepare('INSERT INTO tat_switch_log (switched_on, user_id, at) VALUES (?, ?, ?)').run(want ? 1 : 0, user.id, now()).lastInsertRowid;
+    const files = want ? holdOverdueFiles(db, user.id) : releaseHeldFiles(db, user.id);
+    db.prepare('UPDATE tat_switch_log SET files = ? WHERE id = ?').run(files, id);
+  });
+  return tatSwitchStatus(db, user);
+}
+
 // The stage log: the stages a file passes through, how long it spent at each, and which took longest.
 export const CASE_STAGES = {
   awaiting_approval: 'Waiting for TL/SM approval',
@@ -423,6 +475,8 @@ export function verificationTat(row, today = uaeDay()) {
     return { due, state: on <= due ? 'met' : 'missed', verified_on: on, days_over: workingDaysBetween(due, on) };
   }
   if (row.status === STATUS.REJECTED || ['completed', 'rejected'].includes(row.case_status)) return { due, state: 'closed' };
+  // Shown as verified without a verification (held by the TAT switch, or an older uploaded file).
+  if (row.status === STATUS.COMPLETED) return { due, state: 'held' };
   return today > due
     ? { due, state: 'overdue', days_over: workingDaysBetween(due, today) }
     : { due, state: 'due', days_left: workingDaysBetween(today, due) };
@@ -966,6 +1020,7 @@ function latestBotCall(db, caseId) {
 export function getCase(db, user, id) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
+  holdOverdueFiles(db);
   const row = db.prepare(`${CASE_SELECT} WHERE c.id = ?`).get(id);
   if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   const events = db
@@ -987,6 +1042,7 @@ export function getCase(db, user, id) {
 export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, region, tat, limit = 200 } = {}) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
+  holdOverdueFiles(db);
   const where = [];
   const params = [];
   // Files past their verification TAT and still not verified.
@@ -1213,7 +1269,7 @@ export function updateCase(db, user, id, input) {
     if (reverify.length) {
       const what = reverify.map((f) => VERIFIED_FIELD_LABELS[f] || f).join(', ');
       const ts = now();
-      db.prepare(`UPDATE cases SET status = ?, assigned_to = NULL, verified_by = NULL, verified_at = NULL, call_attempts = 0,
+      db.prepare(`UPDATE cases SET status = ?, tat_override_from = NULL, assigned_to = NULL, verified_by = NULL, verified_at = NULL, call_attempts = 0,
           callback_at = NULL, callback_notified_at = NULL, updated_at = ? WHERE id = ?`).run(STATUS.PENDING, ts, id);
       addEvent(db, id, user.id, 're_verification', { from: STATUS.COMPLETED, to: STATUS.PENDING, detail: what });
       const ref = caseRef(id);
@@ -1342,6 +1398,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   transaction(db, () => {
     const set = { updated_at: ts };
     if (rule.to) set.status = rule.to;
+    if (set.status && row.tat_override_from) set.tat_override_from = null;
     let detail = null;
 
     switch (action) {
@@ -1679,6 +1736,7 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
 }
 
 export function stats(db, user, { region } = {}) {
+  holdOverdueFiles(db);
   const sc = caseScope(user);
   const clauses = sc ? [sc.sql] : [];
   const params = sc ? [...sc.params] : [];

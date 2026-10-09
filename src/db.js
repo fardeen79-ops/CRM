@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS cases (
   company_name       TEXT,
   customer_type      TEXT, -- salaried or self_employed
   sourcing_type      TEXT, -- regular or fixed_deposit (credit card and personal loan only)
+  tat_override_from  TEXT, -- the status a file held as completed by the TAT switch goes back to
   salary_bank        TEXT, -- the bank the customer's salary is currently transferred to
   salary             REAL,
   eid_number         TEXT,
@@ -265,6 +266,16 @@ CREATE TABLE IF NOT EXISTS card_products (
   updated_at TEXT NOT NULL
 );
 
+-- The TAT switch: while on, files past their verification TAT show as verified (completed); when
+-- switched off they go back to the stage they were at. One row per switch, newest is current.
+CREATE TABLE IF NOT EXISTS tat_switch_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  switched_on INTEGER NOT NULL,
+  user_id     INTEGER REFERENCES users(id),
+  files       INTEGER NOT NULL DEFAULT 0, -- files held (on) or moved back (off)
+  at          TEXT NOT NULL
+);
+
 -- Public holidays: days off that do not count towards the verification TAT.
 CREATE TABLE IF NOT EXISTS holidays (
   day        TEXT PRIMARY KEY, -- YYYY-MM-DD
@@ -479,7 +490,7 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
 // Columns added after the first release; ALTER existing databases in place.
 const ADDED_COLUMNS = {
   bundle_products: 'TEXT', credit_card: 'TEXT', personal_loan_type: 'TEXT', buyout_bank: 'TEXT',
-  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT',
+  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT', tat_override_from: 'TEXT',
   eid_number: 'TEXT', passport_number: 'TEXT', bidaya_id: 'TEXT', app_id: 'TEXT',
   loan_amount: 'REAL', interest_rate: 'REAL', full_loan_amount: 'REAL', incremental_amount: 'REAL',
   case_status: "TEXT NOT NULL DEFAULT 'sent_to_check'", case_status_note: 'TEXT',

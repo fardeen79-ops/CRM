@@ -30,6 +30,7 @@ const ROLE_LABEL = {
 // Assistant sales managers use the same screens as sales managers, over their own teams.
 const effRole = () => (state.user.role === 'asm' ? 'sales_manager' : state.user.role);
 const ACTION_LABEL = {
+  tat_hold: 'Marked completed (TAT switch on)', tat_release: 'Moved back (TAT switch off)',
   created: 'Case created',
   edited: 'Details edited',
   re_verification: 'Sent back for re-verification',
@@ -295,6 +296,7 @@ const ICON_PATHS = {
   queue: '<path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h4M8 17h4"/>',
   urgent: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/>',
   flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/>',
   cases: '<path d="M4 6h16M4 12h16M4 18h10"/>',
@@ -360,6 +362,7 @@ function navGroups() {
   if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
   if (state.meta.can_manage_boosters) admin.push(['#/boosters', 'Boosters', 'flag']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/holidays', 'Holidays', 'calendar']);
+  if (state.meta.can_use_tat_switch) admin.push(['#/tat-switch', 'TAT switch', 'clock']);
   if (admin.length) groups.push(['Admin', admin]);
   return filterNav(groups);
 }
@@ -472,6 +475,7 @@ async function route() {
     if (path === '/allocation') return await viewAllocation();
     if (path === '/boosters') return await viewBoosters();
     if (path === '/holidays') return await viewHolidays();
+    if (path === '/tat-switch') return await viewTatSwitch();
     if (path === '/pnl') return await viewPnl(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
@@ -1043,7 +1047,7 @@ function stageLog(s) {
 // Verification TAT on a file still to verify: past it, due today or due tomorrow.
 function tatChip(c) {
   const t = c.tat;
-  if (!t || t.state === 'met' || t.state === 'missed' || t.state === 'closed') return '';
+  if (!t || t.state !== 'overdue' && t.state !== 'due') return '';
   if (t.state === 'overdue') return html` <span class="chip bad" title="Verification was due ${fmtDay(t.due)}">Past TAT · ${t.days_over} ${t.days_over === 1 ? 'day' : 'days'}</span>`;
   if (t.days_left === 0) return html` <span class="chip warn" title="Verification due today">TAT today</span>`;
   if (t.days_left === 1) return html` <span class="chip fair" title="Verification due ${fmtDay(t.due)}">TAT tomorrow</span>`;
@@ -1057,6 +1061,7 @@ function tatLine(c) {
   if (t.state === 'met') return html`<span class="chip good">Met</span> verified ${fmtDay(t.verified_on)}, due ${fmtDay(t.due)}`;
   if (t.state === 'missed') return html`<span class="chip bad">Missed</span> verified ${fmtDay(t.verified_on)}, ${days(t.days_over)} after the ${fmtDay(t.due)} due date`;
   if (t.state === 'closed') return html`<span class="muted">Not verified (rejected)</span> · was due ${fmtDay(t.due)}`;
+  if (t.state === 'held') return html`Due ${fmtDay(t.due)}`;
   if (t.state === 'overdue') return html`<span class="chip bad">Past TAT</span> due ${fmtDay(t.due)}, ${days(t.days_over)} late`;
   return html`Due ${fmtDay(t.due)} ${t.days_left === 0 ? html`<span class="chip warn">today</span>` : html`<span class="muted">· ${days(t.days_left)} left</span>`}`;
 }
@@ -3810,6 +3815,35 @@ async function viewAllocation() {
 }
 
 // Boosters: business heads and MIS create product campaigns with dates, a reward line and an audience.
+// The TAT switch: while on, files past their verification TAT show as verified; off puts them back.
+async function viewTatSwitch() {
+  const s = await api('/tat-switch');
+  shell(html`
+    <div class="page-head"><div><h1>TAT switch</h1><p class="muted lede">While the switch is on, every file past its ${state.meta.verify_tat_days}-working-day verification TAT shows as verified (Completed) and leaves the processing queue, including files that pass their TAT while it stays on. When it is turned off, each of those files goes back to the stage it was at. Case status, targets, incentives and payouts are not affected.</p></div></div>
+    <div class="card tat-switch ${s.on ? 'is-on' : ''}">
+      <div class="tat-switch-row">
+        <div>
+          <div class="tat-switch-state">${s.on ? 'On' : 'Off'}</div>
+          <div class="muted">${s.on ? `${s.held} ${s.held === 1 ? 'file is' : 'files are'} showing as completed because of the switch.` : 'Late files stay at their real stage.'}</div>
+        </div>
+        <button type="button" class="btn ${s.on ? 'btn-danger' : 'btn-primary'}" id="tat-toggle">${s.on ? 'Turn off and move files back' : 'Turn on'}</button>
+      </div>
+    </div>
+    <div class="card"><h2>Switch log</h2>
+      ${s.log.length ? html`<div class="table-wrap"><table><thead><tr><th>When</th><th>Switched</th><th>By</th><th class="num">Files</th></tr></thead><tbody>
+        ${s.log.map((l) => html`<tr><td class="nowrap">${fmtDate(l.at)}</td><td>${l.switched_on ? html`<span class="chip warn">On</span>` : html`<span class="chip">Off</span>`}</td><td>${l.user_name || '—'}</td><td class="num">${l.files} ${l.switched_on ? 'held' : 'moved back'}</td></tr>`)}
+      </tbody></table></div>` : html`<p class="muted">The switch has not been used yet.</p>`}
+    </div>
+  `);
+  document.getElementById('tat-toggle').onclick = async () => {
+    const msg = s.on
+      ? `Turn the TAT switch off? The ${s.held} ${s.held === 1 ? 'file' : 'files'} it is holding go back to the stage they were at.`
+      : 'Turn the TAT switch on? Every file past its verification TAT will show as completed until the switch is turned off.';
+    if (!confirm(msg)) return;
+    try { const r = await api('/tat-switch', { method: 'PUT', body: { on: !s.on } }); toast(r.on ? `Switch on: ${r.log[0].files} late ${r.log[0].files === 1 ? 'file' : 'files'} now show as completed` : `Switch off: ${r.log[0].files} ${r.log[0].files === 1 ? 'file' : 'files'} moved back`); await viewTatSwitch(); } catch (err) { toast(err.message, true); }
+  };
+}
+
 // Public holidays: days off for the verification TAT, kept by MIS and business heads.
 async function viewHolidays() {
   const { holidays, can_edit } = await api('/holidays');

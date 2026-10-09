@@ -301,6 +301,35 @@ test('files past their verification TAT are counted and listed', async () => {
   assert.ok((await lead('GET', '/stats')).data.tat.overdue >= 1);
 });
 
+test('TAT switch: business heads and Dubai MIS hold late files as completed, and turning it off puts them back', async () => {
+  const sales = await login('sales@t.local');
+  const late = (await sales('POST', '/cases', { customer_name: 'Held File', phone: '9876543214', product: 'accounts', sourcing_date: '2026-01-06' })).data.case;
+  const fresh = (await sales('POST', '/cases', { customer_name: 'Fresh File', phone: '9876543215', product: 'accounts' })).data.case;
+  const bh = await login('bh@t.local');
+  assert.equal((await (await login('lead@t.local'))('PUT', '/tat-switch', { on: true })).status, 403);
+  assert.equal((await staffAdmin('PUT', '/tat-switch', { on: true })).status, 403); // MIS without the DXB region
+
+  let r = await bh('PUT', '/tat-switch', { on: true });
+  assert.equal(r.data.on, true);
+  assert.ok(r.data.log[0].files >= 1);
+  let held = (await bh('GET', `/cases/${late.id}`)).data.case;
+  assert.equal(held.status, 'completed');
+  assert.equal(held.case_status, 'sent_to_check'); // verification only
+  assert.equal((await bh('GET', `/cases/${fresh.id}`)).data.case.status, 'pending_verification');
+  assert.ok(!(await bh('GET', '/cases?tat=overdue')).data.cases.some((c) => c.id === late.id));
+  // A file that passes its TAT while the switch is on follows.
+  const later = (await sales('POST', '/cases', { customer_name: 'Later File', phone: '9876543216', product: 'accounts', sourcing_date: '2026-01-07' })).data.case;
+  assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'completed');
+
+  r = await bh('PUT', '/tat-switch', { on: false });
+  assert.equal(r.data.on, false);
+  assert.equal(r.data.held, 0);
+  held = (await bh('GET', `/cases/${late.id}`)).data.case;
+  assert.equal(held.status, 'pending_verification');
+  assert.deepEqual(held.events.slice(0, 2).map((e) => e.type), ['tat_release', 'tat_hold']);
+  assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'pending_verification');
+});
+
 test('credit card cases must name a card from the list', async () => {
   const sales = await login('sales@t.local');
   const base = { customer_name: 'Card Test', phone: '9876543210' };
