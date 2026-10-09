@@ -331,6 +331,8 @@ function navGroups() {
   if (r === 'processing') cases.push(['#/cases?assigned=me', 'My cases', 'mine']);
   if (r !== 'sales') cases.push(['#/cases', 'All cases', 'cases']);
   if (['sales', 'team_leader', 'sales_manager'].includes(r)) cases.push(['#/cases/new', 'New case', 'plus']);
+  if (r === 'sales') cases.push(['#/leads', 'My leads', 'flag']);
+  else if (['team_leader', 'sales_manager'].includes(r)) cases.push(['#/leads', 'Team leads', 'flag']);
   groups.push(['Cases', cases]);
 
   const perf = [];
@@ -460,7 +462,8 @@ async function route() {
     if (path === '/pnl') return await viewPnl(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
-    if (path === '/cases/new') return viewCaseForm();
+    if (path === '/cases/new') return viewCaseForm(undefined, params.get('lead'));
+    if (path === '/leads') return await viewLeads(params);
     if ((m = path.match(/^\/cases\/(\d+)\/edit$/))) return await viewCaseForm(Number(m[1]));
     if ((m = path.match(/^\/cases\/(\d+)$/))) return await viewCase(Number(m[1]));
     if (path === '/cases') return await viewCases({ title: state.user.role === 'sales' ? 'My cases' : params.get('assigned') === 'me' ? 'My cases' : 'All cases', params });
@@ -853,8 +856,15 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
 }
 
 // ---------- case form ----------
-async function viewCaseForm(id) {
+async function viewCaseForm(id, leadId = null) {
   const c = id ? { ...(await api(`/cases/${id}`)).case } : { sourcing_date: todayLocal() };
+  // A file started from a lead: the lead's details fill the form, and submitting converts the lead.
+  let lead = null;
+  if (!id && leadId) {
+    lead = (await api(`/leads/${leadId}`)).lead;
+    if (lead.status !== 'open') throw new Error(`This lead is ${(state.meta.lead_status[lead.status] || lead.status).toLowerCase()} and cannot be converted`);
+    Object.assign(c, { first_name: lead.first_name, middle_name: lead.middle_name, last_name: lead.last_name, customer_name: lead.customer_name, phone: lead.phone, email: lead.email, company_name: lead.company_name, salary: lead.salary, product: lead.product, source: lead.source, city: lead.city, sales_notes: lead.notes });
+  }
   if (id && !c.first_name && c.customer_name) {
     // Cases created before names were split: prefill first / middle / last from the full name.
     const parts = c.customer_name.split(/\s+/);
@@ -902,6 +912,7 @@ async function viewCaseForm(id) {
       <p class="muted" style="margin:0">${id ? 'Update the customer details, then save.' : 'Enter the customer you sourced. The file is saved with case status Sent to checker and goes to the processing team for a verification call.'}</p>
     </div>${id ? html`<div>${caseBadge(c.case_status)}</div>` : ''}</div>
     <form class="card case-form" id="case-form" novalidate>
+      ${lead ? html`<input type="hidden" name="lead_id" value="${lead.id}"><div class="callout info"><strong>From your lead ${lead.customer_name}.</strong> The details below came across from the lead; check them and complete the file. Submitting marks the lead converted.</div>` : ''}
       ${c.status === 'returned_to_sales' ? html`<div class="callout info"><strong>Returned by team leader</strong>${c.tl_note}</div>` : ''}
 
       <section>
@@ -3120,6 +3131,75 @@ async function viewReports(params) {
 
 
 
+
+// ---------- leads: a sales person's prospects before there is a file ----------
+const LEAD_CHIP = { open: 'warn', converted: 'good', not_interested: '', not_eligible: 'bad' };
+async function viewLeads(params = new URLSearchParams()) {
+  const r = effRole();
+  const mine = state.user.role === 'sales';
+  const filters = new URLSearchParams(); for (const k of ['status', 'q']) if (params.get(k)) filters.set(k, params.get(k));
+  const [{ leads, counts }, staff] = await Promise.all([api(`/leads${filters.size ? `?${filters}` : ''}`), mine ? [] : api('/sales-staff').then((x) => x.staff).catch(() => [])]);
+  const today = todayLocal();
+  const sel = (k) => params.get(k) || '';
+  const leadForm = (l = {}, p = 'nl') => html`
+    ${!mine ? html`<div class="field-row"><label for="${p}-owner">Sales staff <span class="req">*</span></label><select id="${p}-owner" name="owner_id" required><option value="">Choose…</option>${staff.map((s) => html`<option value="${s.id}" ${l.owner_id === s.id ? raw('selected') : ''}>${s.name}${s.sales_code ? ` · ${s.sales_code}` : ''}</option>`)}</select></div>` : ''}
+    <div class="form-grid three">
+      <div class="field-row"><label for="${p}-first">First name <span class="req">*</span></label><input id="${p}-first" name="first_name" value="${l.first_name || ''}" required></div>
+      <div class="field-row"><label for="${p}-middle">Middle name</label><input id="${p}-middle" name="middle_name" value="${l.middle_name || ''}"></div>
+      <div class="field-row"><label for="${p}-last">Last name <span class="req">*</span></label><input id="${p}-last" name="last_name" value="${l.last_name || ''}" required></div>
+    </div>
+    <div class="form-grid two">
+      <div class="field-row"><label for="${p}-phone">Mobile number <span class="req">*</span></label><input id="${p}-phone" name="phone" type="tel" value="${l.phone || ''}" required placeholder="+971 50 123 4567"></div>
+      <div class="field-row"><label for="${p}-email">Email</label><input id="${p}-email" name="email" type="email" value="${l.email || ''}"></div>
+      <div class="field-row"><label for="${p}-company">Company</label><input id="${p}-company" name="company_name" value="${l.company_name || ''}"></div>
+      <div class="field-row"><label for="${p}-salary">Monthly salary (AED)</label><input id="${p}-salary" name="salary" inputmode="numeric" value="${l.salary != null ? l.salary : ''}"></div>
+      <div class="field-row"><label for="${p}-product">Interested in</label><select id="${p}-product" name="product"><option value="">Not sure yet</option>${Object.entries(state.meta.products).map(([k, v]) => html`<option value="${k}" ${l.product === k ? raw('selected') : ''}>${v}</option>`)}</select></div>
+      <div class="field-row"><label for="${p}-source">Lead source</label><input id="${p}-source" name="source" value="${l.source || ''}" placeholder="Referral, walk-in, field visit…"></div>
+      <div class="field-row"><label for="${p}-city">City</label><input id="${p}-city" name="city" value="${l.city || ''}"></div>
+      <div class="field-row"><label for="${p}-follow">Follow up on</label><input id="${p}-follow" name="follow_up_at" type="date" value="${l.follow_up_at || ''}"></div>
+    </div>
+    <div class="field-row"><label for="${p}-notes">Notes</label><textarea id="${p}-notes" name="notes" placeholder="What the customer said, best time to call…">${l.notes || ''}</textarea></div>`;
+  shell(html`
+    <div class="page-head"><div><h1>${mine ? 'My leads' : 'Team leads'}</h1><p class="muted lede">${mine ? 'Customers you are working on before there is a file. Convert a lead into a new case when they are ready; the details carry across. Only you and your team leader see your leads.' : 'The leads your sales staff are working on. Only the sales person and you see them.'}</p></div></div>
+    <div class="kpis staff-kpis">
+      ${[['Open', counts.open, 'being worked'], ['Follow-ups due', counts.due, 'open leads due today or earlier'], ['Converted', counts.converted, 'became files'], ['Not interested', counts.not_interested, ''], ['Not eligible', counts.not_eligible, '']].map(([l, v, sub]) => html`<div class="kpi ${l === 'Follow-ups due' && v ? 'kpi-alert' : ''}"><span class="kpi-label">${l}</span><span class="kpi-value">${v || 0}</span><span class="kpi-sub">${sub || ' '}</span></div>`)}
+    </div>
+    <form class="toolbar" id="lead-filters">
+      <input type="search" name="q" value="${sel('q')}" placeholder="Search name, mobile, company${mine ? '' : ' or staff'}…" aria-label="Search leads">
+      <select name="status" aria-label="Status"><option value="">All statuses</option>${Object.entries(state.meta.lead_status).map(([k, l]) => html`<option value="${k}" ${sel('status') === k ? raw('selected') : ''}>${l}</option>`)}</select>
+      <button class="btn">Filter</button><span class="muted small">${leads.length} ${leads.length === 1 ? 'lead' : 'leads'}</span>
+    </form>
+    <div class="grid two-col">
+      <div class="card"><div class="table-wrap"><table class="users-table leads-table">
+        <thead><tr>${mine ? '' : html`<th>Staff</th>`}<th>Customer</th><th>Interested in</th><th>Follow up</th><th>Status</th><th></th></tr></thead>
+        <tbody>${leads.length ? leads.map((l) => html`<tr data-lead-row="${l.id}">
+          ${mine ? '' : html`<td>${l.owner_name}<div class="muted small">${l.owner_sales_code || ''}</div></td>`}
+          <td><strong>${l.customer_name}</strong><div class="muted small"><span class="mono">${l.phone}</span>${l.company_name ? ` · ${l.company_name}` : ''}${l.salary != null ? ` · AED ${fmtAmount(l.salary)}` : ''}</div>${l.notes ? html`<div class="small">${l.notes}</div>` : ''}</td>
+          <td class="small">${l.product ? state.meta.products[l.product] : html`<span class="muted">—</span>`}${l.source ? html`<div class="muted">${l.source}</div>` : ''}</td>
+          <td class="small">${l.follow_up_at ? html`<span class="${l.status === 'open' && l.follow_up_at <= today ? 'lock' : ''}">${l.follow_up_at}</span>` : html`<span class="muted">—</span>`}</td>
+          <td><span class="chip ${LEAD_CHIP[l.status] || ''}">${state.meta.lead_status[l.status]}</span>${l.case_id ? html`<div class="small"><a href="#/cases/${l.case_id}">Open the file →</a></div>` : ''}${l.status_note ? html`<div class="muted small">${l.status_note}</div>` : ''}<div class="muted small">${fmtDate(l.status_at || l.created_at)}</div></td>
+          <td>${mine ? html`<div class="actions">
+            ${l.status === 'open' ? html`<a class="btn-link" href="#/cases/new?lead=${l.id}">Convert to case</a><button class="btn-link" data-lead-edit="${l.id}">Edit</button><button class="btn-link" data-lead-status="${l.id}" data-status="not_interested">Not interested</button><button class="btn-link" data-lead-status="${l.id}" data-status="not_eligible">Not eligible</button>` : l.status === 'converted' ? '' : html`<button class="btn-link" data-lead-status="${l.id}" data-status="open">Reopen</button>`}
+          </div>` : ''}</td></tr>
+          ${mine && l.status === 'open' ? html`<tr hidden data-lead-editor="${l.id}"><td colspan="6"><form data-lead-form="${l.id}">${leadForm(l, `l${l.id}`)}<div class="actions"><button class="btn-primary">Save</button><button type="button" class="btn" data-lead-cancel="${l.id}">Cancel</button></div></form></td></tr>` : ''}`) : html`<tr><td colspan="6" class="muted">No leads${sel('status') || sel('q') ? ' match' : ' yet'}.</td></tr>`}</tbody>
+      </table></div></div>
+      <form class="card" id="lead-new"><h2>${mine ? 'Add a lead' : 'Add a lead for a staff member'}</h2>${leadForm({}, 'nl')}<button class="btn-primary">Add lead</button></form>
+    </div>`);
+  const app = document.getElementById('app');
+  const reload = () => viewLeads(params);
+  document.getElementById('lead-filters').onsubmit = (e) => { e.preventDefault(); const q = new URLSearchParams(); for (const [k, v] of new FormData(e.target).entries()) if (v) q.set(k, v); location.hash = `#/leads${q.size ? `?${q}` : ''}`; };
+  document.getElementById('lead-new').onsubmit = async (e) => { e.preventDefault(); try { await api('/leads', { method: 'POST', body: formData(e.target) }); toast('Lead added'); reload(); } catch (err) { toast(err.message, true); } };
+  app.querySelectorAll('[data-lead-edit]').forEach((b) => (b.onclick = () => { const row = app.querySelector(`[data-lead-editor="${b.dataset.leadEdit}"]`); row.hidden = !row.hidden; }));
+  app.querySelectorAll('[data-lead-cancel]').forEach((b) => (b.onclick = () => { app.querySelector(`[data-lead-editor="${b.dataset.leadCancel}"]`).hidden = true; }));
+  app.querySelectorAll('[data-lead-form]').forEach((f) => (f.onsubmit = async (e) => { e.preventDefault(); try { await api(`/leads/${f.dataset.leadForm}`, { method: 'PATCH', body: formData(f) }); toast('Lead saved'); reload(); } catch (err) { toast(err.message, true); } }));
+  app.querySelectorAll('[data-lead-status]').forEach((b) => (b.onclick = async () => {
+    const status = b.dataset.status;
+    const note = status === 'open' ? '' : prompt(`${state.meta.lead_status[status]}: add a note (optional)`) ?? null;
+    if (note === null) return;
+    try { await api(`/leads/${b.dataset.leadStatus}/status`, { method: 'POST', body: { status, note } }); toast(`Lead marked ${state.meta.lead_status[status].toLowerCase()}`); reload(); } catch (err) { toast(err.message, true); }
+  }));
+}
+
 // ---------- profit and loss: revenue less salaries and incentives, per cycle ----------
 // The hierarchy as table rows: regions open, everything below closed until clicked.
 function pnlTreeRows(nodes, depth = 0) {
@@ -3181,6 +3261,7 @@ async function viewPnl(params = new URLSearchParams()) {
 // ---------- roles: custom roles on top of the built-in ones ----------
 const NAV_PAGE = (href) => {
   if (/^#\/(cases|queue|callbacks|urgent|action-required|card-approvals|edit-requests|quality-check|recordings|recording-approvals)/.test(href)) return 'cases';
+  if (href.startsWith('#/leads')) return 'leads';
   if (href.startsWith('#/targets')) return 'targets';
   if (href.startsWith('#/my-tab')) return 'my_tab';
   if (href.startsWith('#/team')) return 'team';

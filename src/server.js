@@ -11,6 +11,7 @@ import * as assets from './assets.js';
 import * as roles from './roles.js';
 import { dashboardFor } from './dashboard.js';
 import { profitAndLoss, payrollFor, profitAndLossTree } from './pnl.js';
+import * as leads from './leads.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -179,6 +180,7 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
+        lead_status: leads.LEAD_STATUS,
         asset_status: assets.ASSET_STATUS, networks: assets.NETWORKS, accessories: assets.ACCESSORIES, asset_admins: assets.ASSET_ADMINS,
         auto_loan_classes: cases.AUTO_LOAN_CLASSES,
         al_incentive_rules: AL_INCENTIVE_RULES,
@@ -243,8 +245,19 @@ function routes(db, dispatch, bot) {
     })],
 
     ['POST', /^\/api\/cases$/, async ({ user, body, res }) => {
-      send(res, 201, { case: cases.createCase(db, user, body) });
+      // A file created from a lead converts the lead; the lead must be the user's own and still open.
+      if (body.lead_id) leads.getLead(db, user, Number(body.lead_id));
+      const created = cases.createCase(db, user, body);
+      if (body.lead_id) leads.convertLead(db, user, body.lead_id, created.id);
+      send(res, 201, { case: created });
     }],
+
+    // Leads: a sales person's prospects before there is a file; their team leader sees them too.
+    ['GET', /^\/api\/leads$/, async ({ user, query }) => leads.listLeads(db, user, { status: query.get('status'), q: query.get('q') })],
+    ['POST', /^\/api\/leads$/, async ({ user, body, res }) => send(res, 201, { lead: leads.createLead(db, user, body) })],
+    ['GET', /^\/api\/leads\/(\d+)$/, async ({ user, params }) => ({ lead: leads.getLead(db, user, Number(params[0])) })],
+    ['PATCH', /^\/api\/leads\/(\d+)$/, async ({ user, params, body }) => ({ lead: leads.updateLead(db, user, Number(params[0]), body) })],
+    ['POST', /^\/api\/leads\/(\d+)\/status$/, async ({ user, params, body }) => ({ lead: leads.setLeadStatus(db, user, Number(params[0]), body) })],
 
     ['GET', /^\/api\/cases\/(\d+)$/, async ({ user, params }) => {
       const result = cases.getCase(db, user, Number(params[0]));

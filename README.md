@@ -29,6 +29,15 @@ Run the tests with `npm test`.
 
 The landing page is personal. It opens with the sales cycle (day, days left) and the person's own achievement against target with progress bars (a leader's or manager's team, everything for MIS and business heads), the **incentive so far** for the people who earn one, and a **six-cycle trend** of files sourced and completed in their scope, with the numbers available as a table. Then only what **needs their attention** (returned files, pending verifications, edit requests, approvals, urgent flags), the role's work list, a compact row of **file counts** for the cycle, and the team table for leaders. Business heads and Dubai MIS also see the payout from the bank. `GET /api/dashboard` returns the cycle, counts, trend and incentive for the signed-in user.
 
+## Leads
+
+Sales staff keep their prospects in **My leads** before there is a file: name, mobile, email, company, salary, the product they are interested in, source, city, a follow-up date and notes. A lead is seen **only by the sales person who owns it and their team leader** (a sales manager or ASM leading the team directly counts as the team leader); nobody else can list or open it. The team leader sees the team's leads read-only and can add a lead for one of their staff. The sales person can:
+
+- **Convert to case**: opens the new-case form with the lead's details filled in (names, mobile, email, company, salary, product, source, city, notes). Submitting the file marks the lead **Converted** and links it to the file. A converted lead cannot change.
+- Mark it **Not interested** or **Not eligible**, with an optional note, or **reopen** it.
+
+The page counts open leads, follow-ups due, converted, not interested and not eligible, and filters by status or text. API: `GET/POST /api/leads`, `GET/PATCH /api/leads/:id`, `POST /api/leads/:id/status`; `POST /api/cases` with `lead_id` converts the lead.
+
 ## Case workflow
 
 ```

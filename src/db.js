@@ -344,6 +344,30 @@ CREATE TABLE IF NOT EXISTS payroll (
   set_at         TEXT NOT NULL,
   PRIMARY KEY (user_id, cycle)
 );
+CREATE TABLE IF NOT EXISTS leads (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id      INTEGER NOT NULL REFERENCES users(id),
+  customer_name TEXT NOT NULL,
+  first_name    TEXT,
+  middle_name   TEXT,
+  last_name     TEXT,
+  phone         TEXT NOT NULL,
+  email         TEXT,
+  company_name  TEXT,
+  salary        REAL,
+  product       TEXT,
+  source        TEXT,
+  city          TEXT,
+  notes         TEXT,
+  follow_up_at  TEXT,
+  status        TEXT NOT NULL DEFAULT 'open', -- open, converted, not_interested or not_eligible
+  status_note   TEXT,
+  status_at     TEXT,
+  case_id       INTEGER REFERENCES cases(id),
+  created_by    INTEGER REFERENCES users(id),
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS report_runs (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

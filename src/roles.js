@@ -6,6 +6,7 @@ import { WorkflowError } from './cases.js';
 /** The screens a role can be given, with the API each one needs (gated for custom roles). */
 export const PAGES = {
   cases: { label: 'Files', help: 'The case list, case pages and the verification work of the base role', paths: /^\/api\/cases(\/|$)/ },
+  leads: { label: 'Leads', help: 'A sales person\'s prospects before there is a file; a team leader sees the team\'s', paths: /^\/api\/leads(\/|$)/ },
   targets: { label: 'Targets and incentives', help: 'Targets, achievement and the incentive working', paths: /^\/api\/(targets|incentives)(\/|$)/ },
   my_tab: { label: 'My tab', help: 'The sales person\'s own sourcing tab', paths: /^\/api\/assets\/mine$/ },
   team: { label: 'Team view', help: 'The hierarchy with each team\'s numbers', paths: /^\/api\/hierarchy(\/|$)/ },
@@ -26,11 +27,11 @@ export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', cards: 'Card activ
 const MANAGE = ['cases', 'targets', 'team', 'cards', 'reports', 'uploads', 'staff', 'access_log', 'assets', 'chat', 'roles'];
 const HEAD = [...MANAGE, 'pnl'];
 export const BUILTIN_ROLES = {
-  sales: { label: 'Sales', pages: ['cases', 'targets', 'my_tab', 'chat'], uploads: [] },
+  sales: { label: 'Sales', pages: ['cases', 'leads', 'targets', 'my_tab', 'chat'], uploads: [] },
   processing: { label: 'Processing', pages: ['cases', 'chat'], uploads: [] },
-  team_leader: { label: 'Team Leader', pages: ['cases', 'targets', 'team', 'reports', 'chat'], uploads: [] },
-  asm: { label: 'Assistant Sales Manager', pages: ['cases', 'targets', 'team', 'reports', 'chat'], uploads: [] },
-  sales_manager: { label: 'Sales Manager', pages: ['cases', 'targets', 'team', 'reports', 'chat'], uploads: [] },
+  team_leader: { label: 'Team Leader', pages: ['cases', 'leads', 'targets', 'team', 'reports', 'chat'], uploads: [] },
+  asm: { label: 'Assistant Sales Manager', pages: ['cases', 'leads', 'targets', 'team', 'reports', 'chat'], uploads: [] },
+  sales_manager: { label: 'Sales Manager', pages: ['cases', 'leads', 'targets', 'team', 'reports', 'chat'], uploads: [] },
   mis: { label: 'MIS', pages: MANAGE, uploads: Object.keys(UPLOAD_KINDS) },
   business_head: { label: 'Business Head', pages: HEAD, uploads: Object.keys(UPLOAD_KINDS) },
   governance: { label: 'Governance', pages: ['cases', 'team', 'reports', 'access_log', 'chat'], uploads: [] },
