@@ -317,6 +317,51 @@ export function productLabel(product, bundleProducts, creditCard, loanType, buyo
 }
 
 const OPEN_FOR_PROCESSING = [STATUS.PENDING, STATUS.IN_VERIFICATION];
+
+// Verification TAT: a file should be verified within two working days of its sourcing date.
+// Saturday is a working day and Sunday the day off, as in the submission calendar.
+export const VERIFY_TAT_DAYS = 2;
+const isWorkingDay = (day) => new Date(`${day}T00:00:00Z`).getUTCDay() !== 0;
+const shiftDay = (day, n) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+/** Working days after `from` up to and including `to` (0 when `to` is not after `from`). */
+export function workingDaysBetween(from, to) {
+  let n = 0;
+  for (let d = shiftDay(from, 1); d <= to; d = shiftDay(d, 1)) if (isWorkingDay(d)) n++;
+  return n;
+}
+/** The day verification is due: the sourcing date plus two working days. */
+export function verificationDue(sourcingDay) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(sourcingDay || ''))) return null;
+  let d = sourcingDay;
+  for (let left = VERIFY_TAT_DAYS; left > 0;) { d = shiftDay(d, 1); if (isWorkingDay(d)) left--; }
+  return d;
+}
+/** Files sourced before this day are past their TAT today if still not verified. */
+const tatCutoff = (today) => {
+  let d = today;
+  for (let counted = 0; counted < VERIFY_TAT_DAYS;) { if (isWorkingDay(d)) counted++; d = shiftDay(d, -1); }
+  return shiftDay(d, 1);
+};
+// Not verified yet and still able to be: the files the TAT clock runs on.
+const TAT_OPEN_SQL = `c.verified_at IS NULL AND c.status <> 'rejected' AND c.case_status NOT IN ('completed', 'rejected')`;
+const TAT_SOURCED_SQL = 'COALESCE(c.sourcing_date, substr(c.created_at, 1, 10))';
+/**
+ * A file's verification TAT: due (with working days left), overdue (by how many working days),
+ * met or missed once verified, or closed when it was rejected without verification.
+ */
+export function verificationTat(row, today = uaeDay()) {
+  const sourced = row.sourcing_date || String(row.created_at || '').slice(0, 10);
+  const due = verificationDue(sourced);
+  if (!due) return null;
+  if (row.verified_at) {
+    const on = uaeDay(Date.parse(row.verified_at));
+    return { due, state: on <= due ? 'met' : 'missed', verified_on: on, days_over: workingDaysBetween(due, on) };
+  }
+  if (row.status === STATUS.REJECTED || ['completed', 'rejected'].includes(row.case_status)) return { due, state: 'closed' };
+  return today > due
+    ? { due, state: 'overdue', days_over: workingDaysBetween(due, today) }
+    : { due, state: 'due', days_left: workingDaysBetween(today, due) };
+}
 // Verification has a final result only when Completed or Rejected; anything else is still being verified.
 const VERIFICATION_FINAL = [STATUS.COMPLETED, STATUS.REJECTED];
 const STILL_VERIFYING = [STATUS.PENDING, STATUS.IN_VERIFICATION, STATUS.INCOMPLETE, STATUS.RETURNED, STATUS.APPROVAL];
@@ -740,7 +785,7 @@ const CASE_SELECT = `
   LEFT JOIN users tab ON tab.id = c.timing_approved_by
   LEFT JOIN users cdb ON cdb.id = c.complaint_decided_by`;
 
-const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
+const withRef = (row) => row && { ...row, tat: verificationTat(row), ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
 const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.parse(text); } catch { return []; } };
 
 // Personal details that only some people may see once a file is submitted.
@@ -874,11 +919,16 @@ export function getCase(db, user, id) {
   return out;
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, region, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, region, tat, limit = 200 } = {}) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
   const where = [];
   const params = [];
+  // Files past their verification TAT and still not verified.
+  if (tat === 'overdue') {
+    where.push(`${TAT_OPEN_SQL} AND ${TAT_SOURCED_SQL} < ?`);
+    params.push(tatCutoff(uaeDay()));
+  }
   // A region view: business heads, MIS and governance narrowing everything to DXB or AUH.
   if (REGIONS[String(region || '').toUpperCase()]) {
     where.push('c.region = ?');
@@ -1578,6 +1628,15 @@ export function stats(db, user, { region } = {}) {
     byCaseStatus[r.case_status] = r.n;
   }
   const result = { by_status: byStatus, by_case_status: byCaseStatus, total: Object.values(byStatus).reduce((a, b) => a + b, 0) };
+  // Verification TAT on the files still to verify: past it, and due today.
+  const today = uaeDay();
+  const tatRows = db.prepare(`SELECT c.sourcing_date, c.created_at, c.status, c.case_status, c.verified_at FROM cases c WHERE ${TAT_OPEN_SQL} ${scope.replace('WHERE', 'AND')}`).all(...params);
+  result.tat = { overdue: 0, due_today: 0, days: VERIFY_TAT_DAYS };
+  for (const row of tatRows) {
+    const t = verificationTat(row, today);
+    if (t?.state === 'overdue') result.tat.overdue++;
+    else if (t?.state === 'due' && t.due === today) result.tat.due_today++;
+  }
   if (APPROVERS.includes(user.role)) result.card_approvals = db.prepare(`SELECT COUNT(*) AS n FROM cases c WHERE c.status = ? ${scope.replace('WHERE', 'AND')}`).get(STATUS.APPROVAL, ...params).n;
   if (EDITOR_ROLES.includes(user.role)) {
     result.edit_requests = db.prepare(`SELECT COUNT(*) AS n FROM cases c WHERE edit_request_to = ? ${scope.replace('WHERE', 'AND')}`).get(queueRole(user), ...params).n;

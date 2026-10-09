@@ -787,6 +787,8 @@ async function viewDashboard() {
   if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0], ['Approvals', s.card_approvals, '#/card-approvals', s.card_approvals > 0]);
   else if (r !== 'sales' && r !== 'processing') verifyTiles.push(['Awaiting TL/SM approval', by.awaiting_approval, '#/cases?status=awaiting_approval']);
   if (['processing', 'team_leader'].includes(r)) verifyTiles.unshift(['Urgent verification', s.governance.urgent, '#/urgent', s.governance.urgent > 0]);
+  // Verification TAT: files not verified within the working days allowed from sourcing.
+  if (s.tat && (r !== 'sales' || s.tat.overdue)) verifyTiles.unshift(['Past verification TAT', s.tat.overdue, '#/cases?tat=overdue', s.tat.overdue > 0, `${s.tat.due_today} more due today · ${s.tat.days} working days`]);
   if (r === 'processing') {
     verifyTiles.unshift(['Call-backs due', s.callbacks.due, '#/callbacks', s.callbacks.due > 0, `${s.callbacks.upcoming} upcoming`]);
     verifyTiles.push(['My open cases', s.my_queue, '#/cases?assigned=me']);
@@ -967,7 +969,7 @@ function miniTable(head, rows) {
 
 // ---------- case list ----------
 const COLS = {
-  ref: ['Ref', (c) => html`<strong>${c.ref}</strong>${timingChips(c)}`],
+  ref: ['Ref', (c) => html`<strong>${c.ref}</strong>${timingChips(c)}${tatChip(c)}`],
   why_waiting: ['Waiting for', (c) => html`<div class="chips">
     ${c.status === 'awaiting_approval' && c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary != null ? c.salary < c.card_min_salary : !(c.timing_flag && !c.timing_approved_at)) ? html`<span class="chip bad">Card below ${incomeLabelsFor(c.customer_type).word}</span>` : ''}
     ${timingChips(c, true)}
@@ -1008,6 +1010,27 @@ const COLS = {
 };
 
 // Sunday and after-6-pm flags on a file, as small chips; grey once the team has approved them.
+// Verification TAT on a file still to verify: past it, due today or due tomorrow.
+function tatChip(c) {
+  const t = c.tat;
+  if (!t || t.state === 'met' || t.state === 'missed' || t.state === 'closed') return '';
+  if (t.state === 'overdue') return html` <span class="chip bad" title="Verification was due ${fmtDay(t.due)}">Past TAT · ${t.days_over} ${t.days_over === 1 ? 'day' : 'days'}</span>`;
+  if (t.days_left === 0) return html` <span class="chip warn" title="Verification due today">TAT today</span>`;
+  if (t.days_left === 1) return html` <span class="chip fair" title="Verification due ${fmtDay(t.due)}">TAT tomorrow</span>`;
+  return '';
+}
+/** The file page's TAT line: when verification is due, and whether it was met. */
+function tatLine(c) {
+  const t = c.tat;
+  if (!t) return '—';
+  const days = (n) => `${n} working ${n === 1 ? 'day' : 'days'}`;
+  if (t.state === 'met') return html`<span class="chip good">Met</span> verified ${fmtDay(t.verified_on)}, due ${fmtDay(t.due)}`;
+  if (t.state === 'missed') return html`<span class="chip bad">Missed</span> verified ${fmtDay(t.verified_on)}, ${days(t.days_over)} after the ${fmtDay(t.due)} due date`;
+  if (t.state === 'closed') return html`<span class="muted">Not verified (rejected)</span> · was due ${fmtDay(t.due)}`;
+  if (t.state === 'overdue') return html`<span class="chip bad">Past TAT</span> due ${fmtDay(t.due)}, ${days(t.days_over)} late`;
+  return html`Due ${fmtDay(t.due)} ${t.days_left === 0 ? html`<span class="chip warn">today</span>` : html`<span class="muted">· ${days(t.days_left)} left</span>`}`;
+}
+
 function timingChips(c, pendingOnly = false) {
   const flags = String(c.timing_flag || '').split(',').filter(Boolean);
   if (!flags.length || (pendingOnly && c.timing_approved_at)) return '';
@@ -1037,8 +1060,10 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     ...(params.get('assigned') && { assigned: params.get('assigned') }),
     ...(params.get('cycle') && { cycle: params.get('cycle') }),
     ...(params.get('staff') && { staff: params.get('staff') }),
+    ...(params.get('tat') && { tat: params.get('tat') }),
   });
   const { cases } = await api(`/cases?${query}`);
+  if (params.get('tat') === 'overdue') subtitle = `Files not verified within ${state.meta.verify_tat_days} working days of their sourcing date.`;
   // Drill-down from the Targets page: cases completed in one cycle, optionally for one sales person.
   const cycleFilter = params.get('cycle');
   if (cycleFilter) {
@@ -2083,6 +2108,7 @@ async function viewCase(id) {
             ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong>${disbursedText(c) ? html`<div>${disbursedText(c)}</div>` : ''}<div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
             ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="small">${cardDateText(c)}</div>${cardAgeDays(c) != null ? html`<div class="age-line">Ageing ${ageChip(c)} <span class="muted small">since the temp end on ${fmtIsoDay(c.case_status_at)}</span></div>` : ''}<div class="muted small">${c.card_status_by_name ? `Mapped by ${c.card_status_by_name}` : (c.card_status === 'inactive' ? 'Inactive by default until activation is confirmed' : `Moved automatically after ${state.meta.card_range_days} days`)} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
+            <dt>Verification TAT</dt><dd>${tatLine(c)}</dd>
             ${row('Region', state.meta.regions[c.region])}
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
             <dt>Sales notes</dt><dd style="white-space:pre-wrap">${c.sales_notes || '—'}</dd>

@@ -288,6 +288,19 @@ test('sourcing type: Regular by default; Fixed Deposit only for credit cards and
   assert.equal((await sales('PUT', `/cases/${auto}`, { sourcing_type: 'fixed_deposit' })).status, 400);
 });
 
+test('files past their verification TAT are counted and listed', async () => {
+  const sales = await login('sales@t.local');
+  const old = (await sales('POST', '/cases', { customer_name: 'Late File', phone: '9876543212', product: 'accounts', sourcing_date: '2026-01-05' })).data.case;
+  assert.equal(old.tat.state, 'overdue');
+  const fresh = (await sales('POST', '/cases', { customer_name: 'New File', phone: '9876543213', product: 'accounts' })).data.case;
+  assert.equal(fresh.tat.state, 'due');
+  const lead = await login('lead@t.local');
+  const listed = (await lead('GET', '/cases?tat=overdue')).data.cases.map((c) => c.id);
+  assert.ok(listed.includes(old.id));
+  assert.ok(!listed.includes(fresh.id));
+  assert.ok((await lead('GET', '/stats')).data.tat.overdue >= 1);
+});
+
 test('credit card cases must name a card from the list', async () => {
   const sales = await login('sales@t.local');
   const base = { customer_name: 'Card Test', phone: '9876543210' };
