@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as auth from './auth.js';
 import * as cases from './cases.js';
 import * as allocations from './allocations.js';
+import * as boosters from './boosters.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
@@ -181,7 +182,7 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
-        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, salutations: cases.SALUTATIONS, calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
+        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, salutations: cases.SALUTATIONS, booster_products: boosters.BOOSTER_PRODUCTS, booster_audience: boosters.BOOSTER_AUDIENCE, can_manage_boosters: boosters.canManageBoosters(user), calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
         asset_status: assets.ASSET_STATUS, networks: assets.NETWORKS, accessories: assets.ACCESSORIES, asset_admins: assets.ASSET_ADMINS,
         auto_loan_classes: cases.AUTO_LOAN_CLASSES,
         al_incentive_rules: AL_INCENTIVE_RULES,
@@ -313,6 +314,12 @@ function routes(db, dispatch, bot) {
       if (user.role === 'it') return { users: listUsers(db).map(({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name }) => ({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name })) };
       return { users: listUsers(db) };
     }],
+
+    // Boosters: product campaigns with dates, run by business heads and MIS.
+    ['GET', /^\/api\/boosters$/, async ({ user }) => ({ boosters: boosters.listBoosters(db, user) })],
+    ['POST', /^\/api\/boosters$/, async ({ user, body, res }) => send(res, 201, { booster: boosters.createBooster(db, user, body) })],
+    ['PUT', /^\/api\/boosters\/(\d+)$/, async ({ user, params, body }) => ({ booster: boosters.updateBooster(db, user, params[0], body) })],
+    ['DELETE', /^\/api\/boosters\/(\d+)$/, async ({ user, params }) => boosters.deleteBooster(db, user, params[0])],
 
     // Processor allocation: which processor verifies each sales team leader's files.
     ['GET', /^\/api\/allocations$/, async ({ user }) => allocations.listAllocations(db, user)],

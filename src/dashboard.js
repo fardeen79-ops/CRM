@@ -6,6 +6,7 @@ import { cycleOf, cycleRange, cycleLabel, shiftCycle, uaeDay } from './cycles.js
 import { myIncentive } from './incentives.js';
 import { TEAM_LEADER_ROLES, STAFF_CORE_PRODUCTS } from './users.js';
 import { followUps } from './leads.js';
+import { boostersFor } from './boosters.js';
 
 export const TREND_CYCLES = 6;
 
@@ -207,5 +208,5 @@ export function dashboardFor(db, user, { region } = {}) {
   const contribution = ['business_head', 'mis'].includes(user.role) ? contributionFor(db, scope, params, start, end) : null;
   const calendar = CALENDAR_ROLES.includes(user.role) ? submissionCalendar(db, user, scope, params, cycle) : null;
   const zero = [...TEAM_LEADER_ROLES, 'business_head', 'mis'].includes(user.role) ? zeroStaff(db, user, cycle, { region }) : null;
-  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, calendar, zero, follow_ups: followUps(db, user) };
+  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, calendar, zero, boosters: boostersFor(db, user), follow_ups: followUps(db, user) };
 }

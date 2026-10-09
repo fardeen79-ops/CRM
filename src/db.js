@@ -329,6 +329,22 @@ CREATE TABLE IF NOT EXISTS asset_events (
 );
 -- Processors allocated to sales team leaders by the verification team leader: a team leader's
 -- files are verified by their processor only.
+-- Boosters: product campaigns with dates, shown to the staff they cover and their leaders.
+CREATE TABLE IF NOT EXISTS boosters (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  title           TEXT NOT NULL,
+  product         TEXT NOT NULL,          -- all, credit_card, personal_loan, auto_loan, accounts
+  reward          TEXT,
+  details         TEXT,
+  starts_on       TEXT NOT NULL,
+  ends_on         TEXT NOT NULL,
+  region          TEXT,                   -- null = both regions
+  audience        TEXT NOT NULL DEFAULT 'core',
+  team_leader_ids TEXT NOT NULL DEFAULT '[]',
+  active          INTEGER NOT NULL DEFAULT 1,
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS processor_allocations (
   team_leader_id INTEGER NOT NULL REFERENCES users(id),
   product        TEXT NOT NULL,          -- credit_card, personal_loan or auto_loan

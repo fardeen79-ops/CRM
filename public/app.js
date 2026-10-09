@@ -353,6 +353,7 @@ function navGroups() {
   if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
   if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users', 'data-roles-count', state.meta.roles_pending || 0]);
   if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
+  if (state.meta.can_manage_boosters) admin.push(['#/boosters', 'Boosters', 'flag']);
   if (admin.length) groups.push(['Admin', admin]);
   return filterNav(groups);
 }
@@ -463,6 +464,7 @@ async function route() {
     if (path === '/assets') return await viewAssets(params);
     if (path === '/roles') return await viewRoles();
     if (path === '/allocation') return await viewAllocation();
+    if (path === '/boosters') return await viewBoosters();
     if (path === '/pnl') return await viewPnl(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
@@ -616,6 +618,21 @@ function pushLine(p, { unit, scheme, needed }) {
       : html`<div class="push"><strong>Keep going:</strong> each further AED 100,000 car loan is about <strong>AED ${fmtAmount(perLoan)}</strong> more.</div>`;
   }
   return '';
+}
+
+// Boosters that apply to the viewer: the campaign, its dates and reward, and progress so far.
+const BOOSTER_STATUS = { running: 'Running', upcoming: 'Starts soon', ended: 'Ended' };
+function boosterCard(list, r) {
+  const leader = r !== 'sales';
+  return html`<h2 class="tiles-head">Boosters</h2>
+    <div class="boosters">${list.map((b) => html`<div class="card booster ${b.status}">
+      <div class="booster-head"><span class="chip ${b.status === 'running' ? 'good' : b.status === 'upcoming' ? 'warn' : ''}">${BOOSTER_STATUS[b.status] || b.status}</span> <strong>${b.title}</strong> <span class="muted small">${b.product_label}${b.region ? ` · ${b.region}` : ''}</span></div>
+      ${b.reward ? html`<div class="booster-reward">${b.reward}</div>` : ''}
+      <div class="small muted">${fmtDay(b.starts_on)} to ${fmtDay(b.ends_on)} · ${b.status === 'upcoming' ? `starts in ${b.days_to_start} ${b.days_to_start === 1 ? 'day' : 'days'}` : b.status === 'running' ? `${b.days_left} ${b.days_left === 1 ? 'day' : 'days'} left` : 'ended'}</div>
+      ${b.details ? html`<p class="small">${b.details}</p>` : ''}
+      <div class="booster-progress"><strong>${b.progress.files}</strong> ${b.progress.files === 1 ? 'file' : 'files'} completed in the window${b.progress.aed ? html` · AED ${fmtAmount(b.progress.aed)} disbursed` : ''}${leader ? html` · ${b.progress.staff_with_files} of ${b.covered} covered staff contributing` : ''}</div>
+      ${leader && b.covered_names?.length ? html`<div class="muted small">Covers: ${b.covered_names.slice(0, 12).join(', ')}${b.covered_names.length > 12 ? ` and ${b.covered_names.length - 12} more` : ''}</div>` : ''}
+    </div>`)}</div>`;
 }
 
 // Staff with nothing to show this cycle: zero ends or disbursals, and zero submissions, with the names.
@@ -900,6 +917,7 @@ async function viewDashboard() {
     <h2 class="tiles-head">${r === 'processing' ? 'Your queue' : 'Needs your attention'}</h2>
     ${attention.length ? tileGrid(attention) : html`<p class="muted small dash-quiet">Nothing is waiting on you right now.</p>`}
     ${fu && (fu.overdue.length || fu.due_today.length || fu.due_tomorrow.length) ? followUpCard(fu, r) : ''}
+    ${d.boosters?.length ? boosterCard(d.boosters, r) : ''}
     ${d.zero ? zeroCard(d.zero, r) : ''}
     ${d.calendar ? calendarCard(d.calendar, r) : ''}
     ${main}
@@ -3538,6 +3556,7 @@ const NAV_PAGE = (href) => {
   if (href.startsWith('#/messages')) return 'chat';
   if (href.startsWith('#/roles')) return 'roles';
   if (href.startsWith('#/allocation')) return 'allocation';
+  if (href.startsWith('#/boosters')) return 'boosters';
   if (href.startsWith('#/pnl')) return 'pnl';
   return null;
 };
@@ -3579,6 +3598,61 @@ async function viewAllocation() {
       toast(sel.value ? 'Processor allocated' : 'Back to the shared queue');
       await viewAllocation();
     } catch (err) { toast(err.message, true); sel.disabled = false; }
+  }));
+}
+
+// Boosters: business heads and MIS create product campaigns with dates, a reward line and an audience.
+async function viewBoosters() {
+  const { boosters } = await api('/boosters');
+  const users = await api('/users').catch(() => ({ users: [] }));
+  const tls = users.users.filter((u) => u.role === 'team_leader' && u.active);
+  const form = (b = {}) => html`<form class="card booster-form" data-booster-id="${b.id || ''}">
+    <h2>${b.id ? 'Edit booster' : 'New booster'}</h2>
+    <div class="form-grid three">
+      <div class="field-row"><label>Title</label><input name="title" required maxlength="120" value="${b.title || ''}" placeholder="e.g. Premium push"></div>
+      <div class="field-row"><label>Product</label><select name="product">${Object.entries(state.meta.booster_products).map(([k, l]) => html`<option value="${k}" ${(b.product || 'all') === k ? raw('selected') : ''}>${l}</option>`)}</select></div>
+      <div class="field-row"><label>Reward</label><input name="reward" maxlength="200" value="${b.reward || ''}" placeholder="e.g. AED 150 extra per Premium card"></div>
+      <div class="field-row"><label>Starts on</label><input type="date" name="starts_on" required value="${b.starts_on || ''}"></div>
+      <div class="field-row"><label>Ends on</label><input type="date" name="ends_on" required value="${b.ends_on || ''}"></div>
+      <div class="field-row"><label>Region</label><select name="region"><option value="">Both regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${b.region === k ? raw('selected') : ''}>${l}</option>`)}</select></div>
+      <div class="field-row"><label>Who it is for</label><select name="audience">${Object.entries(state.meta.booster_audience).map(([k, l]) => html`<option value="${k}" ${(b.audience || 'core') === k ? raw('selected') : ''}>${l}</option>`)}</select></div>
+      <div class="field-row"><label>Only these teams (optional)</label><select name="team_leader_ids" multiple size="4">${tls.map((t) => html`<option value="${t.id}" ${(b.team_leader_ids || []).includes(t.id) ? raw('selected') : ''}>${t.name}${t.region ? ` · ${t.region}` : ''}</option>`)}</select></div>
+      <div class="field-row full"><label>Details</label><textarea name="details" maxlength="1000" placeholder="Terms, what counts, how it is paid">${b.details || ''}</textarea></div>
+    </div>
+    <div class="actions"><button class="btn-primary">${b.id ? 'Save' : 'Create booster'}</button>${b.id ? html` <button type="button" data-cancel>Cancel</button>` : ''}</div>
+  </form>`;
+  shell(html`
+    <div class="page-head"><div><h1>Boosters</h1><p class="muted">Run a campaign for a product between two dates. It shows on the dashboard of every sales person it covers and of their team leaders and managers, with the files completed in the window so far. Choose the product, the dates, the region, whether it is for the product's core staff or everyone, and optionally only some teams.</p></div></div>
+    <div id="booster-form">${form()}</div>
+    <div class="card"><h2>All boosters</h2>
+      ${boosters.length ? html`<div class="table-wrap"><table>
+        <thead><tr><th>Title</th><th>Product</th><th>Dates</th><th>Region</th><th>For</th><th>Reward</th><th>Status</th><th></th></tr></thead>
+        <tbody>${boosters.map((b) => html`<tr>
+          <td><strong>${b.title}</strong>${b.details ? html`<div class="muted small">${b.details.slice(0, 90)}${b.details.length > 90 ? '…' : ''}</div>` : ''}</td>
+          <td>${state.meta.booster_products[b.product]}</td><td class="small">${fmtDay(b.starts_on)} to ${fmtDay(b.ends_on)}</td><td>${b.region || 'Both'}</td>
+          <td class="small">${state.meta.booster_audience[b.audience]}${b.team_leader_ids.length ? html`<div class="muted">${b.team_leader_ids.length} ${b.team_leader_ids.length === 1 ? 'team' : 'teams'}</div>` : ''}</td>
+          <td class="small">${b.reward || '—'}</td>
+          <td><span class="chip ${b.status === 'running' ? 'good' : b.status === 'upcoming' ? 'warn' : b.status === 'off' ? 'bad' : ''}">${b.status === 'off' ? 'Switched off' : BOOSTER_STATUS[b.status]}</span></td>
+          <td class="small nowrap"><button type="button" class="btn-link" data-edit="${b.id}">Edit</button> · <button type="button" class="btn-link" data-toggle="${b.id}" data-active="${b.active ? '1' : ''}">${b.active ? 'Switch off' : 'Switch on'}</button> · <button type="button" class="btn-link" data-delete="${b.id}">Delete</button></td>
+        </tr>`)}</tbody></table></div>` : html`<p class="muted">No boosters yet.</p>`}
+    </div>`);
+  const bind = () => {
+    const f = document.querySelector('.booster-form');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = formData(f);
+      body.team_leader_ids = [...f.querySelector('[name=team_leader_ids]').selectedOptions].map((o) => Number(o.value));
+      const id = f.dataset.boosterId;
+      try { await api(id ? `/boosters/${id}` : '/boosters', { method: id ? 'PUT' : 'POST', body }); toast(id ? 'Booster saved' : 'Booster created'); await viewBoosters(); } catch (err) { toast(err.message, true); }
+    };
+    f.querySelector('[data-cancel]')?.addEventListener('click', () => { document.getElementById('booster-form').innerHTML = form().s; bind(); });
+  };
+  bind();
+  document.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => { const x = boosters.find((y) => String(y.id) === b.dataset.edit); document.getElementById('booster-form').innerHTML = form(x).s; bind(); window.scrollTo({ top: 0, behavior: 'smooth' }); }));
+  document.querySelectorAll('[data-toggle]').forEach((b) => (b.onclick = async () => { try { await api(`/boosters/${b.dataset.toggle}`, { method: 'PUT', body: { active: !b.dataset.active } }); await viewBoosters(); } catch (err) { toast(err.message, true); } }));
+  document.querySelectorAll('[data-delete]').forEach((b) => (b.onclick = async () => {
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Click again to delete'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Delete'; }, 4000); return; }
+    try { await api(`/boosters/${b.dataset.delete}`, { method: 'DELETE' }); toast('Booster deleted'); await viewBoosters(); } catch (err) { toast(err.message, true); }
   }));
 }
 

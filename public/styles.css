@@ -804,3 +804,12 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .zero-table tr.lvl-region td:first-child { font-weight: 700; }
 .zero-table tr.lvl-sales_manager td:first-child { padding-left: 22px; }
 .zero-table tr.lvl-team_leader td:first-child { padding-left: 44px; }
+
+/* Boosters */
+.boosters { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-bottom: 18px; }
+.booster { border-left: 5px solid var(--border); display: grid; gap: 6px; }
+.booster.running { border-left-color: #3ba55d; } .booster.upcoming { border-left-color: #e8963a; }
+.booster-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.booster-reward { font-size: 18px; font-weight: 600; }
+.booster-progress { font-size: 14px; }
+.booster-form .form-grid .full { grid-column: 1 / -1; }
