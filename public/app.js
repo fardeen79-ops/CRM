@@ -19,6 +19,10 @@ const CASE_STATUS_LABEL = {
   rejected: 'Rejected',
 };
 const OTHER_BANK = '__other';
+/** Labels for the income fields: a self-employed customer has an average balance and a bank they bank with. */
+const incomeLabelsFor = (type) => type === 'self_employed'
+  ? { amount: 'Average balance (AED)', bank: 'Banking with', choose: 'Choose the bank the customer banks with…' }
+  : { amount: 'Monthly salary (AED)', bank: 'Salary transferred to', choose: "Choose the customer's salary bank…" };
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
   asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance', it: 'IT',
@@ -1140,6 +1144,7 @@ async function viewCaseForm(id, leadId = null) {
     </div>`;
   };
   const money = 'inputmode="decimal" min="0" step="any"';
+  const incomeLabels = incomeLabelsFor(c.customer_type);
 
   shell(html`
     <div class="page-head"><div>
@@ -1195,11 +1200,11 @@ async function viewCaseForm(id, leadId = null) {
             </select>
           </div>
           ${field('company_name', 'Company name', { placeholder: 'Employer', dictate: true })}
-          ${field('salary', 'Monthly salary (AED)', { type: 'number', attrs: money })}
+          ${field('salary', incomeLabels.amount, { type: 'number', attrs: money })}
           <div>
-            <label for="f-salary_bank">Salary transferred to <span class="req">*</span></label>
+            <label for="f-salary_bank">${incomeLabels.bank} <span class="req">*</span></label>
             <select id="f-salary_bank" name="salary_bank" required>
-              <option value="">Choose the customer's salary bank…</option>
+              <option value="">${incomeLabels.choose}</option>
               ${state.meta.banks.map((g) => html`<optgroup label="${g.group}">${g.banks.map((b) => html`<option value="${b}" ${c.salary_bank === b ? raw('selected') : ''}>${b}</option>`)}</optgroup>`)}
               <option value="${OTHER_BANK}" ${c.salary_bank && !listedBanks.includes(c.salary_bank) ? raw('selected') : ''}>Other bank (type the name)</option>
             </select>
@@ -1467,6 +1472,14 @@ async function viewCaseForm(id, leadId = null) {
   loanRadios.forEach((r) => (r.onchange = updateProductFields));
   secondaryRadios.forEach((r) => (r.onchange = updateProductFields));
   const salaryBank = $('#f-salary_bank');
+  // A self-employed customer has an average balance and a bank they bank with, not a salary.
+  const customerType = $('#f-customer_type');
+  customerType.onchange = () => {
+    const l = incomeLabelsFor(customerType.value);
+    $('label[for=f-salary]').firstChild.textContent = l.amount;
+    $('label[for=f-salary_bank]').firstChild.textContent = `${l.bank} `;
+    salaryBank.options[0].textContent = l.choose;
+  };
   const salaryBankOther = $('#f-salary_bank_other');
   salaryBank.onchange = () => { const other = salaryBank.value === OTHER_BANK; salaryBankOther.hidden = !other; salaryBankOther.disabled = !other; salaryBankOther.required = other; if (other) salaryBankOther.focus(); };
   // Buyout builders: what the loan buys out, as rows of kind, bank and amount; cards ask how many.
@@ -1981,8 +1994,8 @@ async function viewCase(id) {
             ${c.alt_phone || hiddenFields.has('alt_phone') ? phoneRow('Alternate phone', 'alt_phone') : ''}
             ${c.customer_type ? html`<dt>Customer type</dt><dd>${state.meta.customer_types[c.customer_type]}</dd>` : ''}
             ${row('Company', c.company_name, false, 'company_name')}
-            ${row('Monthly salary', c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
-            ${c.salary_bank ? html`<dt>Salary transferred to</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
+            ${row(incomeLabelsFor(c.customer_type).amount.replace(' (AED)', ''), c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
+            ${c.salary_bank ? html`<dt>${incomeLabelsFor(c.customer_type).bank}</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
             ${row('Bidaya ID', c.bidaya_id, true)}
             ${row('App ID', c.app_id, true)}
             ${row('Email', c.email)}
