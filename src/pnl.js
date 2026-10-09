@@ -81,3 +81,117 @@ export function profitAndLoss(db, user, { cycle, region } = {}) {
     margin_pct: revenue.total ? Math.round((net / revenue.total) * 1000) / 10 : null, rows, uploaded_people: paid.size,
   };
 }
+
+/** The incentive each person earns in the cycle under the schemes, by user id, with an uploaded actual overriding it. */
+function incentiveByUser(db, cycle, region, paid) {
+  const out = new Map();
+  const add = (x) => out.set(x.user_id, (out.get(x.user_id) || 0) + (x.incentive_aed || 0));
+  for (const fn of [incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, plTlIncentiveRows, ccSmIncentiveRows, plSmIncentiveRows]) for (const x of fn(db, cycle, region)) add(x);
+  for (const p of paid.values()) if (p.incentive_paid != null) out.set(p.user_id, p.incentive_paid);
+  return out;
+}
+const OVERHEAD_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it'];
+
+/** The statement by region and hierarchy: region → sales manager → team leader → staff, overheads at region level. */
+export function profitAndLossTree(db, user, { cycle, region } = {}) {
+  if (!PNL_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'The profit and loss is for the business head');
+  cycle = cycle ? String(cycle) : cycleOf(uaeDay());
+  if (!isCycle(cycle)) throw new WorkflowError(400, 'Cycle must look like 2026-10');
+  const r = String(region || '').toUpperCase();
+  if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
+  const { start, end } = cycleRange(cycle);
+  const people = db.prepare('SELECT id, name, role, role_key, region, salary, team_leader_id, sales_manager_id, sales_code, hrms_code FROM users WHERE active = 1').all();
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const paid = new Map(payrollFor(db, cycle, null).map((p) => [p.user_id, p]));
+  const incentives = incentiveByUser(db, cycle, null, paid);
+  const node = (key, label, kind, extra = {}) => ({ key, label, kind, revenue: 0, files: 0, salary_paid: 0, salary_estimated: 0, incentives: 0, headcount: 0, without_upload: 0, children: [], ...extra });
+  const costOf = (p, n) => {
+    const pay = paid.get(p.id);
+    n.headcount++;
+    if (pay) n.salary_paid += pay.salary_paid || 0; else { n.salary_estimated += p.salary || 0; n.without_upload++; }
+    n.incentives += incentives.get(p.id) || 0;
+  };
+  // Regions, each with its managers, and overheads (business heads, processing, MIS, governance, IT) at region level.
+  const regions = new Map();
+  const regionNode = (code) => {
+    const k = REGIONS[code] ? code : 'NONE';
+    if (!regions.has(k)) regions.set(k, node(k, REGIONS[k] || 'No region set', 'region', { managers: new Map(), overheads: node(`${k}:oh`, 'Overheads (business heads, processing, MIS, governance, IT)', 'overheads') }));
+    return regions.get(k);
+  };
+  const managerNode = (reg, sm) => {
+    const k = sm ? sm.id : 0;
+    if (!reg.managers.has(k)) reg.managers.set(k, node(`sm:${k}`, sm ? sm.name : 'No sales manager', 'manager', { leaders: new Map(), person: sm ? { id: sm.id, role: sm.role } : null }));
+    return reg.managers.get(k);
+  };
+  const leaderNode = (mgr, tl) => {
+    const k = tl ? tl.id : 0;
+    if (!mgr.leaders.has(k)) mgr.leaders.set(k, node(`tl:${k}`, tl ? tl.name : 'No team leader', 'leader', { staff: new Map(), person: tl ? { id: tl.id, role: tl.role } : null }));
+    return mgr.leaders.get(k);
+  };
+  const placed = new Set();
+  // Sales staff sit under their team leader and sales manager; the leaders' own costs sit at their level.
+  for (const p of people.filter((x) => x.role === 'sales')) {
+    if (region && String(p.region || '').toUpperCase() !== r) continue;
+    const tl = byId.get(p.team_leader_id) || null; const sm = byId.get(p.sales_manager_id) || (tl && byId.get(tl.sales_manager_id)) || null;
+    const reg = regionNode(String(p.region || '').toUpperCase());
+    const mgr = managerNode(reg, sm); const ldr = leaderNode(mgr, tl);
+    const s = node(`u:${p.id}`, p.name, 'staff', { person: { id: p.id, role: p.role, sales_code: p.sales_code } });
+    costOf(p, s); ldr.staff.set(p.id, s); placed.add(p.id);
+    if (sm && !placed.has(sm.id)) { costOf(sm, mgr); placed.add(sm.id); }
+    if (tl && !placed.has(tl.id)) { costOf(tl, ldr); placed.add(tl.id); }
+  }
+  // Leaders and managers without any staff, and overheads.
+  for (const p of people) {
+    if (placed.has(p.id)) continue;
+    if (region && String(p.region || '').toUpperCase() !== r) continue;
+    const reg = regionNode(String(p.region || '').toUpperCase());
+    if (OVERHEAD_ROLES.includes(p.role)) { costOf(p, reg.overheads); placed.add(p.id); continue; }
+    if (p.role === 'sales_manager' || p.role === 'asm') { costOf(p, managerNode(reg, p)); placed.add(p.id); continue; }
+    if (p.role === 'team_leader') { const sm = byId.get(p.sales_manager_id) || null; costOf(p, leaderNode(managerNode(reg, sm), p)); placed.add(p.id); continue; }
+  }
+  // Revenue: each completed file goes to the staff member who sourced it, under the team on the file.
+  const done = db.prepare(`SELECT c.* FROM cases c WHERE ${COMPLETED_IN_SQL}${region ? ' AND c.region = ?' : ''}`).all(...(region ? [start, end, r] : [start, end]));
+  for (const c of done) {
+    const amount = payoutFor(c).total;
+    const staffId = c.sales_staff_id || c.created_by;
+    const p = byId.get(staffId);
+    const tl = byId.get(c.team_leader_id ?? p?.team_leader_id) || null; const sm = byId.get(c.sales_manager_id ?? p?.sales_manager_id) || (tl && byId.get(tl.sales_manager_id)) || null;
+    const reg = regionNode(String(c.region || p?.region || '').toUpperCase());
+    const mgr = managerNode(reg, sm); const ldr = leaderNode(mgr, tl);
+    if (!ldr.staff.has(staffId)) ldr.staff.set(staffId, node(`u:${staffId}`, p ? p.name : c.sales_staff_name || 'Unknown', 'staff', { person: p ? { id: p.id, role: p.role, sales_code: p.sales_code } : null, left: !p }));
+    const s = ldr.staff.get(staffId);
+    s.revenue += amount; s.files++;
+  }
+  // Roll up: a node's totals are its own costs plus its children's.
+  const finish = (n, children) => {
+    n.children = children;
+    for (const c of children) { n.revenue += c.revenue; n.files += c.files; n.salary_paid += c.salary_paid; n.salary_estimated += c.salary_estimated; n.incentives += c.incentives; n.headcount += c.headcount; n.without_upload += c.without_upload; }
+    n.costs = round(n.salary_paid + n.salary_estimated + n.incentives);
+    n.net = round(n.revenue - n.costs);
+    n.revenue = round(n.revenue); n.salary_paid = round(n.salary_paid); n.salary_estimated = round(n.salary_estimated); n.incentives = round(n.incentives);
+    n.margin_pct = n.revenue ? Math.round((n.net / n.revenue) * 1000) / 10 : null;
+    return n;
+  };
+  const out = [...regions.values()].sort((a, b) => a.key.localeCompare(b.key)).map((reg) => {
+    const managers = [...reg.managers.values()].map((m) => {
+      const leaders = [...m.leaders.values()].map((l) => { const staff = [...l.staff.values()].map((s) => finish(s, [])).sort((a, b) => b.revenue - a.revenue); delete l.staff; return finish(l, staff); }).sort((a, b) => b.revenue - a.revenue);
+      delete m.leaders; return finish(m, leaders);
+    }).sort((a, b) => b.revenue - a.revenue);
+    const overheads = finish(reg.overheads, []); delete reg.overheads; delete reg.managers;
+    return finish(reg, [...managers, ...(overheads.headcount ? [overheads] : [])]);
+  });
+  const total = finish(node('all', 'All regions', 'total'), out);
+  return { cycle, label: cycleLabel(cycle), region: region ? r : null, tree: out, total };
+}
+
+/** The tree flattened for the report: one row per node with its level. */
+export function profitAndLossRows(db, user, opts) {
+  const t = profitAndLossTree(db, user, opts);
+  const rows = [];
+  const walk = (n, depth, path) => {
+    rows.push({ level: ['Region', 'Sales manager', 'Team leader', 'Staff'][depth] || 'Staff', region: path[0] || '', sales_manager: depth >= 1 ? (n.kind === 'overheads' ? '' : path[1] || n.label) : '', team_leader: depth >= 2 ? path[2] || n.label : '', name: n.label, headcount: n.headcount, files: n.files, revenue: n.revenue, salary_paid: n.salary_paid, salary_estimated: n.salary_estimated, incentives: n.incentives, costs: n.costs, net: n.net, margin_pct: n.margin_pct });
+    for (const c of n.children) walk(c, depth + 1, [...path, n.label]);
+  };
+  for (const reg of t.tree) walk(reg, 0, []);
+  return { ...t, rows };
+}

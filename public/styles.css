@@ -708,4 +708,12 @@ table.pnl td.num, table.pnl th.num { text-align: right; white-space: nowrap; }
 table.pnl tr.total td { font-weight: 600; border-top: 2px solid var(--border); }
 table.pnl tr.net td { font-size: 16px; }
 table.pnl .neg { color: var(--muted); }
+table.pnl.tree tr[data-node] { cursor: pointer; }
+table.pnl.tree .indent { display: inline-block; width: calc(var(--d) * 22px); }
+table.pnl.tree .caret { display: inline-block; width: 16px; color: var(--muted); }
+table.pnl.tree tr.lvl-0 td { font-weight: 600; background: var(--primary-soft); }
+table.pnl.tree tr.lvl-1 td { font-weight: 500; }
+table.pnl.tree tr.overheads td:first-child { font-style: italic; }
+table.pnl.tree td.loss { color: var(--s-incomplete); }
+table.pnl.tree td.gain { color: var(--s-done); }
 @media (max-width: 720px) { .dash-row { grid-template-columns: 1fr; } }

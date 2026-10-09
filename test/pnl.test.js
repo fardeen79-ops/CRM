@@ -69,3 +69,30 @@ test('profit and loss for the business head: revenue less salaries paid and ince
   assert.match(rep.note, /3 people have a salary uploaded/);
   assert.equal((await head('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.pnl.revenue.total, 0);
 });
+
+test('the profit and loss follows region and hierarchy: region → sales manager → team leader → staff, overheads at region level', async () => {
+  const head = await login('head@t.local');
+  const mis = await login('mis@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  const { tree, total } = (await head('GET', `/pnl?cycle=${cycle}`)).data.tree;
+  const dxb = tree.find((n) => n.key === 'DXB');
+  assert.ok(dxb, 'DXB region');
+  const sm = dxb.children.find((n) => n.label === 'SM One');
+  const tl = sm.children.find((n) => n.label === 'TL Dubai');
+  const dana = tl.children.find((n) => n.label === 'Dana');
+  // Dana's file (AED 875) and her salary paid (4,800) and actual incentive (300) sit on her line; her leaders carry their own salaries.
+  assert.deepEqual([dana.revenue, dana.files, dana.salary_paid, dana.incentives, dana.net], [875, 1, 4800, 300, -4225]);
+  assert.deepEqual([tl.revenue, tl.headcount, tl.salary_estimated, tl.net], [875, 2, 0, -4225]);
+  assert.deepEqual([sm.revenue, sm.headcount], [875, 3]);
+  const oh = dxb.children.find((n) => n.kind === 'overheads');
+  // Pat (processing), Mira (MIS, 7,000 uploaded) and Bilal (20,000 uploaded) are the region's overheads.
+  assert.deepEqual([oh.headcount, oh.salary_paid, oh.revenue], [3, 27000, 0]);
+  assert.deepEqual([dxb.revenue, dxb.costs, dxb.net], [875, 32100, -31225]);
+  assert.deepEqual([total.net, total.headcount], [-31225, 7]);
+  // Gina has no region: she sits under "No region set"; the region filter drops her.
+  assert.ok(tree.find((n) => n.key === 'NONE')?.children.some((n) => n.kind === 'overheads'));
+  assert.equal((await head('GET', `/pnl?cycle=${cycle}&region=DXB`)).data.tree.tree.length, 1);
+  const rep = (await head('GET', `/reports/pnl_hierarchy?cycle=${cycle}`)).data;
+  assert.deepEqual(rep.rows.slice(0, 4).map((r) => [r.level, r.name]), [['Region', 'DXB (Dubai)'], ['Sales manager', 'SM One'], ['Team leader', 'TL Dubai'], ['Staff', 'Dana']]);
+  assert.equal(rep.totals.net, -31225);
+});

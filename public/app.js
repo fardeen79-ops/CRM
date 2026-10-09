@@ -76,7 +76,7 @@ const canPickRegion = () => Boolean(state.user) && REGION_ROLES.includes(state.u
 const loadRegion = () => { try { state.region = localStorage.getItem('crm-region') || ''; } catch { state.region = ''; } };
 const saveRegion = (r) => { state.region = r; try { r ? localStorage.setItem('crm-region', r) : localStorage.removeItem('crm-region'); } catch { /* storage blocked */ } };
 // Reads that follow the region view when one is chosen.
-const REGION_PATHS = /^\/(cases|stats|dashboard|targets|hierarchy|reports\/)/;
+const REGION_PATHS = /^\/(cases|stats|dashboard|pnl|targets|hierarchy|reports\/)/;
 
 // ---------- helpers ----------
 const esc = (v) =>
@@ -3121,12 +3121,20 @@ async function viewReports(params) {
 
 
 // ---------- profit and loss: revenue less salaries and incentives, per cycle ----------
+// The hierarchy as table rows: regions open, everything below closed until clicked.
+function pnlTreeRows(nodes, depth = 0) {
+  const aed = (n) => `AED ${fmtAmount(n)}`;
+  return nodes.map((n) => html`<tr data-node="${n.key}" data-depth="${depth}" data-open="${depth === 0 ? '1' : '0'}" class="lvl-${depth} ${n.kind}" ${depth > 1 ? raw('hidden') : ''}>
+      <td><span class="indent" style="--d:${depth}"></span>${n.children.length ? html`<span class="caret">${depth === 0 ? '▾' : '▸'}</span>` : html`<span class="caret none"></span>`}${n.label}${n.kind === 'staff' && n.person?.sales_code ? html` <span class="muted small mono">${n.person.sales_code}</span>` : ''}${n.left ? html` <span class="chip">left</span>` : ''}${n.without_upload && n.kind !== 'staff' ? html` <span class="muted small">(${n.without_upload} estimated)</span>` : n.without_upload ? html` <span class="muted small">(estimated)</span>` : ''}</td>
+      <td class="num">${n.headcount || '—'}</td><td class="num">${n.files || '—'}</td><td class="num">${aed(n.revenue)}</td><td class="num">${n.salary_paid + n.salary_estimated ? `− ${aed(n.salary_paid + n.salary_estimated)}` : '—'}</td><td class="num">${n.incentives ? `− ${aed(n.incentives)}` : '—'}</td>
+      <td class="num ${n.net < 0 ? 'loss' : 'gain'}">${n.net < 0 ? '− ' : ''}${aed(Math.abs(n.net))}</td><td class="num">${n.margin_pct == null ? '—' : `${n.margin_pct}%`}</td></tr>${pnlTreeRows(n.children, depth + 1)}`);
+}
 async function viewPnl(params = new URLSearchParams()) {
   if (state.user.role !== 'business_head') throw new Error('The profit and loss is for the business head');
   const cycle = params.get('cycle') || state.meta.current_cycle;
   const region = params.get('region') || '';
   const q = new URLSearchParams({ cycle }); if (region) q.set('region', region);
-  const { pnl: p, payroll } = await api(`/pnl?${q}`);
+  const { pnl: p, payroll, tree } = await api(`/pnl?${q}`);
   const cycles = Array.from({ length: 12 }, (_, i) => shiftCycle(state.meta.current_cycle, -i));
   const aed = (n) => `AED ${fmtAmount(n)}`;
   const neg = (n) => (n ? html`<span class="neg">− ${aed(n)}</span>` : aed(0));
@@ -3156,9 +3164,17 @@ async function viewPnl(params = new URLSearchParams()) {
         </tbody></table></div>
       <p class="muted small">Revenue is what the bank pays on files completed in the cycle, at the payout rates. Incentives are the amounts the schemes work out for the cycle; where an actual incentive was uploaded with the salary it is used instead. Both are before the 60% next-cycle condition and the bank's data cut.</p>
     </div>
+    <div class="card"><div class="card-head"><h2>By region and team · ${p.label}</h2><a class="tiles-link" href="#/reports?report=pnl_hierarchy&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download →</a></div>
+      <p class="muted small">Revenue follows the team on each completed file. Salaries and incentives follow the people: a team leader's at the team leader line, a sales manager's at the manager line, business heads, processing, MIS, governance and IT as the region's overheads. Click a row to open or close it.</p>
+      <div class="table-wrap"><table class="pnl tree">
+        <thead><tr><th>Region · manager · team · staff</th><th class="num">People</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Salaries</th><th class="num">Incentives</th><th class="num">Net</th><th class="num">Margin</th></tr></thead>
+        <tbody>${pnlTreeRows(tree.tree)}
+          <tr class="total net"><td>All</td><td class="num">${tree.total.headcount}</td><td class="num">${tree.total.files}</td><td class="num">${aed(tree.total.revenue)}</td><td class="num">${neg(tree.total.salary_paid + tree.total.salary_estimated)}</td><td class="num">${neg(tree.total.incentives)}</td><td class="num ${tree.total.net < 0 ? 'loss' : ''}">${tree.total.net < 0 ? '− ' : ''}${aed(Math.abs(tree.total.net))}</td><td class="num">${tree.total.margin_pct == null ? '—' : `${tree.total.margin_pct}%`}</td></tr>
+        </tbody></table></div></div>
     <details class="card"><summary><strong>Salaries uploaded for ${p.label}</strong> <span class="muted small">${payroll.length} people</span></summary>
       ${payroll.length ? miniTable(['Name', 'HRMS code', 'Role', 'Region', 'Salary paid', 'Incentive paid', 'Notes'], payroll.map((x) => [x.name, x.hrms_code || '', ROLE_LABEL[x.role] || x.role, x.region || '', aed(x.salary_paid), x.incentive_paid != null ? aed(x.incentive_paid) : '—', x.notes || ''])) : html`<p class="muted small">Nothing uploaded yet for this cycle. <a href="#/import/payroll">Upload salaries paid</a>.</p>`}
     </details>`);
+  document.querySelectorAll('tr[data-node]').forEach((tr) => { tr.onclick = (e) => { if (e.target.closest('a')) return; const open = tr.dataset.open === '1'; tr.dataset.open = open ? '0' : '1'; const caret = tr.querySelector('.caret'); if (caret && !caret.classList.contains('none')) caret.textContent = open ? '▸' : '▾'; const depth = Number(tr.dataset.depth); let n = tr.nextElementSibling; while (n && Number(n.dataset.depth) > depth) { if (open) { n.hidden = true; n.dataset.open = '0'; } else if (Number(n.dataset.depth) === depth + 1) n.hidden = false; n = n.nextElementSibling; } }; });
   document.getElementById('pnl-filters').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); const qs = new URLSearchParams({ cycle: f.get('cycle') }); if (f.get('region')) qs.set('region', f.get('region')); location.hash = `#/pnl?${qs}`; };
 }
 

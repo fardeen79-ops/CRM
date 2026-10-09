@@ -141,7 +141,7 @@ export function alIncentiveRows(db, cycle, region = null) {
     WHERE u.role = 'sales' AND u.active = 1 AND u.core_product = 'auto_loan'${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(...(region ? [r] : []));
   return staff.map((s) => {
     const i = alIncentiveFor(db, s.id, cycle);
-    return { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, multiplier: `AED ${i.multiplier.toFixed(2)}`, full_payout_met: i.full_payout_met ? 'Yes' : 'No' };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, multiplier: `AED ${i.multiplier.toFixed(2)}`, full_payout_met: i.full_payout_met ? 'Yes' : 'No' };
   }).sort((a, b) => (b.incentive_aed ?? -1) - (a.incentive_aed ?? -1) || a.staff.localeCompare(b.staff));
 }
 
@@ -248,7 +248,7 @@ export function tlIncentiveRows(db, cycle, region = null) {
     WHERE l.active = 1${region ? ' AND l.region = ?' : ''} ORDER BY l.name`).all(...(region ? [r] : []));
   return leaders.map((l) => {
     const i = tlIncentiveFor(db, l.id, cycle);
-    return { leader: l.name, hrms_code: l.hrms_code || '', role: l.role, sales_manager: l.sales_manager || '', region: l.region || '', ...i, staff: undefined, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
+    return { user_id: l.id, leader: l.name, hrms_code: l.hrms_code || '', role: l.role, sales_manager: l.sales_manager || '', region: l.region || '', ...i, staff: undefined, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
   }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.leader.localeCompare(b.leader));
 }
 
@@ -308,7 +308,7 @@ export function plTlIncentiveRows(db, cycle, region = null) {
     WHERE l.active = 1${region ? ' AND l.region = ?' : ''} ORDER BY l.name`).all(...(region ? [r] : []));
   return leaders.map((l) => {
     const i = plTlIncentiveFor(db, l.id, cycle);
-    return { leader: l.name, hrms_code: l.hrms_code || '', role: l.role, sales_manager: l.sales_manager || '', region: l.region || '', ...i, staff: undefined, cards: undefined,
+    return { user_id: l.id, leader: l.name, hrms_code: l.hrms_code || '', role: l.role, sales_manager: l.sales_manager || '', region: l.region || '', ...i, staff: undefined, cards: undefined,
       mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, rate: `${i.rate_pct.toFixed(2)}%`, qualified: i.qualified ? 'Yes' : 'No' };
   }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.leader.localeCompare(b.leader));
 }
@@ -398,12 +398,12 @@ function smLeaders(db, product, region) {
 }
 /** Every credit card manager's incentive for the cycle (managers of active core card staff), as report rows. */
 export function ccSmIncentiveRows(db, cycle, region = null) {
-  return smLeaders(db, 'credit_card', region).map((m) => ({ manager: m.name, hrms_code: m.hrms_code || '', role: m.role, region: m.region || '', ...ccSmIncentiveFor(db, m.id, m.role, cycle) }))
+  return smLeaders(db, 'credit_card', region).map((m) => ({ user_id: m.id, manager: m.name, hrms_code: m.hrms_code || '', role: m.role, region: m.region || '', ...ccSmIncentiveFor(db, m.id, m.role, cycle) }))
     .sort((a, b) => b.incentive_aed - a.incentive_aed || a.manager.localeCompare(b.manager));
 }
 /** Every manager with personal loan production in their team (core loan staff), as report rows. */
 export function plSmIncentiveRows(db, cycle, region = null) {
-  return smLeaders(db, 'personal_loan', region).map((m) => ({ manager: m.name, hrms_code: m.hrms_code || '', role: m.role, region: m.region || '', ...plSmIncentiveFor(db, m.id, m.role, cycle) }))
+  return smLeaders(db, 'personal_loan', region).map((m) => ({ user_id: m.id, manager: m.name, hrms_code: m.hrms_code || '', role: m.role, region: m.region || '', ...plSmIncentiveFor(db, m.id, m.role, cycle) }))
     .map((x) => ({ ...x, rate: `${x.rate_pct.toFixed(4)}%` })).sort((a, b) => b.incentive_aed - a.incentive_aed || a.manager.localeCompare(b.manager));
 }
 
@@ -439,7 +439,7 @@ export function plIncentiveRows(db, cycle, region = null) {
     WHERE u.role = 'sales' AND u.active = 1 AND u.core_product = 'personal_loan'${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(...(region ? [r] : []));
   return staff.map((s) => {
     const i = plIncentiveFor(db, s.id, cycle);
-    return { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, cards: undefined, mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, cards_qualified: i.cards_qualified ? 'Yes' : 'No', rate: `${i.rate_pct.toFixed(2)}%` };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, cards: undefined, mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, cards_qualified: i.cards_qualified ? 'Yes' : 'No', rate: `${i.rate_pct.toFixed(2)}%` };
   }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.staff.localeCompare(b.staff));
 }
 
@@ -452,6 +452,6 @@ export function incentiveRows(db, cycle, region = null) {
     WHERE u.role = 'sales' AND u.active = 1 AND u.core_product = 'credit_card'${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(...(region ? [r] : []));
   return staff.map((s) => {
     const i = incentiveFor(db, s.id, cycle);
-    return { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
   }).sort((a, b) => (b.incentive_aed ?? -1) - (a.incentive_aed ?? -1) || a.staff.localeCompare(b.staff));
 }

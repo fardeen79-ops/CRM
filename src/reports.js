@@ -9,7 +9,7 @@ import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
 import { inventoryRows, ASSET_VIEWERS, assetSummary, ASSET_STATUS } from './assets.js';
 import { allowsReport } from './roles.js';
-import { profitAndLoss, PNL_VIEWERS } from './pnl.js';
+import { profitAndLoss, PNL_VIEWERS, profitAndLossRows } from './pnl.js';
 import { PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
@@ -35,6 +35,7 @@ export const REPORTS = {
   pl_sm_incentives: { name: 'Personal loan sales manager incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM with core personal loan staff earns: a percentage of the team\'s whole loan production (core staff plus loans cross-sold by the rest of the team) by its achievement of the core staff\'s combined targets (0.02% from 80%, 0.0625% from 100%, 0.075% from 125%, 0.10% from 150%; nil below 80%). The same grid applies to every manager with loan staff (confirmed).' },
   assets: { name: 'Tab inventory', roles: ASSET_VIEWERS, period: 'the register as it stands now', description: 'Every sourcing tab issued by the bank: number, serial, who holds it, accessories, network, SIM, Microsoft Entra ID and registered mobile, with its status (in use, with IT, handed over on exit).' },
   pnl: { name: 'Profit and loss', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'Revenue (the bank\'s payout on files completed in the cycle) less the salaries actually paid and the incentives earned, by role: sales staff, team leaders, ASMs, sales managers, business heads, processing, MIS. Salaries come from the Salaries paid upload; anyone without one is estimated from their profile salary.' },
+  pnl_hierarchy: { name: 'Profit and loss by region and team', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'The profit and loss broken down by region, sales manager, team leader and sales staff: each level\'s revenue (files completed by its staff), salaries and incentives (its people, leaders included at their level), net and margin. Overheads (business heads, processing, MIS, governance, IT) sit at region level.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -549,7 +550,19 @@ function pnl(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { pnl, assets, sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+function pnl_hierarchy(db, user, { period, region }) {
+  if (!period.cycle) throw new WorkflowError(400, 'The profit and loss is per sales cycle: choose a cycle, not dates');
+  const t = profitAndLossRows(db, user, { cycle: period.cycle, region });
+  return {
+    columns: [col('level', 'Level', 'text'), col('region', 'Region', 'text'), col('sales_manager', 'Sales manager', 'text'), col('team_leader', 'Team leader', 'text'), col('name', 'Name', 'text'), col('headcount', 'People'), col('files', 'Files completed'),
+      col('revenue', 'Revenue (AED)', 'aed'), col('salary_paid', 'Salaries paid (AED)', 'aed'), col('salary_estimated', 'Salaries estimated (AED)', 'aed'), col('incentives', 'Incentives (AED)', 'aed'), col('costs', 'Costs (AED)', 'aed'), col('net', 'Net (AED)', 'aed'), col('margin_pct', 'Margin', 'pct')],
+    rows: t.rows,
+    note: `Revenue follows the team on each completed file; salaries and incentives follow the people, leaders counted at their own level. ${t.total.without_upload} people are estimated from their profile salary.`,
+    totals: { level: 'All', headcount: t.total.headcount, files: t.total.files, revenue: t.total.revenue, salary_paid: t.total.salary_paid, salary_estimated: t.total.salary_estimated, incentives: t.total.incentives, costs: t.total.costs, net: t.total.net },
+  };
+}
+
+const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
