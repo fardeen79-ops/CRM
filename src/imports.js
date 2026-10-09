@@ -53,6 +53,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'sourcing_date', header: 'Sourcing date', required: true, example: '06/10/2026', help: 'DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'region', header: 'Region', required: true, example: 'DXB', allowed: Object.keys(REGIONS) },
   { key: 'core_product', header: 'Core product', required: true, example: 'Personal Loan', allowed: Object.values(CORE_PRODUCTS) },
+  { key: 'salutation', header: 'Salutation', example: 'Mr' },
   { key: 'first_name', header: 'First name', required: true, example: 'Mohammed' },
   { key: 'middle_name', header: 'Middle name', example: 'Rashid' },
   { key: 'last_name', header: 'Last name', required: true, example: 'Al Mansoori' },

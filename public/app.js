@@ -1141,15 +1141,14 @@ async function viewCaseForm(id, leadId = null) {
             Scan Emirates ID
           </button>
         </div>
-        ${canSpeak ? html`<p class="muted small voice-hint">Tap a microphone to type by voice. For the Emirates ID and passport, <b>Read it back to check</b>: read the number aloud and the form confirms it matches what was typed or scanned.</p>` : ''}
+        ${canSpeak ? html`<p class="muted small voice-hint">Tap a microphone to type by voice.</p>` : ''}
         <div id="scan-result"></div>
         <div class="form-grid three">
+          <div class="field-row"><label for="f-salutation">Salutation</label><select id="f-salutation" name="salutation"><option value="">—</option>${state.meta.salutations.map((o) => html`<option value="${o}" ${c.salutation === o ? raw('selected') : ''}>${o}</option>`)}</select></div>
           ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"', dictate: true })}
           ${field('middle_name', 'Middle name', { attrs: 'autocomplete="off"', dictate: true })}
           ${field('last_name', 'Last name', { required: true, attrs: 'autocomplete="off"', dictate: true })}
           ${field('phone', 'Mobile number', { type: 'tel', required: true, placeholder: '+971 50 123 4567' })}
-          ${field('eid_number', 'Emirates ID number', { placeholder: '784-YYYY-NNNNNNN-C', attrs: 'inputmode="numeric" pattern="784-?\\d{4}-?\\d{7}-?\\d" title="15 digits starting with 784, e.g. 784-1990-1234567-1"', readBack: true })}
-          ${field('passport_number', 'Passport number', { attrs: 'pattern="[A-Za-z0-9 ]{5,20}" title="5–20 letters and digits"', readBack: true })}
           ${field('email', 'Email address', { type: 'email', placeholder: 'name@example.com', attrs: 'autocomplete="off"' })}
         </div>
       </section>
@@ -1492,7 +1491,7 @@ async function viewCaseForm(id, leadId = null) {
   fullAmount.oninput = increment.oninput = checkIncrement;
   // Show the Emirates ID in its usual 784-YYYY-NNNNNNN-C layout once typed.
   const eid = $('#f-eid_number');
-  eid.onblur = () => {
+  if (eid) eid.onblur = () => {
     const d = eid.value.replace(/\D/g, '');
     if (/^784\d{12}$/.test(d)) eid.value = `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7, 14)}-${d.slice(14)}`;
   };
@@ -1561,7 +1560,7 @@ async function viewCaseForm(id, leadId = null) {
 
   // Emirates ID: dashes appear as the digits are typed (784-YYYY-NNNNNNN-C), and pasted numbers
   // with or without dashes are tidied the same way.
-  const eidInput = $('#f-eid_number');
+  const eidInput = $('#f-eid_number') || document.createElement('input');
   const formatEid = () => {
     const digits = eidInput.value.replace(/\D/g, '').slice(0, 15);
     const groups = [digits.slice(0, 3), digits.slice(3, 7), digits.slice(7, 14), digits.slice(14, 15)].filter(Boolean);
@@ -1592,7 +1591,7 @@ async function viewCaseForm(id, leadId = null) {
     const expired = result.expiryDate && result.expiryDate < todayLocal();
     if (expired) warnings.unshift(`This Emirates ID expired on ${fmtDay(result.expiryDate)}.`);
     $('#scan-result').innerHTML = html`<div class="callout ${expired || result.side === 'back' && warnings.length ? 'warn' : 'success'} scan-callout">
-      <strong>Filled from the ${result.side} of the Emirates ID: name and Emirates ID number.</strong>
+      <strong>Filled from the ${result.side} of the Emirates ID: the customer's name.</strong>
       Check them against the card before submitting.${result.expiryDate && !expired ? html` <span class="muted">Card valid until ${fmtDay(result.expiryDate)}.</span>` : ''}
       ${warnings.map((w) => html`<div class="scan-warning">${w}</div>`)}
     </div>`.s;
@@ -1965,7 +1964,7 @@ async function viewCase(id) {
   shell(html`
     <div class="page-head">
       <div><a href="#/" class="small" id="back-link">← Back</a>
-        <h1>${c.customer_name} <span class="muted" style="font-weight:400">${c.ref}</span></h1>
+        <h1>${c.salutation ? `${c.salutation} ` : ''}${c.customer_name} <span class="muted" style="font-weight:400">${c.ref}</span></h1>
         <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} ${isDncr(c) ? html`<span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
@@ -1988,8 +1987,8 @@ async function viewCase(id) {
           <dl class="details">
             ${phoneRow('Mobile', 'phone')}
             ${c.alt_phone || hiddenFields.has('alt_phone') ? phoneRow('Alternate phone', 'alt_phone') : ''}
-            ${row('Emirates ID', c.eid_number, true, 'eid_number')}
-            ${row('Passport number', c.passport_number, true, 'passport_number')}
+            ${c.eid_number || hiddenFields.has('eid_number') && c.eid_number !== null ? row('Emirates ID', c.eid_number, true, 'eid_number') : ''}
+            ${c.passport_number ? row('Passport number', c.passport_number, true, 'passport_number') : ''}
             ${row('Company', c.company_name, false, 'company_name')}
             ${row('Monthly salary', c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
             ${c.salary_bank ? html`<dt>Salary transferred to</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}

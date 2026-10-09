@@ -161,3 +161,18 @@ test('a file marked Customer in DNCR carries a permission email to the customer,
   assert.equal((await tl2('POST', `/cases/${c.id}/actions`, { action: 'reverify' })).status, 200);
   assert.equal('dncr_email' in (await proc('GET', `/cases/${c.id}`)).data.case, false);
 });
+
+test('a file carries a salutation, used on the file and in the customer email', async () => {
+  const cara = await login('cara@t.local');
+  const proc = await login('proc@t.local');
+  timing.now = () => UAE('2026-10-05T10:00:00');
+  const base = { region: 'DXB', core_product: 'credit_card', first_name: 'Noura', last_name: 'Al Ali', email: 'noura@example.com', phone: '+971 50 777 2222', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' };
+  assert.equal((await cara('POST', '/cases', { ...base, salutation: 'Sir' })).status, 400);
+  const c = (await cara('POST', '/cases', { ...base, salutation: 'Ms' })).data.case;
+  assert.deepEqual([c.salutation, c.customer_name], ['Ms', 'Noura Al Ali']);
+  await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' });
+  await proc('POST', `/cases/${c.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'On the register' });
+  assert.match((await proc('GET', `/cases/${c.id}`)).data.case.dncr_email.body, /^Dear Ms Al Ali,/);
+  const plain = (await cara('POST', '/cases', { ...base, phone: '+971 50 777 3333', email: 'n2@example.com' })).data.case;
+  assert.equal(plain.salutation, null);
+});
