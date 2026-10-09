@@ -1,0 +1,70 @@
+{
+  "v": 4,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-08T10:00:00Z"
+  },
+  "lists": "css",
+  "title": "Sourcing CRM Controls",
+  "order": [
+    "cover",
+    "summary",
+    "journey",
+    "c-leads",
+    "c-followups",
+    "c-form",
+    "c-card",
+    "c-approval",
+    "c-loans",
+    "c-verify",
+    "c-dncr",
+    "c-controls",
+    "c-privacy",
+    "c-audience",
+    "c-assets",
+    "c-roles",
+    "loss-model",
+    "payout-rates",
+    "loss-report",
+    "loss-deviations",
+    "reports",
+    "dashboard",
+    "c-contribution",
+    "team",
+    "c-discipline",
+    "targets",
+    "c-potential",
+    "c-boosters",
+    "governance",
+    "close"
+  ],
+  "sections": {
+    "intro": {
+      "description": "What the CRM is and the journey a file takes.",
+      "start": "cover"
+    },
+    "controls": {
+      "description": "Each control, shown on screen and explained.",
+      "start": "c-leads"
+    },
+    "loss": {
+      "description": "How revenue lost to wrong sourcing is measured.",
+      "start": "loss-model"
+    },
+    "management": {
+      "description": "Reports and views for management, and what comes next.",
+      "start": "reports"
+    }
+  },
+  "faces": {
+    "source-serif-4": {
+      "family": "Source Serif 4",
+      "href": "https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&display=swap"
+    },
+    "ibm-plex-sans": {
+      "family": "IBM Plex Sans",
+      "href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    }
+  },
+  "designSystems": []
+}
