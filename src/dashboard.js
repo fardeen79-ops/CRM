@@ -106,8 +106,15 @@ export function dashboardFor(db, user, { region } = {}) {
   if (user.role === 'sales' || TEAM_LEADER_ROLES.includes(user.role)) {
     try {
       const mine = myIncentive(db, user, cycle);
-      const parts = mine.incentive ? [{ type: mine.type, amount: mine.incentive.incentive_aed ?? 0 }] : [...(mine.teams || []), ...(mine.products || [])].map((t) => ({ type: t.type, amount: t.incentive.incentive_aed ?? 0 }));
-      if (parts.length) incentive = { total: Math.round(parts.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100, parts, conditions: mine.conditions };
+      const blocks = mine.incentive ? [{ type: mine.type, incentive: mine.incentive }] : [...(mine.teams || []), ...(mine.products || [])];
+      const parts = blocks.map((t) => ({ type: t.type, amount: t.incentive.incentive_aed ?? 0, potential: t.incentive.potential?.incentive_aed ?? null, open_files: t.incentive.potential?.open_files ?? 0 }));
+      if (parts.length) {
+        // What the open files would add if they all completed (sales staff schemes carry a projection).
+        const withPotential = parts.filter((p) => p.potential != null);
+        const potential = withPotential.length ? Math.round(withPotential.reduce((a, p) => a + p.potential, 0) * 100) / 100 : null;
+        const open_files = Math.max(0, ...parts.map((p) => p.open_files));
+        incentive = { total: Math.round(parts.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100, parts, conditions: mine.conditions, potential, open_files };
+      }
     } catch { incentive = null; }
   }
   const dayNo = Math.floor((Date.parse(uaeDay()) - Date.parse(start)) / 864e5) + 1;

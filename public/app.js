@@ -574,6 +574,24 @@ function bindEmailCopies() {
   }));
 }
 
+// What the open files could add, and what it takes to start earning: shown on each sales scheme card.
+function potentialBlock(p, { unit, scheme }) {
+  if (!p) return '';
+  const u = (v) => (unit === 'aed' ? `AED ${fmtAmount(v)}` : `${fmtAmount(v)} points`);
+  const nothingOpen = !p.open_files;
+  const earningAfter = (p.incentive_aed ?? 0) > 0;
+  const needed = p.needed_after ?? null;
+  return html`<div class="callout ${earningAfter ? 'success' : 'info'} incentive-potential">
+    <strong>${nothingOpen ? 'No open files in the system yet.' : `${p.open_files} open ${p.open_files === 1 ? 'file' : 'files'} in the system.`}</strong>
+    ${nothingOpen ? '' : html` If ${p.open_files === 1 ? 'it completes' : 'they all complete'} this cycle: ${scheme === 'pl' ? `${u(p.pl_counted)} counted, ${p.band}` : `${u(scheme === 'cc' ? p.total_points : p.points)}`} → <strong>AED ${fmtAmount(p.incentive_aed ?? 0)}</strong>${p.extra_aed ? ` (AED ${fmtAmount(p.extra_aed)} more than today)` : ''}.`}
+    ${needed == null ? html` <span class="muted">No target set, so there is no threshold to measure against.</span>`
+      : needed > 0 ? html` To start earning you need <strong>${u(needed)} more</strong>${nothingOpen ? '' : ' after those files'}${!nothingOpen && p.needed_now > needed ? html` (${u(p.needed_now)} from today's completed files)` : ''}.`
+      : scheme === 'pl' && p.next_band ? html` ${nothingOpen ? 'You are earning: the' : 'The'} next band, ${p.next_band.label} at ${p.next_band.rate.toFixed(2)}%, is ${u(p.next_band.short_by)} away.`
+      : html` ${nothingOpen ? 'You are past the target: every' : 'Every'} further ${unit === 'aed' ? 'dirham' : 'point'} ${nothingOpen ? '' : 'beyond that '}is paid.`}
+    ${scheme === 'pl' && p.cards_needed_after > 0 && p.open_cards + (p.cards_sold || 0) ? html` <span class="muted">Cards cross-sold pay once production reaches the threshold: ${u(p.cards_needed_after)} to go.</span>` : ''}
+  </div>`;
+}
+
 // The incentive so far this cycle, for the people who earn one.
 const INCENTIVE_TYPE = { credit_card: 'credit cards', personal_loan: 'personal loans', auto_loan: 'auto loans', cc_team_leader: 'card team', pl_team_leader: 'loan team', cc_sales_manager: 'card teams', pl_sales_manager: 'loan teams' };
 function incentiveTile(inc) {
@@ -581,6 +599,7 @@ function incentiveTile(inc) {
     <div class="kpi-label">Incentive so far</div>
     <div class="kpi-value">AED ${fmtAmount(inc.total)}</div>
     <div class="muted small">${inc.parts.map((p) => `${INCENTIVE_TYPE[p.type] || p.type} AED ${fmtAmount(p.amount)}`).join(' · ')}</div>
+    ${inc.potential != null && inc.open_files ? html`<div class="small potential-line">Could reach <strong>AED ${fmtAmount(inc.potential)}</strong> if your ${inc.open_files} open ${inc.open_files === 1 ? 'file completes' : 'files complete'}.</div>` : ''}
     <div class="muted small">Subject to the conditions on My targets.</div>
   </a>`;
 }
@@ -2289,6 +2308,7 @@ function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [], 
     <table class="bands"><thead><tr><th>Production in the cycle</th><th>Rate on the whole production</th></tr></thead>
       <tbody>${pl_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(2)}%</td></tr>`)}</tbody></table>
     ${i.remark ? html`<div class="callout danger incentive-remark"><strong>${i.remark}.</strong> ${i.excluded_files === 1 ? 'That file is' : 'Those files are'} left out of the production above.</div>` : ''}
+    ${potentialBlock(i.potential, { unit: 'aed', scheme: 'pl' })}
     <p class="muted small">Only loans disbursed on files completed in the cycle count. An Emirates Islamic buy-out counts at ${rules.eib_buyout_share}% of its disbursed amount; a top-up at ${i.topup_share}% of its incremental amount${i.topup_share < 100 ? '' : ' (70% from the October 2026 cycle)'}.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
@@ -2384,6 +2404,7 @@ function alIncentiveCard({ incentive: i, al_rules: r, conditions = [] }) {
       <li>${i.full_payout_met ? '✓' : '○'} New and used car disbursal: AED ${fmtAmount(i.full_payout_aed)} of AED ${fmtAmount(r.full_payout_aed)}${i.full_payout_met ? '' : ` (AED ${fmtAmount(i.short_by)} more for AED ${r.multiplier_high.toFixed(2)} a point)`}${i.algo_aed ? ` · algo loans (AED ${fmtAmount(i.algo_aed)}) earn points but do not count here` : ''}</li>
     </ul>
     ${i.remark ? html`<div class="callout danger incentive-remark"><strong>${i.remark}.</strong> ${i.excluded_files === 1 ? 'That file is' : 'Those files are'} left out of the points above.</div>` : ''}
+    ${potentialBlock(i.potential, { unit: 'points', scheme: 'al' })}
     <p class="muted small">A loan's points are its disbursed amount at the scheme's rate for its class: new and used car loans ${r.rates_pct.new.toFixed(2)}%, algo loans ${r.rates_pct.algo.toFixed(2)}%, low-payout non-algo loans nil. Points beyond target pay AED ${r.multiplier_high.toFixed(2)} each once new and used disbursal reaches AED ${fmtAmount(r.full_payout_aed)} in the cycle, otherwise AED ${r.multiplier_low.toFixed(2)}. Only loans on files completed in the cycle count.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
@@ -2405,6 +2426,7 @@ function incentiveCard({ incentive: i, rules, conditions = [] }) {
       <li>${i.pl_excluded ? html`○ Cross-sell: personal loans are paid under your loan scheme, so they add no points or criterion here.` : html`${i.criterion === 'cross_sell' || i.pl_counted >= rules.cross_sell_aed ? '✓' : '○'} Cross-sell: AED ${fmtAmount(i.pl_counted)} of personal loans counted (needs AED ${fmtAmount(rules.cross_sell_aed)}${i.eib_loans ? `; Emirates Islamic buy-outs count at ${rules.eib_buyout_share}%` : ''})</li>`}</li>
     </ul>
     ${i.remark ? html`<div class="callout danger incentive-remark"><strong>${i.remark}.</strong> ${i.excluded_files === 1 ? 'That file is' : 'Those files are'} left out of the points above.</div>` : ''}
+    ${potentialBlock(i.potential, { unit: 'points', scheme: 'cc' })}
     <p class="muted small">Meet either and excess points pay AED ${rules.rate_high.toFixed(2)} each, otherwise AED ${rules.rate_low.toFixed(2)}. Personal loans count AED ${rules.pl_aed_per_point} per point (Emirates Islamic buy-outs at ${rules.eib_buyout_share}%, top-ups at ${i.topup_share}% of the incremental amount). Only completed files in the cycle count.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;

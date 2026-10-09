@@ -115,3 +115,26 @@ test('the business head dashboard shows core team vs cross-sell contribution per
   const autos = (await head('GET', `/reports/auto_loans?cycle=${cycle}`)).data;
   assert.deepEqual(autos.columns.map((c) => c.key).slice(-3), ['rate_pct', 'points', 'completed_on']);
 });
+
+test('sales staff see what their open files could earn and how much more they need to start earning', async () => {
+  const lina = await login('lina@t.local');
+  const mis = await login('mis@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: ids['lina@t.local'], personal_loan: 900000 }] })).status, 200);
+  const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
+  // Two loans still in the system: fresh 400,000 and a top-up adding 200,000 (counted at its share).
+  const base = { region: 'DXB', core_product: 'personal_loan', phone: '+971 50 999 0001', city: 'Dubai', salary: 15000, source: 'Walk-in', product: 'personal_loan', interest_rate: 6, pl_tenure: 48, fpd, sourcing_date: '2026-10-05' };
+  assert.equal((await lina('POST', '/cases', { ...base, customer_name: 'Open One', personal_loan_type: 'fresh', loan_amount: 400000 })).status, 201);
+  assert.equal((await lina('POST', '/cases', { ...base, customer_name: 'Open Two', phone: '+971 50 999 0002', personal_loan_type: 'top_up', loan_amount: 200000, full_loan_amount: 500000, incremental_amount: 200000 })).status, 201);
+  const i = (await lina('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  const p = i.potential;
+  // Completed so far: Lina's two loans from earlier tests (80,000 + 50,000 = 130,000), below the first band.
+  assert.equal(i.pl_counted, 130000);
+  assert.equal(p.open_files, 2);
+  assert.equal(p.pl_counted, 130000 + 400000 + 200000 * i.topup_share / 100);
+  assert.equal(p.needed_now, 600000 - 130000);
+  assert.equal(p.needed_after, Math.max(0, 600000 - p.pl_counted));
+  assert.equal(p.incentive_aed, Math.round(p.pl_counted * p.rate_pct) / 100);
+  const d = (await lina('GET', '/dashboard')).data.incentive;
+  assert.deepEqual([d.open_files, d.potential], [2, p.incentive_aed]);
+});

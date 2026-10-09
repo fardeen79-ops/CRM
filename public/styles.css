@@ -763,3 +763,5 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .contrib-nums { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 4px; color: var(--muted); }
 @media (max-width: 640px) { .contrib-nums { flex-direction: column; gap: 4px; } }
 .contrib-mix { display: block; margin-left: 16px; color: var(--muted); }
+.potential-line { color: var(--text); margin-top: 2px; }
+.incentive-potential { margin-top: 10px; }

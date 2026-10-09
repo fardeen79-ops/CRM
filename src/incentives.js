@@ -54,11 +54,14 @@ export const PL_INCENTIVE_BANDS = [
 const aedK = (n) => (n >= 1000000 ? `AED ${(n / 1000000).toFixed(n % 1000000 ? 2 : 0).replace(/\.?0+$/, '')}M` : `AED ${Math.round(n / 1000)}K`);
 export const plBandLabel = (b) => (b.to === Infinity ? `${aedK(b.from)}+` : `${aedK(b.from)} to ${aedK(b.to + 0.01)}`);
 
-/** One personal loan sales person's incentive for a cycle: production in the cycle, its band and rate. */
-export function plIncentiveFor(db, staffId, cycle, { coreOnly = false } = {}) {
-  const { start, end } = cycleRange(cycle);
-  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
-  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'personal_loan'").get(staffId, cycle)?.target ?? null;
+/** The sales person's open files, as they would count if they completed now (loan amounts as disbursed). */
+function pipelineRows(db, staffId) {
+  return db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND c.case_status NOT IN ('completed', 'rejected') AND c.status <> 'rejected' AND ${NO_VALID_COMPLAINT_SQL}`).all(staffId)
+    .map((c) => ({ ...c, pl_disbursed_amount: c.pl_disbursed_amount ?? (c.personal_loan_type === 'top_up' ? c.full_loan_amount ?? c.loan_amount : c.loan_amount) ?? null, al_disbursed_amount: c.al_disbursed_amount ?? c.amount ?? null }));
+}
+
+/** The personal loan scheme over a set of files. */
+function plFigures(rows, target, cycle, coreOnly) {
   let loans = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
     const loan = countedLoan(c, cycle);
@@ -88,8 +91,27 @@ export function plIncentiveFor(db, staffId, cycle, { coreOnly = false } = {}) {
     cycle, target, loans, cards_excluded: coreOnly, eib_loans, top_ups, topup_share: topupShare(cycle), pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
     band: band ? plBandLabel(band) : `Below ${aedK(PL_INCENTIVE_BANDS[0].from)}`, rate_pct, core_aed,
     cards_sold: cards.noon + cards.Mass + cards.Premium + cards['Super Premium'] + cards.other, cards, cards_aed: round2(cards_aed), cards_threshold, cards_qualified, cards_incentive_aed, incentive_aed: round2(core_aed + cards_incentive_aed),
-    next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length, ...complaintExclusion(db, staffId, start, end),
+    next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length,
   };
+}
+
+/** One personal loan sales person's incentive for a cycle: production in the cycle, its band and rate, and what the open files could add. */
+export function plIncentiveFor(db, staffId, cycle, { coreOnly = false } = {}) {
+  const { start, end } = cycleRange(cycle);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
+  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'personal_loan'").get(staffId, cycle)?.target ?? null;
+  const now = plFigures(rows, target, cycle, coreOnly);
+  const open = pipelineRows(db, staffId);
+  const projected = plFigures([...rows, ...open], target, cycle, coreOnly);
+  const first = PL_INCENTIVE_BANDS[0].from;
+  const potential = {
+    open_files: open.length, open_loans: projected.loans - now.loans, open_cards: projected.cards_sold - now.cards_sold,
+    pl_counted: projected.pl_counted, band: projected.band, rate_pct: projected.rate_pct, incentive_aed: projected.incentive_aed, extra_aed: round2(projected.incentive_aed - now.incentive_aed),
+    // What it takes to start earning (the first band), from today and after the open files complete.
+    needed_now: round2(Math.max(0, first - now.pl_counted)), needed_after: round2(Math.max(0, first - projected.pl_counted)),
+    next_band: projected.next_band, cards_needed_after: projected.cards_threshold == null ? null : round2(Math.max(0, projected.cards_threshold - projected.pl_counted)),
+  };
+  return { ...now, ...complaintExclusion(db, staffId, start, end), potential };
 }
 export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell', none: 'Neither' };
 
@@ -114,11 +136,8 @@ export function countedAutoLoan(c) {
   return { kind, label: AL_CLASS_LABELS[kind], disbursed: c.al_disbursed_amount, rate_pct: autoLoanRate(c), points: autoLoanPoints(c), full_payout: kind === 'new' || kind === 'used' };
 }
 
-/** One auto loan sales person's incentive for a cycle: points from disbursal, excess over target, the multiplier earned. */
-export function alIncentiveFor(db, staffId, cycle) {
-  const { start, end } = cycleRange(cycle);
-  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
-  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'auto_loan'").get(staffId, cycle)?.target ?? null;
+/** The auto loan scheme over a set of files. */
+function alFigures(rows, target) {
   const n = { new: 0, used: 0, algo: 0, low: 0 };
   let loans = 0; let disbursed = 0; let full_payout_aed = 0; let algo_aed = 0; let low_aed = 0; let points = 0;
   for (const c of rows) {
@@ -136,10 +155,26 @@ export function alIncentiveFor(db, staffId, cycle) {
   const multiplier = high ? AL_INCENTIVE_RULES.multiplier_high : AL_INCENTIVE_RULES.multiplier_low;
   const excess_points = target == null ? null : Math.max(0, round2(points - target));
   return {
-    cycle, target, loans, new_loans: n.new, used_loans: n.used, algo_loans: n.algo, low_loans: n.low, disbursed, full_payout_aed, algo_aed, low_aed, points,
+    target, loans, new_loans: n.new, used_loans: n.used, algo_loans: n.algo, low_loans: n.low, disbursed, full_payout_aed, algo_aed, low_aed, points,
     achievement_pct: target ? Math.round((points / target) * 1000) / 10 : null, excess_points, full_payout_met: high, multiplier,
-    short_by: high ? 0 : round2(AL_INCENTIVE_RULES.full_payout_aed - full_payout_aed), incentive_aed: excess_points == null ? null : round2(excess_points * multiplier), files: rows.length, ...complaintExclusion(db, staffId, start, end),
+    short_by: high ? 0 : round2(AL_INCENTIVE_RULES.full_payout_aed - full_payout_aed), incentive_aed: excess_points == null ? null : round2(excess_points * multiplier), files: rows.length,
   };
+}
+
+/** One auto loan sales person's incentive for a cycle: points from disbursal, excess over target, the multiplier earned, and what the open files could add. */
+export function alIncentiveFor(db, staffId, cycle) {
+  const { start, end } = cycleRange(cycle);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
+  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'auto_loan'").get(staffId, cycle)?.target ?? null;
+  const now = alFigures(rows, target);
+  const open = pipelineRows(db, staffId);
+  const projected = alFigures([...rows, ...open], target);
+  const potential = {
+    open_files: open.length, open_loans: projected.loans - now.loans, points: projected.points, excess_points: projected.excess_points, multiplier: projected.multiplier, full_payout_met: projected.full_payout_met,
+    incentive_aed: projected.incentive_aed, extra_aed: projected.incentive_aed == null ? null : round2(projected.incentive_aed - (now.incentive_aed ?? 0)),
+    needed_now: target == null ? null : round2(Math.max(0, target - now.points)), needed_after: target == null ? null : round2(Math.max(0, target - projected.points)),
+  };
+  return { cycle, ...now, ...complaintExclusion(db, staffId, start, end), potential };
 }
 
 /** Every auto loan sales person's incentive for the cycle, as report rows. */
@@ -151,7 +186,7 @@ export function alIncentiveRows(db, cycle, region = null) {
     WHERE u.role = 'sales' AND u.active = 1 AND (u.core_product = 'auto_loan' OR (u.core_product = 'multi_product' AND EXISTS (SELECT 1 FROM targets t WHERE t.user_id = u.id AND t.cycle = ? AND t.product = 'auto_loan')))${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(cycle, ...(region ? [r] : []));
   return staff.map((s) => {
     const i = alIncentiveFor(db, s.id, cycle);
-    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, multiplier: `AED ${i.multiplier.toFixed(2)}`, full_payout_met: i.full_payout_met ? 'Yes' : 'No' };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, multiplier: `AED ${i.multiplier.toFixed(2)}`, full_payout_met: i.full_payout_met ? 'Yes' : 'No' };
   }).sort((a, b) => (b.incentive_aed ?? -1) - (a.incentive_aed ?? -1) || a.staff.localeCompare(b.staff));
 }
 
@@ -169,11 +204,8 @@ export function countedLoan(c, cycle) {
   return { kind: 'other', disbursed: c.pl_disbursed_amount, counted: c.pl_disbursed_amount };
 }
 
-/** One staff member's incentive for a cycle, from their completed files and card target. */
-export function incentiveFor(db, staffId, cycle, { coreOnly = false } = {}) {
-  const { start, end } = cycleRange(cycle);
-  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
-  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'credit_card'").get(staffId, cycle)?.target ?? null;
+/** The credit card scheme over a set of files. */
+function ccFigures(rows, target, cycle, coreOnly) {
   let cards_sold = 0; let premium_cards = 0; let card_points = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
     if (includesCard(c) && c.credit_card) {
@@ -201,8 +233,26 @@ export function incentiveFor(db, staffId, cycle, { coreOnly = false } = {}) {
   const incentive_aed = excess_points == null ? null : round2(excess_points * rate);
   return {
     cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, pl_excluded: coreOnly, eib_loans, top_ups, topup_share: topupShare(cycle), pl_points, total_points,
-    excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, incentive_aed, files: rows.length, ...complaintExclusion(db, staffId, start, end),
+    excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, incentive_aed, files: rows.length,
   };
+}
+
+/** One staff member's incentive for a cycle, from their completed files and card target, and what the open files could add. */
+export function incentiveFor(db, staffId, cycle, { coreOnly = false } = {}) {
+  const { start, end } = cycleRange(cycle);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
+  const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'credit_card'").get(staffId, cycle)?.target ?? null;
+  const now = ccFigures(rows, target, cycle, coreOnly);
+  const open = pipelineRows(db, staffId);
+  const projected = ccFigures([...rows, ...open], target, cycle, coreOnly);
+  const potential = {
+    open_files: open.length, open_cards: projected.cards_sold - now.cards_sold, open_pl_counted: round2(projected.pl_counted - now.pl_counted),
+    total_points: projected.total_points, excess_points: projected.excess_points, rate: projected.rate, criterion: projected.criterion, criterion_label: projected.criterion_label,
+    incentive_aed: projected.incentive_aed, extra_aed: projected.incentive_aed == null ? null : round2(projected.incentive_aed - (now.incentive_aed ?? 0)),
+    // Points still needed to pass the target: from today, and after the open files complete.
+    needed_now: target == null ? null : round2(Math.max(0, target - now.total_points)), needed_after: target == null ? null : round2(Math.max(0, target - projected.total_points)),
+  };
+  return { ...now, ...complaintExclusion(db, staffId, start, end), potential };
 }
 
 
@@ -464,7 +514,7 @@ export function plIncentiveRows(db, cycle, region = null) {
     WHERE u.role = 'sales' AND u.active = 1 AND (u.core_product = 'personal_loan' OR (u.core_product = 'multi_product' AND EXISTS (SELECT 1 FROM targets t WHERE t.user_id = u.id AND t.cycle = ? AND t.product = 'personal_loan')))${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(cycle, ...(region ? [r] : []));
   return staff.map((s) => {
     const i = plIncentiveFor(db, s.id, cycle, { coreOnly: s.core_product === 'multi_product' });
-    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, cards: undefined, mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, cards_qualified: i.cards_qualified ? 'Yes' : 'No', rate: `${i.rate_pct.toFixed(2)}%` };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, cards: undefined, mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, cards_qualified: i.cards_qualified ? 'Yes' : 'No', rate: `${i.rate_pct.toFixed(2)}%` };
   }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.staff.localeCompare(b.staff));
 }
 
@@ -477,6 +527,6 @@ export function incentiveRows(db, cycle, region = null) {
     WHERE u.role = 'sales' AND u.active = 1 AND (u.core_product = 'credit_card' OR (u.core_product = 'multi_product' AND EXISTS (SELECT 1 FROM targets t WHERE t.user_id = u.id AND t.cycle = ? AND t.product = 'credit_card')))${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(cycle, ...(region ? [r] : []));
   return staff.map((s) => {
     const i = incentiveFor(db, s.id, cycle, { coreOnly: s.core_product === 'multi_product' });
-    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
   }).sort((a, b) => (b.incentive_aed ?? -1) - (a.incentive_aed ?? -1) || a.staff.localeCompare(b.staff));
 }
