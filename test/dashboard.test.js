@@ -150,8 +150,10 @@ test('the submission calendar: green days for a sales person, team-share colours
   const oct5 = cal.days.find((d) => d.date === '2026-10-05');
   assert.deepEqual([oct5.status, oct5.files > 0], ['green', true]);
   assert.ok(cal.days.filter((d) => d.date > cal.today).every((d) => d.status === 'future'));
-  assert.ok(cal.days.filter((d) => d.date <= cal.today && !d.files && [0, 6].includes(d.dow)).every((d) => d.status === 'off'));
-  assert.ok(cal.days.filter((d) => d.date <= cal.today && !d.files && ![0, 6].includes(d.dow)).every((d) => d.status === 'red'));
+  // Sunday is the day off; Saturday is a working day and goes red like any other.
+  assert.ok(cal.days.filter((d) => d.date <= cal.today && !d.files && d.dow === 0).every((d) => d.status === 'off'));
+  assert.ok(cal.days.filter((d) => d.date <= cal.today && !d.files && d.dow !== 0).every((d) => d.status === 'red'));
+  assert.ok(cal.days.some((d) => d.dow === 6 && d.date <= cal.today && d.status === 'red'));
   // The team leader: TL Two has Cara, Lina and Rina; on 2026-10-05 Lina and Rina sourced → 2 of 3 = 66.7% → orange.
   const tcal = (await tl2('GET', '/dashboard')).data.calendar;
   const t5 = tcal.days.find((d) => d.date === '2026-10-05');

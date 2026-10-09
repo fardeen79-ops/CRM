@@ -616,7 +616,7 @@ function calendarCard(cal, r) {
       ${Array.from({ length: lead }, () => html`<div class="cal-cell blank"></div>`)}
       ${cal.days.map((d) => html`<div class="cal-cell ${d.status} ${d.date === cal.today ? 'today' : ''}" title="${title(d)}"><span class="cal-date">${Number(d.date.slice(8))}</span>${d.status !== 'future' && (leader ? d.team : d.files) ? html`<span class="cal-n">${leader ? `${d.pct ?? 0}%` : d.files}</span>` : ''}</div>`)}
     </div>
-    <p class="muted small">${s.green} ${leader ? 'green' : 'submission'} ${s.green === 1 ? 'day' : 'days'}${s.orange ? `, ${s.orange} orange` : ''} and ${s.red} red of ${s.days} working ${s.days === 1 ? 'day' : 'days'} so far this cycle. Weekends with nothing submitted are shown as days off.${leader && !cal.team ? ' No active sales staff are on your team yet.' : ''}</p>
+    <p class="muted small">${s.green} ${leader ? 'green' : 'submission'} ${s.green === 1 ? 'day' : 'days'}${s.orange ? `, ${s.orange} orange` : ''} and ${s.red} red of ${s.days} working ${s.days === 1 ? 'day' : 'days'} so far this cycle. Saturday is a working day; a Sunday with nothing submitted is shown as the day off.${leader && !cal.team ? ' No active sales staff are on your team yet.' : ''}</p>
   </div>`;
 }
 

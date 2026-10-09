@@ -63,8 +63,8 @@ export const CALENDAR_ROLES = ['sales', ...TEAM_LEADER_ROLES];
 /**
  * One cell per day of the cycle up to today. A sales person's day is green when they sourced a file
  * and red when not; a leader's day is green when 70% or more of the team sourced one, orange from
- * 50%, red below. Saturdays and Sundays with nothing sourced are days off, not red. Days still to
- * come are blank.
+ * 50%, red below. Saturday is a working day; a Sunday with nothing sourced is the day off, not red.
+ * Days still to come are blank.
  */
 export function submissionCalendar(db, user, scope, params, cycle) {
   const { start, end } = cycleRange(cycle);
@@ -85,10 +85,10 @@ export function submissionCalendar(db, user, scope, params, cycle) {
     if (date > today) status = 'future';
     else if (leader) {
       const pct = team ? Math.round((staff / team) * 1000) / 10 : null;
-      status = pct == null ? 'none' : pct >= CALENDAR_GREEN_PCT ? 'green' : pct >= CALENDAR_ORANGE_PCT ? 'orange' : (dow === 0 || dow === 6) && !files ? 'off' : 'red';
+      status = pct == null ? 'none' : pct >= CALENDAR_GREEN_PCT ? 'green' : pct >= CALENDAR_ORANGE_PCT ? 'orange' : dow === 0 && !files ? 'off' : 'red';
       days.push({ date, dow, files, staff, team, pct, status });
       continue;
-    } else status = files ? 'green' : (dow === 0 || dow === 6) ? 'off' : 'red';
+    } else status = files ? 'green' : dow === 0 ? 'off' : 'red';
     days.push({ date, dow, files, status });
   }
   const counted = days.filter((d) => !['future', 'off', 'none'].includes(d.status));
