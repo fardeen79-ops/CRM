@@ -63,8 +63,6 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'company_name', header: 'Company name', example: 'Emirates Logistics LLC' },
   { key: 'salary_bank', header: 'Salary transfer bank', example: 'Emirates NBD', help: 'The bank the salary is currently transferred to' },
   { key: 'salary', header: 'Salary', example: '25000', help: 'Monthly, AED' },
-  { key: 'eid_number', header: 'Emirates ID', example: '784-1990-1234567-1', help: 'Keep the dashes so Excel treats it as text' },
-  { key: 'passport_number', header: 'Passport number', example: 'N1234567' },
   { key: 'bidaya_id', header: 'Bidaya ID', example: '' },
   { key: 'app_id', header: 'App ID', example: '', help: 'An App ID already on the CRM is treated as a duplicate' },
   { key: 'product', header: 'Product', required: true, example: 'Personal Loan', allowed: [...Object.values(PRODUCTS), 'Bundle'] },

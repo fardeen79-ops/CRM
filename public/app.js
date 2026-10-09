@@ -1,5 +1,4 @@
 // Sourcing CRM — single-page frontend (no build step).
-import { openEidScanner } from './eid-scan.js';
 import { openLeadScanner } from './lead-scan.js';
 import { speechSupported, listen, readBackMatches } from './speech.js';
 
@@ -1052,7 +1051,7 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     <div class="card">
       <div class="toolbar">
         <form id="search-form" style="display:flex;gap:8px;flex:1;min-width:240px">
-          <input type="search" name="q" placeholder="Search name, mobile, Emirates ID, passport, Bidaya / App ID, sales code or ref…" value="${q}">
+          <input type="search" name="q" placeholder="Search name, mobile, Bidaya / App ID, sales code or ref…" value="${q}">
           <button>Search</button>
         </form>
         ${filters}
@@ -1155,13 +1154,8 @@ async function viewCaseForm(id, leadId = null) {
       <section>
         <div class="section-head">
           <h2>Customer</h2>
-          <button type="button" class="btn scan-btn" id="scan-eid">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 15h10M7 12h10M7 9h4"/></svg>
-            Scan Emirates ID
-          </button>
         </div>
         ${canSpeak ? html`<p class="muted small voice-hint">Tap a microphone to type by voice.</p>` : ''}
-        <div id="scan-result"></div>
         <div class="form-grid three">
           <div class="field-row"><label for="f-salutation">Salutation</label><select id="f-salutation" name="salutation"><option value="">—</option>${state.meta.salutations.map((o) => html`<option value="${o}" ${c.salutation === o ? raw('selected') : ''}>${o}</option>`)}</select></div>
           ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"', dictate: true })}
@@ -1508,15 +1502,8 @@ async function viewCaseForm(id, leadId = null) {
     return out;
   };
   fullAmount.oninput = increment.oninput = checkIncrement;
-  // Show the Emirates ID in its usual 784-YYYY-NNNNNNN-C layout once typed.
-  const eid = $('#f-eid_number');
-  if (eid) eid.onblur = () => {
-    const d = eid.value.replace(/\D/g, '');
-    if (/^784\d{12}$/.test(d)) eid.value = `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7, 14)}-${d.slice(14)}`;
-  };
   updateProductFields();
 
-  // Emirates ID scan: fills the name and ID number for the sales person to check.
   // Voice: dictation into a box, and reading an ID number back to check it.
   const readBackOk = new Set();
   let stopListening = null;
@@ -1577,45 +1564,7 @@ async function viewCaseForm(id, leadId = null) {
   }));
   window.addEventListener('hashchange', stopAll, { once: true });
 
-  // Emirates ID: dashes appear as the digits are typed (784-YYYY-NNNNNNN-C), and pasted numbers
-  // with or without dashes are tidied the same way.
-  const eidInput = $('#f-eid_number') || document.createElement('input');
-  const formatEid = () => {
-    const digits = eidInput.value.replace(/\D/g, '').slice(0, 15);
-    const groups = [digits.slice(0, 3), digits.slice(3, 7), digits.slice(7, 14), digits.slice(14, 15)].filter(Boolean);
-    const pretty = groups.join('-');
-    if (eidInput.value !== pretty) {
-      // Keep the cursor at the end when typing forward; browsers move it after a value change.
-      const atEnd = eidInput.selectionStart === eidInput.value.length;
-      eidInput.value = pretty;
-      if (!atEnd) eidInput.setSelectionRange(pretty.length, pretty.length);
-    }
-  };
-  eidInput.addEventListener('input', formatEid);
-  if (eidInput.value) formatEid();
 
-  let scanned = false;
-  $('#scan-eid').onclick = async () => {
-    const result = await openEidScanner(state.meta.ocr);
-    if (!result) return;
-    for (const [name, value] of Object.entries(result.fields)) {
-      const input = $(`#f-${name}`);
-      if (!input || !value) continue;
-      input.value = value;
-      input.classList.add('scanned');
-      input.addEventListener('input', () => input.classList.remove('scanned'), { once: true });
-    }
-    scanned = result.side;
-    const warnings = [...result.notes];
-    const expired = result.expiryDate && result.expiryDate < todayLocal();
-    if (expired) warnings.unshift(`This Emirates ID expired on ${fmtDay(result.expiryDate)}.`);
-    $('#scan-result').innerHTML = html`<div class="callout ${expired || result.side === 'back' && warnings.length ? 'warn' : 'success'} scan-callout">
-      <strong>Filled from the ${result.side} of the Emirates ID: the customer's name.</strong>
-      Check them against the card before submitting.${result.expiryDate && !expired ? html` <span class="muted">Card valid until ${fmtDay(result.expiryDate)}.</span>` : ''}
-      ${warnings.map((w) => html`<div class="scan-warning">${w}</div>`)}
-    </div>`.s;
-    toast(`Details filled from the ${result.side} of the Emirates ID`);
-  };
 
   const save = async (resubmit) => {
     const err = document.getElementById('form-error');
@@ -1641,7 +1590,6 @@ async function viewCaseForm(id, leadId = null) {
       body.pl_buyouts = collectBuyouts();
       body.salary_bank = body.salary_bank === OTHER_BANK ? body.salary_bank_other?.trim() : body.salary_bank ?? null;
       delete body.salary_bank_other;
-      if (scanned) body.eid_scanned = scanned;
       if (readBackOk.size) body.read_back = [...readBackOk];
       const res = id ? await api(`/cases/${id}`, { method: 'PUT', body }) : await api('/cases', { method: 'POST', body });
       if (resubmit) await api(`/cases/${id}/actions`, { method: 'POST', body: { action: 'resubmit' } });
@@ -1850,7 +1798,7 @@ async function viewCase(id) {
           </div>
         </div>
         <div class="field-row"><textarea name="note" required placeholder="What needs to change?"></textarea></div>
-        <p class="muted small">Team leaders can't see company, salary, Emirates ID or passport details. Send changes to those to the Sales Manager queue.</p>
+        <p class="muted small">Team leaders can't see company or salary details. Send changes to those to the Sales Manager queue.</p>
         <button class="btn-primary">Send edit request</button>
       </form>`);
   }
@@ -2000,14 +1948,12 @@ async function viewCase(id) {
       <div>
         <div class="card">
           <h2>Customer</h2>
-          ${hiddenFields.size && state.user.role !== 'sales' ? html`<p class="muted small">Company, salary, Emirates ID and passport details are hidden for your role${state.user.role === 'processing' ? ' once verification is completed or rejected' : ''}.</p>` : ''}
+          ${hiddenFields.size && state.user.role !== 'sales' ? html`<p class="muted small">Company and salary details are hidden for your role${state.user.role === 'processing' ? ' once verification is completed or rejected' : ''}.</p>` : ''}
           ${state.user.role === 'sales' ? html`<p class="muted small privacy-note">Once a file is submitted the customer's phone numbers are hidden from sales staff and the other identifiers stay masked; nothing can be revealed. To correct a value, edit the file and type the new one.</p>` : ''}
           ${maskedFields.size && canReveal ? html`<p class="muted small privacy-note">Personal identifiers are masked. Reveal only what you need; each reveal is recorded against your name, and revealed values hide again after ${Math.round((window.__crmRehideMs || 180000) / 60000)} minutes or when you leave the page. <button type="button" class="btn-link" id="reveal-all">Reveal all</button></p>` : ''}
           <dl class="details">
             ${phoneRow('Mobile', 'phone')}
             ${c.alt_phone || hiddenFields.has('alt_phone') ? phoneRow('Alternate phone', 'alt_phone') : ''}
-            ${c.eid_number || hiddenFields.has('eid_number') && c.eid_number !== null ? row('Emirates ID', c.eid_number, true, 'eid_number') : ''}
-            ${c.passport_number ? row('Passport number', c.passport_number, true, 'passport_number') : ''}
             ${row('Company', c.company_name, false, 'company_name')}
             ${row('Monthly salary', c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
             ${c.salary_bank ? html`<dt>Salary transferred to</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
@@ -2972,7 +2918,7 @@ async function viewAccessLog(params) {
   const reveals = items.filter((e) => e.what.startsWith('reveal:')).length;
   shell(html`
     <div class="page-head">
-      <div><h1>Access log</h1><p class="muted lede">Who opened each customer's file and which personal details they revealed. Emirates ID, passport and phone numbers are masked on every screen until someone chooses to reveal them, and every reveal is recorded here. Each screen also carries a faint watermark of the signed-in user, so a photo or screenshot can be traced.</p></div>
+      <div><h1>Access log</h1><p class="muted lede">Who opened each customer's file and which personal details they revealed. Phone numbers and salaries are masked on every screen until someone chooses to reveal them, and every reveal is recorded here. Each screen also carries a faint watermark of the signed-in user, so a photo or screenshot can be traced.</p></div>
     </div>
     <div class="kpis card-kpis" style="grid-template-columns: repeat(3, 1fr)">
       <div class="kpi"><span class="kpi-label">Entries</span><span class="kpi-value">${items.length}</span><span class="kpi-sub">most recent 1,000</span></div>
