@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS cases (
   customer_type      TEXT, -- salaried or self_employed
   sourcing_type      TEXT, -- regular or fixed_deposit (credit card and personal loan only)
   tat_override_from  TEXT, -- the status a file held as completed by the TAT switch goes back to
+  tat_held_at        TEXT, -- when the TAT switch held it, shown as its verification time while held
   salary_bank        TEXT, -- the bank the customer's salary is currently transferred to
   salary             REAL,
   eid_number         TEXT,
@@ -490,7 +491,7 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
 // Columns added after the first release; ALTER existing databases in place.
 const ADDED_COLUMNS = {
   bundle_products: 'TEXT', credit_card: 'TEXT', personal_loan_type: 'TEXT', buyout_bank: 'TEXT',
-  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT', tat_override_from: 'TEXT',
+  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT', tat_override_from: 'TEXT', tat_held_at: 'TEXT',
   eid_number: 'TEXT', passport_number: 'TEXT', bidaya_id: 'TEXT', app_id: 'TEXT',
   loan_amount: 'REAL', interest_rate: 'REAL', full_loan_amount: 'REAL', incremental_amount: 'REAL',
   case_status: "TEXT NOT NULL DEFAULT 'sent_to_check'", case_status_note: 'TEXT',

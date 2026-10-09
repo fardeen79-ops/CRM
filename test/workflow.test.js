@@ -315,6 +315,15 @@ test('TAT switch: business heads and Dubai MIS hold late files as completed, and
   let held = (await bh('GET', `/cases/${late.id}`)).data.case;
   assert.equal(held.status, 'completed');
   assert.equal(held.case_status, 'sent_to_check'); // verification only
+  // While the switch is on the file reads as verified: history, verification time and reports.
+  assert.equal(held.events[0].type, 'complete');
+  assert.ok(!held.events.some((e) => e.type.startsWith('tat_')));
+  assert.ok(held.verified_at);
+  assert.equal(held.stages.rows.at(-1).stage, 'with_bank');
+  const reg = (await bh('GET', '/reports/register?from=2026-01-01&to=2026-01-31')).data;
+  const line = reg.rows.find((x) => x.ref === late.ref);
+  assert.equal(line.verification, 'Verified');
+  assert.ok(line.verified_at);
   assert.equal((await bh('GET', `/cases/${fresh.id}`)).data.case.status, 'pending_verification');
   assert.ok(!(await bh('GET', '/cases?tat=overdue')).data.cases.some((c) => c.id === late.id));
   // A file that passes its TAT while the switch is on follows.

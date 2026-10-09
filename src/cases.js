@@ -358,9 +358,9 @@ export function holdOverdueFiles(db, userId = null) {
   if (!tatSwitchOn(db)) return 0;
   const rows = db.prepare(`SELECT c.id, c.status FROM cases c WHERE ${TAT_OPEN_SQL} AND ${TAT_SOURCED_SQL} < ?`).all(tatCutoff(uaeDay()));
   const ts = now();
-  const hold = db.prepare('UPDATE cases SET tat_override_from = ?, status = ?, updated_at = ? WHERE id = ?');
+  const hold = db.prepare('UPDATE cases SET tat_override_from = ?, tat_held_at = ?, status = ?, updated_at = ? WHERE id = ?');
   for (const r of rows) {
-    hold.run(r.status, STATUS.COMPLETED, ts, r.id);
+    hold.run(r.status, ts, STATUS.COMPLETED, ts, r.id);
     addEvent(db, r.id, userId, 'tat_hold', { from: r.status, to: STATUS.COMPLETED, detail: 'Past verification TAT while the TAT switch is on' });
   }
   return rows.length;
@@ -370,12 +370,25 @@ export function holdOverdueFiles(db, userId = null) {
 function releaseHeldFiles(db, userId) {
   const rows = db.prepare('SELECT id, tat_override_from FROM cases WHERE tat_override_from IS NOT NULL').all();
   const ts = now();
-  const back = db.prepare('UPDATE cases SET status = ?, tat_override_from = NULL, updated_at = ? WHERE id = ?');
+  const back = db.prepare('UPDATE cases SET status = ?, tat_override_from = NULL, tat_held_at = NULL, updated_at = ? WHERE id = ?');
   for (const r of rows) {
     back.run(r.tat_override_from, ts, r.id);
     addEvent(db, r.id, userId, 'tat_release', { from: STATUS.COMPLETED, to: r.tat_override_from, detail: 'TAT switch turned off' });
   }
   return rows.length;
+}
+
+/**
+ * The history as staff see it. While the switch is on, a held file reads as verified: its hold shows
+ * as an ordinary verification, and earlier holds and releases are left out. With the switch off the
+ * full history shows. The stored events never change.
+ */
+export function presentEvents(row, events, switchOn) {
+  if (!switchOn) return events;
+  const latestHold = row.tat_override_from ? events.filter((e) => e.type === 'tat_hold').reduce((a, e) => (!a || e.id > a.id ? e : a), null) : null;
+  return events
+    .filter((e) => !['tat_hold', 'tat_release'].includes(e.type) || e === latestHold)
+    .map((e) => (e === latestHold ? { ...e, type: 'complete', detail: null } : e));
 }
 
 export function tatSwitchStatus(db, user) {
@@ -904,7 +917,7 @@ const CASE_SELECT = `
   LEFT JOIN users tab ON tab.id = c.timing_approved_by
   LEFT JOIN users cdb ON cdb.id = c.complaint_decided_by`;
 
-const withRef = (row) => row && { ...row, tat: verificationTat(row), ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
+const withRef = (row) => row && { ...row, ...(row.tat_override_from && !row.verified_at && { verified_at: row.tat_held_at }), tat: verificationTat(row), ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
 const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.parse(text); } catch { return []; } };
 
 // Personal details that only some people may see once a file is submitted.
@@ -1029,7 +1042,8 @@ export function getCase(db, user, id) {
        LEFT JOIN users u ON u.id = e.user_id WHERE e.case_id = ? ORDER BY e.id DESC`
     )
     .all(id);
-  const out = { ...present(user, row), events, stages: caseStages(row, events), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
+  const shown = presentEvents(row, events, tatSwitchOn(db));
+  const out = { ...present(user, row), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
   if (user.role !== 'sales' && row.bot_call_status) out.bot_call = latestBotCall(db, id);
   if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
     out.recording_email = recordingEmail(row);
@@ -1269,7 +1283,7 @@ export function updateCase(db, user, id, input) {
     if (reverify.length) {
       const what = reverify.map((f) => VERIFIED_FIELD_LABELS[f] || f).join(', ');
       const ts = now();
-      db.prepare(`UPDATE cases SET status = ?, tat_override_from = NULL, assigned_to = NULL, verified_by = NULL, verified_at = NULL, call_attempts = 0,
+      db.prepare(`UPDATE cases SET status = ?, tat_override_from = NULL, tat_held_at = NULL, assigned_to = NULL, verified_by = NULL, verified_at = NULL, call_attempts = 0,
           callback_at = NULL, callback_notified_at = NULL, updated_at = ? WHERE id = ?`).run(STATUS.PENDING, ts, id);
       addEvent(db, id, user.id, 're_verification', { from: STATUS.COMPLETED, to: STATUS.PENDING, detail: what });
       const ref = caseRef(id);
@@ -1398,7 +1412,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   transaction(db, () => {
     const set = { updated_at: ts };
     if (rule.to) set.status = rule.to;
-    if (set.status && row.tat_override_from) set.tat_override_from = null;
+    if (set.status && row.tat_override_from) Object.assign(set, { tat_override_from: null, tat_held_at: null });
     let detail = null;
 
     switch (action) {

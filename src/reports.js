@@ -2,7 +2,7 @@
 // columns, filtered by a period (a sales cycle or two dates), a region, and the viewer's own
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
-import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles } from './cases.js';
+import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents, tatSwitchOn } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
 import { cardProducts } from './credit-cards.js';
@@ -192,11 +192,12 @@ function pipeline(db, user, { period, region }) {
 
 function stage_times(db, user, { period, region }) {
   const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
-  const files = db.prepare(`SELECT c.id, c.created_at FROM cases c ${sql}`).all(...params);
+  const files = db.prepare(`SELECT c.id, c.created_at, c.tat_override_from FROM cases c ${sql}`).all(...params);
+  const switchOn = tatSwitchOn(db);
   const eventsOf = db.prepare('SELECT id, type, to_status, detail, created_at FROM case_events WHERE case_id = ?');
   const by = new Map(Object.entries(CASE_STAGES).map(([k, label]) => [k, { stage: label, files: 0, hours: [], longest_hours: 0, slowest_on: 0 }]));
   for (const f of files) {
-    const s = caseStages(f, eventsOf.all(f.id));
+    const s = caseStages(f, presentEvents(f, eventsOf.all(f.id), switchOn));
     for (const t of s.totals) {
       const r = by.get(t.stage);
       if (!r) continue;
@@ -406,7 +407,7 @@ function register(db, user, { period, region }) {
       card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? c.al_interest_rate ?? null, tenure: c.pl_tenure ?? c.al_tenure ?? null, fpd: c.fpd || '',
       auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',
-      verification: VERIFICATION_LABELS[c.status] || c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || '',
+      verification: VERIFICATION_LABELS[c.status] || c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || c.tat_held_at || '',
       case_status: CASE_STATUS[c.case_status] || c.case_status, case_status_at: c.case_status_at || '', disbursed_aed: (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0) || null,
       card_reason: c.card_salary_exception ? CARD_EXCEPTIONS[c.card_salary_exception] : (c.status === 'awaiting_approval' ? 'Awaiting approval' : ''), eligible_category: c.card_higher_options > 0 ? c.card_eligible_category : '',
       card_status: c.card_status ? CARD_STATES[c.card_status] : (c.case_status === 'completed' && includesCard(c) ? 'Not mapped' : ''), card_date: c.card_activation_date || '',
