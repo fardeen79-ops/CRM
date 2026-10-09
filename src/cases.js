@@ -234,9 +234,10 @@ export const isDncr = (row) => row.incomplete_reason === 'customer_in_dncr' && [
 
 /**
  * The email the sales person sends a customer on the Do Not Call Register, asking for permission to
- * contact them about the Emirates NBD product they applied for. Drafted from the file; sent from
- * the sales person's own mailbox.
+ * contact them about the Emirates NBD product they applied for. Sent by the processing team or the
+ * team leader, never the sales person; signed with the sender's name and team.
  */
+export const DNCR_SENDERS = { processing: 'Verification Team', team_leader: 'Team Leader' };
 export function dncrEmail(row, user) {
   const product = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) || 'product';
   const first = row.first_name || String(row.customer_name || '').split(' ')[0] || 'Customer';
@@ -253,7 +254,8 @@ export function dncrEmail(row, user) {
     'If you did not apply, or you no longer wish to proceed, please ignore this email and we will take it no further.',
     '',
     'Kind regards,',
-    `${user?.name || row.sales_staff_name || ''}${row.sales_code || user?.sales_code ? ` (${row.sales_code || user.sales_code})` : ''}`.trim(),
+    user.name,
+    DNCR_SENDERS[user.role],
     `Reference: ${caseRef(row.id)}`,
   ];
   return { to: row.email || null, subject, body: lines.join('\n'), product };
@@ -859,7 +861,7 @@ export function getCase(db, user, id) {
     out.recording_email = recordingEmail(row);
   }
   // A customer on the Do Not Call Register: a permission email the sales person can send.
-  if (isDncr(row)) out.dncr_email = dncrEmail(row, user);
+  if (isDncr(row) && DNCR_SENDERS[user.role]) out.dncr_email = dncrEmail(row, user);
   return out;
 }
 

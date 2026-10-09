@@ -1872,7 +1872,7 @@ async function viewCase(id) {
         <div class="badges">${caseBadge(c.case_status)} ${badge(c.status)} ${isDncr(c) ? html`<span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''} <span class="muted small">Sourced by ${c.sales_staff_name || c.created_by_name}${c.region ? ` · ${c.region}` : ''} on ${fmtDay(c.sourcing_date)}</span></div>
       </div>
     </div>
-    ${c.dncr_email ? html`<div class="callout warn dncr-draft"><strong>Customer on the Do Not Call Register.</strong> The customer cannot be phoned until they give permission. Send them this email from your own mailbox and log their reply on the file; once they agree, resubmit the file for verification.
+    ${c.dncr_email ? html`<div class="callout warn dncr-draft"><strong>Customer on the Do Not Call Register.</strong> The customer cannot be phoned until they give permission. Send them this email from your mailbox, signed in your name, and log their reply on the file; once they agree, the file can go back for verification.
       ${emailDraft('dncr', c.dncr_email, 'Email to the customer', { missingTo: 'No email address on the file. Add the customer\'s email under Edit details, or copy the text and send it another way.' })}</div>` : ''}
     ${c.callback_at && ['pending_verification', 'in_verification'].includes(c.status) ? html`<div class="callout ${callbackDue(c) ? 'danger' : 'warn'}">
       <strong>${callbackDue(c) ? 'Call back now' : 'Call-back scheduled'} — ${fmtWhen(c.callback_at)} (${untilText(c.callback_at)})</strong>

@@ -148,16 +148,16 @@ test('a file marked Customer in DNCR carries a permission email to the customer,
   assert.equal((await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' })).status, 200);
   const marked = (await proc('POST', `/cases/${c.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'Number is on the DNCR' })).data.case;
   assert.equal(marked.status, 'incomplete');
-  const seen = (await cara('GET', `/cases/${c.id}`)).data.case;
-  assert.equal(seen.dncr_email.to, 'hind@example.com');
-  assert.match(seen.dncr_email.subject, /Credit Card \(Skywards Signature Credit Card\) application/);
-  assert.match(seen.dncr_email.body, /^Dear Hind,/);
-  assert.match(seen.dncr_email.body, /Do Not Call Register/);
-  assert.match(seen.dncr_email.body, /applied for an Emirates NBD Credit Card/);
-  assert.doesNotMatch(seen.dncr_email.body, /Derby/);
-  assert.match(seen.dncr_email.body, /Cara \(D-2\)/);
-  // The team leader gets the same draft; once the file is back in verification it goes away.
-  assert.equal((await tl2('GET', `/cases/${c.id}`)).data.case.dncr_email.subject, seen.dncr_email.subject);
-  assert.equal((await tl2('POST', `/cases/${c.id}/actions`, { action: 'reverify' })).status, 200);
+  // The sales person gets no draft; the processor and the team leader do, each signed in their own name.
   assert.equal('dncr_email' in (await cara('GET', `/cases/${c.id}`)).data.case, false);
+  const seen = (await proc('GET', `/cases/${c.id}`)).data.case;
+  assert.equal(seen.dncr_email.to, 'hind@example.com');
+  assert.match(seen.dncr_email.subject, /Emirates NBD Credit Card \(Skywards Signature Credit Card\) application/);
+  assert.match(seen.dncr_email.body, /^Dear Hind,/);
+  assert.match(seen.dncr_email.body, /applied for an Emirates NBD Credit Card/);
+  assert.match(seen.dncr_email.body, /Kind regards,\nPat\nVerification Team\n/);
+  assert.doesNotMatch(seen.dncr_email.body, /Cara|Derby/);
+  assert.match((await tl2('GET', `/cases/${c.id}`)).data.case.dncr_email.body, /Kind regards,\nTL Two\nTeam Leader\n/);
+  assert.equal((await tl2('POST', `/cases/${c.id}/actions`, { action: 'reverify' })).status, 200);
+  assert.equal('dncr_email' in (await proc('GET', `/cases/${c.id}`)).data.case, false);
 });
