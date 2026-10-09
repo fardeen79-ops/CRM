@@ -23,15 +23,6 @@ npm run seed:demo         # leader@, sales@, sales2@, processing@demo.local — 
 npm start
 ```
 
-To click around **without touching the real database**, run a sandbox:
-
-```bash
-npm run sandbox             # serves a copy of data/crm.db on http://localhost:3100
-npm run sandbox -- --fresh  # throws the copy away and starts again from the real database
-```
-
-The sandbox copies `data/crm.db` to `data/sandbox.db` the first time (or seeds the demo users and sample files when there is no staff yet) and every change stays in the copy. The real CRM, usually on port 3000, keeps running untouched. The copy's logins and passwords are those of the real database.
-
 Run the tests with `npm test`.
 
 ## Each user's dashboard

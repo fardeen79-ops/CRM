@@ -19,12 +19,11 @@ const sales2 = ensureUser('Riya Sales', 'sales2@demo.local', 'sales', { sales_co
 const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing', { mobile_number: '0521110005' });
 
 if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
-  const fpd = new Date(Date.now() + 35 * 864e5).toISOString().slice(0, 10);
   const samples = [
-    [sales1, { region: 'DXB', core_product: 'personal_loan', first_name: 'Arjun', last_name: 'Mehta', phone: '0501234567', city: 'Dubai', salary: 18000, product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '250000', interest_rate: '6.25', pl_tenure: 48, fpd, source: 'Walk-in' }],
-    [sales1, { region: 'DXB', core_product: 'multi_product', first_name: 'Neha', last_name: 'Kapoor', phone: '0507654321', city: 'Dubai', salary: 25000, product: 'bundle', bundle_products: ['credit_card', 'accounts'], credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', source: 'Referral' }],
-    [sales2, { region: 'AUH', core_product: 'auto_loan', first_name: 'John', last_name: 'Fernandes', phone: '0551112233', city: 'Abu Dhabi', salary: 22000, product: 'auto_loan', auto_loan_type: 'new', amount: '90000', car_make: 'Toyota', car_model: 'Camry', car_year: 2026, al_lead_source: 'Dealer referral', al_interest_rate: 3.25, al_tenure: 60, source: 'Field visit' }],
-    [sales2, { region: 'AUH', core_product: 'credit_card', first_name: 'Priya', last_name: 'Nair', phone: '0569998877', city: 'Abu Dhabi', salary: 12000, product: 'credit_card', credit_card: 'noon One Visa Credit Card', card_fee_type: 'fyf', source: 'Cold call' }],
+    [sales1, { region: 'DXB', core_product: 'personal_loan', customer_name: 'Arjun Mehta', phone: '+91 98765 43210', city: 'Mumbai', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '250000', interest_rate: '6.25', fpd: new Date(Date.now() + 35 * 864e5).toISOString().slice(0, 10), source: 'Walk-in' }],
+    [sales1, { region: 'DXB', core_product: 'multi_product', customer_name: 'Neha Kapoor', phone: '+91 91234 56780', city: 'Pune', product: 'bundle', bundle_products: ['credit_card', 'accounts'], credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', source: 'Referral' }],
+    [sales2, { region: 'AUH', core_product: 'auto_loan', customer_name: 'John Fernandes', phone: '+91 99887 76655', city: 'Goa', product: 'auto_loan', amount: '900000', source: 'Field visit' }],
+    [sales2, { region: 'AUH', core_product: 'credit_card', customer_name: 'Priya Nair', phone: '+91 90000 11122', city: 'Kochi', product: 'accounts', amount: '150000', source: 'Cold call' }],
   ];
   const ids = samples.map(([u, data]) => createCase(db, u, data).id);
   applyAction(db, proc, ids[0], { action: 'log_call', outcome: 'connected', note: 'Customer confirmed details' });
