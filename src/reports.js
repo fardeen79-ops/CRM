@@ -8,6 +8,7 @@ import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
 import { inventoryRows, ASSET_VIEWERS, assetSummary, ASSET_STATUS } from './assets.js';
+import { allowsReport } from './roles.js';
 import { PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
@@ -35,7 +36,10 @@ export const REPORTS = {
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
-export const reportsFor = (user) => Object.entries(REPORTS).filter(([, r]) => r.roles.includes(user.role) && (!r.only || r.only(user))).map(([key, r]) => ({ key, ...r, roles: undefined, only: undefined }));
+/** The report keys a built-in role can run at all (before a custom role narrows them). */
+export const reportKeysForBase = (base) => Object.entries(REPORTS).filter(([, r]) => r.roles.includes(base)).map(([key]) => key);
+export const reportCatalog = () => Object.fromEntries(Object.entries(REPORTS).map(([key, r]) => [key, { name: r.name, roles: r.roles }]));
+export const reportsFor = (user) => Object.entries(REPORTS).filter(([key, r]) => r.roles.includes(user.role) && (!r.only || r.only(user)) && allowsReport(user, key)).map(([key, r]) => ({ key, ...r, roles: undefined, only: undefined }));
 
 /** The period: a sales cycle (default the current one) or from/to dates. */
 export function periodOf({ cycle, from, to } = {}) {
@@ -531,7 +535,7 @@ const RUNNERS = { assets, sourcing, pipeline, verification, targets, cards, gove
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
   const def = REPORTS[key];
-  if (!def || !def.roles.includes(user.role) || (def.only && !def.only(user))) throw new WorkflowError(404, 'Report not found');
+  if (!def || !def.roles.includes(user.role) || (def.only && !def.only(user)) || !allowsReport(user, key)) throw new WorkflowError(404, 'Report not found');
   const period = periodOf(filters);
   const region = reportRegion(filters.region);
   const result = RUNNERS[key](db, user, { period, region });

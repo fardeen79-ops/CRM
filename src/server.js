@@ -8,6 +8,7 @@ import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategori
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
 import * as assets from './assets.js';
+import * as roles from './roles.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -147,7 +148,7 @@ const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http
 // Who adds and edits staff: MIS and business heads.
 const USER_ADMINS = ['mis', 'business_head'];
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
-const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|import\/assets)(\/|$)/;
+const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/;
 
 function routes(db, dispatch, bot) {
   return [
@@ -191,6 +192,8 @@ function routes(db, dispatch, bot) {
         case_statuses: cases.CASE_STATUS,
         regions: cases.REGIONS,
         roles: auth.ROLES,
+        role_labels: roles.roleLabels(), custom_roles: roles.customRoles().map(({ key, label, base, description }) => ({ key, label, base, description })),
+        perms: roles.permissionsOf(user), can_manage_roles: roles.canManageRoles(user),
         staff_core_products: STAFF_CORE_PRODUCTS,
         manager_roles: cases.MANAGER_ROLES,
         core_products: cases.CORE_PRODUCTS,
@@ -292,6 +295,15 @@ function routes(db, dispatch, bot) {
       return { users: listUsers(db) };
     }],
 
+    // Roles: custom roles defined on top of the built-in ones, by IT, Dubai MIS and business heads.
+    ['GET', /^\/api\/roles$/, async ({ user }) => {
+      roles.requireRoleManager(user);
+      return { builtin: Object.entries(roles.BUILTIN_ROLES).map(([key, r]) => ({ key, ...r, reports: reports.reportKeysForBase(key) })), custom: roles.customRoles(), pages: Object.fromEntries(Object.entries(roles.PAGES).map(([k, p]) => [k, { label: p.label, help: p.help }])), uploads: roles.UPLOAD_KINDS, reports: reports.reportCatalog(), usage: roles.roleUsage(db) };
+    }],
+    ['POST', /^\/api\/roles$/, async ({ user, body, res }) => send(res, 201, { role: roles.createRole(db, user, body, { reportsForBase: reports.reportKeysForBase }) })],
+    ['PATCH', /^\/api\/roles\/([a-z0-9_]+)$/, async ({ user, params, body }) => ({ role: roles.updateRole(db, user, params[0], body, { reportsForBase: reports.reportKeysForBase }) })],
+    ['DELETE', /^\/api\/roles\/([a-z0-9_]+)$/, async ({ user, params }) => roles.deleteRole(db, user, params[0])],
+
     // Assets: the sourcing tabs issued to sales staff. IT keeps the register; MIS and business heads see it too.
     ['GET', /^\/api\/assets$/, async ({ user, query }) => {
       requireRole(user, ...assets.ASSET_VIEWERS);
@@ -372,6 +384,18 @@ function routes(db, dispatch, bot) {
         // A leaving date that has arrived disables the account now; a future one does so on the day.
         sweepLeavers(db);
       }
+      if ('role' in body) {
+        const r = roles.resolveRole(body.role);
+        if (id === user.id) throw new HttpError(400, 'You cannot change your own role');
+        if (r.base !== 'sales' && target.role === 'sales') db.prepare('UPDATE users SET sales_code = NULL, team_leader_id = NULL, sales_manager_id = NULL, asm_id = NULL, salary = NULL, core_product = NULL WHERE id = ?').run(id);
+        if (r.base === 'sales' && target.role !== 'sales') {
+          let profile;
+          try { profile = salesProfile(db, body); } catch (err) { throw new HttpError(400, `A sales role needs a sales profile: ${err.message}`); }
+          db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ?, salary = ?, core_product = ? WHERE id = ?').run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, profile.salary, profile.core_product, id);
+        }
+        db.prepare('UPDATE users SET role = ?, role_key = ? WHERE id = ?').run(r.base, r.key, id);
+        if (r.base !== target.role) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+      }
       if ('region' in body) {
         try {
           db.prepare('UPDATE users SET region = ? WHERE id = ?').run(regionOf(body.region), id);
@@ -429,6 +453,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   cases.config.itEmail = itEmail;
   loadCardProducts(db);
   loadPayoutRules(db);
+  roles.loadRoles(db);
   backfillCardCategories(db);
   sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
@@ -461,6 +486,12 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
       if (!matched.opts.public && !user) throw new HttpError(401, 'Please sign in');
       // The IT department works the asset register only: no files, chat, targets or staff changes.
       if (user?.role === 'it' && !IT_PATHS.test(url.pathname)) throw new HttpError(403, 'IT accounts manage assets only');
+      // A custom role may have fewer screens, uploads and downloads than the role it is based on.
+      if (user) {
+        const blocked = roles.blockedPage(user, url.pathname);
+        if (blocked) throw new HttpError(403, `Your role does not include ${roles.PAGES[blocked].label}`);
+        if (url.searchParams.get('format') === 'csv' && !roles.allowsDownload(user)) throw new HttpError(403, 'Your role cannot download files');
+      }
       const body = await readJson(req, matched.opts.maxBody);
       const result = await matched.handler({ req, res, user, token, body, params: matched.params, query: url.searchParams });
       if (!res.headersSent && result !== undefined) send(res, 200, result);

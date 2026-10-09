@@ -32,7 +32,7 @@ export const PAYOUT_LABELS = {
 
 // Who may see what a file earns: the business head, and MIS staff in Dubai. Nobody else: not sales
 // staff, processors, team leaders, sales managers, ASMs, governance or MIS in Abu Dhabi.
-export const canSeePayout = (user) => user.role === 'business_head' || (user.role === 'mis' && String(user.region || '').toUpperCase() === 'DXB');
+export const canSeePayout = (user) => (user.role === 'business_head' || (user.role === 'mis' && String(user.region || '').toUpperCase() === 'DXB')) && user.perms?.payout !== false;
 
 let payoutRates = { ...PAYOUT_DEFAULTS };
 let payoutSrc = 'built_in';

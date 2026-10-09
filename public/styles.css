@@ -474,6 +474,13 @@ label.check.wa-same { margin-top: 6px; font-size: 13px; color: var(--muted); }
 .asset-panel h3 { margin: 0 0 8px; font-size: 15px; }
 .asset-panel .segmented.two-up input:disabled + span { opacity: 0.45; }
 .check-row { display: flex; gap: 16px; flex-wrap: wrap; margin: 4px 0 10px; }
+.check-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 16px; margin: 4px 0 12px; }
+.check-grid label { align-items: flex-start; }
+.check-grid label .muted { font-size: 12px; font-weight: 400; }
+.role-item { padding: 10px 0; border-top: 1px solid var(--border); }
+.role-item summary { cursor: pointer; }
+.role-item summary .chip { margin: 4px 4px 0 0; }
+.role-form { margin-top: 12px; }
 .asset-history { margin-top: 16px; }
 .users-table .wa { white-space: nowrap; }
 .bulk-tabs a { display: block; padding: 8px 18px; font-weight: 600; color: var(--muted); background: var(--surface); }

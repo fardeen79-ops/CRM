@@ -237,6 +237,7 @@ async function boot() {
     const me = await api('/me');
     state.user = me.user;
     state.meta = me.meta;
+    Object.assign(ROLE_LABEL, me.meta.role_labels || {});
     loadRegion();
   } catch {
     return;
@@ -313,7 +314,7 @@ function navGroups() {
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
   const cardApprovals = ['#/card-approvals', 'Card approvals', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
-  if (r === 'it') return [['', [['#/assets', 'Tab register', 'tablet'], ['#/import/assets', 'Bulk upload', 'upload'], ['#/reports?report=assets&run=1', 'Inventory report', 'report']]]];
+  if (r === 'it') return filterNav([['', [['#/assets', 'Tab register', 'tablet'], ['#/import/assets', 'Bulk upload', 'upload'], ['#/reports?report=assets&run=1', 'Inventory report', 'report'], ...(state.meta.can_manage_roles ? [['#/roles', 'Roles', 'users']] : [])]]]);
   const work = [['#/', 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
   if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
@@ -344,9 +345,12 @@ function navGroups() {
   if (['mis', 'business_head'].includes(r)) admin.push(['#/users', 'Staff', 'users']);
   if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
+  if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users']);
   if (admin.length) groups.push(['Admin', admin]);
-  return groups;
+  return filterNav(groups);
 }
+// A custom role sees only the screens it was given.
+const filterNav = (groups) => groups.map(([title, items]) => [title, items.filter((i) => allowedPage(NAV_PAGE(i[0])))]).filter(([, items]) => items.length);
 
 /** Which sidebar link is current: an exact match, else the one for the same page (e.g. a filtered list). */
 function activeHref(hrefs) {
@@ -375,7 +379,7 @@ function shell(content) {
         </nav>
         <div class="side-user">
           <span class="avatar" aria-hidden="true">${initials}</span>
-          <div class="who"><div class="name">${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role]}</div></div>
+          <div class="who"><div class="name">${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role_key || state.user.role]}</div></div>
           <button id="logout" class="btn-link" title="Sign out">Sign out</button>
         </div>
       </aside>
@@ -384,7 +388,7 @@ function shell(content) {
         <header class="topbar">
           <button class="menu-btn" id="menu-btn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
           <a class="brand mobile-brand" href="#/"><span class="logo">✓</span> Sourcing CRM</a>
-          <div class="topbar-title">${ROLE_LABEL[state.user.role]} workspace</div>
+          <div class="topbar-title">${ROLE_LABEL[state.user.role_key || state.user.role]} workspace</div>
           ${canPickRegion() ? html`<div class="segmented region-switch" role="radiogroup" aria-label="Region view">
             ${[['', 'All regions'], ...Object.keys(state.meta.regions).map((k) => [k, k])].map(([k, l]) => html`<label><input type="radio" name="region-view" value="${k}" ${state.region === k ? raw('checked') : ''}><span>${l}</span></label>`)}
           </div>` : ''}
@@ -450,6 +454,8 @@ async function route() {
     let m;
     if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : await viewDashboard();
     if (path === '/assets') return await viewAssets(params);
+    if (path === '/roles') return await viewRoles();
+    if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
     if (path === '/cases/new') return viewCaseForm();
     if ((m = path.match(/^\/cases\/(\d+)\/edit$/))) return await viewCaseForm(Number(m[1]));
     if ((m = path.match(/^\/cases\/(\d+)$/))) return await viewCase(Number(m[1]));
@@ -609,7 +615,7 @@ async function viewDashboard() {
   shell(html`
     <div class="page-head dash-head">
       <div>
-        <div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · ${ROLE_LABEL[state.user.role]}${state.region ? ` · ${state.meta.regions[state.region]}` : canPickRegion() ? ' · All regions' : ''}</div>
+        <div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · ${ROLE_LABEL[state.user.role_key || state.user.role]}${state.region ? ` · ${state.meta.regions[state.region]}` : canPickRegion() ? ' · All regions' : ''}</div>
         <h1>Hello, ${state.user.name.split(' ')[0]}</h1>
         <p class="muted lede">${intro}</p>
       </div>
@@ -2576,7 +2582,7 @@ async function viewMessages(conversationId, params) {
     picker.hidden = !picker.hidden;
     if (select.options.length === 1) {
       const { users } = await api('/colleagues');
-      for (const u of users) select.insertAdjacentHTML('beforeend', html`<option value="${u.id}">${u.name} · ${ROLE_LABEL[u.role] || u.role}</option>`.s);
+      for (const u of users) select.insertAdjacentHTML('beforeend', html`<option value="${u.id}">${u.name} · ${ROLE_LABEL[u.role_key || u.role] || u.role}</option>`.s);
     }
     select.focus();
   };
@@ -2603,7 +2609,7 @@ function paintWatermark() {
   if (!el || !state.user) return;
   const stamp = () => {
     const when = new Date().toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-    const text = `${state.user.name} · ${state.user.sales_code || ROLE_LABEL[state.user.role]} · ${when}`;
+    const text = `${state.user.name} · ${state.user.sales_code || ROLE_LABEL[state.user.role_key || state.user.role]} · ${when}`;
     const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='420' height='220'><text x='0' y='120' transform='rotate(-24 210 110)' font-family='IBM Plex Sans, system-ui, sans-serif' font-size='15' fill='currentColor'>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/'/g, '&#39;')}</text></svg>`;
     el.style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
   };
@@ -2738,7 +2744,7 @@ function viewBulkUpload(kind) {
   shell(html`
     <div class="page-head">
       <div><h1>${cfg.title}</h1><p class="muted lede">${cfg.lede}</p></div>
-      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).filter(([k]) => (k !== 'payout_rules' || state.meta.can_see_payout) && (state.user.role !== 'it' || k === 'assets')).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
+      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).filter(([k]) => (k !== 'payout_rules' || state.meta.can_see_payout) && (state.user.role !== 'it' || k === 'assets') && (!state.meta.perms?.custom || state.meta.perms.uploads.includes(k))).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
     </div>
     <div class="bulk-steps">
       <section class="card">
@@ -3007,7 +3013,7 @@ async function viewReports(params) {
         </div>
         ${canPickRegion() ? html`<div class="field-row"><label for="rp-region">Region</label>
           <select id="rp-region" name="region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${k === region ? raw('selected') : ''}>${l}</option>`)}</select></div>` : ''}
-        <div class="actions"><button class="btn-primary">Run report</button>${rep ? html`<a class="btn" id="rp-csv" href="/api/reports/${key}?${query}&format=csv" download>Download CSV</a>` : ''}</div>
+        <div class="actions"><button class="btn-primary">Run report</button>${rep && canDownload() ? html`<a class="btn" id="rp-csv" href="/api/reports/${key}?${query}&format=csv" download>Download CSV</a>` : ''}</div>
       </form>
       <div class="card report-result">
         ${error ? html`<p class="error">${error}</p>` : ''}
@@ -3048,6 +3054,94 @@ async function viewReports(params) {
 }
 
 // ---------- staff (MIS and business heads) ----------
+
+
+// ---------- roles: custom roles on top of the built-in ones ----------
+const NAV_PAGE = (href) => {
+  if (/^#\/(cases|queue|callbacks|urgent|action-required|card-approvals|edit-requests|quality-check|recordings|recording-approvals)/.test(href)) return 'cases';
+  if (href.startsWith('#/targets')) return 'targets';
+  if (href.startsWith('#/team')) return 'team';
+  if (href.startsWith('#/cards')) return 'cards';
+  if (href.startsWith('#/reports')) return 'reports';
+  if (href.startsWith('#/import')) return 'uploads';
+  if (href.startsWith('#/users')) return 'staff';
+  if (href.startsWith('#/access-log')) return 'access_log';
+  if (href.startsWith('#/assets')) return 'assets';
+  if (href.startsWith('#/messages')) return 'chat';
+  if (href.startsWith('#/roles')) return 'roles';
+  return null;
+};
+const allowedPage = (page) => !page || !state.meta.perms?.custom || state.meta.perms.pages.includes(page);
+const canDownload = () => state.meta.perms?.downloads !== false;
+
+async function viewRoles() {
+  if (!state.meta.can_manage_roles) throw new Error('Only IT, Dubai MIS and business heads define roles');
+  const cat = await api('/roles');
+  const baseOf = (key) => cat.builtin.find((b) => b.key === key);
+  const chips = (list, labels) => (list.length ? list.map((k) => html`<span class="chip">${labels[k] || k}</span>`) : html`<span class="muted small">none</span>`);
+  const draft = state.roleDraft; state.roleDraft = null;
+  const roleForm = (r = null) => {
+    const d = draft && (draft.key || null) === (r?.key || null) ? draft : null;
+    const b = baseOf(d?.base || r?.base || 'mis');
+    const p = d ? b.pages : r ? r.pages : b.pages; const u = d ? b.uploads : r ? r.uploads : b.uploads; const rep = d ? null : r ? r.reports : null;
+    if (d) r = { ...(r || {}), label: d.label, description: d.description, base: b.key, downloads: r ? r.downloads : true, payout: r ? r.payout : true };
+    return html`<form class="role-form" data-role-form="${r?.key || ''}" data-role-new="${r?.key ? '' : '1'}">
+      <div class="form-grid two">
+        <div class="field-row"><label>Role name <span class="req">*</span></label><input name="label" value="${r?.label || ''}" required placeholder="e.g. Reporting Analyst" maxlength="60"></div>
+        <div class="field-row"><label>Based on <span class="req">*</span></label><select name="base" ${r && cat.usage[r.key] ? raw('disabled') : ''}>${cat.builtin.map((x) => html`<option value="${x.key}" ${x.key === b.key ? raw('selected') : ''}>${x.label}</option>`)}</select>
+          <div class="muted small">Sets which files it can see and what it can do on them. A role can only have less than its base, never more.</div></div>
+      </div>
+      <div class="field-row"><label>Description</label><input name="description" value="${r?.description || ''}" maxlength="300" placeholder="Who this role is for"></div>
+      <div class="sub-label">Screens</div>
+      <div class="check-grid" data-pages>${b.pages.map((k) => html`<label class="check small"><input type="checkbox" name="pages" value="${k}" ${p.includes(k) ? raw('checked') : ''}> ${cat.pages[k].label}<div class="muted">${cat.pages[k].help}</div></label>`)}</div>
+      <div class="sub-label">Reports <span class="muted">(needs the Reports screen)</span></div>
+      <label class="check small"><input type="checkbox" name="all_reports" ${rep == null ? raw('checked') : ''}> Every report the base role can run</label>
+      <div class="check-grid" data-reports ${rep == null ? raw('hidden') : ''}>${b.reports.map((k) => html`<label class="check small"><input type="checkbox" name="reports" value="${k}" ${rep?.includes(k) ? raw('checked') : ''}> ${cat.reports[k]?.name || k}</label>`)}</div>
+      <div class="sub-label">Uploads <span class="muted">(needs the Bulk upload screen)</span></div>
+      <div class="check-grid" data-uploads>${b.uploads.length ? b.uploads.map((k) => html`<label class="check small"><input type="checkbox" name="uploads" value="${k}" ${u.includes(k) ? raw('checked') : ''}> ${cat.uploads[k]}</label>`) : html`<span class="muted small">The base role has no uploads.</span>`}</div>
+      <div class="check-row">
+        <label class="check small"><input type="checkbox" name="downloads" ${r ? (r.downloads ? raw('checked') : '') : raw('checked')}> Can download files (report spreadsheets, staff list)</label>
+        <label class="check small" ${['mis', 'business_head'].includes(b.key) ? '' : raw('hidden')}><input type="checkbox" name="payout" ${r ? (r.payout ? raw('checked') : '') : raw('checked')}> Can see pricing (payouts and incentives, where the base role can)</label>
+      </div>
+      <div class="actions"><button class="btn-primary">${r?.key ? 'Save role' : 'Create role'}</button>${r?.key ? html`<button type="button" class="btn" data-role-delete="${r.key}" ${cat.usage[r.key] ? raw('disabled') : ''}>Delete</button>` : ''}${r?.key && cat.usage[r.key] ? html`<span class="muted small">${cat.usage[r.key]} ${cat.usage[r.key] === 1 ? 'user has' : 'users have'} this role</span>` : ''}</div>
+    </form>`;
+  };
+  shell(html`
+    <div class="page-head"><div><h1>Roles</h1><p class="muted lede">Define roles for the agency on top of the built-in ones. A role behaves like the role it is based on (the same files, the same actions) with only the screens, reports, uploads, downloads and pricing you tick. Assign it to people on the Staff page.</p></div></div>
+    <div class="grid two-col">
+      <div>
+        <div class="card"><h2>Built-in roles</h2>
+          <div class="table-wrap"><table><thead><tr><th>Role</th><th>Screens</th><th>Reports</th><th>Uploads</th></tr></thead>
+            <tbody>${cat.builtin.map((b) => html`<tr><td><strong>${b.label}</strong></td><td class="small">${b.pages.map((k) => cat.pages[k].label).join(', ')}</td><td class="small">${b.reports.length ? `${b.reports.length} reports` : '—'}</td><td class="small">${b.uploads.length ? b.uploads.map((k) => cat.uploads[k]).join(', ') : '—'}</td></tr>`)}</tbody></table></div>
+          <p class="muted small">Built-in roles cannot be changed; base a new role on one of them to narrow it.</p></div>
+        <div class="card"><h2>Custom roles · ${cat.custom.length}</h2>
+          ${cat.custom.length ? cat.custom.map((r) => html`<details class="role-item" ${state.roleOpen === r.key ? raw('open') : ''}><summary><strong>${r.label}</strong> <span class="muted small">based on ${baseOf(r.base)?.label || r.base} · ${cat.usage[r.key] || 0} users</span>
+              <div class="small">${chips(r.pages, Object.fromEntries(Object.entries(cat.pages).map(([k, v]) => [k, v.label])))} ${r.reports == null ? html`<span class="chip good">all base reports</span>` : chips(r.reports, Object.fromEntries(Object.entries(cat.reports).map(([k, v]) => [k, v.name])))} ${r.downloads ? '' : html`<span class="chip warn">no downloads</span>`} ${r.payout ? '' : html`<span class="chip warn">no pricing</span>`}</div></summary>
+              ${roleForm(r)}</details>`) : html`<p class="muted">No custom roles yet. Create one on the right.</p>`}</div>
+      </div>
+      <div class="card"><h2>New role</h2>${roleForm(null)}</div>
+    </div>`);
+  const app = document.getElementById('app');
+  const read = (f) => {
+    const list = (name) => [...f.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value);
+    return { label: f.label.value, base: f.base.value, description: f.description.value, pages: list('pages'), reports: f.all_reports.checked ? null : list('reports'), uploads: list('uploads'), downloads: f.downloads.checked, payout: f.payout.checked };
+  };
+  app.querySelectorAll('[data-role-form]').forEach((f) => {
+    f.all_reports.onchange = () => { f.querySelector('[data-reports]').hidden = f.all_reports.checked; };
+    // A different base: redraw the form with that base's screens, reports and uploads.
+    f.base.onchange = () => { state.roleDraft = { key: f.dataset.roleForm || null, label: f.label.value, description: f.description.value, base: f.base.value }; state.roleOpen = f.dataset.roleForm || null; viewRoles(); };
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const key = f.dataset.roleForm;
+        await api(key ? `/roles/${key}` : '/roles', { method: key ? 'PATCH' : 'POST', body: read(f) });
+        toast(key ? 'Role saved' : 'Role created'); state.roleOpen = key || null; viewRoles();
+      } catch (err) { toast(err.message, true); }
+    };
+    const del = f.querySelector('[data-role-delete]');
+    if (del) del.onclick = async () => { if (!confirm(`Delete the role ${f.label.value}?`)) return; try { await api(`/roles/${del.dataset.roleDelete}`, { method: 'DELETE' }); toast('Role deleted'); viewRoles(); } catch (err) { toast(err.message, true); } };
+  });
+}
 
 // ---------- asset register: the sourcing tabs issued to sales staff ----------
 const ASSET_CHIP = { in_use: 'good', it_custody: 'warn', handed_over: '', returned_to_bank: 'bad' };
@@ -3230,7 +3324,7 @@ async function viewUsers() {
 
   shell(html`
     <div class="page-head"><div><h1>Staff</h1><p class="muted" style="margin:0">Every user of the CRM: sales staff, processors, team leaders, assistant sales managers, sales managers, MIS, business heads and governance. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
-      <div class="actions">${BULK_ROLES.includes(state.user.role) ? html`<a class="btn" href="#/import/users">Bulk upload</a>` : ''}<button class="btn" id="staff-csv">Download staff list</button></div>
+      <div class="actions">${BULK_ROLES.includes(state.user.role) ? html`<a class="btn" href="#/import/users">Bulk upload</a>` : ''}${canDownload() ? html`<button class="btn" id="staff-csv">Download staff list</button>` : ''}</div>
     </div>
     <div class="kpis staff-kpis">
       ${[['Total staff', users.length, `${users.filter((u) => u.active).length} active`], ['Sales staff', users.filter((u) => u.role === 'sales' && u.active).length, 'active'], ['Processors', users.filter((u) => u.role === 'processing' && u.active).length, 'active'], ['Managers', users.filter((u) => ['team_leader', 'asm', 'sales_manager'].includes(u.role) && u.active).length, 'TL, ASM and SM'], ['Left or disabled', users.filter((u) => !u.active).length, users.filter((u) => u.dol && u.dol > todayLocal()).length ? `${users.filter((u) => u.dol && u.dol > todayLocal()).length} leaving soon` : ' ']]
@@ -3247,7 +3341,7 @@ async function viewUsers() {
       <div class="card"><div class="table-wrap"><table class="users-table">
         <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
         <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
-          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small">${u.hrms_code ? html`<span class="mono">${u.hrms_code}</span> · ` : html`<span class="lock">No HRMS code</span> · `}<a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}${u.doj ? html`<div class="muted small">Joined ${fmtDay(u.doj)}</div>` : ''}${u.dol ? html`<div class="small ${u.dol <= todayLocal() ? 'lock' : 'muted'}">${u.dol <= todayLocal() ? 'Left' : 'Leaving'} ${fmtDay(u.dol)}</div>` : ''}</td>
+          <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small">${u.hrms_code ? html`<span class="mono">${u.hrms_code}</span> · ` : html`<span class="lock">No HRMS code</span> · `}<a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role_key || u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}${u.doj ? html`<div class="muted small">Joined ${fmtDay(u.doj)}</div>` : ''}${u.dol ? html`<div class="small ${u.dol <= todayLocal() ? 'lock' : 'muted'}">${u.dol <= todayLocal() ? 'Left' : 'Leaving'} ${fmtDay(u.dol)}</div>` : ''}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
               ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}${u.core_product ? html`<br>${state.meta.staff_core_products[u.core_product]}` : ''}</div>`
@@ -3288,7 +3382,7 @@ async function viewUsers() {
     for (const tr of rows) {
       const u = byId.get(Number(tr.dataset.userRow));
       const hay = [u.name, u.hrms_code, u.email, u.sales_code, u.team_leader_name, u.sales_manager_name].join(' ').toLowerCase();
-      const ok = (!q || hay.includes(q)) && (!roleF || u.role === roleF) && (!regionF || u.region === regionF) && (!statusF || (statusF === 'active' ? u.active : !u.active));
+      const ok = (!q || hay.includes(q)) && (!roleF || (u.role_key || u.role) === roleF) && (!regionF || u.region === regionF) && (!statusF || (statusF === 'active' ? u.active : !u.active));
       tr.hidden = !ok;
       if (tr.nextElementSibling?.dataset.profileEditor) tr.nextElementSibling.hidden = !ok;
       if (ok) shown++;
@@ -3297,15 +3391,16 @@ async function viewUsers() {
   };
   ['staff-q', 'staff-role', 'staff-region', 'staff-status'].forEach((id) => (document.getElementById(id).oninput = applyFilters));
   applyFilters();
-  document.getElementById('staff-csv').onclick = () => saveFile('staff-list.csv', toCsv([
+  if (document.getElementById('staff-csv')) document.getElementById('staff-csv').onclick = () => saveFile('staff-list.csv', toCsv([
     ['Name', 'HRMS code', 'Email', 'Role', 'Region', 'Local mobile', 'WhatsApp', 'Sales code', 'Team leader', 'Sales manager', 'ASM', 'Date of joining', 'Date of leaving', 'Status'],
-    ...users.map((u) => [u.name, u.hrms_code || '', u.email, ROLE_LABEL[u.role] || u.role, u.region || '', u.mobile_number || '', u.whatsapp_number || '', u.sales_code || '', u.team_leader_name || '', u.sales_manager_name || '', u.asm_name || '', u.doj || '', u.dol || '', u.active ? 'Active' : 'Disabled']),
+    ...users.map((u) => [u.name, u.hrms_code || '', u.email, ROLE_LABEL[u.role_key || u.role] || u.role, u.region || '', u.mobile_number || '', u.whatsapp_number || '', u.sales_code || '', u.team_leader_name || '', u.sales_manager_name || '', u.asm_name || '', u.doj || '', u.dol || '', u.active ? 'Active' : 'Disabled']),
   ]));
   const form = document.getElementById('user-form');
   const role = document.getElementById('nu-role');
   const profile = document.getElementById('nu-profile');
+  const baseRole = (k) => (state.meta.custom_roles || []).find((c) => c.key === k)?.base || k;
   const syncRole = () => {
-    profile.hidden = role.value !== 'sales';
+    profile.hidden = baseRole(role.value) !== 'sales';
     profile.querySelectorAll('input, select').forEach((i) => (i.disabled = profile.hidden));
   };
   role.onchange = syncRole;
@@ -3340,7 +3435,7 @@ async function viewUsers() {
     tr.dataset.profileEditor = '1';
     tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
       <strong>Edit ${u.name}</strong>
-      <div class="form-grid two">${contactFields(u, `e${u.id}`)}${regionField(u, `e${u.id}`)}</div>
+      <div class="form-grid two">${contactFields(u, `e${u.id}`)}${regionField(u, `e${u.id}`)}${u.id !== state.user.id ? html`<div class="field-row"><label for="e${u.id}-role">Role</label><select id="e${u.id}-role" name="role">${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}" ${(u.role_key || u.role) === k ? raw('selected') : ''}>${l}</option>`)}</select><div class="muted small">Moving to or from a sales role clears or needs the sales profile.</div></div>` : ''}</div>
       ${u.role === 'sales' ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, `e${u.id}`)}</div><p class="muted small">Changing the team leader, sales manager or ASM moves this person's open files to the new team. Completed and rejected files stay with the old team.</p>` : ''}
       <div class="actions"><button class="btn-primary">Save changes</button><button type="button" data-cancel>Cancel</button></div>
     </form></td>`.s;

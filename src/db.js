@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   name          TEXT NOT NULL,
   email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
   role          TEXT NOT NULL, -- validated against ROLES in auth.js
+  role_key      TEXT, -- a custom role (roles.key) the account is on, if any
   password_hash TEXT NOT NULL,
   active        INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
@@ -315,6 +316,20 @@ CREATE TABLE IF NOT EXISTS asset_events (
   note       TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS roles (
+  key         TEXT PRIMARY KEY,
+  label       TEXT NOT NULL,
+  base        TEXT NOT NULL, -- the built-in role it behaves like
+  pages       TEXT NOT NULL, -- JSON list of screens
+  reports     TEXT,          -- JSON list of report keys, or NULL for every report of the base role
+  uploads     TEXT NOT NULL, -- JSON list of upload kinds
+  downloads   INTEGER NOT NULL DEFAULT 1,
+  payout      INTEGER NOT NULL DEFAULT 1,
+  description TEXT,
+  created_by  INTEGER REFERENCES users(id),
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS report_runs (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -391,7 +406,7 @@ const ADDED_COLUMNS = {
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',
-  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)', salary: 'REAL', hrms_code: 'TEXT', doj: 'TEXT', dol: 'TEXT', core_product: 'TEXT',
+  mobile_number: 'TEXT', whatsapp_number: 'TEXT', region: 'TEXT', asm_id: 'INTEGER REFERENCES users(id)', salary: 'REAL', hrms_code: 'TEXT', doj: 'TEXT', dol: 'TEXT', core_product: 'TEXT', role_key: 'TEXT',
 };
 
 function migrate(db) {

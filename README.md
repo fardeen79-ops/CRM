@@ -164,6 +164,18 @@ Every credit card has a **family**, a **card category** and, when the bank provi
 
 The CRM ships with the bank's product list built in: 34 cards in 18 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
 
+### Roles: defining roles on top of the built-in ones
+
+**IT, Dubai MIS and business heads** can define roles on the **Roles** page. A custom role is **based on** a built-in role (Sales, Processing, Team Leader, ASM, Sales Manager, MIS, Business Head, Governance, IT) and behaves exactly like it in the workflow: the same files, the same actions, the same masking. What the definition changes is what the role is given, and it can only ever be **less** than the base:
+
+- **Screens**: files, targets and incentives, team view, card activation, reports, bulk upload, staff, access log, tab register, messages, roles. A screen that is not ticked disappears from the sidebar and its API returns 403.
+- **Reports**: every report the base role can run, or a chosen subset.
+- **Uploads**: which bulk uploads, if any (only where the base role has them).
+- **Downloads**: whether report spreadsheets and the staff list can be downloaded.
+- **Pricing**: whether payouts and incentives are visible, where the base role (MIS in Dubai, business head) could see them.
+
+A person is put on a role from the Staff page (new user, or the role field in the edit panel) or by the staff upload, by the role's name. Their account is stored as the base role plus the custom role, so every existing rule keyed on the base role (teams, targets, incentives, scoping) applies unchanged. A role cannot be deleted while someone has it, and its base cannot change while someone has it. API: `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:key`; `GET /api/me` returns `meta.perms` for the signed-in user.
+
 ### Assets: the sourcing tabs issued to sales staff
 
 Each sales person is issued a tab by the bank for sourcing. The **Tab register** records, per tab: the **serial number**, **tab number**, **accessories assigned** (charger, stylus, card reader), **network** (Etisalat or du), **SIM card number**, **Microsoft Entra ID** and the **mobile number registered** on it, plus notes. A tab is in one of four states: **Active, in use** (held by a named staff member), **With IT custody** (spare, in repair, or returned), **Handed over on exit** (returned by a leaver) or **Returned to bank**, which records the **date it went back** (shown on the register and the inventory). Assigning a tab puts it in use with that person; a person can hold only one tab at a time. Moving it to IT custody or marking it handed over clears the holder and remembers them as the previous holder. Every registration, edit, assignment and status change is logged with who did it and when.

@@ -17,10 +17,12 @@ export const MAX_ROWS = 1000;
 // Only MIS and business heads can bulk upload, for users and cases alike.
 export const BULK_UPLOAD_ROLES = ['mis', 'business_head'];
 
-function requireBulkRole(user) {
+function requireBulkRole(user, kind = null) {
   if (!BULK_UPLOAD_ROLES.includes(user.role)) throw new WorkflowError(403, 'Only MIS and business heads can bulk upload');
+  if (kind && !allowsUpload(user, kind)) throw new WorkflowError(403, `Your role cannot upload ${UPLOAD_KINDS[kind] || kind}`);
 }
 
+import { roleLabels, UPLOAD_KINDS, allowsUpload, resolveRole } from './roles.js';
 const ROLE_LABELS = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader', asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager',
   mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
@@ -328,7 +330,7 @@ function rowResult(record, fn) {
  * card keep the category saved on them.
  */
 export function importCardProducts(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
+  requireBulkRole(user, 'card_products');
   const { header, records, unknown } = readFile(csv, CARD_PRODUCT_IMPORT_COLUMNS);
   const seen = new Map();
   const ts = new Date().toISOString();
@@ -392,7 +394,7 @@ function noOverlap(bands, label) {
  * file replaces the rules for every product it mentions; other products keep theirs.
  */
 export function importTargetRules(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
+  requireBulkRole(user, 'target_rules');
   const { header, records, unknown } = readFile(csv, TARGET_RULE_IMPORT_COLUMNS);
   const ts = new Date().toISOString();
   const results = run(db, dryRun, () => {
@@ -452,7 +454,7 @@ export function importAssets(db, user, csv, { dryRun = false } = {}) {
 }
 
 export function importPayoutRules(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
+  requireBulkRole(user, 'payout_rules');
   if (!canSeePayout(user)) throw new WorkflowError(403, 'Only the business head or DXB MIS can change payout rates');
   const { header, records, unknown } = readFile(csv, PAYOUT_RULE_IMPORT_COLUMNS);
   const ts = new Date().toISOString();
@@ -477,12 +479,12 @@ export function importPayoutRules(db, user, csv, { dryRun = false } = {}) {
 
 /** Adds users from a CSV file. Team leaders and sales managers in the file are added before sales staff. */
 export function importUsers(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
+  requireBulkRole(user, 'users');
   const { header, records, unknown } = readFile(csv, USER_IMPORT_COLUMNS);
   const seen = new Set();
   return run(db, dryRun, () => {
     const roleOf = (r) => {
-      try { return choose(r.values.role, ROLE_LABELS, 'Role'); } catch { return null; }
+      try { return choose(r.values.role, roleLabels(), 'Role'); } catch { return null; }
     };
     // Managers first so sales rows can name a team leader or sales manager added in the same file.
     const ordered = [...records].sort((a, b) => (roleOf(a) === 'sales') - (roleOf(b) === 'sales'));
@@ -490,8 +492,8 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
     for (const record of ordered) {
       results.set(record, rowResult(record, () => savepoint(db, () => {
         const v = record.values;
-        const role = choose(v.role, ROLE_LABELS, 'Role');
-        if (!ROLES.includes(role)) throw new Error('Role is required');
+        const role = choose(v.role, roleLabels(), 'Role');
+        resolveRole(role);
         const email = v.email.toLowerCase();
         if (seen.has(email)) throw new Error(`${email} appears more than once in this file`);
         seen.add(email);
@@ -512,7 +514,7 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
         if (!hrmsCodeOf(v.hrms_code)) throw new Error('HRMS code is required');
         const created = createUser(db, input);
         return {
-          id: created.id, label: `${created.name} · ${ROLE_LABELS[role]}`, email: created.email, hrms_code: created.hrms_code,
+          id: created.id, label: `${created.name} · ${roleLabels()[role]}`, email: created.email, hrms_code: created.hrms_code,
           ...(generated && { temp_password: generated }),
         };
       })));
@@ -523,7 +525,7 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
 
 /** Adds cases from a CSV file, each naming the sales person who sourced it by sales code. */
 export function importCases(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
+  requireBulkRole(user, 'cases');
   const { header, records, unknown } = readFile(csv, CASE_IMPORT_COLUMNS);
   const appIds = new Map();
   const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
@@ -552,7 +554,7 @@ export function importCases(db, user, csv, { dryRun = false } = {}) {
  * reference, App ID or Emirates ID; the case already belongs to its sales person.
  */
 export function importCards(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
+  requireBulkRole(user, 'cards');
   const { header, records, unknown } = readFile(csv, CARD_IMPORT_COLUMNS);
   const seen = new Map();
   const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
@@ -588,7 +590,7 @@ export function importCards(db, user, csv, { dryRun = false } = {}) {
 
 /** Sets targets for many sales staff and cycles. Blank product cells leave that target as it is. */
 export function importTargets(db, user, csv, { dryRun = false } = {}) {
-  requireBulkRole(user);
+  requireBulkRole(user, 'targets');
   const { header, records, unknown } = readFile(csv, TARGET_IMPORT_COLUMNS);
   const seen = new Map();
   const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {

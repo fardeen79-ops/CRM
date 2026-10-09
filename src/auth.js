@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { resolveRole, withRole } from './roles.js';
 import { contactDetails, findUser, salesProfile, regionOf } from './users.js';
 
 const SESSION_DAYS = 7;
@@ -26,9 +27,11 @@ export function tempPassword() {
 
 /** `requireMobile` is set for users added from the Users page or a bulk upload. */
 export function createUser(db, input, { requireMobile = false } = {}) {
-  const { role, password } = input;
+  const { password } = input;
   const contact = contactDetails(input, { requireMobile });
-  if (!ROLES.includes(role)) throw new Error(`Role must be one of: ${ROLES.join(', ')}`);
+  let resolved;
+  try { resolved = resolveRole(input.role); } catch (err) { throw new Error(err.message); }
+  const role = resolved.base;
   if (!password || String(password).length < 8) throw new Error('Password must be at least 8 characters');
   if (db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(contact.email)) {
     throw new Error(`A user with the email ${contact.email} already exists`);
@@ -39,9 +42,9 @@ export function createUser(db, input, { requireMobile = false } = {}) {
   const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null, salary: null, core_product: null };
   const region = regionOf(input.region);
   const { lastInsertRowid } = db
-    .prepare(`INSERT INTO users (name, email, role, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary, hrms_code, doj, dol, core_product)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(contact.name, contact.email, role, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number,
+    .prepare(`INSERT INTO users (name, email, role, role_key, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary, hrms_code, doj, dol, core_product)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(contact.name, contact.email, role, resolved.key, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number,
       profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, region, profile.salary, contact.hrms_code, contact.doj, contact.dol, profile.core_product);
   return getUser(db, Number(lastInsertRowid));
 }
@@ -63,12 +66,12 @@ export function userForToken(db, token) {
   if (!token) return null;
   const row = db
     .prepare(
-      `SELECT u.id, u.name, u.email, u.role, u.active, u.region FROM sessions s
+      `SELECT u.id, u.name, u.email, u.role, u.role_key, u.active, u.region FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`
     )
     .get(token, new Date().toISOString());
-  return row || null;
+  return row ? withRole(row) : null;
 }
 
 export function logout(db, token) {
