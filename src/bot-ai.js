@@ -5,7 +5,13 @@
 // the answer matches the file); every word the bot speaks still comes from the taught playbook, so
 // the AI can never read a customer's details back to them or go off-script. Used by the calling
 // service (bot/server.js) on live calls and by the CRM's practice calls.
-import Anthropic from '@anthropic-ai/sdk';
+// Anthropic's SDK is loaded only when the AI is first used, so the CRM still starts (with the AI
+// off) on a server where `npm ci` has not been run.
+let Anthropic = null;
+async function sdk() {
+  Anthropic ??= (await import('@anthropic-ai/sdk')).default;
+  return Anthropic;
+}
 
 export const AI_MODEL = process.env.BOT_AI_MODEL || 'claude-opus-5-5';
 // A live caller is waiting: an answer that takes longer falls back to the bot's rules.
@@ -56,7 +62,12 @@ export function makeInterpreter({ client, model = AI_MODEL, log = console } = {}
   return async function interpret(ctx) {
     const key = JSON.stringify(ctx);
     if (memo.has(key)) return memo.get(key);
-    api ??= new Anthropic({ maxRetries: 0 });
+    try {
+      api ??= new (await sdk())({ maxRetries: 0 });
+    } catch (err) {
+      log.warn?.(`[bot-ai] Anthropic's SDK is not installed (run npm ci): ${err.message}`);
+      return null;
+    }
     const lines = [
       `Call language: ${ctx.language}`,
       `Stage: ${{ identity: 'checking the bot is speaking to the customer', intro: 'asking if now is a good time', check: 'checking a detail' }[ctx.stage]}`,
@@ -82,7 +93,7 @@ export function makeInterpreter({ client, model = AI_MODEL, log = console } = {}
     } catch (err) {
       // Timeouts, rate limits, API errors or unreadable output: not remembered, so the next answer
       // tries again; meanwhile the bot's rules carry on (it re-asks).
-      log.warn?.(`[bot-ai] ${err instanceof Anthropic.APIError ? `API ${err.status ?? ''} ` : ''}${err.message}`);
+      log.warn?.(`[bot-ai] ${Anthropic && err instanceof Anthropic.APIError ? `API ${err.status ?? ''} ` : ''}${err.message}`);
       return null;
     }
   };

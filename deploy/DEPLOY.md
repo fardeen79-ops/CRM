@@ -26,6 +26,7 @@ On the personal machine, with Node.js 22 installed:
 git clone https://github.com/fardeen79-ops/crm.git sourcing-crm
 cd sourcing-crm
 git checkout claude/sales-sourcing-crm-workflow-rdlw4h
+npm ci --omit=dev                      # packages (needs internet, so do it here; they go in the archive)
 npm run setup:ocr                      # scanner files (needs internet, so do it here)
 tar czf ../sourcing-crm.tar.gz --exclude=.git --exclude=data --exclude='*.db' --exclude=.env .
 sha256sum ../sourcing-crm.tar.gz       # note the checksum
@@ -101,6 +102,7 @@ sudo useradd -r -s /usr/sbin/nologin crm
 sudo mkdir -p /opt/sourcing-crm /var/lib/sourcing-crm
 sudo git clone <repo> /opt/sourcing-crm && cd /opt/sourcing-crm
 sudo git checkout claude/sales-sourcing-crm-workflow-rdlw4h
+sudo npm ci --omit=dev                   # Anthropic's SDK, for the verification bot's AI
 sudo npm run setup:ocr                   # scanner files served from this server
 sudo cp deploy/.env.example /etc/sourcing-crm.env && sudo nano /etc/sourcing-crm.env
 sudo chown -R crm:crm /opt/sourcing-crm /var/lib/sourcing-crm
@@ -127,8 +129,9 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 
 - `deploy/backup.sh` makes a consistent copy of the database; run it nightly from cron and keep the
   copies off the server. Restore = stop the service, replace the file, start the service.
-- To update: `git pull`, then `systemctl restart sourcing-crm` (or `docker compose up -d --build`).
-  Database changes apply themselves on start.
+- To update: `git pull`, then `npm ci --omit=dev`, then `systemctl restart sourcing-crm` (or
+  `docker compose up -d --build`, which does both). Database changes apply themselves on start.
+  Without `npm ci` the CRM still starts, but the verification bot's AI stays off.
 - Logs: `journalctl -u sourcing-crm` or `docker compose logs crm`.
 
 ## 7. Optional integrations
@@ -138,7 +141,8 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 | `IT_EMAIL`, `IT_EMAIL_WEBHOOK_URL` | Emailing IT for approved call recording requests |
 | `TL_WEBHOOK_URL` | Teams/Slack alert when a case is marked verification pending |
 | `PROCESSING_WEBHOOK_URL` | Teams/Slack alert when a scheduled call-back is due |
-| `CALL_BOT_URL`, `CALL_BOT_SECRET`, `PUBLIC_URL` | The calling bot (on hold) |
+| `CALL_BOT_URL`, `CALL_BOT_SECRET`, `PUBLIC_URL` | Bot calls, through the calling service (`npm run bot`, see the README). The **Verification bot** teaching page works without it |
+| `ANTHROPIC_API_KEY` | The verification bot's AI in practice calls (set it on the calling service too, for live calls) |
 
 ## 8. What to test first on the server
 
