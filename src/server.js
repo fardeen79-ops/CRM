@@ -7,6 +7,7 @@ import * as cases from './cases.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
+import * as assets from './assets.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -145,6 +146,8 @@ const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http
 
 // Who adds and edits staff: MIS and business heads.
 const USER_ADMINS = ['mis', 'business_head'];
+// What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
+const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications)(\/|$)/;
 
 function routes(db, dispatch, bot) {
   return [
@@ -173,6 +176,7 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
+        asset_status: assets.ASSET_STATUS, networks: assets.NETWORKS, accessories: assets.ACCESSORIES, asset_admins: assets.ASSET_ADMINS,
         auto_loan_classes: cases.AUTO_LOAN_CLASSES,
         al_incentive_rules: AL_INCENTIVE_RULES,
         buyout_kinds: cases.BUYOUT_KINDS,
@@ -282,9 +286,27 @@ function routes(db, dispatch, bot) {
     }],
 
     ['GET', /^\/api\/users$/, async ({ user }) => {
-      requireRole(user, ...USER_ADMINS);
+      requireRole(user, ...USER_ADMINS, 'it');
+      // IT sees who the staff are, to issue tabs, without salaries or contact details.
+      if (user.role === 'it') return { users: listUsers(db).map(({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name }) => ({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name })) };
       return { users: listUsers(db) };
     }],
+
+    // Assets: the sourcing tabs issued to sales staff. IT keeps the register; MIS and business heads see it too.
+    ['GET', /^\/api\/assets$/, async ({ user, query }) => {
+      requireRole(user, ...assets.ASSET_VIEWERS);
+      return { assets: assets.listAssets(db, { status: query.get('status'), region: query.get('region'), network: query.get('network'), q: query.get('q') }), summary: assets.assetSummary(db) };
+    }],
+    ['GET', /^\/api\/assets\/mine$/, async ({ user }) => ({ asset: assets.assetOf(db, user.id) })],
+    ['POST', /^\/api\/assets$/, async ({ user, body, res }) => send(res, 201, { asset: assets.createAsset(db, user, body) })],
+    ['GET', /^\/api\/assets\/(\d+)$/, async ({ user, params }) => {
+      const asset = assets.getAsset(db, Number(params[0]));
+      if (!assets.ASSET_VIEWERS.includes(user.role) && asset.holder_id !== user.id) throw new HttpError(404, 'Asset not found');
+      return { asset, events: assets.assetEvents(db, asset.id) };
+    }],
+    ['PATCH', /^\/api\/assets\/(\d+)$/, async ({ user, params, body }) => ({ asset: assets.updateAsset(db, user, Number(params[0]), body) })],
+    ['POST', /^\/api\/assets\/(\d+)\/assign$/, async ({ user, params, body }) => ({ asset: assets.assignAsset(db, user, Number(params[0]), body) })],
+    ['POST', /^\/api\/assets\/(\d+)\/status$/, async ({ user, params, body }) => ({ asset: assets.setAssetStatus(db, user, Number(params[0]), body) })],
 
     // Sales people in the viewer's own team, for entering a file on their behalf.
     ['GET', /^\/api\/sales-staff$/, async ({ user }) => {
@@ -436,6 +458,8 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
       const token = parseCookies(req.headers.cookie).sid;
       const user = auth.userForToken(db, token);
       if (!matched.opts.public && !user) throw new HttpError(401, 'Please sign in');
+      // The IT department works the asset register only: no files, chat, targets or staff changes.
+      if (user?.role === 'it' && !IT_PATHS.test(url.pathname)) throw new HttpError(403, 'IT accounts manage assets only');
       const body = await readJson(req, matched.opts.maxBody);
       const result = await matched.handler({ req, res, user, token, body, params: matched.params, query: url.searchParams });
       if (!res.headersSent && result !== undefined) send(res, 200, result);

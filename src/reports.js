@@ -7,6 +7,7 @@ import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
+import { inventoryRows, ASSET_VIEWERS, assetSummary, ASSET_STATUS } from './assets.js';
 import { PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
@@ -30,6 +31,7 @@ export const REPORTS = {
   pl_tl_incentives: { name: 'Personal loan team leader incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each team leader of core personal loan staff earns: a percentage of the team\'s whole counted production by its achievement of the combined targets (0.05% from 80%, 0.15% from 100%, 0.20% from 125%, 0.25% from 150%, nil below 80%), plus AED 20, 50 or 100 per Mass, Premium or Super Premium card the team cross-sells (noon nil) once the team is at 80%.' },
   sm_incentives: { name: 'Credit card sales manager incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM of core credit card staff earns: a flat amount per card the team sold, by the team\'s achievement of its combined card targets (AED 15 from 70%, 20 from 80%, 30 from 100%, 35 from 110%, 40 from 125%, 45 from 140%, 50 from 150%; nil below 70%).' },
   pl_sm_incentives: { name: 'Personal loan sales manager incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM with core personal loan staff earns: a percentage of the team\'s whole loan production (core staff plus loans cross-sold by the rest of the team) by its achievement of the core staff\'s combined targets (0.02% from 80%, 0.0625% from 100%, 0.075% from 125%, 0.10% from 150%; nil below 80%). The same grid applies to every manager with loan staff (confirmed).' },
+  assets: { name: 'Tab inventory', roles: ASSET_VIEWERS, period: 'the register as it stands now', description: 'Every sourcing tab issued by the bank: number, serial, who holds it, accessories, network, SIM, Microsoft Entra ID and registered mobile, with its status (in use, with IT, handed over on exit).' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -510,7 +512,21 @@ function pl_sm_incentives(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+function assets(db, user, { region }) {
+  const rows = inventoryRows(db, region);
+  const s = assetSummary(db);
+  return {
+    columns: [col('tab_no', 'Tab no.', 'text'), col('serial_no', 'Serial no.', 'text'), col('status', 'Status', 'text'), col('holder', 'Held by', 'text'), col('holder_hrms_code', 'HRMS code', 'text'), col('holder_sales_code', 'Sales code', 'text'),
+      col('region', 'Region', 'text'), col('team_leader', 'Team leader', 'text'), col('charger', 'Charger', 'text'), col('stylus', 'Stylus', 'text'), col('card_reader', 'Card reader', 'text'), col('network', 'Network', 'text'),
+      col('sim_number', 'SIM card no.', 'text'), col('entra_id', 'Microsoft Entra ID', 'text'), col('mobile_number', 'Registered mobile', 'text'), col('assigned_at', 'Assigned on', 'datetime'), col('status_at', 'Status since', 'datetime'),
+      col('previous_holder', 'Previous holder', 'text'), col('status_note', 'Status note', 'text'), col('notes', 'Notes', 'text')],
+    rows,
+    note: `${s.total} tabs: ${Object.entries(ASSET_STATUS).map(([k, l]) => `${s[k]} ${l.toLowerCase()}`).join(', ')}. ${s.staff_without_tab} active sales staff hold no tab.`,
+    totals: { tab_no: `${rows.length} tabs`, status: `${rows.filter((r) => r.status === ASSET_STATUS.in_use).length} in use`, charger: `${rows.filter((r) => r.charger === 'Yes').length}`, stylus: `${rows.filter((r) => r.stylus === 'Yes').length}`, card_reader: `${rows.filter((r) => r.card_reader === 'Yes').length}` },
+  };
+}
+
+const RUNNERS = { assets, sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {

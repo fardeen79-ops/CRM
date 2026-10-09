@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { contactDetails, findUser, salesProfile, regionOf } from './users.js';
 
 const SESSION_DAYS = 7;
-export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'governance'];
+export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'governance', 'it'];
 
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16);

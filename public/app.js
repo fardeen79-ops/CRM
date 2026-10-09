@@ -21,7 +21,7 @@ const CASE_STATUS_LABEL = {
 const OTHER_BANK = '__other';
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
-  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
+  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance', it: 'IT',
 };
 // Assistant sales managers use the same screens as sales managers, over their own teams.
 const effRole = () => (state.user.role === 'asm' ? 'sales_manager' : state.user.role);
@@ -295,6 +295,7 @@ const ICON_PATHS = {
   target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   card: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
+  tablet: '<rect x="4" y="2.5" width="16" height="19" rx="2"/><path d="M10 18.5h4"/>',
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-5.5 6.5-5.5s6.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5c2 .6 3.5 2.4 3.5 5.5"/>',
   check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
@@ -312,6 +313,7 @@ function navGroups() {
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
   const cardApprovals = ['#/card-approvals', 'Card approvals', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
+  if (r === 'it') return [['', [['#/assets', 'Tab register', 'tablet'], ['#/reports?report=assets&run=1', 'Inventory report', 'report']]]];
   const work = [['#/', 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
   if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
@@ -341,6 +343,7 @@ function navGroups() {
   if (r === 'mis' || r === 'business_head') admin.push(['#/import/cases', 'Bulk upload', 'upload']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/users', 'Staff', 'users']);
   if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
+  if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
   if (admin.length) groups.push(['Admin', admin]);
   return groups;
 }
@@ -445,7 +448,8 @@ async function route() {
   const params = new URLSearchParams(qs || '');
   try {
     let m;
-    if (path === '/' || path === '') return await viewDashboard();
+    if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : await viewDashboard();
+    if (path === '/assets') return await viewAssets(params);
     if (path === '/cases/new') return viewCaseForm();
     if ((m = path.match(/^\/cases\/(\d+)\/edit$/))) return await viewCaseForm(Number(m[1]));
     if ((m = path.match(/^\/cases\/(\d+)$/))) return await viewCase(Number(m[1]));
@@ -583,8 +587,9 @@ async function viewDashboard() {
     const { cases } = await api('/cases?case_status=applicant_review&limit=10');
     main = html`<div class="card"><h2>In applicant review</h2>${caseTable(cases, { cols: ['ref', 'customer', 'cs_note', 'source_by', 'updated'], empty: 'No files in applicant review' })}</div>`;
   } else if (r === 'sales') {
-    const [{ cases: returned }, { cases: review }] = await Promise.all([api('/cases?status=returned_to_sales'), api('/cases?case_status=applicant_review')]);
+    const [{ cases: returned }, { cases: review }, { asset: myTab }] = await Promise.all([api('/cases?status=returned_to_sales'), api('/cases?case_status=applicant_review'), api('/assets/mine').catch(() => ({ asset: null }))]);
     main = html`
+      ${myTabCard(myTab)}
       ${returned.length ? html`<div class="card"><h2>Returned to you — needs correction</h2>${caseTable(returned, { cols: ['ref', 'customer', 'phone', 'tl_note', 'updated'] })}</div>` : ''}
       ${review.length ? html`<div class="card"><h2>In applicant review</h2><p class="muted small">Open a file to send an edit request to your team leader or sales manager.</p>${caseTable(review, { cols: ['ref', 'customer', 'cs_note', 'request', 'updated'] })}</div>` : ''}`;
   } else {
@@ -3034,9 +3039,130 @@ async function viewReports(params) {
 }
 
 // ---------- staff (MIS and business heads) ----------
+
+// ---------- asset register: the sourcing tabs issued to sales staff ----------
+const ASSET_CHIP = { in_use: 'good', it_custody: 'warn', handed_over: '' };
+const assetStatusChip = (a) => html`<span class="chip ${ASSET_CHIP[a.status] || ''}">${state.meta.asset_status[a.status] || a.status}</span>`;
+const accessoriesText = (a) => Object.entries(state.meta.accessories).filter(([k]) => a[k]).map(([, l]) => l).join(', ') || 'None';
+
+// A sales person's own tab, on their dashboard.
+function myTabCard(a) {
+  if (!a) return html`<div class="card"><h2>My tab</h2><p class="muted small">No sourcing tab is recorded against you. Ask the IT department if you have one.</p></div>`;
+  return html`<div class="card">
+    <div class="card-head"><h2>My tab · ${a.tab_no}</h2>${assetStatusChip(a)}</div>
+    <dl class="details">
+      <dt>Serial no.</dt><dd class="mono">${a.serial_no}</dd>
+      <dt>Accessories</dt><dd>${accessoriesText(a)}</dd>
+      <dt>Network</dt><dd>${state.meta.networks[a.network] || '—'}${a.sim_number ? html` · SIM <span class="mono">${a.sim_number}</span>` : ''}</dd>
+      <dt>Microsoft Entra ID</dt><dd>${a.entra_id || '—'}</dd>
+      <dt>Registered mobile</dt><dd>${a.mobile_number ? html`<span class="mono">${a.mobile_number}</span>` : '—'}</dd>
+      <dt>Issued on</dt><dd>${fmtDate(a.assigned_at)}</dd>
+    </dl>
+    <p class="muted small">Report damage or loss to the IT department; they keep this register.</p>
+  </div>`;
+}
+
+async function viewAssets(params = new URLSearchParams()) {
+  const r = state.user.role;
+  if (!state.meta.asset_admins.includes(r)) throw new Error('Only IT, MIS and business heads see the asset register');
+  const filters = new URLSearchParams();
+  for (const k of ['status', 'network', 'region', 'q']) if (params.get(k)) filters.set(k, params.get(k));
+  const [{ assets, summary }, { users }] = await Promise.all([api(`/assets${filters.size ? `?${filters}` : ''}`), api('/users')]);
+  const staff = users.filter((u) => u.active && ['sales', 'team_leader', 'sales_manager', 'asm'].includes(u.role)).sort((a, b) => a.name.localeCompare(b.name));
+  const staffOptions = (selected) => staff.map((u) => html`<option value="${u.id}" ${u.id === selected ? raw('selected') : ''}>${u.name}${u.sales_code ? ` · ${u.sales_code}` : ''}${u.region ? ` · ${u.region}` : ''}</option>`);
+  const detailFields = (a = {}, p = 'na') => html`
+    <div class="form-grid two">
+      <div class="field-row"><label for="${p}-tab">Tab no. <span class="req">*</span></label><input id="${p}-tab" name="tab_no" value="${a.tab_no || ''}" required placeholder="e.g. TAB-0142"></div>
+      <div class="field-row"><label for="${p}-serial">Serial no. <span class="req">*</span></label><input id="${p}-serial" name="serial_no" value="${a.serial_no || ''}" required placeholder="On the back of the tab"></div>
+    </div>
+    <div class="sub-label">Accessories assigned</div>
+    <div class="check-row">${Object.entries(state.meta.accessories).map(([k, l]) => html`<label class="check small"><input type="checkbox" name="${k}" value="1" ${a[k] ? raw('checked') : ''}> ${l}</label>`)}</div>
+    <div class="form-grid two">
+      <div class="field-row"><label for="${p}-net">Network</label><select id="${p}-net" name="network"><option value="">Not set</option>${Object.entries(state.meta.networks).map(([k, l]) => html`<option value="${k}" ${a.network === k ? raw('selected') : ''}>${l}</option>`)}</select></div>
+      <div class="field-row"><label for="${p}-sim">SIM card number</label><input id="${p}-sim" name="sim_number" inputmode="numeric" value="${a.sim_number || ''}" placeholder="e.g. 8997 1012 3456 7890"></div>
+      <div class="field-row"><label for="${p}-entra">Microsoft Entra ID</label><input id="${p}-entra" name="entra_id" value="${a.entra_id || ''}" placeholder="name@company.ae"></div>
+      <div class="field-row"><label for="${p}-mob">Mobile number registered</label><input id="${p}-mob" name="mobile_number" type="tel" inputmode="tel" value="${a.mobile_number || ''}" placeholder="050 123 4567"></div>
+    </div>
+    <div class="field-row"><label for="${p}-notes">Notes</label><input id="${p}-notes" name="notes" value="${a.notes || ''}" placeholder="Condition, case, anything IT should know"></div>`;
+  const formBody = (form) => {
+    const body = Object.fromEntries(new FormData(form).entries());
+    for (const k of Object.keys(state.meta.accessories)) body[k] = form.querySelector(`[name=${k}]`)?.checked ? 1 : 0;
+    return body;
+  };
+  const sel = (k) => params.get(k) || '';
+  shell(html`
+    <div class="page-head"><div><h1>Tab register</h1><p class="muted lede">Every sourcing tab issued to sales staff: its number and serial, accessories, SIM and sign-in details, and who holds it. ${r === 'it' ? 'You keep this register.' : 'The IT department keeps this register.'} Download the full inventory from Reports.</p></div>
+      <div class="actions"><a class="btn" href="#/reports?report=assets&run=1">Inventory report</a></div></div>
+    <div class="kpis staff-kpis">
+      ${[['Tabs registered', summary.total, 'all statuses'], ...Object.entries(state.meta.asset_status).map(([k, l]) => [l, summary[k], k === 'in_use' ? 'with sales staff' : k === 'it_custody' ? 'spare, in repair or returned' : 'returned by leavers']), ['Sales staff without a tab', summary.staff_without_tab, 'active accounts']]
+        .map(([l, v, sub]) => html`<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-value">${v ?? 0}</span><span class="kpi-sub">${sub}</span></div>`)}
+    </div>
+    <form class="toolbar" id="asset-filters">
+      <input type="search" name="q" value="${sel('q')}" placeholder="Search tab, serial, SIM, mobile, Entra ID or holder…" aria-label="Search tabs">
+      <select name="status" aria-label="Status"><option value="">All statuses</option>${Object.entries(state.meta.asset_status).map(([k, l]) => html`<option value="${k}" ${sel('status') === k ? raw('selected') : ''}>${l}</option>`)}</select>
+      <select name="network" aria-label="Network"><option value="">Any network</option>${Object.entries(state.meta.networks).map(([k, l]) => html`<option value="${k}" ${sel('network') === k ? raw('selected') : ''}>${l}</option>`)}</select>
+      <select name="region" aria-label="Region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${sel('region') === k ? raw('selected') : ''}>${l}</option>`)}</select>
+      <button class="btn">Filter</button><span class="muted small">${assets.length} ${assets.length === 1 ? 'tab' : 'tabs'}</span>
+    </form>
+    <div class="grid two-col">
+      <div class="card"><div class="table-wrap"><table class="users-table assets-table">
+        <thead><tr><th>Tab</th><th>Held by</th><th>Accessories · network</th><th>Sign-in · mobile</th><th>Status</th><th></th></tr></thead>
+        <tbody>${assets.length ? assets.map((a) => html`<tr data-asset-row="${a.id}">
+          <td><strong class="mono">${a.tab_no}</strong><div class="muted small mono">${a.serial_no}</div></td>
+          <td>${a.holder_name ? html`${a.holder_name}<div class="muted small">${[a.holder_sales_code, a.holder_region, a.holder_team_leader ? `TL ${a.holder_team_leader}` : ''].filter(Boolean).join(' · ')}</div>` : html`<span class="muted">—</span>${a.previous_holder_name ? html`<div class="muted small">last ${a.previous_holder_name}</div>` : ''}`}</td>
+          <td class="small">${accessoriesText(a)}<div class="muted">${state.meta.networks[a.network] || 'No network'}${a.sim_number ? html` · <span class="mono">${a.sim_number}</span>` : ''}</div></td>
+          <td class="small">${a.entra_id || html`<span class="muted">No Entra ID</span>`}<div class="muted">${a.mobile_number ? html`<span class="mono">${a.mobile_number}</span>` : 'No mobile registered'}</div></td>
+          <td>${assetStatusChip(a)}<div class="muted small">${a.status === 'in_use' ? `since ${fmtDate(a.assigned_at)}` : a.status_at ? `since ${fmtDate(a.status_at)}` : ''}${a.status_note ? html`<br>${a.status_note}` : ''}</div></td>
+          <td><div class="actions"><button class="btn-link" data-asset-open="${a.id}">Open</button></div></td></tr>
+          <tr hidden data-asset-panel="${a.id}"><td colspan="6">
+            <div class="grid two-col asset-panel">
+              <form class="asset-edit" data-asset-edit="${a.id}"><h3>Tab details</h3>${detailFields(a, `a${a.id}`)}<button class="btn">Save details</button></form>
+              <div>
+                <form data-asset-assign="${a.id}"><h3>${a.status === 'in_use' ? 'Move to another person' : 'Assign to staff'}</h3>
+                  <div class="field-row"><label for="as-${a.id}">Staff member</label><select id="as-${a.id}" name="holder_id" required><option value="">Choose…</option>${staffOptions(a.holder_id)}</select></div>
+                  <div class="field-row"><input name="note" placeholder="Note (optional)"></div>
+                  <button class="btn-primary">Assign · Active, in use</button></form>
+                <form data-asset-status="${a.id}" style="margin-top:14px"><h3>Change status</h3>
+                  <div class="segmented two-up">
+                    <label><input type="radio" name="status" value="it_custody" ${a.status !== 'it_custody' ? raw('checked') : raw('disabled')}><span>With IT custody</span></label>
+                    <label><input type="radio" name="status" value="handed_over" ${a.status === 'handed_over' ? raw('disabled') : ''}><span>Handed over on exit</span></label>
+                  </div>
+                  <div class="field-row" style="margin-top:8px"><input name="note" placeholder="Reason (repair, spare, resignation date…)"></div>
+                  <button class="btn">Update status</button></form>
+                <div class="asset-history" data-asset-history="${a.id}"><p class="muted small">Loading history…</p></div>
+              </div>
+            </div></td></tr>`) : html`<tr><td colspan="6" class="muted">No tabs match.</td></tr>`}</tbody>
+      </table></div></div>
+      <form class="card" id="asset-new">
+        <h2>Register a tab</h2>
+        ${detailFields({}, 'na')}
+        <div class="field-row"><label for="na-holder">Issue straight to</label><select id="na-holder" name="holder_id"><option value="">Nobody yet (stays with IT)</option>${staffOptions(null)}</select></div>
+        <button class="btn-primary">Register tab</button>
+      </form>
+    </div>`);
+  const app = document.getElementById('app');
+  const reload = () => viewAssets(params);
+  const run = async (fn, form) => { try { await fn(); await reload(); } catch (err) { toast(err.message, 'error'); form?.querySelector('button')?.removeAttribute('disabled'); } };
+  document.getElementById('asset-filters').onsubmit = (e) => { e.preventDefault(); const q = new URLSearchParams(); for (const [k, v] of new FormData(e.target).entries()) if (v) q.set(k, v); location.hash = `#/assets${q.size ? `?${q}` : ''}`; };
+  document.getElementById('asset-new').onsubmit = (e) => { e.preventDefault(); const body = formBody(e.target); if (!body.holder_id) delete body.holder_id; run(() => api('/assets', { method: 'POST', body }).then(() => toast('Tab registered')), e.target); };
+  app.querySelectorAll('[data-asset-open]').forEach((b) => (b.onclick = async () => {
+    const id = b.dataset.assetOpen; const panel = app.querySelector(`[data-asset-panel="${id}"]`);
+    panel.hidden = !panel.hidden; b.textContent = panel.hidden ? 'Open' : 'Close';
+    if (!panel.hidden) {
+      const { events } = await api(`/assets/${id}`).catch(() => ({ events: [] }));
+      panel.querySelector('[data-asset-history]').innerHTML = html`<h3>History</h3><ul class="timeline small">${events.map((ev) => html`<li><strong>${ev.detail}</strong>${ev.note ? html` · ${ev.note}` : ''}<div class="muted">${ev.user_name || 'System'} · ${fmtDate(ev.created_at)}</div></li>`)}</ul>`;
+    }
+  }));
+  app.querySelectorAll('[data-asset-edit]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); run(() => api(`/assets/${f.dataset.assetEdit}`, { method: 'PATCH', body: formBody(f) }).then(() => toast('Tab details saved')), f); }));
+  app.querySelectorAll('[data-asset-assign]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); run(() => api(`/assets/${f.dataset.assetAssign}/assign`, { method: 'POST', body: Object.fromEntries(new FormData(f).entries()) }).then(() => toast('Tab assigned')), f); }));
+  app.querySelectorAll('[data-asset-status]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); const body = Object.fromEntries(new FormData(f).entries()); if (!body.status) return toast('Choose a status', 'error'); run(() => api(`/assets/${f.dataset.assetStatus}/status`, { method: 'POST', body }).then(() => toast('Status updated')), f); }));
+}
+
 async function viewUsers() {
   if (!BULK_ROLES.includes(state.user.role)) throw new Error('Only MIS and business heads manage staff');
   const { users } = await api('/users');
+  const { assets: tabs } = await api('/assets').catch(() => ({ assets: [] }));
+  const tabOf = (id) => tabs.find((a) => a.holder_id === id && a.status === 'in_use');
   const leaders = users.filter((u) => ['team_leader', 'sales_manager', 'asm'].includes(u.role) && u.active).sort((a, b) => (a.role === 'team_leader' ? 0 : 1) - (b.role === 'team_leader' ? 0 : 1) || a.name.localeCompare(b.name));
   const managers = users.filter((u) => u.role === 'sales_manager' && u.active);
   const asms = users.filter((u) => u.role === 'asm' && u.active);
@@ -3114,7 +3240,7 @@ async function viewUsers() {
             ? (u.sales_code
               ? html`<strong class="mono">${u.sales_code}</strong><div class="muted">TL: ${u.team_leader_name || '—'}<br>SM: ${u.sales_manager_name || '—'}${u.asm_name ? html`<br>ASM: ${u.asm_name}` : ''}${u.core_product ? html`<br>${state.meta.staff_core_products[u.core_product]}` : ''}</div>`
               : html`<span class="lock">Incomplete</span>`)
-            : html`<span class="muted">—</span>`}</td>
+            : html`<span class="muted">—</span>`}${u.role === 'sales' && u.active ? (tabOf(u.id) ? html`<div class="muted">Tab <a href="#/assets?q=${encodeURIComponent(tabOf(u.id).tab_no)}" class="mono">${tabOf(u.id).tab_no}</a></div>` : html`<div class="lock">No tab issued</div>`) : ''}</td>
           <td><div class="actions">
             <button class="btn-link" data-profile="${u.id}">Edit</button>
             <button class="btn-link" data-reset="${u.id}">Reset password</button>

@@ -279,6 +279,41 @@ CREATE TABLE IF NOT EXISTS payout_rules (
   set_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS assets (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind               TEXT NOT NULL DEFAULT 'tab',
+  serial_no          TEXT NOT NULL,
+  tab_no             TEXT NOT NULL,
+  charger            INTEGER NOT NULL DEFAULT 0,
+  stylus             INTEGER NOT NULL DEFAULT 0,
+  card_reader        INTEGER NOT NULL DEFAULT 0,
+  network            TEXT, -- etisalat or du
+  sim_number         TEXT,
+  entra_id           TEXT, -- Microsoft Entra ID
+  mobile_number      TEXT, -- mobile number registered on the tab
+  notes              TEXT,
+  status             TEXT NOT NULL DEFAULT 'it_custody', -- in_use, it_custody or handed_over
+  region             TEXT,
+  holder_id          INTEGER REFERENCES users(id),
+  previous_holder_id INTEGER REFERENCES users(id),
+  assigned_at        TEXT,
+  status_note        TEXT,
+  status_by          INTEGER REFERENCES users(id),
+  status_at          TEXT,
+  created_by         INTEGER REFERENCES users(id),
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS assets_serial ON assets(serial_no COLLATE NOCASE);
+CREATE TABLE IF NOT EXISTS asset_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id   INTEGER NOT NULL REFERENCES assets(id),
+  user_id    INTEGER REFERENCES users(id),
+  type       TEXT NOT NULL,
+  detail     TEXT,
+  note       TEXT,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS report_runs (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

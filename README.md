@@ -164,6 +164,17 @@ Every credit card has a **family**, a **card category** and, when the bank provi
 
 The CRM ships with the bank's product list built in: 34 cards in 18 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
 
+### Assets: the sourcing tabs issued to sales staff
+
+Each sales person is issued a tab by the bank for sourcing. The **Tab register** records, per tab: the **serial number**, **tab number**, **accessories assigned** (charger, stylus, card reader), **network** (Etisalat or du), **SIM card number**, **Microsoft Entra ID** and the **mobile number registered** on it, plus notes. A tab is in one of three states: **Active, in use** (held by a named staff member), **With IT custody** (spare, in repair, or returned) or **Handed over on exit** (returned by a leaver). Assigning a tab puts it in use with that person; a person can hold only one tab at a time. Moving it to IT custody or marking it handed over clears the holder and remembers them as the previous holder. Every registration, edit, assignment and status change is logged with who did it and when.
+
+- A new **IT** role keeps the register (`Staff → Add user → IT`). An IT account sees only the register, the staff list (names, codes, roles and regions, no salaries or contact details) and the inventory report: no files, chat or targets.
+- **MIS and business heads** see and can change the register too, and the Staff page shows each sales person's tab (or "No tab issued").
+- **Sales staff** see their own tab on their dashboard under **My tab**.
+- The **Tab inventory** report (IT, MIS, business heads) lists every tab with its holder, accessories, SIM, Entra ID and mobile, and can be downloaded as a spreadsheet at any time; its note counts tabs by status and the active sales staff without one.
+
+API: `GET/POST /api/assets`, `GET /api/assets/mine`, `GET/PATCH /api/assets/:id`, `POST /api/assets/:id/assign` (`holder_id`, `note`), `POST /api/assets/:id/status` (`status` it_custody or handed_over, `note`), report key `assets`.
+
 ### Go-live staff list
 
 `docs/go-live/` holds the upload files built from the agency's staff list (`staff-upload.csv`, `salary-targets.csv`) and a README on how the sheet was mapped and which placeholders to replace. Rules that came from that list: a sales person's **team leader may be a sales manager or ASM who leads the team directly**; the **sales manager is optional** (a team can report to the business head); **targets follow the core product** (a credit card seller gets only the card target, multi-product staff get every product with a band); and in the staff upload the **HRMS code is required for every role, leaders included**, while the **mobile number is optional**.

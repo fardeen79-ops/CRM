@@ -46,3 +46,4 @@ The sheet's target column (points for CC and AL, AED for PL) follows the salary 
 
 - How a **manager of a mixed team** (cards and loans) is classed, if it matters beyond today's one-calculation-per-product. Auto loan leaders and managers have no incentive, there is no AUH-specific treatment, and one loan grid applies to every manager (all confirmed).
 - The ASM distinction, if any of the SM / ASM names are ASMs rather than sales managers.
+- An **IT department account** (role IT) to keep the tab register, and the list of tabs issued (serial, tab number, accessories, network, SIM, Entra ID, registered mobile) to enter or upload.
