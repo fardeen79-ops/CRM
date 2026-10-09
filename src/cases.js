@@ -66,6 +66,8 @@ export const INCOMPLETE_REASONS = [
 
 /** How the customer is addressed. */
 export const SALUTATIONS = ['Mr', 'Mrs', 'Ms', 'Dr'];
+/** How the customer earns: on a salary or self-employed. */
+export const CUSTOMER_TYPES = { salaried: 'Salaried', self_employed: 'Self employed' };
 export const PRODUCTS = {
   personal_loan: 'Personal Loan',
   credit_card: 'Credit Card',
@@ -345,7 +347,7 @@ export const ACTIONS = {
 
 // Plain text fields and their length limits; name, product and number fields are validated separately.
 const TEXT_FIELDS = {
-  salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, salary_bank: 200,
+  salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, salary_bank: 200, customer_type: 20,
   phone: 30, alt_phone: 30, email: 200, address: 2000, city: 100, source: 200, sales_notes: 2000,
   bidaya_id: 50, app_id: 50,
 };
@@ -578,6 +580,7 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
   for (const [field, max] of Object.entries(TEXT_FIELDS)) if (has(field)) out[field] = clean(input[field], max);
 
   if (has('salutation') && out.salutation && !SALUTATIONS.includes(out.salutation)) throw new WorkflowError(400, `Salutation must be one of: ${SALUTATIONS.join(', ')}`);
+  if (has('customer_type') && out.customer_type && !CUSTOMER_TYPES[out.customer_type]) throw new WorkflowError(400, 'Customer type must be Salaried or Self employed');
   if (['first_name', 'middle_name', 'last_name'].some(has)) {
     const name = (f) => (f in out ? out[f] : current?.[f] ?? null);
     if (!name('first_name')) throw new WorkflowError(400, 'Customer first name is required');

@@ -182,7 +182,7 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
-        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, salutations: cases.SALUTATIONS, booster_products: boosters.BOOSTER_PRODUCTS, booster_audience: boosters.BOOSTER_AUDIENCE, can_manage_boosters: boosters.canManageBoosters(user), calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
+        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, salutations: cases.SALUTATIONS, customer_types: cases.CUSTOMER_TYPES, booster_products: boosters.BOOSTER_PRODUCTS, booster_audience: boosters.BOOSTER_AUDIENCE, can_manage_boosters: boosters.canManageBoosters(user), calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
         asset_status: assets.ASSET_STATUS, networks: assets.NETWORKS, accessories: assets.ACCESSORIES, asset_admins: assets.ASSET_ADMINS,
         auto_loan_classes: cases.AUTO_LOAN_CLASSES,
         al_incentive_rules: AL_INCENTIVE_RULES,

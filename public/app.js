@@ -1187,6 +1187,13 @@ async function viewCaseForm(id, leadId = null) {
       <section>
         <h2>Employment</h2>
         <div class="form-grid">
+          <div>
+            <label for="f-customer_type">Customer type <span class="req">*</span></label>
+            <select id="f-customer_type" name="customer_type" required>
+              <option value="">Choose…</option>
+              ${Object.entries(state.meta.customer_types).map(([k, l]) => html`<option value="${k}" ${c.customer_type === k ? raw('selected') : ''}>${l}</option>`)}
+            </select>
+          </div>
           ${field('company_name', 'Company name', { placeholder: 'Employer', dictate: true })}
           ${field('salary', 'Monthly salary (AED)', { type: 'number', attrs: money })}
           <div>
@@ -1972,6 +1979,7 @@ async function viewCase(id) {
           <dl class="details">
             ${phoneRow('Mobile', 'phone')}
             ${c.alt_phone || hiddenFields.has('alt_phone') ? phoneRow('Alternate phone', 'alt_phone') : ''}
+            ${c.customer_type ? html`<dt>Customer type</dt><dd>${state.meta.customer_types[c.customer_type]}</dd>` : ''}
             ${row('Company', c.company_name, false, 'company_name')}
             ${row('Monthly salary', c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
             ${c.salary_bank ? html`<dt>Salary transferred to</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
