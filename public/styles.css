@@ -575,6 +575,9 @@ main { position: relative; }
   position: absolute; inset: 0; pointer-events: none; z-index: 5; user-select: none;
   color: var(--text); opacity: .07; background-repeat: repeat; background-size: 420px 220px;
 }
+/* Light ink on a dark surface reads fainter at the same opacity, so it gets a little more. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .watermark { opacity: .11; } }
+:root[data-theme="dark"] .watermark { opacity: .11; }
 @media print { .watermark { opacity: .25; } }
 
 /* Chat */

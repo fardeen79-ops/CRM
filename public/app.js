@@ -2878,12 +2878,21 @@ function paintWatermark() {
   const stamp = () => {
     const when = new Date().toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
     const text = `${state.user.name} · ${state.user.sales_code || ROLE_LABEL[state.user.role_key || state.user.role]} · ${when}`;
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='420' height='220'><text x='0' y='120' transform='rotate(-24 210 110)' font-family='IBM Plex Sans, system-ui, sans-serif' font-size='15' fill='currentColor'>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/'/g, '&#39;')}</text></svg>`;
+    // A background image cannot read currentColor, so the page's text colour is written into it
+    // (light ink on dark mode, dark ink on light); otherwise the stamp is black and invisible on dark.
+    const ink = getComputedStyle(el).color || '#000';
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='420' height='220'><text x='0' y='120' transform='rotate(-24 210 110)' font-family='IBM Plex Sans, system-ui, sans-serif' font-size='15' fill='${ink}'>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/'/g, '&#39;')}</text></svg>`;
     el.style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
   };
   stamp();
   clearInterval(watermarkTimer);
   watermarkTimer = setInterval(stamp, 60000);
+  // Repaint when the colour scheme flips, so the stamp keeps the right ink.
+  if (!paintWatermark.bound) {
+    paintWatermark.bound = true;
+    window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => paintWatermark());
+    new MutationObserver(() => paintWatermark()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
 }
 
 const ACCESS_LABEL = { view: 'Opened the case', 'reveal:phone': 'Revealed mobile number', 'reveal:alt_phone': 'Revealed alternate phone', 'reveal:eid_number': 'Revealed Emirates ID', 'reveal:passport_number': 'Revealed passport number', 'reveal:salary': 'Revealed salary' };
