@@ -852,3 +852,10 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .tat-switch.is-on .tat-switch-state { color: var(--s-pending); }
 .confirm-sheet { width: min(440px, 100%); }
 .confirm-sheet p { margin: 0; font-size: 15px; }
+
+/* Power button (Dubai business head), beside the bell: red when off, green when on. */
+.power-btn { display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border-radius: 10px; color: #fff; border: 0; }
+.power-btn svg { width: 20px; height: 20px; }
+.power-btn.off { background: #c2362f; }
+.power-btn.on { background: #0f7a3d; box-shadow: 0 0 0 3px color-mix(in srgb, #0f7a3d 30%, transparent); }
+.power-btn:hover { filter: brightness(1.1); border: 0; }

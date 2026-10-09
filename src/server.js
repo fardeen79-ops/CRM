@@ -184,7 +184,7 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
-        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, salutations: cases.SALUTATIONS, customer_types: cases.CUSTOMER_TYPES, sourcing_types: cases.SOURCING_TYPES, verify_tat_days: cases.VERIFY_TAT_DAYS, can_use_tat_switch: cases.canUseTatSwitch(user), fixed_deposit_products: cases.FIXED_DEPOSIT_PRODUCTS, booster_products: boosters.BOOSTER_PRODUCTS, booster_audience: boosters.BOOSTER_AUDIENCE, can_manage_boosters: boosters.canManageBoosters(user), calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
+        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, salutations: cases.SALUTATIONS, customer_types: cases.CUSTOMER_TYPES, sourcing_types: cases.SOURCING_TYPES, verify_tat_days: cases.VERIFY_TAT_DAYS, can_use_tat_switch: cases.canUseTatSwitch(user), ...(cases.canUseTatSwitch(user) && { power_button: cases.tatSwitchStatus(db, user) }), can_see_power_log: cases.POWER_LOG_VIEWERS.includes(user.role), fixed_deposit_products: cases.FIXED_DEPOSIT_PRODUCTS, booster_products: boosters.BOOSTER_PRODUCTS, booster_audience: boosters.BOOSTER_AUDIENCE, can_manage_boosters: boosters.canManageBoosters(user), calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
         asset_status: assets.ASSET_STATUS, networks: assets.NETWORKS, accessories: assets.ACCESSORIES, asset_admins: assets.ASSET_ADMINS,
         auto_loan_classes: cases.AUTO_LOAN_CLASSES,
         al_incentive_rules: AL_INCENTIVE_RULES,
@@ -327,6 +327,7 @@ function routes(db, dispatch, bot) {
     // The TAT switch: business heads and Dubai MIS hold late files as verified, and put them back.
     ['GET', /^\/api\/tat-switch$/, async ({ user }) => cases.tatSwitchStatus(db, user)],
     ['PUT', /^\/api\/tat-switch$/, async ({ user, body }) => cases.setTatSwitch(db, user, body.on)],
+    ['GET', /^\/api\/tat-switch\/log$/, async ({ user }) => ({ log: cases.powerButtonLog(db, user) })],
     // Public holidays: read by everyone signed in, kept by MIS and business heads.
     ['GET', /^\/api\/holidays$/, async ({ user }) => ({ holidays: holidays.listHolidays(db), can_edit: holidays.canEditHolidays(user) })],
     ['POST', /^\/api\/holidays$/, async ({ user, body }) => holidays.addHoliday(db, user, body)],

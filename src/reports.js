@@ -2,7 +2,7 @@
 // columns, filtered by a period (a sales cycle or two dates), a region, and the viewer's own
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
-import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents, tatSwitchOn } from './cases.js';
+import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
 import { cardProducts } from './credit-cards.js';
@@ -193,11 +193,10 @@ function pipeline(db, user, { period, region }) {
 function stage_times(db, user, { period, region }) {
   const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
   const files = db.prepare(`SELECT c.id, c.created_at, c.tat_override_from FROM cases c ${sql}`).all(...params);
-  const switchOn = tatSwitchOn(db);
   const eventsOf = db.prepare('SELECT id, type, to_status, detail, created_at FROM case_events WHERE case_id = ?');
   const by = new Map(Object.entries(CASE_STAGES).map(([k, label]) => [k, { stage: label, files: 0, hours: [], longest_hours: 0, slowest_on: 0 }]));
   for (const f of files) {
-    const s = caseStages(f, presentEvents(f, eventsOf.all(f.id), switchOn));
+    const s = caseStages(f, presentEvents(f, eventsOf.all(f.id)));
     for (const t of s.totals) {
       const r = by.get(t.stage);
       if (!r) continue;

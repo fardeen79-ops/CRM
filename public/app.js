@@ -363,7 +363,6 @@ function navGroups() {
   if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
   if (state.meta.can_manage_boosters) admin.push(['#/boosters', 'Boosters', 'flag']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/holidays', 'Holidays', 'calendar']);
-  if (state.meta.can_use_tat_switch) admin.push(['#/power-button', 'Power button', 'power']);
   if (admin.length) groups.push(['Admin', admin]);
   return filterNav(groups);
 }
@@ -410,12 +409,15 @@ function shell(content) {
           ${canPickRegion() ? html`<div class="segmented region-switch" role="radiogroup" aria-label="Region view">
             ${[['', 'All regions'], ...Object.keys(state.meta.regions).map((k) => [k, k])].map(([k, l]) => html`<label><input type="radio" name="region-view" value="${k}" ${state.region === k ? raw('checked') : ''}><span>${l}</span></label>`)}
           </div>` : ''}
+          ${powerButton()}
           <button class="bell" id="bell" aria-label="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="dot" ${state.unread ? '' : 'hidden'}>${state.unread}</span></button>
         </header>
         <div id="notif-panel"></div>
         <main>${content}<div class="watermark" aria-hidden="true"></div></main>
       </div>
     </div>`.s;
+  const power = document.getElementById('power-btn');
+  if (power) power.onclick = pressPowerButton;
   document.getElementById('logout').onclick = async () => {
     await api('/logout', { method: 'POST' }).catch(() => {});
     state.user = null;
@@ -476,7 +478,6 @@ async function route() {
     if (path === '/allocation') return await viewAllocation();
     if (path === '/boosters') return await viewBoosters();
     if (path === '/holidays') return await viewHolidays();
-    if (path === '/power-button') return await viewTatSwitch();
     if (path === '/pnl') return await viewPnl(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
@@ -3062,6 +3063,7 @@ async function viewAccessLog(params) {
   const { items } = await api(`/access-log?limit=1000${caseId ? `&case=${encodeURIComponent(caseId)}` : ''}`);
   const shown = q ? items.filter((e) => [e.user_name, e.customer_name, e.ref, e.sales_staff_name].some((v) => String(v || '').toLowerCase().includes(q))) : items;
   const reveals = items.filter((e) => e.what.startsWith('reveal:')).length;
+  const powerLog = await powerLogCard();
   shell(html`
     <div class="page-head">
       <div><h1>Access log</h1><p class="muted lede">Who opened each customer's file and which personal details they revealed. Phone numbers and salaries are masked on every screen until someone chooses to reveal them, and every reveal is recorded here. Each screen also carries a faint watermark of the signed-in user, so a photo or screenshot can be traced.</p></div>
@@ -3086,7 +3088,8 @@ async function viewAccessLog(params) {
           <td class="small">${e.sales_staff_name || '—'}</td>
         </tr>`)}</tbody>
       </table></div>` : html`<div class="empty">No access recorded yet</div>`}
-    </div>`);
+    </div>
+    ${powerLog}`);
   bindRows();
   document.getElementById('log-search').onsubmit = (e) => {
     e.preventDefault();
@@ -3838,33 +3841,39 @@ async function viewAllocation() {
 }
 
 // Boosters: business heads and MIS create product campaigns with dates, a reward line and an audience.
-// The power button (TAT switch): while on, files past their verification TAT show as verified; off puts them back.
-async function viewTatSwitch() {
-  const s = await api('/tat-switch');
-  shell(html`
-    <div class="page-head"><div><h1>Power button</h1><p class="muted lede">While the power button is on, every file past its ${state.meta.verify_tat_days}-working-day verification TAT shows as verified (Completed) and leaves the processing queue, including files that pass their TAT while it stays on. When it is turned off, each of those files goes back to the stage it was at. Case status, targets, incentives and payouts are not affected.</p></div></div>
-    <div class="card tat-switch ${s.on ? 'is-on' : ''}">
-      <div class="tat-switch-row">
-        <div>
-          <div class="tat-switch-state">${s.on ? 'On' : 'Off'}</div>
-          <div class="muted">${s.on ? `${s.held} ${s.held === 1 ? 'file is' : 'files are'} showing as completed because of the power button.` : 'Late files stay at their real stage.'}</div>
-        </div>
-        <button type="button" class="btn ${s.on ? 'btn-danger' : 'btn-primary'}" id="tat-toggle">${s.on ? 'Turn off and move files back' : 'Turn on'}</button>
-      </div>
-    </div>
-    <div class="card"><h2>Power button log</h2>
-      ${s.log.length ? html`<div class="table-wrap"><table><thead><tr><th>When</th><th>Switched</th><th>By</th><th class="num">Files</th></tr></thead><tbody>
-        ${s.log.map((l) => html`<tr><td class="nowrap">${fmtDate(l.at)}</td><td>${l.switched_on ? html`<span class="chip warn">On</span>` : html`<span class="chip">Off</span>`}</td><td>${l.user_name || '—'}</td><td class="num">${l.files} ${l.switched_on ? 'held' : 'moved back'}</td></tr>`)}
-      </tbody></table></div>` : html`<p class="muted">The power button has not been used yet.</p>`}
-    </div>
-  `);
-  document.getElementById('tat-toggle').onclick = async () => {
-    const msg = s.on
-      ? `Turn the power button off? The ${s.held} ${s.held === 1 ? 'file it is holding goes back to the stage it was at' : 'files it is holding go back to the stage they were at'}.`
-      : 'Turn the power button on? Every file past its verification TAT will show as completed until the power button is turned off.';
-    if (!await askConfirm(msg, { ok: s.on ? 'Turn off' : 'Turn on', danger: s.on })) return;
-    try { const r = await api('/tat-switch', { method: 'PUT', body: { on: !s.on } }); toast(r.on ? `Power button on: ${r.log[0].files} late ${r.log[0].files === 1 ? 'file' : 'files'} now show as completed` : `Power button off: ${r.log[0].files} ${r.log[0].files === 1 ? 'file' : 'files'} moved back`); await viewTatSwitch(); } catch (err) { toast(err.message, true); }
-  };
+// The power button (TAT switch), next to the bell for the Dubai business head: green when on, red
+// when off. While on, files past their verification TAT show as verified; off puts them back.
+function powerButton() {
+  if (!state.meta.can_use_tat_switch) return '';
+  const p = state.meta.power_button || { on: false, held: 0 };
+  const label = p.on ? `Power button on: ${p.held} late ${p.held === 1 ? 'file shows' : 'files show'} as verified. Press to turn off.` : 'Power button off. Press to turn on.';
+  return html`<button type="button" class="power-btn ${p.on ? 'on' : 'off'}" id="power-btn" aria-pressed="${p.on ? 'true' : 'false'}" aria-label="${label}" title="${label}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></button>`;
+}
+async function pressPowerButton() {
+  const p = state.meta.power_button || { on: false, held: 0 };
+  const msg = p.on
+    ? `Turn the power button off? The ${p.held} ${p.held === 1 ? 'file it is holding goes back to the stage it was at' : 'files it is holding go back to the stage they were at'}.`
+    : `Turn the power button on? Every file past its ${state.meta.verify_tat_days}-working-day verification TAT will show as verified until it is turned off.`;
+  if (!await askConfirm(msg, { ok: p.on ? 'Turn off' : 'Turn on', danger: p.on })) return;
+  try {
+    const before = p.held;
+    state.meta.power_button = await api('/tat-switch', { method: 'PUT', body: { on: !p.on } });
+    const r = state.meta.power_button;
+    toast(r.on ? `Power button on: ${r.held} late ${r.held === 1 ? 'file' : 'files'} now show as verified` : `Power button off: ${before} ${before === 1 ? 'file' : 'files'} moved back`);
+    route();
+  } catch (err) { toast(err.message, true); }
+}
+
+/** The power button's record, for governance and business heads on the Access log. */
+async function powerLogCard() {
+  if (!state.meta.can_see_power_log) return '';
+  const { log } = await api('/tat-switch/log').catch(() => ({ log: [] }));
+  return html`<div class="card"><h2>Power button</h2>
+    <p class="muted small">Every press of the Dubai business head's power button. While it is on, files past their verification TAT show as verified; this log is the only record of it, as it is kept out of each file's history.</p>
+    ${log.length ? html`<div class="table-wrap"><table><thead><tr><th>When</th><th>Turned</th><th>By</th><th>Files</th></tr></thead><tbody>
+      ${log.map((l) => html`<tr><td class="nowrap">${fmtDate(l.at)}</td><td>${l.switched_on ? html`<span class="chip good">On</span>` : html`<span class="chip bad">Off</span>`}</td><td>${l.user_name || '—'}</td><td class="small">${l.files.length ? html`${l.files.length} ${l.switched_on ? 'held' : 'moved back'}: <span class="mono">${l.files.join(', ')}</span>` : html`<span class="muted">none</span>`}</td></tr>`)}
+    </tbody></table></div>` : html`<p class="muted">Not used yet.</p>`}
+  </div>`;
 }
 
 // Public holidays: days off for the verification TAT, kept by MIS and business heads.

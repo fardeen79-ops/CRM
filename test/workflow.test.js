@@ -22,6 +22,8 @@ before(async () => {
     ['Pete', 'proc2@t.local', 'processing'],
     ['Gina', 'gov@t.local', 'governance'],
   ]) ids[email] = createUser(db, { name, email, role, password: PASSWORD }).id;
+  createUser(db, { name: 'Dina', email: 'bhdxb@t.local', role: 'business_head', password: PASSWORD, region: 'DXB' });
+  createUser(db, { name: 'Mo', email: 'misdxb@t.local', role: 'mis', password: PASSWORD, region: 'DXB' });
   const profile = (code) => ({ sales_code: code, team_leader_id: ids['lead@t.local'], sales_manager_id: ids['sm@t.local'] });
   createUser(db, { name: 'Sally', email: 'sales@t.local', role: 'sales', password: PASSWORD, ...profile('S-001') });
   createUser(db, { name: 'Sid', email: 'sales2@t.local', role: 'sales', password: PASSWORD, ...profile('S-002') });
@@ -301,24 +303,24 @@ test('files past their verification TAT are counted and listed', async () => {
   assert.ok((await lead('GET', '/stats')).data.tat.overdue >= 1);
 });
 
-test('TAT switch: business heads and Dubai MIS hold late files as completed, and turning it off puts them back', async () => {
+test('power button: only the Dubai business head; held files read as verified and it never shows in a file history', async () => {
   const sales = await login('sales@t.local');
   const late = (await sales('POST', '/cases', { customer_name: 'Held File', phone: '9876543214', product: 'accounts', sourcing_date: '2026-01-06' })).data.case;
   const fresh = (await sales('POST', '/cases', { customer_name: 'Fresh File', phone: '9876543215', product: 'accounts' })).data.case;
-  const bh = await login('bh@t.local');
+  const bh = await login('bhdxb@t.local');
   assert.equal((await (await login('lead@t.local'))('PUT', '/tat-switch', { on: true })).status, 403);
-  assert.equal((await staffAdmin('PUT', '/tat-switch', { on: true })).status, 403); // MIS without the DXB region
+  assert.equal((await (await login('misdxb@t.local'))('PUT', '/tat-switch', { on: true })).status, 403); // not even Dubai MIS
+  assert.equal((await (await login('bh@t.local'))('PUT', '/tat-switch', { on: true })).status, 403); // a business head outside Dubai
+  assert.equal((await bh('GET', '/me')).data.meta.can_use_tat_switch, true);
 
   let r = await bh('PUT', '/tat-switch', { on: true });
   assert.equal(r.data.on, true);
-  assert.ok(r.data.log[0].files >= 1);
+  assert.ok(r.data.held >= 1);
   let held = (await bh('GET', `/cases/${late.id}`)).data.case;
   assert.equal(held.status, 'completed');
   assert.equal(held.case_status, 'sent_to_check'); // verification only
-  // While the switch is on the file reads as verified: history, verification time and reports.
   assert.equal(held.events[0].type, 'complete');
   assert.equal(held.events[0].user_name, 'Processing team');
-  assert.equal(held.stages.rows.at(-2).moved_by, 'Processing team');
   assert.ok(!held.events.some((e) => e.type.startsWith('tat_')));
   assert.ok(held.verified_at);
   assert.equal(held.stages.rows.at(-1).stage, 'with_bank');
@@ -327,8 +329,7 @@ test('TAT switch: business heads and Dubai MIS hold late files as completed, and
   assert.equal(line.verification, 'Verified');
   assert.ok(line.verified_at);
   assert.equal((await bh('GET', `/cases/${fresh.id}`)).data.case.status, 'pending_verification');
-  assert.ok(!(await bh('GET', '/cases?tat=overdue')).data.cases.some((c) => c.id === late.id));
-  // A file that passes its TAT while the switch is on follows.
+  // A file that passes its TAT while the button is on follows.
   const later = (await sales('POST', '/cases', { customer_name: 'Later File', phone: '9876543216', product: 'accounts', sourcing_date: '2026-01-07' })).data.case;
   assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'completed');
 
@@ -337,8 +338,15 @@ test('TAT switch: business heads and Dubai MIS hold late files as completed, and
   assert.equal(r.data.held, 0);
   held = (await bh('GET', `/cases/${late.id}`)).data.case;
   assert.equal(held.status, 'pending_verification');
-  assert.deepEqual(held.events.slice(0, 2).map((e) => e.type), ['tat_release', 'tat_hold']);
+  assert.ok(!held.events.some((e) => e.type.startsWith('tat_') || e.type === 'complete')); // nothing in the file's history
   assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'pending_verification');
+
+  // The record: governance and business heads see each press and the files it moved; MIS does not.
+  const log = (await (await login('gov@t.local'))('GET', '/tat-switch/log')).data.log;
+  assert.equal(log.length, 2);
+  assert.equal(log[0].switched_on, false);
+  assert.ok(log[1].files.includes(late.ref) && log[1].files.includes(later.ref));
+  assert.equal((await (await login('misdxb@t.local'))('GET', '/tat-switch/log')).status, 403);
 });
 
 test('credit card cases must name a card from the list', async () => {

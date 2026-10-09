@@ -350,7 +350,9 @@ const TAT_SOURCED_SQL = 'COALESCE(c.sourcing_date, substr(c.created_at, 1, 10))'
 // TAT shows as verified (status completed) and leaves the processing queue; files that pass their TAT
 // while it is on follow. Switching it off puts each one back at the stage it was at. Only the
 // verification status moves: the case status, targets and payouts stay on what the bank completes.
-export const canUseTatSwitch = (user) => user?.role === 'business_head' || (user?.role === 'mis' && String(user.region || '').toUpperCase() === 'DXB');
+export const canUseTatSwitch = (user) => user?.role === 'business_head' && String(user.region || '').toUpperCase() === 'DXB';
+// Who can read the power button's log: it is kept out of every file's history, so this is its record.
+export const POWER_LOG_VIEWERS = ['governance', 'business_head'];
 export const tatSwitchOn = (db) => db.prepare('SELECT switched_on FROM tat_switch_log ORDER BY id DESC LIMIT 1').get()?.switched_on === 1;
 
 /** While the switch is on, holds every file now past its TAT as completed. Returns how many moved. */
@@ -358,10 +360,11 @@ export function holdOverdueFiles(db, userId = null) {
   if (!tatSwitchOn(db)) return 0;
   const rows = db.prepare(`SELECT c.id, c.status FROM cases c WHERE ${TAT_OPEN_SQL} AND ${TAT_SOURCED_SQL} < ?`).all(tatCutoff(uaeDay()));
   const ts = now();
+  const logId = db.prepare('SELECT id FROM tat_switch_log ORDER BY id DESC LIMIT 1').get().id;
   const hold = db.prepare('UPDATE cases SET tat_override_from = ?, tat_held_at = ?, status = ?, updated_at = ? WHERE id = ?');
   for (const r of rows) {
     hold.run(r.status, ts, STATUS.COMPLETED, ts, r.id);
-    addEvent(db, r.id, userId, 'tat_hold', { from: r.status, to: STATUS.COMPLETED, detail: 'Past verification TAT while the power button is on' });
+    addEvent(db, r.id, userId, 'tat_hold', { from: r.status, to: STATUS.COMPLETED, detail: `power:${logId}` });
   }
   return rows.length;
 }
@@ -370,22 +373,21 @@ export function holdOverdueFiles(db, userId = null) {
 function releaseHeldFiles(db, userId) {
   const rows = db.prepare('SELECT id, tat_override_from FROM cases WHERE tat_override_from IS NOT NULL').all();
   const ts = now();
+  const logId = db.prepare('SELECT id FROM tat_switch_log ORDER BY id DESC LIMIT 1').get().id;
   const back = db.prepare('UPDATE cases SET status = ?, tat_override_from = NULL, tat_held_at = NULL, updated_at = ? WHERE id = ?');
   for (const r of rows) {
     back.run(r.tat_override_from, ts, r.id);
-    addEvent(db, r.id, userId, 'tat_release', { from: STATUS.COMPLETED, to: r.tat_override_from, detail: 'Power button turned off' });
+    addEvent(db, r.id, userId, 'tat_release', { from: STATUS.COMPLETED, to: r.tat_override_from, detail: `power:${logId}` });
   }
   return rows.length;
 }
 
 /**
- * The history as staff see it. While the switch is on, a held file reads as verified: its hold shows
- * as an ordinary verification by the processing team (not the person who pressed the button), and
- * earlier holds and releases are left out. With the switch off the
- * full history shows. The stored events never change.
+ * The history as staff see it: the power button never appears in a file's history. While a file is
+ * held its hold reads as an ordinary verification by the processing team. The stored events never
+ * change, and the power button log (governance and business heads) keeps the record.
  */
-export function presentEvents(row, events, switchOn) {
-  if (!switchOn) return events;
+export function presentEvents(row, events) {
   const latestHold = row.tat_override_from ? events.filter((e) => e.type === 'tat_hold').reduce((a, e) => (!a || e.id > a.id ? e : a), null) : null;
   return events
     .filter((e) => !['tat_hold', 'tat_release'].includes(e.type) || e === latestHold)
@@ -393,15 +395,28 @@ export function presentEvents(row, events, switchOn) {
 }
 
 export function tatSwitchStatus(db, user) {
-  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can see the power button');
-  const log = db.prepare('SELECT l.switched_on, l.files, l.at, u.name AS user_name FROM tat_switch_log l LEFT JOIN users u ON u.id = l.user_id ORDER BY l.id DESC LIMIT 20').all()
-    .map((l) => ({ ...l, switched_on: l.switched_on === 1 }));
+  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only the Dubai business head can use the power button');
+  holdOverdueFiles(db);
   const held = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE tat_override_from IS NOT NULL').get().n;
-  return { on: log[0]?.switched_on ?? false, held, log };
+  return { on: tatSwitchOn(db), held };
+}
+
+/** The power button's record: each press, who pressed it, and the files it held or moved back. */
+export function powerButtonLog(db, user) {
+  if (!POWER_LOG_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Only governance and business heads can see the power button log');
+  const files = db.prepare("SELECT e.detail, e.case_id FROM case_events e WHERE e.type IN ('tat_hold', 'tat_release') AND e.detail LIKE 'power:%'").all();
+  const byLog = new Map();
+  for (const f of files) {
+    const id = Number(f.detail.slice(6));
+    if (!byLog.has(id)) byLog.set(id, []);
+    byLog.get(id).push(caseRef(f.case_id));
+  }
+  return db.prepare('SELECT l.id, l.switched_on, l.at, u.name AS user_name FROM tat_switch_log l LEFT JOIN users u ON u.id = l.user_id ORDER BY l.id DESC LIMIT 200').all()
+    .map((l) => ({ ...l, switched_on: l.switched_on === 1, files: byLog.get(l.id) || [] }));
 }
 
 export function setTatSwitch(db, user, on) {
-  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can use the power button');
+  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only the Dubai business head can use the power button');
   const want = Boolean(on);
   if (want === tatSwitchOn(db)) return tatSwitchStatus(db, user);
   transaction(db, () => {
@@ -1043,7 +1058,7 @@ export function getCase(db, user, id) {
        LEFT JOIN users u ON u.id = e.user_id WHERE e.case_id = ? ORDER BY e.id DESC`
     )
     .all(id);
-  const shown = presentEvents(row, events, tatSwitchOn(db));
+  const shown = presentEvents(row, events);
   const out = { ...present(user, row), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
   if (user.role !== 'sales' && row.bot_call_status) out.bot_call = latestBotCall(db, id);
   if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
