@@ -115,3 +115,17 @@ test('a role based on sales keeps the sales workflow and profile; the base canno
   assert.equal((await sami('GET', '/roles')).status, 403);
   assert.equal((await mis('GET', '/users')).data.users.find((x) => x.id === u.id).role_key, 'senior_sales');
 });
+
+test('a custom sales role with My tab reaches its own tab but not the register', async () => {
+  const head = await login('head@t.local');
+  const mis = await login('mis@t.local');
+  const it = await login('it@t.local');
+  assert.equal((await head('POST', '/roles', { label: 'Tab Sales', base: 'sales', pages: ['cases', 'my_tab'] })).status, 201);
+  const u = (await mis('POST', '/users', { name: 'Tess', email: 'tess@t.local', role: 'tab_sales', region: 'DXB', sales_code: 'D-8', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'], mobile_number: '0501112255', hrms_code: 'EN77004', password: PASSWORD })).data.user;
+  const a = (await it('POST', '/assets', { tab_no: 'TAB-9', serial_no: 'SN9', holder_id: u.id })).data.asset;
+  const tess = await login('tess@t.local');
+  assert.equal((await tess('GET', '/assets/mine')).data.asset.tab_no, 'TAB-9');
+  assert.equal((await tess('GET', `/assets/${a.id}`)).status, 200);
+  assert.equal((await tess('GET', '/assets')).status, 403);
+  assert.equal((await tess('GET', '/targets')).status, 403);
+});

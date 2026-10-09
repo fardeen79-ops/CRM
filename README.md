@@ -182,7 +182,7 @@ Each sales person is issued a tab by the bank for sourcing. The **Tab register**
 
 - A new **IT** role keeps the register (`Staff → Add user → IT`). An IT account sees only the register, the staff list (names, codes, roles and regions, no salaries or contact details) and the inventory report: no files, chat or targets.
 - **MIS and business heads** see and can change the register too, and the Staff page shows each sales person's tab (or "No tab issued").
-- **Sales staff** see their own tab on their dashboard under **My tab**.
+- **Sales staff** have a **My tab** page in the sidebar with their tab's details and history; the dashboard stays uncluttered.
 - The **Tab inventory** report (IT, MIS, business heads) lists every tab with its holder, accessories, SIM, Entra ID and mobile, and can be downloaded as a spreadsheet at any time; its note counts tabs by status and the active sales staff without one.
 
 **Bulk upload → Tab register** (IT, MIS, business heads) takes a CSV with the tab and serial numbers, Yes/No for each accessory, network, SIM, Entra ID, registered mobile, an **Issued to** column (HRMS or sales code), an optional status and notes. A serial already registered updates that tab; naming a holder issues it; a status of With IT custody or Handed over on exit moves it. Nothing is saved until the preview is confirmed.

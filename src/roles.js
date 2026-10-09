@@ -7,6 +7,7 @@ import { WorkflowError } from './cases.js';
 export const PAGES = {
   cases: { label: 'Files', help: 'The case list, case pages and the verification work of the base role', paths: /^\/api\/cases(\/|$)/ },
   targets: { label: 'Targets and incentives', help: 'Targets, achievement and the incentive working', paths: /^\/api\/(targets|incentives)(\/|$)/ },
+  my_tab: { label: 'My tab', help: 'The sales person\'s own sourcing tab', paths: /^\/api\/assets\/mine$/ },
   team: { label: 'Team view', help: 'The hierarchy with each team\'s numbers', paths: /^\/api\/hierarchy(\/|$)/ },
   cards: { label: 'Card activation', help: 'Card status and ageing', paths: null },
   reports: { label: 'Reports', help: 'The reports chosen below', paths: /^\/api\/reports(\/|$)/ },
@@ -23,7 +24,7 @@ export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', cards: 'Card activ
 /** The built-in roles: what each one sees, which a custom role based on it can only narrow. */
 const MANAGE = ['cases', 'targets', 'team', 'cards', 'reports', 'uploads', 'staff', 'access_log', 'assets', 'chat', 'roles'];
 export const BUILTIN_ROLES = {
-  sales: { label: 'Sales', pages: ['cases', 'targets', 'chat'], uploads: [] },
+  sales: { label: 'Sales', pages: ['cases', 'targets', 'my_tab', 'chat'], uploads: [] },
   processing: { label: 'Processing', pages: ['cases', 'chat'], uploads: [] },
   team_leader: { label: 'Team Leader', pages: ['cases', 'targets', 'team', 'reports', 'chat'], uploads: [] },
   asm: { label: 'Assistant Sales Manager', pages: ['cases', 'targets', 'team', 'reports', 'chat'], uploads: [] },
@@ -86,6 +87,8 @@ export const allowsDownload = (user) => permissionsOf(user).downloads;
 export function blockedPage(user, pathname) {
   const p = permissionsOf(user);
   if (!p.custom) return null;
+  // A sales person's own tab is part of My tab, not the register.
+  if (/^\/api\/assets\/(mine|\d+)$/.test(pathname) && p.pages.includes('my_tab')) return null;
   for (const [page, def] of Object.entries(PAGES)) if (def.paths && def.paths.test(pathname) && !p.pages.includes(page)) return page;
   const m = pathname.match(/^\/api\/import\/([a-z_]+)$/);
   if (m && !p.uploads.includes(m[1])) return 'uploads';

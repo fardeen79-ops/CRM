@@ -335,6 +335,7 @@ function navGroups() {
 
   const perf = [];
   if (['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'].includes(r)) perf.push(['#/targets', r === 'sales' ? 'My targets' : 'Targets', 'target']);
+  if (r === 'sales') perf.push(['#/my-tab', 'My tab', 'tablet']);
   if (['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r)) perf.push(['#/team', 'Team view', 'tree']);
   if (r === 'mis' || r === 'business_head') perf.push(['#/cards', 'Card activation', 'card']);
   if (state.meta.reports?.length) perf.push(['#/reports', 'Reports', 'report']);
@@ -455,6 +456,7 @@ async function route() {
     if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : await viewDashboard();
     if (path === '/assets') return await viewAssets(params);
     if (path === '/roles') return await viewRoles();
+    if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
     if (path === '/cases/new') return viewCaseForm();
     if ((m = path.match(/^\/cases\/(\d+)\/edit$/))) return await viewCaseForm(Number(m[1]));
@@ -593,9 +595,8 @@ async function viewDashboard() {
     const { cases } = await api('/cases?case_status=applicant_review&limit=10');
     main = html`<div class="card"><h2>In applicant review</h2>${caseTable(cases, { cols: ['ref', 'customer', 'cs_note', 'source_by', 'updated'], empty: 'No files in applicant review' })}</div>`;
   } else if (r === 'sales') {
-    const [{ cases: returned }, { cases: review }, { asset: myTab }] = await Promise.all([api('/cases?status=returned_to_sales'), api('/cases?case_status=applicant_review'), api('/assets/mine').catch(() => ({ asset: null }))]);
+    const [{ cases: returned }, { cases: review }] = await Promise.all([api('/cases?status=returned_to_sales'), api('/cases?case_status=applicant_review')]);
     main = html`
-      ${myTabCard(myTab)}
       ${returned.length ? html`<div class="card"><h2>Returned to you — needs correction</h2>${caseTable(returned, { cols: ['ref', 'customer', 'phone', 'tl_note', 'updated'] })}</div>` : ''}
       ${review.length ? html`<div class="card"><h2>In applicant review</h2><p class="muted small">Open a file to send an edit request to your team leader or sales manager.</p>${caseTable(review, { cols: ['ref', 'customer', 'cs_note', 'request', 'updated'] })}</div>` : ''}`;
   } else {
@@ -3060,6 +3061,7 @@ async function viewReports(params) {
 const NAV_PAGE = (href) => {
   if (/^#\/(cases|queue|callbacks|urgent|action-required|card-approvals|edit-requests|quality-check|recordings|recording-approvals)/.test(href)) return 'cases';
   if (href.startsWith('#/targets')) return 'targets';
+  if (href.startsWith('#/my-tab')) return 'my_tab';
   if (href.startsWith('#/team')) return 'team';
   if (href.startsWith('#/cards')) return 'cards';
   if (href.startsWith('#/reports')) return 'reports';
@@ -3150,9 +3152,9 @@ const accessoriesText = (a) => Object.entries(state.meta.accessories).filter(([k
 
 // A sales person's own tab, on their dashboard.
 function myTabCard(a) {
-  if (!a) return html`<div class="card"><h2>My tab</h2><p class="muted small">No sourcing tab is recorded against you. Ask the IT department if you have one.</p></div>`;
+  if (!a) return html`<div class="card"><h2>No tab recorded</h2><p class="muted small">No sourcing tab is recorded against you. Ask the IT department if you have one.</p></div>`;
   return html`<div class="card">
-    <div class="card-head"><h2>My tab · ${a.tab_no}</h2>${assetStatusChip(a)}</div>
+    <div class="card-head"><h2>Tab ${a.tab_no}</h2>${assetStatusChip(a)}</div>
     <dl class="details">
       <dt>Serial no.</dt><dd class="mono">${a.serial_no}</dd>
       <dt>Accessories</dt><dd>${accessoriesText(a)}</dd>
@@ -3161,8 +3163,20 @@ function myTabCard(a) {
       <dt>Registered mobile</dt><dd>${a.mobile_number ? html`<span class="mono">${a.mobile_number}</span>` : '—'}</dd>
       <dt>Issued on</dt><dd>${fmtDate(a.assigned_at)}</dd>
     </dl>
-    <p class="muted small">Report damage or loss to the IT department; they keep this register.</p>
   </div>`;
+}
+
+// A sales person's own tab, as a page of its own.
+async function viewMyTab() {
+  const { asset } = await api('/assets/mine');
+  let events = [];
+  if (asset) events = (await api(`/assets/${asset.id}`).catch(() => ({ events: [] }))).events;
+  shell(html`
+    <div class="page-head"><div><h1>My tab</h1><p class="muted lede">The sourcing tab issued to you, with its accessories, SIM and sign-in details. The IT department keeps this register; report damage or loss to them.</p></div></div>
+    <div class="grid two-col">
+      ${myTabCard(asset)}
+      ${asset ? html`<div class="card"><h2>History</h2><ul class="timeline small">${events.map((ev) => html`<li><strong>${ev.detail}</strong>${ev.note ? html` · ${ev.note}` : ''}<div class="muted">${ev.user_name || 'System'} · ${fmtDate(ev.created_at)}</div></li>`)}</ul></div>` : ''}
+    </div>`);
 }
 
 async function viewAssets(params = new URLSearchParams()) {
