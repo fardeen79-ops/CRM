@@ -106,13 +106,37 @@ export function zeroStaff(db, user, cycle, { region } = {}) {
   const field = TEAM_FIELDS[user.role];
   const where = field ? `u.${field} = ?` : REGIONS[String(region || '').toUpperCase()] ? 'u.region = ?' : '1 = 1';
   const args = field ? [user.id] : REGIONS[String(region || '').toUpperCase()] ? [String(region).toUpperCase()] : [];
-  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader,
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager,
       (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND COALESCE(c.sourcing_date, date(c.created_at, '+4 hours')) BETWEEN ? AND ?) AS sourced,
       (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND ${COMPLETED_IN_SQL}) AS completed
-    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id
+    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id
     WHERE u.role = 'sales' AND u.active = 1 AND ${where} ORDER BY u.name`).all(start, end, start, end, ...args);
-  const pick = (list) => ({ count: list.length, pct: staff.length ? Math.round((list.length / staff.length) * 1000) / 10 : null, staff: list.map(({ id, name, sales_code, region, team_leader, sourced, completed }) => ({ id, name, sales_code, region, team_leader, sourced, completed })) });
-  return { cycle, team: staff.length, zero_ends: pick(staff.filter((s) => !s.completed)), zero_submissions: pick(staff.filter((s) => !s.sourced)) };
+  const pick = (list, of = staff.length) => ({ count: list.length, pct: of ? Math.round((list.length / of) * 1000) / 10 : null, staff: list.map(({ id, name, sales_code, region, team_leader, sourced, completed }) => ({ id, name, sales_code, region, team_leader, sourced, completed })) });
+  // The same two measures for a slice of the staff: a product's people, or a team in the hierarchy.
+  const slice = (list) => {
+    const ends = list.filter((s) => !s.completed); const subs = list.filter((s) => !s.sourced);
+    const byProduct = Object.fromEntries(Object.keys(STAFF_CORE_PRODUCTS).map((p) => [p, ends.filter((s) => s.core_product === p).length]));
+    return { team: list.length, zero_ends: { count: ends.length, pct: list.length ? Math.round((ends.length / list.length) * 1000) / 10 : null, by_product: byProduct }, zero_submissions: { count: subs.length, pct: list.length ? Math.round((subs.length / list.length) * 1000) / 10 : null } };
+  };
+  const by_product = Object.entries(STAFF_CORE_PRODUCTS).map(([p, label]) => ({ product: p, label, ...slice(staff.filter((s) => s.core_product === p)) })).filter((x) => x.team);
+  const unset = staff.filter((s) => !s.core_product);
+  if (unset.length) by_product.push({ product: null, label: 'Core product not set', ...slice(unset) });
+  // The hierarchy below the viewer: a manager sees team leaders; a business head sees region, sales manager, team leader.
+  const groups = [];
+  const add = (level, label, list, key) => groups.push({ level, label, key, ...slice(list) });
+  const uniq = (list, f) => [...new Set(list.map(f))].sort((a, b) => String(a ?? '').localeCompare(String(b ?? '')));
+  if (user.role === 'team_leader') { /* one team: the product split is the breakdown */ }
+  else if (field) for (const tl of uniq(staff, (s) => s.team_leader)) add('team_leader', tl || 'No team leader', staff.filter((s) => s.team_leader === tl), `tl:${tl}`);
+  else for (const reg of uniq(staff, (s) => s.region)) {
+    const inRegion = staff.filter((s) => s.region === reg);
+    add('region', reg || 'No region set', inRegion, `r:${reg}`);
+    for (const sm of uniq(inRegion, (s) => s.sales_manager)) {
+      const inSm = inRegion.filter((s) => s.sales_manager === sm);
+      add('sales_manager', sm || 'No sales manager', inSm, `sm:${reg}:${sm}`);
+      for (const tl of uniq(inSm, (s) => s.team_leader)) add('team_leader', tl || 'No team leader', inSm.filter((s) => s.team_leader === tl), `tl:${reg}:${sm}:${tl}`);
+    }
+  }
+  return { cycle, team: staff.length, zero_ends: pick(staff.filter((s) => !s.completed)), zero_submissions: pick(staff.filter((s) => !s.sourced)), by_product, groups };
 }
 
 export function crossSellFor(db, scope, params, start, end) {

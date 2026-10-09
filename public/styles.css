@@ -798,3 +798,9 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .zero-names .chip { text-decoration: none; }
 .zero-more { margin-top: 6px; }
 .zero-more summary { cursor: pointer; }
+
+.zero-table td, .zero-table th { white-space: nowrap; }
+.zero-table .bad-num { color: #b91c1c; font-weight: 600; }
+.zero-table tr.lvl-region td:first-child { font-weight: 700; }
+.zero-table tr.lvl-sales_manager td:first-child { padding-left: 22px; }
+.zero-table tr.lvl-team_leader td:first-child { padding-left: 44px; }

@@ -635,9 +635,28 @@ function zeroCard(z, r) {
       <div class="kpi ${z.zero_submissions.count ? 'kpi-alert' : ''}"><span class="kpi-label">Zero submissions</span><span class="kpi-value">${z.zero_submissions.count} <span class="kpi-pct">${pct(z.zero_submissions.pct)}</span></span><span class="kpi-sub">of ${z.team} active sales staff with no file sourced this cycle</span></div>
     </div>
     ${z.team ? html`<div class="card zero-card">
+      ${zeroTable('By product', z.by_product, (x) => x.label)}
+      ${z.groups?.length ? zeroTable(r === 'business_head' || r === 'mis' ? 'By region, sales manager and team leader' : 'By team leader', z.groups, (g) => g.label, true) : ''}
       <div class="zero-block"><strong>No ends or disbursals yet</strong>${who(z.zero_ends.staff)}</div>
       <div class="zero-block"><strong>No submissions yet</strong>${who(z.zero_submissions.staff)}</div>
     </div>` : html`<p class="muted small dash-quiet">No active sales staff in your scope yet.</p>`}`;
+}
+
+// A breakdown table of the zero measures: one row per product, or per node of the hierarchy.
+function zeroTable(title, rows, labelOf, tree = false) {
+  if (!rows?.length) return '';
+  const pct = (v) => (v == null ? '—' : `${v}%`);
+  const prod = (bp) => ['credit_card', 'personal_loan', 'auto_loan'].map((p) => bp[p] ? `${{ credit_card: 'Cards', personal_loan: 'Loans', auto_loan: 'Auto' }[p]} ${bp[p]}` : '').filter(Boolean).join(' · ') || '—';
+  return html`<div class="zero-block"><strong>${title}</strong>
+    <div class="table-wrap"><table class="zero-table">
+      <thead><tr><th>${tree ? 'Team' : 'Product'}</th><th>Staff</th><th>Zero ends or disbursals</th><th>%</th><th>Zero submissions</th><th>%</th>${tree ? html`<th>Zero ends by product</th>` : ''}</tr></thead>
+      <tbody>${rows.map((x) => html`<tr class="${tree ? `lvl-${x.level}` : ''} ${x.zero_ends.count ? 'has-zero' : ''}">
+        <td>${tree && x.level === 'sales_manager' ? html`<span class="muted">SM</span> ` : tree && x.level === 'team_leader' ? html`<span class="muted">TL</span> ` : ''}${labelOf(x)}</td>
+        <td>${x.team}</td><td class="${x.zero_ends.count ? 'bad-num' : ''}">${x.zero_ends.count}</td><td class="${x.zero_ends.count ? 'bad-num' : ''}">${pct(x.zero_ends.pct)}</td>
+        <td class="${x.zero_submissions.count ? 'bad-num' : ''}">${x.zero_submissions.count}</td><td class="${x.zero_submissions.count ? 'bad-num' : ''}">${pct(x.zero_submissions.pct)}</td>
+        ${tree ? html`<td class="small muted">${prod(x.zero_ends.by_product)}</td>` : ''}
+      </tr>`)}</tbody>
+    </table></div></div>`;
 }
 
 // The submission calendar: one cell per day of the cycle. Sales: green with a submission, red without.

@@ -183,5 +183,14 @@ test('leaders see how many of their staff are on zero ends or disbursals and zer
   const zh = (await head('GET', '/dashboard')).data.zero;
   assert.equal(zh.team, 4);
   assert.equal(zh.zero_ends.pct, 25);
+  // Split by product and by hierarchy.
+  assert.deepEqual(zh.by_product.map((x) => [x.product, x.team, x.zero_ends.count]), [['credit_card', 1, 0], ['personal_loan', 2, 1], ['multi_product', 1, 0]]);
+  assert.deepEqual(z1.by_product.map((x) => [x.product, x.team, x.zero_ends.pct]), [['personal_loan', 1, 100]]);
+  assert.deepEqual(z1.groups, []);
+  const sm = await login('sm1@t.local');
+  const zs = (await sm('GET', '/dashboard')).data.zero;
+  assert.deepEqual(zs.groups.map((g) => [g.level, g.label, g.team, g.zero_ends.count]), [['team_leader', 'TL Dubai', 1, 1], ['team_leader', 'TL Two', 3, 0]]);
+  assert.deepEqual(zh.groups.map((g) => [g.level, g.label, g.team]), [['region', 'DXB', 4], ['sales_manager', 'SM One', 4], ['team_leader', 'TL Dubai', 1], ['team_leader', 'TL Two', 3]]);
+  assert.equal(zh.groups[0].zero_ends.by_product.personal_loan, 1);
   assert.equal((await cara('GET', '/dashboard')).data.zero, null);
 });
