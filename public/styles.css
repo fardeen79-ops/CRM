@@ -738,5 +738,6 @@ table.pnl.tree td.gain { color: var(--s-done); }
 @media (max-width: 720px) { .dash-row { grid-template-columns: 1fr; } }
 
 /* Processor allocation */
-.allocation-table select { min-width: 180px; }
+.allocation-table select { min-width: 150px; }
+.allocation-table td { vertical-align: middle; }
 .plain-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }

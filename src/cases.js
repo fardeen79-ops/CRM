@@ -182,7 +182,13 @@ export function caseScope(user, c = 'c') {
       if (user.region) { clauses.push(`(${c}.region = ? OR ${c}.region IS NULL)`); params.push(user.region); }
       // A sales team leader's files go to the processor allocated to them; other processors do not
       // see them. The verification team leader sees every file.
-      if (user.role_key !== 'processing_lead') { clauses.push(`(${c}.team_leader_id IS NULL OR ${c}.team_leader_id NOT IN (SELECT team_leader_id FROM processor_allocations WHERE processor_id <> ?))`); params.push(user.id); }
+      if (user.role_key !== 'processing_lead') {
+        // A file is routed when one of its products is allocated for its team leader; then only the
+        // processors allocated for those products see it.
+        const match = `a.team_leader_id = ${c}.team_leader_id AND (${c}.product = a.product OR (${c}.product = 'bundle' AND ',' || ${c}.bundle_products || ',' LIKE '%,' || a.product || ',%'))`;
+        clauses.push(`(${c}.team_leader_id IS NULL OR NOT EXISTS (SELECT 1 FROM processor_allocations a WHERE ${match}) OR EXISTS (SELECT 1 FROM processor_allocations a WHERE ${match} AND a.processor_id = ?))`);
+        params.push(user.id);
+      }
       return clauses.length ? { sql: clauses.join(' AND '), params } : null;
     }
     case 'team_leader': return team('team_leader_id');
@@ -658,8 +664,11 @@ const activeUserIds = (db, role) =>
   db.prepare('SELECT id FROM users WHERE role = ? AND active = 1').all(role).map((r) => r.id);
 /** The processors a file can reach: the one allocated to its team leader, else every active processor. */
 const processorsFor = (db, row) => {
-  const allocated = row.team_leader_id ? db.prepare('SELECT a.processor_id FROM processor_allocations a JOIN users u ON u.id = a.processor_id WHERE a.team_leader_id = ? AND u.active = 1').get(row.team_leader_id)?.processor_id : null;
-  return allocated ? [allocated] : activeUserIds(db, 'processing');
+  if (!row.team_leader_id) return activeUserIds(db, 'processing');
+  const products = caseProducts(row);
+  const mine = db.prepare('SELECT a.product, a.processor_id FROM processor_allocations a JOIN users u ON u.id = a.processor_id WHERE a.team_leader_id = ? AND u.active = 1').all(row.team_leader_id)
+    .filter((a) => products.includes(a.product)).map((a) => a.processor_id);
+  return mine.length ? [...new Set(mine)] : activeUserIds(db, 'processing');
 };
 
 const CASE_SELECT = `

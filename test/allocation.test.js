@@ -70,10 +70,13 @@ test('the verification team leader allocates processors to sales team leaders; t
   assert.equal((await pat('GET', '/allocations')).status, 403);
   const list = (await vera('GET', '/allocations')).data;
   assert.ok(list.team_leaders.some((t) => t.id === ids['tl2@t.local']) && list.processors.some((p) => p.id === ids['pat@t.local']));
-  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { processor_id: ids['dana@t.local'] })).status, 400);
-  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { processor_id: ids['pat@t.local'] })).status, 200);
-  assert.equal((await head('GET', '/allocations')).data.team_leaders.find((t) => t.id === ids['tl2@t.local']).processor_name, 'Pat');
-  // Cara (TL Two's team) sources a file: Pat sees and claims it, Omar cannot, Vera sees everything.
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'all', processor_id: ids['dana@t.local'] })).status, 400);
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'mortgage', processor_id: ids['pat@t.local'] })).status, 400);
+  // All products of TL Two's team go to Pat.
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'all', processor_id: ids['pat@t.local'] })).status, 200);
+  const tl2 = (await head('GET', '/allocations')).data.team_leaders.find((t) => t.id === ids['tl2@t.local']);
+  assert.deepEqual(Object.values(tl2.products).map((a) => a.processor_name), ['Pat', 'Pat', 'Pat']);
+  // Cara (TL Two's team) sources a loan: Pat sees and claims it, Omar cannot, Vera sees everything.
   const c = (await cara('POST', '/cases', loan({ customer_name: 'Routed File' }))).data.case;
   const d = (await dana('POST', '/cases', loan({ customer_name: 'Shared File', phone: '+971 50 222 4444' }))).data.case;
   const ids_of = (r) => r.data.cases.map((x) => x.id);
@@ -84,8 +87,19 @@ test('the verification team leader allocates processors to sales team leaders; t
   assert.equal((await omar('GET', `/cases/${c.id}`)).status, 404);
   assert.equal((await omar('POST', `/cases/${c.id}/actions`, { action: 'claim' })).status, 404);
   assert.equal((await pat('POST', `/cases/${c.id}/actions`, { action: 'claim' })).status, 200);
-  // Clearing the allocation puts the team leader's files back in the shared queue.
-  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { processor_id: null })).status, 200);
+  // Split by product: cards to Omar, loans stay with Pat, auto loans back to the shared queue.
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'credit_card', processor_id: ids['omar@t.local'] })).status, 200);
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'auto_loan', processor_id: null })).status, 200);
+  const card = (await cara('POST', '/cases', { region: 'DXB', core_product: 'credit_card', customer_name: 'Card File', phone: '+971 50 222 5555', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' })).data.case;
+  const auto = (await cara('POST', '/cases', { region: 'DXB', core_product: 'auto_loan', customer_name: 'Auto File', phone: '+971 50 222 6666', city: 'Dubai', salary: 20000, source: 'Walk-in', product: 'auto_loan', auto_loan_type: 'new', amount: 90000, car_make: 'Toyota', car_model: 'Camry', car_year: 2026, al_lead_source: 'Dealer referral', al_interest_rate: 3.25, al_tenure: 60, sourcing_date: '2026-10-05' })).data.case;
+  assert.equal((await omar('GET', `/cases/${card.id}`)).status, 200);
+  assert.equal((await pat('GET', `/cases/${card.id}`)).status, 404);
+  assert.equal((await pat('GET', `/cases/${c.id}`)).status, 200);
+  assert.equal((await omar('GET', `/cases/${c.id}`)).status, 404);
+  assert.equal((await omar('GET', `/cases/${auto.id}`)).status, 200);
+  assert.equal((await pat('GET', `/cases/${auto.id}`)).status, 200);
+  // Clearing everything puts the team leader's files back in the shared queue.
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'all', processor_id: null })).status, 200);
   assert.equal((await omar('GET', `/cases/${c.id}`)).status, 200);
   // The built-in role cannot be edited or deleted.
   assert.equal((await head('DELETE', '/roles/processing_lead')).status, 400);

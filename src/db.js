@@ -329,10 +329,12 @@ CREATE TABLE IF NOT EXISTS asset_events (
 -- Processors allocated to sales team leaders by the verification team leader: a team leader's
 -- files are verified by their processor only.
 CREATE TABLE IF NOT EXISTS processor_allocations (
-  team_leader_id INTEGER PRIMARY KEY REFERENCES users(id),
+  team_leader_id INTEGER NOT NULL REFERENCES users(id),
+  product        TEXT NOT NULL,          -- credit_card, personal_loan or auto_loan
   processor_id   INTEGER NOT NULL REFERENCES users(id),
   set_by         INTEGER REFERENCES users(id),
-  set_at         TEXT NOT NULL DEFAULT (datetime('now'))
+  set_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (team_leader_id, product)
 );
 CREATE TABLE IF NOT EXISTS roles (
   key         TEXT PRIMARY KEY,
@@ -515,6 +517,14 @@ function migrate(db) {
     }
   }
 
+  // Allocations were first per team leader; now per team leader and product. Carry old rows over to every product.
+  const allocCols = db.prepare('PRAGMA table_info(processor_allocations)').all().map((c) => c.name);
+  if (allocCols.length && !allocCols.includes('product')) {
+    const old = db.prepare('SELECT * FROM processor_allocations').all();
+    db.exec('DROP TABLE processor_allocations');
+    db.exec(SCHEMA);
+    for (const r of old) for (const p of ['credit_card', 'personal_loan', 'auto_loan']) db.prepare('INSERT INTO processor_allocations (team_leader_id, product, processor_id, set_by, set_at) VALUES (?, ?, ?, ?, ?)').run(r.team_leader_id, p, r.processor_id, r.set_by, r.set_at);
+  }
   const leadCols = db.prepare('PRAGMA table_info(leads)').all().map((c) => c.name);
   if (!leadCols.includes('follow_up_time')) db.exec('ALTER TABLE leads ADD COLUMN follow_up_time TEXT');
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);

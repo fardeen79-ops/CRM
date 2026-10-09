@@ -3410,35 +3410,38 @@ const NAV_PAGE = (href) => {
 const allowedPage = (page) => !page || !state.meta.perms?.custom || state.meta.perms.pages.includes(page);
 const canDownload = () => state.meta.perms?.downloads !== false;
 
-// Processor allocation: the verification team leader maps each sales team leader to a processor.
+// Processor allocation: the verification team leader maps each sales team leader's products to processors.
 async function viewAllocation() {
-  const { team_leaders, processors } = await api('/allocations');
-  const byRegion = new Map();
-  for (const t of team_leaders) { const k = t.region || 'No region'; if (!byRegion.has(k)) byRegion.set(k, []); byRegion.get(k).push(t); }
+  const { team_leaders, processors, products } = await api('/allocations');
+  const prodKeys = Object.keys(products);
+  const options = (selected) => html`<option value="">Shared queue</option>
+    ${processors.map((p) => html`<option value="${p.id}" ${selected === p.id ? raw('selected') : ''}>${p.name}${p.role_key === 'processing_lead' ? ' (verification TL)' : ''}${p.region ? ` · ${p.region}` : ''}</option>`)}`;
   shell(html`
     <div class="page-head"><div><h1>Processor allocation</h1>
-      <p class="muted">Choose which processor verifies each sales team leader's files. An allocated team leader's files reach that processor's queue only; team leaders without one go to the shared queue. The verification team leader sees every file.</p></div></div>
-    <div class="grid two-col">
-      <div class="card"><h2>Sales team leaders</h2>
-        ${team_leaders.length ? html`<div class="table-wrap"><table class="allocation-table">
-          <thead><tr><th>Team leader</th><th>Region</th><th>Staff</th><th>Processor</th><th>Set</th></tr></thead>
-          <tbody>${team_leaders.map((t) => html`<tr>
-            <td><strong>${t.name}</strong></td><td>${t.region ? state.meta.regions[t.region]?.slice(0, 3) || t.region : html`<span class="muted">—</span>`}</td><td>${t.staff}</td>
-            <td><select data-tl="${t.id}" aria-label="Processor for ${t.name}">
-              <option value="">Shared queue</option>
-              ${processors.map((p) => html`<option value="${p.id}" ${t.processor_id === p.id ? raw('selected') : ''}>${p.name}${p.role_key === 'processing_lead' ? ' (verification TL)' : ''}${p.region ? ` · ${p.region}` : ''}</option>`)}
+      <p class="muted">Choose which processor verifies each sales team leader's files, product by product: credit cards, personal loans and auto loans can go to one processor or to different ones, and "All products" sets the three at once. A file reaches only the processors allocated for its products; a product left on the shared queue goes to every processor. The verification team leader sees every file.</p></div></div>
+    <div class="card"><h2>Sales team leaders</h2>
+      ${team_leaders.length ? html`<div class="table-wrap"><table class="allocation-table">
+        <thead><tr><th>Team leader</th><th>Region</th><th>Staff</th><th>All products</th>${prodKeys.map((k) => html`<th>${products[k]}</th>`)}</tr></thead>
+        <tbody>${team_leaders.map((t) => {
+          const ids = prodKeys.map((k) => t.products[k]?.processor_id ?? null);
+          const same = ids.every((v) => v === ids[0]) ? ids[0] : undefined;
+          return html`<tr>
+            <td><strong>${t.name}</strong></td><td>${t.region || html`<span class="muted">—</span>`}</td><td>${t.staff}</td>
+            <td><select data-tl="${t.id}" data-product="all" aria-label="All products for ${t.name}">
+              ${same === undefined ? html`<option value="__mixed" selected>Mixed (see products)</option>` : ''}${options(same ?? null)}
             </select></td>
-            <td class="muted small">${t.processor_id ? html`${t.set_by_name || ''}<br>${fmtDate(t.set_at)}` : '—'}</td>
-          </tr>`)}</tbody></table></div>` : html`<p class="muted">No active sales team leaders yet.</p>`}
-      </div>
-      <div class="card"><h2>Processors</h2>
-        ${processors.length ? html`<ul class="plain-list">${processors.map((p) => html`<li><strong>${p.name}</strong>${p.role_key === 'processing_lead' ? html` <span class="chip">Verification team leader</span>` : ''}${p.region ? html` <span class="muted small">${p.region}</span>` : ''}<div class="muted small">${p.team_leaders ? `${p.team_leaders} team ${p.team_leaders === 1 ? 'leader' : 'leaders'} allocated` : 'shared queue only'}</div></li>`)}</ul>` : html`<p class="muted">No active processors yet.</p>`}
-      </div>
+            ${prodKeys.map((k) => html`<td><select data-tl="${t.id}" data-product="${k}" aria-label="${products[k]} for ${t.name}" title="${t.products[k] ? `${t.products[k].set_by_name || ''} · ${fmtDate(t.products[k].set_at)}` : ''}">${options(t.products[k]?.processor_id ?? null)}</select></td>`)}
+          </tr>`;
+        })}</tbody></table></div>` : html`<p class="muted">No active sales team leaders yet.</p>`}
+    </div>
+    <div class="card"><h2>Processors</h2>
+      ${processors.length ? html`<ul class="plain-list">${processors.map((p) => html`<li><strong>${p.name}</strong>${p.role_key === 'processing_lead' ? html` <span class="chip">Verification team leader</span>` : ''}${p.region ? html` <span class="muted small">${p.region}</span>` : ''}<div class="muted small">${p.allocations ? `${p.allocations} product ${p.allocations === 1 ? 'allocation' : 'allocations'} across ${p.team_leaders} team ${p.team_leaders === 1 ? 'leader' : 'leaders'}` : 'shared queue only'}</div></li>`)}</ul>` : html`<p class="muted">No active processors yet.</p>`}
     </div>`);
   document.querySelectorAll('select[data-tl]').forEach((sel) => (sel.onchange = async () => {
+    if (sel.value === '__mixed') return;
     sel.disabled = true;
     try {
-      await api(`/allocations/${sel.dataset.tl}`, { method: 'PUT', body: { processor_id: sel.value || null } });
+      await api(`/allocations/${sel.dataset.tl}`, { method: 'PUT', body: { product: sel.dataset.product, processor_id: sel.value || null } });
       toast(sel.value ? 'Processor allocated' : 'Back to the shared queue');
       await viewAllocation();
     } catch (err) { toast(err.message, true); sel.disabled = false; }

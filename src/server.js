@@ -316,7 +316,7 @@ function routes(db, dispatch, bot) {
 
     // Processor allocation: which processor verifies each sales team leader's files.
     ['GET', /^\/api\/allocations$/, async ({ user }) => allocations.listAllocations(db, user)],
-    ['PUT', /^\/api\/allocations\/(\d+)$/, async ({ user, params, body }) => ({ allocation: allocations.setAllocation(db, user, params[0], body.processor_id) })],
+    ['PUT', /^\/api\/allocations\/(\d+)$/, async ({ user, params, body }) => ({ allocation: allocations.setAllocation(db, user, params[0], { product: body.product, processor_id: body.processor_id }) })],
 
     // Roles: custom roles defined on top of the built-in ones, by IT, Dubai MIS and business heads.
     ['GET', /^\/api\/roles$/, async ({ user }) => {
