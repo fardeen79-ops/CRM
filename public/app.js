@@ -584,6 +584,31 @@ function trendCard(trend, r) {
   </div>`;
 }
 
+// Core team vs cross-sell contribution per product: one stacked bar each, with the numbers and shares.
+function contributionCard(rows, cycleLabel) {
+  if (!rows?.length) return '';
+  const fmtAmt = (x, v) => (x.unit === 'aed' ? `AED ${fmtAmount(v)}` : `${fmtAmount(v)} pts`);
+  const pctOf = (v) => (v == null ? '—' : `${v}%`);
+  return html`<div class="card dash-contribution">
+    <div class="card-head"><h2>Core team vs cross-sell · ${cycleLabel} cycle</h2>
+      <div class="legend small"><span class="swatch core"></span> Core team <span class="swatch cross"></span> Cross-sold by other teams</div></div>
+    <div class="contrib-rows">
+      ${rows.map((x) => {
+        const total = x.total.amount; const corePct = total ? (x.core.amount / total) * 100 : 0; const crossPct = total ? 100 - corePct : 0;
+        return html`<div class="contrib-row">
+          <div class="contrib-label"><strong>${x.label}</strong><span class="muted small">${fmtAmt(x, total)} on ${x.total.files} ${x.total.files === 1 ? 'file' : 'files'}</span></div>
+          <div class="contrib-bar" role="img" aria-label="${x.label}: core team ${fmtAmt(x, x.core.amount)} (${pctOf(x.core.pct)}), cross-sold ${fmtAmt(x, x.cross.amount)} (${pctOf(x.cross.pct)})">
+            ${total ? html`<div class="seg core" style="width:${corePct}%" title="Core team: ${fmtAmt(x, x.core.amount)} · ${x.core.files} files · ${pctOf(x.core.pct)}">${corePct >= 18 ? html`<span>${pctOf(x.core.pct)}</span>` : ''}</div>
+            <div class="seg cross" style="width:${crossPct}%" title="Cross-sold: ${fmtAmt(x, x.cross.amount)} · ${x.cross.files} files · ${pctOf(x.cross.pct)}">${crossPct >= 18 ? html`<span>${pctOf(x.cross.pct)}</span>` : ''}</div>` : html`<div class="seg none"><span class="muted small">Nothing completed yet</span></div>`}
+          </div>
+          <div class="contrib-nums small"><span><i class="swatch core"></i> ${fmtAmt(x, x.core.amount)} · ${x.core.files} ${x.core.files === 1 ? 'file' : 'files'} · ${pctOf(x.core.pct)}</span><span><i class="swatch cross"></i> ${fmtAmt(x, x.cross.amount)} · ${x.cross.files} ${x.cross.files === 1 ? 'file' : 'files'} · ${pctOf(x.cross.pct)}</span></div>
+        </div>`; })}
+    </div>
+    <details class="small"><summary class="muted">Numbers</summary>${miniTable(['Product', 'Core team', 'Core files', 'Core %', 'Cross-sold', 'Cross files', 'Cross %', 'Total'], rows.map((x) => [x.label, fmtAmt(x, x.core.amount), x.core.files, pctOf(x.core.pct), fmtAmt(x, x.cross.amount), x.cross.files, pctOf(x.cross.pct), fmtAmt(x, x.total.amount)]))}</details>
+    <p class="muted small">Completed files in the cycle within your scope. Cards count card points, loans the AED disbursed. Multi product staff count as core for every product.</p>
+  </div>`;
+}
+
 async function viewDashboard() {
   const r = effRole();
   // Targets for the current sales cycle, for the people who have them.
@@ -721,6 +746,7 @@ async function viewDashboard() {
       ['Earned', `AED ${fmtAmount(s.revenue.completed_aed)}`, '#/reports?report=sourcing&run=1', false, `${s.revenue.completed_files} ${s.revenue.completed_files === 1 ? 'file' : 'files'} completed this cycle`],
       ['In the pipeline', `AED ${fmtAmount(s.revenue.pipeline_aed)}`, '#/cases', false, `${s.revenue.pipeline_files} open ${s.revenue.pipeline_files === 1 ? 'file' : 'files'}, if all complete`],
     ])}` : ''}
+    ${d.contribution ? contributionCard(d.contribution, d.label) : ''}
     ${d.cross_sell ? html`<h2 class="tiles-head">Cross-sell · ${d.label} cycle <a class="tiles-link" href="#/cases?cycle=${d.cycle}&case_status=completed">Completed files →</a></h2>
       ${d.cross_sell.length ? tileGrid(d.cross_sell.flatMap((t) => t.products.map((p) => [
         `${t.core_label} team → ${p.label}`,

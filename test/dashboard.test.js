@@ -89,3 +89,25 @@ test('multi product staff are paid under each product scheme they hold a target 
   assert.equal((await head('GET', `/reports/pl_incentives?cycle=${cycle}`)).data.rows.find((r) => r.staff === 'Rina').incentive_aed, 2800);
   assert.equal((await head('GET', `/reports/incentives?cycle=${cycle}`)).data.rows.find((r) => r.staff === 'Rina').pl_points, 0);
 });
+
+test('the business head dashboard shows core team vs cross-sell contribution per product, and the loan reports list each loan', async () => {
+  const head = await login('head@t.local');
+  const tl2 = await login('tl2@t.local');
+  const cycle = (await head('GET', '/me')).data.meta.current_cycle;
+  const d = (await head('GET', '/dashboard')).data;
+  const pl = d.contribution.find((x) => x.product === 'personal_loan');
+  // Lina (core loans) and Rina (multi product) are core; Cara (core cards) cross-sold her loan.
+  assert.ok(pl.core.files >= 3 && pl.cross.files >= 1, JSON.stringify(pl));
+  assert.equal(pl.core.amount + pl.cross.amount, pl.total.amount);
+  assert.equal(Math.round(pl.core.pct + pl.cross.pct), 100);
+  assert.equal(d.contribution.find((x) => x.product === 'credit_card').unit, 'points');
+  assert.equal((await tl2('GET', '/dashboard')).data.contribution, null);
+  const loans = (await head('GET', `/reports/personal_loans?cycle=${cycle}`)).data;
+  const cara = loans.rows.find((r) => r.staff === 'Cara');
+  assert.deepEqual([cara.sold_as, cara.loan_type, cara.disbursed, cara.counted], ['Cross-sell', 'Fresh', 120000, 120000]);
+  assert.equal(loans.totals.disbursed, loans.rows.reduce((n, r) => n + r.disbursed, 0));
+  // A team leader's report covers their own team only.
+  assert.ok((await tl2('GET', `/reports/personal_loans?cycle=${cycle}`)).data.rows.every((r) => r.team_leader === 'TL Two'));
+  const autos = (await head('GET', `/reports/auto_loans?cycle=${cycle}`)).data;
+  assert.deepEqual(autos.columns.map((c) => c.key).slice(-3), ['rate_pct', 'points', 'completed_on']);
+});

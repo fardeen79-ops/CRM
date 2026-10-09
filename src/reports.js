@@ -2,15 +2,15 @@
 // columns, filtered by a period (a sales cycle or two dates), a region, and the viewer's own
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
-import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError } from './cases.js';
+import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
-import { TARGET_PRODUCTS, TARGET_UNITS, targetReport } from './performance.js';
+import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
 import { inventoryRows, ASSET_VIEWERS, assetSummary, ASSET_STATUS } from './assets.js';
 import { allowsReport } from './roles.js';
 import { profitAndLoss, PNL_VIEWERS, profitAndLossRows } from './pnl.js';
-import { PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
+import { countedLoan, PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
@@ -18,6 +18,8 @@ const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
 /** The reports, who may run them, and how the period applies. */
 export const REPORTS = {
   sourcing: { name: 'Sourcing by sales staff', roles: [...ALL, ...MANAGERS], period: 'files sourced in the period', description: 'Files sourced per sales person and where each of those files stands now: verification, case status, amounts disbursed.' },
+  personal_loans: { name: 'Personal loans', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: 'Every personal loan on a file completed in the period: sales person and team, loan type, amount, disbursed and counted amounts, Emirates Islamic buy-outs, top-ups, FPD and tenure, and whether it was a cross-sell by non-loan staff.' },
+  auto_loans: { name: 'Auto loans', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: 'Every auto loan on a file completed in the period: sales person and team, new or used, payout class, car, amount, disbursed amount and points, and whether it was a cross-sell by non-auto-loan staff.' },
   pipeline: { name: 'Pipeline by region and product', roles: [...ALL, 'governance'], period: 'files sourced in the period', description: 'Where every file sourced in the period stands now, by region and core product.' },
   verification: { name: 'Verification team productivity', roles: [...ALL, 'governance'], period: 'calls and results logged in the period', description: 'Calls logged, results marked and turnaround per processor.' },
   targets: { name: 'Target achievement', roles: [...ALL, ...MANAGERS], period: 'a whole sales cycle', description: 'Target against achievement per sales person for a cycle, by product.' },
@@ -92,6 +94,38 @@ function withoutPayout(result, user) {
   const keys = result.columns.filter((c) => c.key.startsWith('payout') || c.key.startsWith('revenue')).map((c) => c.key);
   if (!keys.length) return result;
   return { ...result, columns: result.columns.filter((c) => !keys.includes(c.key)), rows: result.rows.map((r) => { const o = { ...r }; for (const k of keys) delete o[k]; return o; }), totals: result.totals && Object.fromEntries(Object.entries(result.totals).filter(([k]) => !keys.includes(k))) };
+}
+
+const loanTypeLabel = { fresh: 'Fresh', buy_out: 'Buy-out', top_up: 'Top-up' };
+function loanFiles(db, user, region, period, product) {
+  const { sql, params } = caseWhere(user, region, [COMPLETED_IN_SQL, `(c.product = ? OR (c.product = 'bundle' AND ',' || c.bundle_products || ',' LIKE ?))`], [period.from, period.to, product, `%,${product},%`]);
+  return db.prepare(`SELECT c.*, u.core_product AS staff_core FROM cases c LEFT JOIN users u ON u.id = COALESCE(c.sales_staff_id, c.created_by) ${sql} ORDER BY c.case_status_at`).all(...params);
+}
+const staffCols = () => [col('ref', 'Ref', 'text'), col('customer', 'Customer', 'text'), col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'), col('sold_as', 'Sold as', 'text')];
+const staffVals = (c) => ({ ref: caseRef(c.id), customer: c.customer_name, staff: c.sales_staff_name || c.created_by_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', region: c.region || '' });
+
+function personal_loans(db, user, { period, region }) {
+  const cycle = period.cycle || cycleOf(period.to);
+  const rows = loanFiles(db, user, region, period, 'personal_loan').map((c) => {
+    const loan = countedLoan(c, cycle);
+    return { ...staffVals(c), sold_as: !c.staff_core || c.staff_core === 'personal_loan' || c.staff_core === 'multi_product' ? 'Core' : 'Cross-sell', loan_type: loanTypeLabel[c.personal_loan_type] || c.personal_loan_type || '', loan_amount: c.loan_amount ?? 0, disbursed: c.pl_disbursed_amount ?? 0, counted: loan ? loan.counted : 0, eib: loan?.kind === 'eib' ? 'Yes' : '', top_up_incremental: c.personal_loan_type === 'top_up' ? c.incremental_amount ?? 0 : null, fpd: c.fpd || '', tenure: c.pl_tenure ?? null, completed_on: c.case_status_at ? c.case_status_at.slice(0, 10) : '' };
+  });
+  return {
+    columns: [...staffCols(), col('loan_type', 'Loan type', 'text'), col('loan_amount', 'Loan amount (AED)', 'aed'), col('disbursed', 'Disbursed (AED)', 'aed'), col('counted', 'Counted (AED)', 'aed'), col('eib', 'Emirates Islamic buy-out', 'text'), col('top_up_incremental', 'Top-up incremental (AED)', 'aed'), col('fpd', 'FPD', 'date'), col('tenure', 'Tenure (months)'), col('completed_on', 'Completed on', 'date')],
+    rows,
+    note: 'Counted amounts follow the incentive rules: an Emirates Islamic buy-out at half, a top-up at its share of the incremental amount.',
+    totals: { ref: `${rows.length} loans`, loan_amount: sum(rows, 'loan_amount'), disbursed: sum(rows, 'disbursed'), counted: sum(rows, 'counted'), top_up_incremental: sum(rows, 'top_up_incremental'), sold_as: `${rows.filter((r) => r.sold_as === 'Cross-sell').length} cross-sold`, eib: `${rows.filter((r) => r.eib).length} EIB` },
+  };
+}
+
+function auto_loans(db, user, { period, region }) {
+  const rows = loanFiles(db, user, region, period, 'auto_loan').map((c) => ({ ...staffVals(c), sold_as: !c.staff_core || c.staff_core === 'auto_loan' || c.staff_core === 'multi_product' ? 'Core' : 'Cross-sell', loan_type: c.auto_loan_type === 'new' ? 'New' : c.auto_loan_type === 'used' ? 'Used' : '', payout_class: AUTO_LOAN_CLASSES[c.al_payout_class] || AUTO_LOAN_CLASSES.full, car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), amount: c.amount ?? 0, disbursed: c.al_disbursed_amount ?? 0, points: autoLoanPoints(c), rate_pct: autoLoanRate(c), completed_on: c.case_status_at ? c.case_status_at.slice(0, 10) : '' }));
+  return {
+    columns: [...staffCols(), col('loan_type', 'New or used', 'text'), col('payout_class', 'Payout class', 'text'), col('car', 'Car', 'text'), col('amount', 'Loan amount (AED)', 'aed'), col('disbursed', 'Disbursed (AED)', 'aed'), col('rate_pct', 'Points rate %', 'pct'), col('points', 'Points', 'points'), col('completed_on', 'Completed on', 'date')],
+    rows,
+    note: 'Points are the disbursed amount at the scheme rate for the loan\'s class: new and used 0.80%, algo 0.25%, low-payout non-algo nil.',
+    totals: { ref: `${rows.length} loans`, amount: sum(rows, 'amount'), disbursed: sum(rows, 'disbursed'), points: sum(rows, 'points'), sold_as: `${rows.filter((r) => r.sold_as === 'Cross-sell').length} cross-sold` },
+  };
 }
 
 function sourcing(db, user, { period, region }) {
@@ -562,7 +596,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, personal_loans, auto_loans, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {

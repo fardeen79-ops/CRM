@@ -20,6 +20,38 @@ const DISBURSED = { personal_loan: 'pl_disbursed_amount', auto_loan: 'al_disburs
  * on it that is not the sales person's core product; loans carry the amount disbursed. Multi product
  * staff have no cross-sell, and staff without a core product are left out.
  */
+/**
+ * For each product, how much of the cycle's completed production came from its core team and how
+ * much was cross-sold by other teams: files, and the amount (AED disbursed for loans, card points
+ * for cards), with each side's share. Multi product staff count as core for every product.
+ */
+export function contributionFor(db, scope, params, start, end) {
+  const rows = db.prepare(`SELECT c.product, c.bundle_products, c.credit_card, c.card_points, c.pl_disbursed_amount, c.al_disbursed_amount, u.core_product
+    FROM cases c LEFT JOIN users u ON u.id = COALESCE(c.sales_staff_id, c.created_by)
+    WHERE ${COMPLETED_IN_SQL} ${scope}`).all(start, end, ...params);
+  const amountOf = { credit_card: (r) => r.card_points ?? 1, personal_loan: (r) => r.pl_disbursed_amount ?? 0, auto_loan: (r) => r.al_disbursed_amount ?? 0 };
+  const units = { credit_card: 'points', personal_loan: 'aed', auto_loan: 'aed' };
+  const out = CROSS_SELL_PRODUCTS.map((p) => ({ product: p, label: STAFF_CORE_PRODUCTS[p], unit: units[p], core: { files: 0, amount: 0 }, cross: { files: 0, amount: 0 } }));
+  for (const r of rows) {
+    const sold = new Set(caseProducts(r).filter((p) => CROSS_SELL_PRODUCTS.includes(p)));
+    if (sold.has('credit_card') && !r.credit_card) sold.delete('credit_card');
+    for (const p of sold) {
+      const side = !r.core_product || r.core_product === p || r.core_product === 'multi_product' ? 'core' : 'cross';
+      const cell = out.find((x) => x.product === p)[side];
+      cell.files++;
+      cell.amount += amountOf[p](r);
+    }
+  }
+  for (const x of out) {
+    const files = x.core.files + x.cross.files; const amount = x.core.amount + x.cross.amount;
+    x.total = { files, amount };
+    x.core.pct = amount ? Math.round((x.core.amount / amount) * 1000) / 10 : null;
+    x.cross.pct = amount ? Math.round((x.cross.amount / amount) * 1000) / 10 : null;
+    x.core.amount = Math.round(x.core.amount * 100) / 100; x.cross.amount = Math.round(x.cross.amount * 100) / 100; x.total.amount = Math.round(amount * 100) / 100;
+  }
+  return out;
+}
+
 export function crossSellFor(db, scope, params, start, end) {
   const rows = db.prepare(`SELECT c.product, c.bundle_products, c.credit_card, c.pl_disbursed_amount, c.al_disbursed_amount, u.core_product
     FROM cases c JOIN users u ON u.id = COALESCE(c.sales_staff_id, c.created_by)
@@ -78,5 +110,6 @@ export function dashboardFor(db, user, { region } = {}) {
   const dayNo = Math.floor((Date.parse(uaeDay()) - Date.parse(start)) / 864e5) + 1;
   const days = Math.floor((Date.parse(end) - Date.parse(start)) / 864e5) + 1;
   const cross_sell = CROSS_SELL_VIEWERS.includes(user.role) ? crossSellFor(db, scope, params, start, end) : null;
-  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, follow_ups: followUps(db, user) };
+  const contribution = ['business_head', 'mis'].includes(user.role) ? contributionFor(db, scope, params, start, end) : null;
+  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, follow_ups: followUps(db, user) };
 }
