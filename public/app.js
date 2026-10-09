@@ -1,5 +1,6 @@
 // Sourcing CRM — single-page frontend (no build step).
 import { openEidScanner } from './eid-scan.js';
+import { openLeadScanner } from './lead-scan.js';
 import { speechSupported, listen, readBackMatches } from './speech.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
@@ -3183,11 +3184,28 @@ async function viewLeads(params = new URLSearchParams()) {
           </div>` : ''}</td></tr>
           ${mine && l.status === 'open' ? html`<tr hidden data-lead-editor="${l.id}"><td colspan="6"><form data-lead-form="${l.id}">${leadForm(l, `l${l.id}`)}<div class="actions"><button class="btn-primary">Save</button><button type="button" class="btn" data-lead-cancel="${l.id}">Cancel</button></div></form></td></tr>` : ''}`) : html`<tr><td colspan="6" class="muted">No leads${sel('status') || sel('q') ? ' match' : ' yet'}.</td></tr>`}</tbody>
       </table></div></div>
-      <form class="card" id="lead-new"><h2>${mine ? 'Add a lead' : 'Add a lead for a staff member'}</h2>${leadForm({}, 'nl')}<button class="btn-primary">Add lead</button></form>
+      <form class="card" id="lead-new"><div class="card-head"><h2>${mine ? 'Add a lead' : 'Add a lead for a staff member'}</h2><button type="button" class="btn" id="lead-scan">📷 Scan a lead sheet</button></div><div id="lead-scan-result"></div>${leadForm({}, 'nl')}<button class="btn-primary">Add lead</button></form>
     </div>`);
   const app = document.getElementById('app');
   const reload = () => viewLeads(params);
   document.getElementById('lead-filters').onsubmit = (e) => { e.preventDefault(); const q = new URLSearchParams(); for (const [k, v] of new FormData(e.target).entries()) if (v) q.set(k, v); location.hash = `#/leads${q.size ? `?${q}` : ''}`; };
+  // A photo of a lead sheet, read on the phone: the recognised details fill the form for checking.
+  document.getElementById('lead-scan').onclick = async () => {
+    const result = await openLeadScanner(state.meta.ocr);
+    if (!result) return;
+    const form = document.getElementById('lead-new');
+    const labels = { first_name: 'first name', middle_name: 'middle name', last_name: 'last name', phone: 'mobile', email: 'email', company_name: 'company', salary: 'salary', product: 'product', source: 'source', city: 'city', follow_up_at: 'follow-up date', notes: 'notes' };
+    const filled = [];
+    for (const [name, value] of Object.entries(result.fields)) {
+      const input = form.querySelector(`[name=${name}]`);
+      if (!input || value == null || value === '') continue;
+      input.value = value; input.classList.add('scanned'); input.addEventListener('input', () => input.classList.remove('scanned'), { once: true });
+      filled.push(labels[name] || name);
+    }
+    const missing = ['first_name', 'phone'].filter((k) => !result.fields[k]).map((k) => labels[k]);
+    document.getElementById('lead-scan-result').innerHTML = html`<div class="callout ${missing.length ? 'warn' : 'success'} scan-callout"><strong>Filled from the sheet: ${filled.join(', ')}.</strong> Check every field against the sheet before adding the lead.${missing.length ? html` <span>Not found: ${missing.join(' and ')}; type ${missing.length === 1 ? 'it' : 'them'} in.</span>` : ''}</div>`.s;
+    toast('Lead details filled from the sheet');
+  };
   document.getElementById('lead-new').onsubmit = async (e) => { e.preventDefault(); try { await api('/leads', { method: 'POST', body: formData(e.target) }); toast('Lead added'); reload(); } catch (err) { toast(err.message, true); } };
   app.querySelectorAll('[data-lead-edit]').forEach((b) => (b.onclick = () => { const row = app.querySelector(`[data-lead-editor="${b.dataset.leadEdit}"]`); row.hidden = !row.hidden; }));
   app.querySelectorAll('[data-lead-cancel]').forEach((b) => (b.onclick = () => { app.querySelector(`[data-lead-editor="${b.dataset.leadCancel}"]`).hidden = true; }));

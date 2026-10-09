@@ -36,6 +36,8 @@ Sales staff keep their prospects in **My leads** before there is a file: name, m
 - **Convert to case**: opens the new-case form with the lead's details filled in (names, mobile, email, company, salary, product, source, city, notes). Submitting the file marks the lead **Converted** and links it to the file. A converted lead cannot change.
 - Mark it **Not interested** or **Not eligible**, with an optional note, or **reopen** it.
 
+**Scan a lead sheet**: on the add-lead form, the sales person can photograph a printed or hand-written lead sheet with the phone's camera (or choose a photo). The text is read on the device with the same OCR engine as the Emirates ID scanner, and labelled lines (Name, Mobile, Email, Company, Salary, Product, Source, City, Follow up, Remarks) or, failing those, a recognisable mobile number, email, salary, product and name fill the form, marked for checking; OCR slips in digits (O for 0, l for 1) are repaired in the number. Nothing is saved until the person checks and adds the lead; nothing leaves the phone. Clear printed sheets read well; hand-writing reads only when neat.
+
 The page counts open leads, follow-ups due, converted, not interested and not eligible, and filters by status or text. API: `GET/POST /api/leads`, `GET/PATCH /api/leads/:id`, `POST /api/leads/:id/status`; `POST /api/cases` with `lead_id` converts the lead.
 
 ## Case workflow

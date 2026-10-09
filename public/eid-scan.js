@@ -62,7 +62,7 @@ const hasSimd = () => {
  * scanner working under strict content security policies; the worker then fetches the English
  * model from langPath.
  */
-function getWorker(ocr, onProgress) {
+export function getWorker(ocr, onProgress) {
   workerPromise ??= (async () => {
     const coreFile = hasSimd() ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js';
     const expected = 4.1e6 / 0.6; // worker + core are ~60% of the download; the model is the rest
@@ -114,7 +114,7 @@ function prepare(canvas) {
   return canvas;
 }
 
-function crop(source, sx, sy, sw, sh, targetWidth = 1200) {
+export function crop(source, sx, sy, sw, sh, targetWidth = 1200) {
   const scale = targetWidth / sw;
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(sw * scale);
