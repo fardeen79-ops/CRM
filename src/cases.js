@@ -4,6 +4,7 @@ import { cardNames, cardProduct, higherCards } from './credit-cards.js';
 import { findUser } from './users.js';
 import { cycleRange, isCycle, uaeDay, cycleOf } from './cycles.js';
 import { unreadCount as chatUnread } from './chat.js';
+import { isHoliday } from './holidays.js';
 import { payoutFor, canSeePayout } from './payouts.js';
 
 export class WorkflowError extends Error {
@@ -319,9 +320,9 @@ export function productLabel(product, bundleProducts, creditCard, loanType, buyo
 const OPEN_FOR_PROCESSING = [STATUS.PENDING, STATUS.IN_VERIFICATION];
 
 // Verification TAT: a file should be verified within two working days of its sourcing date.
-// Saturday is a working day and Sunday the day off, as in the submission calendar.
+// Saturday is a working day; Sundays and the public holidays on the holiday list are days off.
 export const VERIFY_TAT_DAYS = 2;
-const isWorkingDay = (day) => new Date(`${day}T00:00:00Z`).getUTCDay() !== 0;
+const isWorkingDay = (day) => new Date(`${day}T00:00:00Z`).getUTCDay() !== 0 && !isHoliday(day);
 const shiftDay = (day, n) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 /** Working days after `from` up to and including `to` (0 when `to` is not after `from`). */
 export function workingDaysBetween(from, to) {
@@ -345,6 +346,70 @@ const tatCutoff = (today) => {
 // Not verified yet and still able to be: the files the TAT clock runs on.
 const TAT_OPEN_SQL = `c.verified_at IS NULL AND c.status <> 'rejected' AND c.case_status NOT IN ('completed', 'rejected')`;
 const TAT_SOURCED_SQL = 'COALESCE(c.sourcing_date, substr(c.created_at, 1, 10))';
+// The stage log: the stages a file passes through, how long it spent at each, and which took longest.
+export const CASE_STAGES = {
+  awaiting_approval: 'Waiting for TL/SM approval',
+  pending_verification: 'Waiting for a processor',
+  in_verification: 'In verification',
+  incomplete: 'Verification pending with team leader',
+  returned_to_sales: 'Returned to sales',
+  with_bank: 'Verified, with the bank',
+  applicant_review: 'Applicant review',
+};
+const stageOf = (status, caseStatus) => (status === STATUS.COMPLETED ? (caseStatus === 'applicant_review' ? 'applicant_review' : 'with_bank') : status);
+const APPROVAL_EVENTS = ['card_approval_requested', 'timing_approval_requested'];
+
+/**
+ * Replays a file's history into stages: each with when it started and ended, how long it took and
+ * who moved the file on. The clock stops when the file is rejected or its case is completed or
+ * rejected; until then the current stage runs to now.
+ */
+export function caseStages(row, events, nowIso = now()) {
+  const list = [...events].sort((a, b) => a.id - b.id);
+  const created = list.find((e) => e.type === 'created');
+  let status = created?.to_status || STATUS.PENDING;
+  let caseStatus = 'sent_to_check';
+  let since = created?.created_at || row.created_at;
+  let closed = null;
+  const rows = [];
+  const end = (e) => {
+    const stage = stageOf(status, caseStatus);
+    rows.push({ stage, label: CASE_STAGES[stage] || stage, from: since, to: e.created_at, ms: Math.max(0, Date.parse(e.created_at) - Date.parse(since)), moved_by: e.user_name || null });
+    since = e.created_at;
+  };
+  const move = (e, nextStatus, nextCase) => {
+    const changes = stageOf(status, caseStatus) !== stageOf(nextStatus, nextCase);
+    if (changes) end(e);
+    status = nextStatus;
+    caseStatus = nextCase;
+  };
+  for (const e of list) {
+    if (e === created) continue;
+    if (e.type === 'case_status' && CASE_STATUS[e.detail]) {
+      if (['completed', 'rejected'].includes(e.detail)) { end(e); closed = { at: e.created_at, outcome: `Case ${CASE_STATUS[e.detail].toLowerCase()}` }; break; }
+      move(e, status, e.detail);
+    } else if (e.to_status === STATUS.REJECTED) {
+      end(e); closed = { at: e.created_at, outcome: 'Verification rejected' }; break;
+    } else if (e.to_status && e.to_status !== status) {
+      move(e, e.to_status, caseStatus);
+    } else if (APPROVAL_EVENTS.includes(e.type) && status !== STATUS.APPROVAL) {
+      move(e, STATUS.APPROVAL, caseStatus);
+    }
+  }
+  if (!closed) {
+    const stage = stageOf(status, caseStatus);
+    rows.push({ stage, label: CASE_STAGES[stage] || stage, from: since, to: null, ms: Math.max(0, Date.parse(nowIso) - Date.parse(since)), moved_by: null, current: true });
+  }
+  const totals = new Map();
+  for (const r of rows) {
+    const t = totals.get(r.stage) || { stage: r.stage, label: r.label, ms: 0, visits: 0 };
+    t.ms += r.ms; t.visits++;
+    totals.set(r.stage, t);
+  }
+  const byTime = [...totals.values()].sort((a, b) => b.ms - a.ms);
+  return { rows, totals: byTime, longest: byTime[0]?.ms > 0 ? byTime[0].stage : null, total_ms: rows.reduce((n, r) => n + r.ms, 0), closed };
+}
+
 /**
  * A file's verification TAT: due (with working days left), overdue (by how many working days),
  * met or missed once verified, or closed when it was rejected without verification.
@@ -909,7 +974,7 @@ export function getCase(db, user, id) {
        LEFT JOIN users u ON u.id = e.user_id WHERE e.case_id = ? ORDER BY e.id DESC`
     )
     .all(id);
-  const out = { ...present(user, row), events, allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
+  const out = { ...present(user, row), events, stages: caseStages(row, events), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
   if (user.role !== 'sales' && row.bot_call_status) out.bot_call = latestBotCall(db, id);
   if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
     out.recording_email = recordingEmail(row);

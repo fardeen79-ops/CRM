@@ -295,6 +295,7 @@ const ICON_PATHS = {
   queue: '<path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h4M8 17h4"/>',
   urgent: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/>',
   flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/>',
   cases: '<path d="M4 6h16M4 12h16M4 18h10"/>',
   mine: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
@@ -358,6 +359,7 @@ function navGroups() {
   if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users', 'data-roles-count', state.meta.roles_pending || 0]);
   if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
   if (state.meta.can_manage_boosters) admin.push(['#/boosters', 'Boosters', 'flag']);
+  if (['mis', 'business_head'].includes(r)) admin.push(['#/holidays', 'Holidays', 'calendar']);
   if (admin.length) groups.push(['Admin', admin]);
   return filterNav(groups);
 }
@@ -469,6 +471,7 @@ async function route() {
     if (path === '/roles') return await viewRoles();
     if (path === '/allocation') return await viewAllocation();
     if (path === '/boosters') return await viewBoosters();
+    if (path === '/holidays') return await viewHolidays();
     if (path === '/pnl') return await viewPnl(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
@@ -1010,6 +1013,33 @@ const COLS = {
 };
 
 // Sunday and after-6-pm flags on a file, as small chips; grey once the team has approved them.
+// Elapsed time as days, hours and minutes: "2 d 4 h", "5 h 10 min", "12 min".
+const fmtSpan = (ms) => {
+  const mins = Math.round(ms / 60000);
+  const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+  return d ? `${d} d${h ? ` ${h} h` : ''}` : h ? `${h} h${m ? ` ${m} min` : ''}` : `${m} min`;
+};
+/** The stage log: every stage the file went through, how long each took, with the slowest highlighted. */
+function stageLog(s) {
+  const top = s.totals.find((t) => t.stage === s.longest);
+  const pct = (ms) => (s.total_ms ? Math.round((ms / s.total_ms) * 100) : 0);
+  return html`<div class="card stage-log">
+    <div class="card-head"><h2>Time by stage</h2><span class="muted small">${fmtSpan(s.total_ms)} ${s.closed ? `in all · ${s.closed.outcome.toLowerCase()}` : 'so far'}</span></div>
+    ${top ? html`<p class="callout warn small stage-slowest"><strong>Slowest stage: ${top.label}</strong>${fmtSpan(top.ms)}, ${pct(top.ms)}% of the file's time${top.visits > 1 ? ` over ${top.visits} visits` : ''}.</p>` : ''}
+    <div class="stage-bar" role="img" aria-label="Share of time by stage">${s.totals.filter((t) => t.ms > 0).map((t) => html`<span class="stage-seg ${t.stage === s.longest ? 'slowest' : ''}" style="flex:${t.ms}" title="${t.label}: ${fmtSpan(t.ms)}"></span>`)}</div>
+    <div class="table-wrap"><table class="stage-table">
+      <thead><tr><th>Stage</th><th>From</th><th>To</th><th class="num">Time</th><th>Moved on by</th></tr></thead>
+      <tbody>${s.rows.map((r) => html`<tr class="${r.stage === s.longest ? 'slowest' : ''}">
+        <td>${r.label}${r.stage === s.longest ? html` <span class="chip bad">Slowest</span>` : ''}${r.current ? html` <span class="chip fair">Now</span>` : ''}</td>
+        <td class="nowrap small">${fmtDate(r.from)}</td>
+        <td class="nowrap small">${r.to ? fmtDate(r.to) : html`<span class="muted">still here</span>`}</td>
+        <td class="num nowrap"><strong>${fmtSpan(r.ms)}</strong></td>
+        <td class="small">${r.moved_by || '—'}</td>
+      </tr>`)}</tbody>
+    </table></div>
+  </div>`;
+}
+
 // Verification TAT on a file still to verify: past it, due today or due tomorrow.
 function tatChip(c) {
   const t = c.tat;
@@ -2153,6 +2183,7 @@ async function viewCase(id) {
           <div class="thread" id="case-thread"><div class="muted small">Loading…</div></div>
           ${composer('case-composer', 'Write a message about this file…')}
         </div>
+        ${c.stages ? stageLog(c.stages) : ''}
         <div class="card">
           <h2>Activity</h2>
           <ul class="timeline">
@@ -3779,6 +3810,42 @@ async function viewAllocation() {
 }
 
 // Boosters: business heads and MIS create product campaigns with dates, a reward line and an audience.
+// Public holidays: days off for the verification TAT, kept by MIS and business heads.
+async function viewHolidays() {
+  const { holidays, can_edit } = await api('/holidays');
+  const today = todayLocal();
+  const upcoming = holidays.filter((h) => h.day >= today);
+  const past = holidays.filter((h) => h.day < today).reverse();
+  const rows = (list) => list.length ? html`<div class="table-wrap"><table><thead><tr><th>Date</th><th>Holiday</th><th>Added by</th>${can_edit ? html`<th></th>` : ''}</tr></thead><tbody>
+    ${list.map((h) => html`<tr><td class="nowrap">${new Date(`${h.day}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</td><td>${h.name}</td><td class="muted small">${h.added_by || '—'}</td>${can_edit ? html`<td><button type="button" class="btn-link" data-remove="${h.day}">Remove</button></td>` : ''}</tr>`)}
+  </tbody></table></div>` : html`<p class="muted">None.</p>`;
+  shell(html`
+    <div class="page-head"><div><h1>Holidays</h1><p class="muted lede">Public holidays are days off, like Sundays: they don't count towards the ${state.meta.verify_tat_days}-working-day verification TAT. Eid dates move each year, so add them once they are announced.</p></div></div>
+    ${can_edit ? html`<form class="card" id="holiday-form">
+      <h2>Add a holiday</h2>
+      <div class="form-grid three">
+        <div class="field-row"><label for="h-name">Name</label><input id="h-name" name="name" required maxlength="100" placeholder="e.g. Eid al-Fitr"></div>
+        <div class="field-row"><label for="h-day">First day</label><input id="h-day" type="date" name="day" required></div>
+        <div class="field-row"><label for="h-until">Last day <span class="muted small">(if more than one)</span></label><input id="h-until" type="date" name="until"></div>
+      </div>
+      <div class="actions"><button class="btn-primary">Add holiday</button></div>
+    </form>` : ''}
+    <div class="card"><h2>Coming up</h2>${rows(upcoming)}</div>
+    ${past.length ? html`<div class="card"><h2>Past</h2>${rows(past)}</div>` : ''}
+  `);
+  const form = document.getElementById('holiday-form');
+  if (form) form.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(form));
+    if (!body.until) delete body.until;
+    try { const r = await api('/holidays', { method: 'POST', body }); toast(`${r.added} ${r.added === 1 ? 'day' : 'days'} added`); await viewHolidays(); } catch (err) { toast(err.message, true); }
+  };
+  document.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = async () => {
+    if (!confirm('Remove this holiday? Files due around it will be counted again.')) return;
+    try { await api(`/holidays/${b.dataset.remove}`, { method: 'DELETE' }); toast('Holiday removed'); await viewHolidays(); } catch (err) { toast(err.message, true); }
+  }));
+}
+
 async function viewBoosters() {
   const { boosters } = await api('/boosters');
   const users = await api('/users').catch(() => ({ users: [] }));

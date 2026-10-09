@@ -8,6 +8,7 @@ import * as allocations from './allocations.js';
 import * as boosters from './boosters.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { cardPitch } from './card-pitch.js';
+import * as holidays from './holidays.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
 import * as assets from './assets.js';
@@ -323,6 +324,10 @@ function routes(db, dispatch, bot) {
     }],
 
     // Boosters: product campaigns with dates, run by business heads and MIS.
+    // Public holidays: read by everyone signed in, kept by MIS and business heads.
+    ['GET', /^\/api\/holidays$/, async ({ user }) => ({ holidays: holidays.listHolidays(db), can_edit: holidays.canEditHolidays(user) })],
+    ['POST', /^\/api\/holidays$/, async ({ user, body }) => holidays.addHoliday(db, user, body)],
+    ['DELETE', /^\/api\/holidays\/(\d{4}-\d{2}-\d{2})$/, async ({ user, params }) => holidays.removeHoliday(db, user, params[0])],
     ['GET', /^\/api\/boosters$/, async ({ user }) => ({ boosters: boosters.listBoosters(db, user) })],
     ['POST', /^\/api\/boosters$/, async ({ user, body, res }) => send(res, 201, { booster: boosters.createBooster(db, user, body) })],
     ['PUT', /^\/api\/boosters\/(\d+)$/, async ({ user, params, body }) => ({ booster: boosters.updateBooster(db, user, params[0], body) })],
@@ -493,6 +498,7 @@ function serveFile(res, file) {
 export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {} } = {}) {
   cases.config.itEmail = itEmail;
   loadCardProducts(db);
+  holidays.loadHolidays(db);
   loadPayoutRules(db);
   roles.loadRoles(db);
   backfillCardCategories(db);

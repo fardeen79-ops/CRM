@@ -12,7 +12,7 @@ const schema = read('src/db.js').match(/const SCHEMA = `([\s\S]*?)`;/)[1];
 const addedCols = read('src/db.js').match(/const ADDED_COLUMNS = \{([\s\S]*?)\};/)[1];
 const addedUserCols = read('src/db.js').match(/const ADDED_USER_COLUMNS = \{([\s\S]*?)\};/)[1];
 const strip = (src) => src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
-const casesSrc = strip(read('src/credit-cards.js')) + strip(read('src/card-pitch.js')) + strip(read('src/banks.js')) + strip(read('src/users.js')) + strip(read('src/cycles.js')) + strip(read('src/cases.js')) + strip(read('src/payouts.js')) + strip(read('src/performance.js')) + strip(read('src/incentives.js')) + strip(read('src/dashboard.js')) + strip(read('src/pnl.js')) + strip(read('src/leads.js')) + strip(read('src/roles.js')) + strip(read('src/allocations.js')) + strip(read('src/boosters.js')) + strip(read('src/assets.js')) + strip(read('src/imports.js')) + strip(read('src/chat.js')) + strip(read('src/reports.js')) + '\nconst chatUnread = unreadCount;\n';
+const casesSrc = strip(read('src/credit-cards.js')) + strip(read('src/card-pitch.js')) + strip(read('src/banks.js')) + strip(read('src/users.js')) + strip(read('src/cycles.js')) + strip(read('src/holidays.js')) + strip(read('src/cases.js')) + strip(read('src/payouts.js')) + strip(read('src/performance.js')) + strip(read('src/incentives.js')) + strip(read('src/dashboard.js')) + strip(read('src/pnl.js')) + strip(read('src/leads.js')) + strip(read('src/roles.js')) + strip(read('src/allocations.js')) + strip(read('src/boosters.js')) + strip(read('src/assets.js')) + strip(read('src/imports.js')) + strip(read('src/chat.js')) + strip(read('src/reports.js')) + '\nconst chatUnread = unreadCount;\n';
 const css = read('public/styles.css');
 // The app's ES-module imports (mrz.js, eid-scan.js) are inlined into one module for the demo.
 const stripModule = (src) => src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
@@ -367,11 +367,11 @@ function seed() {
 function openDemoDb(fresh = false) {
   const saved = !fresh && store.get(DB_KEY);
   if (saved) {
-    try { db = new Db(new SQL.Database(fromB64(saved))); db.exec(SCHEMA); migrateDemo(db); loadCardProducts(db); loadPayoutRules(db); backfillCardCategories(db); persist(); return; } catch { /* corrupt: reseed */ }
+    try { db = new Db(new SQL.Database(fromB64(saved))); db.exec(SCHEMA); migrateDemo(db); loadCardProducts(db); loadHolidays(db); loadPayoutRules(db); backfillCardCategories(db); persist(); return; } catch { /* corrupt: reseed */ }
   }
   db = new Db(new SQL.Database());
   db.exec(SCHEMA);
-  loadCardProducts(db); loadPayoutRules(db); loadRoles(db);
+  loadCardProducts(db); loadHolidays(db); loadPayoutRules(db); loadRoles(db);
   seed();
   persist();
 }
@@ -401,6 +401,9 @@ function handle(method, pathname, query, body) {
   if (method === 'POST' && pathname === '/api/logout') { setSession(null); return { ok: true }; }
   if (user.role === 'it' && !/^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/.test(pathname)) throw new ApiError(403, 'IT accounts manage assets only');
   { const blocked = blockedPage(user, pathname); if (blocked) throw new ApiError(403, 'Your role does not include ' + PAGES[blocked].label); if (query.get('format') === 'csv' && !allowsDownload(user)) throw new ApiError(403, 'Your role cannot download files'); }
+  if (pathname === '/api/holidays' && method === 'GET') return { holidays: listHolidays(db), can_edit: canEditHolidays(user) };
+  if (pathname === '/api/holidays' && method === 'POST') { const r = addHoliday(db, user, body); persist(); return r; }
+  if (method === 'DELETE' && (m = pathname.match(/^\/api\/holidays\/(\d{4}-\d{2}-\d{2})$/))) { const r = removeHoliday(db, user, m[1]); persist(); return r; }
   if (pathname === '/api/boosters' && method === 'GET') return { boosters: listBoosters(db, user) };
   if (pathname === '/api/boosters' && method === 'POST') { const b = createBooster(db, user, body); persist(); return [201, { booster: b }]; }
   { const m = pathname.match(/^\/api\/boosters\/(\d+)$/); if (m && method === 'PUT') { const b = updateBooster(db, user, m[1], body); persist(); return { booster: b }; } if (m && method === 'DELETE') { const r = deleteBooster(db, user, m[1]); persist(); return r; } }

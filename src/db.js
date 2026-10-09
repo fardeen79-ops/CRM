@@ -265,6 +265,14 @@ CREATE TABLE IF NOT EXISTS card_products (
   updated_at TEXT NOT NULL
 );
 
+-- Public holidays: days off that do not count towards the verification TAT.
+CREATE TABLE IF NOT EXISTS holidays (
+  day        TEXT PRIMARY KEY, -- YYYY-MM-DD
+  name       TEXT NOT NULL,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+
 -- The last good reading of each card's page on the bank's website, for the sales pitch when the
 -- site cannot be read.
 CREATE TABLE IF NOT EXISTS card_pitch_cache (

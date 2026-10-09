@@ -835,3 +835,12 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .pitch-dot.on { background: var(--primary); }
 .pitch-actions { justify-content: flex-end; }
 @media (max-width: 520px) { .pitch-compare { grid-template-columns: 1fr; } .pitch-arrow { transform: rotate(90deg); justify-self: center; } }
+
+/* Stage log on the file page: share of time by stage, with the slowest stage highlighted. */
+.stage-slowest { margin: 12px 0; }
+.stage-bar { display: flex; gap: 2px; height: 10px; margin-bottom: 12px; }
+.stage-seg { min-width: 4px; border-radius: 3px; background: var(--chart-soft); }
+.stage-seg.slowest { background: var(--danger); }
+.stage-table td.num, .stage-table th.num { text-align: right; }
+.stage-table tbody tr { cursor: default; }
+.stage-table tr.slowest td { background: color-mix(in srgb, var(--danger) 7%, transparent); }

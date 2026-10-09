@@ -2,7 +2,7 @@
 // columns, filtered by a period (a sales cycle or two dates), a region, and the viewer's own
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
-import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError } from './cases.js';
+import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
 import { cardProducts } from './credit-cards.js';
@@ -21,6 +21,7 @@ export const REPORTS = {
   personal_loans: { name: 'Personal loans', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: 'Every personal loan on a file completed in the period: sales person and team, loan type, amount, disbursed and counted amounts, Emirates Islamic buy-outs, top-ups, FPD and tenure, and whether it was a cross-sell by non-loan staff.' },
   auto_loans: { name: 'Auto loans', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: 'Every auto loan on a file completed in the period: sales person and team, new or used, payout class, car, amount, disbursed amount and points, and whether it was a cross-sell by non-auto-loan staff.' },
   pipeline: { name: 'Pipeline by region and product', roles: [...ALL, 'governance'], period: 'files sourced in the period', description: 'Where every file sourced in the period stands now, by region and core product.' },
+  stage_times: { name: 'Time by stage', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'How long files sourced in the period spent at each stage, from approval and verification to the bank, and on how many files each stage was the slowest. Files still open count up to now.' },
   verification: { name: 'Verification team productivity', roles: [...ALL, 'governance'], period: 'calls and results logged in the period', description: 'Calls logged, results marked and turnaround per processor.' },
   targets: { name: 'Target achievement', roles: [...ALL, ...MANAGERS], period: 'a whole sales cycle', description: 'Target against achievement per sales person for a cycle, by product.' },
   cards: { name: 'Card activation and ageing', roles: ALL, period: 'cards completed (temp end) in the period', description: 'Temp ends, activation status and how long inactive cards have waited, per sales person.' },
@@ -186,6 +187,29 @@ function pipeline(db, user, { period, region }) {
       col('approval', 'Awaiting TL/SM approval'), col('awaiting', 'Awaiting verification'), col('in_verification', 'In verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales')],
     rows: out,
     totals: Object.fromEntries(keys.map((k) => [k, sum(out, k)])),
+  };
+}
+
+function stage_times(db, user, { period, region }) {
+  const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
+  const files = db.prepare(`SELECT c.id, c.created_at FROM cases c ${sql}`).all(...params);
+  const eventsOf = db.prepare('SELECT id, type, to_status, detail, created_at FROM case_events WHERE case_id = ?');
+  const by = new Map(Object.entries(CASE_STAGES).map(([k, label]) => [k, { stage: label, files: 0, hours: [], longest_hours: 0, slowest_on: 0 }]));
+  for (const f of files) {
+    const s = caseStages(f, eventsOf.all(f.id));
+    for (const t of s.totals) {
+      const r = by.get(t.stage);
+      if (!r) continue;
+      const h = t.ms / 36e5;
+      r.files++; r.hours.push(h); r.longest_hours = Math.max(r.longest_hours, h);
+    }
+    if (s.longest && by.has(s.longest)) by.get(s.longest).slowest_on++;
+  }
+  const rows = [...by.values()].filter((r) => r.files).map((r) => ({ stage: r.stage, files: r.files, avg_hours: avg(r.hours), longest_hours: Math.round(r.longest_hours * 10) / 10, slowest_on: r.slowest_on }));
+  return {
+    columns: [col('stage', 'Stage', 'text'), col('files', 'Files at this stage'), col('avg_hours', 'Average time', 'hours'), col('longest_hours', 'Longest time', 'hours'), col('slowest_on', 'Slowest stage on (files)')],
+    rows,
+    totals: { stage: `${files.length} files`, slowest_on: sum(rows, 'slowest_on') },
   };
 }
 
@@ -594,7 +618,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, personal_loans, auto_loans, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, personal_loans, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
