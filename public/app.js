@@ -313,7 +313,7 @@ function navGroups() {
   const r = effRole();
   const urgent = ['#/urgent', 'Urgent', 'urgent', 'data-urgent-count', state.urgent];
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
-  const cardApprovals = ['#/card-approvals', 'Card approvals', 'stamp', 'data-ca-count', state.cardApprovals];
+  const cardApprovals = ['#/card-approvals', 'Approvals', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
   if (r === 'it') return filterNav([['', [['#/assets', 'Tab register', 'tablet'], ['#/import/assets', 'Bulk upload', 'upload'], ['#/reports?report=assets&run=1', 'Inventory report', 'report'], ...(state.meta.can_manage_roles ? [['#/roles', 'Roles', 'users']] : [])]]]);
   const work = [['#/', 'Dashboard', 'home']];
@@ -481,7 +481,7 @@ async function route() {
       return await viewCases({ title: 'Action required', subtitle: 'Files the processing team marked Verification pending. Decide whether to return to sales, re-verify, or reject.', params, fixedStatus: 'incomplete' });
     }
     if (path === '/card-approvals') {
-      return await viewCases({ title: 'Card approvals', subtitle: 'Credit cards sold to customers whose salary is below the card\'s requirement, with no reason chosen by the sales person. Open a file to record a product deviation or new promotion and send it for verification, or return it to sales.', params, fixedStatus: 'awaiting_approval', cols: ['ref', 'customer', 'source_by', 'sourced', 'updated'], empty: 'Nothing waiting for your approval' });
+      return await viewCases({ title: 'Approvals', subtitle: 'Files waiting for the team before verification: credit cards sold below the salary requirement with no reason chosen, and files sourced on a Sunday or entered after 6 pm. Open a file to approve it for verification, or return it to sales.', params, fixedStatus: 'awaiting_approval', cols: ['ref', 'customer', 'source_by', 'sourced', 'why_waiting', 'updated'], empty: 'Nothing waiting for your approval' });
     }
     if (path === '/edit-requests') {
       return await viewCases({
@@ -592,7 +592,7 @@ async function viewDashboard() {
 
   const verifyTiles = [];
   if (r === 'team_leader') verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
-  if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0], ['Card approvals', s.card_approvals, '#/card-approvals', s.card_approvals > 0]);
+  if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0], ['Approvals', s.card_approvals, '#/card-approvals', s.card_approvals > 0]);
   else if (r !== 'sales' && r !== 'processing') verifyTiles.push(['Awaiting TL/SM approval', by.awaiting_approval, '#/cases?status=awaiting_approval']);
   if (['processing', 'team_leader'].includes(r)) verifyTiles.unshift(['Urgent verification', s.governance.urgent, '#/urgent', s.governance.urgent > 0]);
   if (r === 'processing') {
@@ -771,7 +771,11 @@ function miniTable(head, rows) {
 
 // ---------- case list ----------
 const COLS = {
-  ref: ['Ref', (c) => html`<strong>${c.ref}</strong>`],
+  ref: ['Ref', (c) => html`<strong>${c.ref}</strong>${timingChips(c)}`],
+  why_waiting: ['Waiting for', (c) => html`<div class="chips">
+    ${c.status === 'awaiting_approval' && c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary != null ? c.salary < c.card_min_salary : !(c.timing_flag && !c.timing_approved_at)) ? html`<span class="chip bad">Card below salary</span>` : ''}
+    ${timingChips(c, true)}
+  </div>`],
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => (c.phone == null && c.hidden_fields?.includes('phone') ? html`<span class="lock">Hidden</span>` : c.phone)],
   status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}${isDncr(c) ? html` <span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''}${c.callback_at && state.user.role === 'processing' ? html` ${callbackChip(c)}` : ''}`],
@@ -805,6 +809,14 @@ const COLS = {
   completed_on: ['Completed', (c) => html`<span class="small nowrap">${fmtIsoDay(c.case_status_at)}</span><div class="muted small">${completionLabel(c)}</div>${disbursedText(c) ? html`<div class="small">${disbursedText(c)}</div>` : ''}`],
   card: ['Card activation', (c) => html`${cardChip(c.card_status)}${c.card_activation_date ? html`<div class="muted small">${cardDateText(c)}</div>` : ''}${cardAgeDays(c) != null ? html`<div class="small">Ageing ${ageChip(c)}</div>` : ''}`],
 };
+
+// Sunday and after-6-pm flags on a file, as small chips; grey once the team has approved them.
+function timingChips(c, pendingOnly = false) {
+  const flags = String(c.timing_flag || '').split(',').filter(Boolean);
+  if (!flags.length || (pendingOnly && c.timing_approved_at)) return '';
+  const cls = c.timing_approved_at ? 'chip' : 'chip warn';
+  return html`${flags.map((f) => html` <span class="${cls}" title="${state.meta.timing_flags?.[f] || f}${c.timing_approved_at ? `, approved by ${c.timing_approved_by_name}` : ''}">${f === 'sunday' ? 'Sunday' : 'After 6 pm'}</span>`)}`;
+}
 
 function caseTable(cases, { cols, empty = 'No cases found' }) {
   if (!cases.length) return html`<div class="empty">${empty}</div>`;
@@ -1221,7 +1233,7 @@ async function viewCaseForm(id, leadId = null) {
     topupFields.hidden = loanField.hidden || loanType !== 'top_up';
     form.querySelectorAll('[data-topup]').forEach((i) => (i.disabled = topupFields.hidden));
     primaryBlock.hidden = loanField.hidden || loanType !== 'buy_out';
-    secondaryBlock.hidden = loanField.hidden || !['fresh', 'buy_out'].includes(loanType);
+    secondaryBlock.hidden = loanField.hidden || !['fresh', 'buy_out', 'top_up'].includes(loanType);
     secondaryRadios.forEach((r) => (r.disabled = secondaryBlock.hidden));
     secondaryBlock.querySelector('[data-builder]').hidden = secondaryBlock.hidden || !secondaryRadios.some((r) => r.checked && r.value === 'yes');
     autoField.hidden = !includes('auto_loan');
@@ -1525,7 +1537,10 @@ async function viewCase(id) {
     banner = html`<div class="callout danger"><strong>Verification pending — waiting for team leader action (${ago(c.incomplete_at)})</strong>
       ${label(c.incomplete_reason)}${c.incomplete_note ? `: ${c.incomplete_note}` : ''} <span class="muted">— ${c.assigned_to_name}</span></div>`;
   } else if (c.status === 'awaiting_approval') {
-    banner = html`<div class="callout warn"><strong>Awaiting team leader / sales manager approval</strong>${c.credit_card} needs a monthly salary of AED ${fmtAmount(c.card_min_salary)} and the customer's salary is below it. No product deviation or promotion was chosen, so the file waits for the team's decision before verification.</div>`;
+    const reasons = [];
+    if (a.has('approve_card') || (c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary == null || c.salary < c.card_min_salary))) reasons.push(html`<div>${c.credit_card} needs a monthly salary of AED ${fmtAmount(c.card_min_salary)} and the customer's salary is below it. No product deviation or promotion was chosen.</div>`);
+    if (c.timing_flag && !c.timing_approved_at) reasons.push(html`<div>${String(c.timing_flag).split(',').map((f) => state.meta.timing_flags?.[f] || f).join(' and ')}: files sourced on a Sunday or entered after 6 pm need the team's approval.</div>`);
+    banner = html`<div class="callout warn"><strong>Awaiting team leader / sales manager approval</strong>${reasons}<div class="muted small">The file waits for the team's decision before verification.</div></div>`;
   } else if (c.status === 'returned_to_sales') {
     banner = html`<div class="callout info"><strong>Returned to sales by ${c.tl_actioned_by_name}</strong>${c.tl_note}
       ${c.incomplete_reason ? html`<div class="muted small">Original issue: ${label(c.incomplete_reason)}${c.incomplete_note ? ` — ${c.incomplete_note}` : ''}</div>` : ''}</div>`;
@@ -1599,6 +1614,17 @@ async function viewCase(id) {
         <div class="actions">
           <button data-card="approve_card" class="btn-primary">Approve &amp; send for verification</button>
           <button data-card="decline_card">↩ Return to sales</button>
+        </div>
+      </form>`);
+  }
+  if (a.has('approve_timing')) {
+    panel.push(html`<h3>${String(c.timing_flag).split(',').map((f) => state.meta.timing_flags?.[f] || f).join(' and ')}</h3>
+      <p class="muted small">Approve the file for verification, or return it to ${c.sales_staff_name || 'sales'} with a note.</p>
+      <form data-form="timing_approval">
+        <div class="field-row"><textarea name="note" placeholder="Note (required when returning to sales)"></textarea></div>
+        <div class="actions">
+          <button data-timing="approve_timing" class="btn-primary">Approve &amp; send for verification</button>
+          <button data-timing="decline_timing">↩ Return to sales</button>
         </div>
       </form>`);
   }
@@ -1818,6 +1844,7 @@ async function viewCase(id) {
             ${c.secondary_buyout ? html`<dt>Secondary buyouts</dt><dd>${c.secondary_buyout === 'yes' ? buyoutList(c.pl_buyouts.filter((b) => b.role === 'secondary')) : html`<span class="muted">None, confirmed by sales</span>`}</dd>` : ''}
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             ${c.card_category ? html`<dt>Card category</dt><dd><strong>${c.card_category}</strong>${c.card_points != null ? html` <span class="muted">· ${c.card_points} points</span>` : ''}</dd>` : ''}
+            ${c.timing_flag ? html`<dt>Sourcing timing</dt><dd>${String(c.timing_flag).split(',').map((f) => state.meta.timing_flags?.[f] || f).join(' and ')} · ${c.timing_approved_at ? html`<span class="chip good">Approved by ${c.timing_approved_by_name} · ${fmtDate(c.timing_approved_at)}</span>${c.timing_note ? html`<div class="muted small">${c.timing_note}</div>` : ''}` : html`<span class="chip warn">Awaiting team approval</span>`}</dd>` : ''}
             ${c.credit_card && c.card_min_salary != null ? html`<dt>Salary check</dt><dd>Card needs AED ${fmtAmount(c.card_min_salary)} a month · ${c.card_salary_exception || c.status === 'awaiting_approval' ? html`<span class="chip bad">Customer below requirement</span>` : html`<span class="chip good">Customer meets requirement</span>`}</dd>` : ''}
             ${c.card_salary_exception ? html`<dt>Sold as</dt><dd><strong>${state.meta.card_exceptions[c.card_salary_exception] || c.card_salary_exception}</strong><div class="muted small">by ${c.card_exception_by_name || '—'} on ${fmtDate(c.card_exception_at)}${c.card_exception_note ? ` · ${c.card_exception_note}` : ''}</div></dd>` : ''}
             ${c.card_fee_type ? html`<dt>Card sourced type</dt><dd><strong>${state.meta.card_fee_types[c.card_fee_type] || c.card_fee_type}</strong></dd>` : ''}
@@ -2017,6 +2044,14 @@ async function viewCase(id) {
         if (b.dataset.card === 'approve_card' && !exception) { toast('Choose Product deviation or New promotion first', true); return; }
         if (b.dataset.card === 'decline_card' && !note?.trim()) { toast('Tell the sales person why the file is coming back', true); return; }
         run({ action: b.dataset.card, exception, note }, b);
+      }));
+    } else if (kind === 'timing_approval') {
+      f.onsubmit = (e) => e.preventDefault();
+      f.querySelectorAll('[data-timing]').forEach((b) => (b.onclick = (e) => {
+        e.preventDefault();
+        const { note } = formData(f);
+        if (b.dataset.timing === 'decline_timing' && !note?.trim()) { toast('Tell the sales person why the file is coming back', true); return; }
+        run({ action: b.dataset.timing, note }, b);
       }));
     } else if (kind === 'tl') {
       f.onsubmit = (e) => e.preventDefault();

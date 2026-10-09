@@ -138,6 +138,11 @@ CREATE TABLE IF NOT EXISTS cases (
   callback_by          INTEGER REFERENCES users(id),
   callback_set_at      TEXT,
   callback_notified_at TEXT,
+  -- Sourced on a Sunday or entered after 6 pm: flagged, and approved by the team before verification.
+  timing_flag          TEXT,
+  timing_approved_by   INTEGER REFERENCES users(id),
+  timing_approved_at   TEXT,
+  timing_note          TEXT,
   -- Latest automated verification call (details in bot_calls).
   bot_call_status    TEXT,
   bot_call_at        TEXT,
@@ -442,6 +447,7 @@ const ADDED_COLUMNS = {
   pl_tenure: 'INTEGER', pl_buyouts: 'TEXT', secondary_buyout: 'TEXT', auto_loan_type: 'TEXT', al_payout_class: 'TEXT', car_make: 'TEXT', car_model: 'TEXT', car_year: 'INTEGER', dealer_details: 'TEXT', al_lead_source: 'TEXT', al_interest_rate: 'REAL', al_tenure: 'INTEGER',
   card_min_salary: 'REAL', card_higher_options: 'INTEGER', card_eligible_category: 'TEXT', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
+  timing_flag: 'TEXT', timing_approved_by: 'INTEGER REFERENCES users(id)', timing_approved_at: 'TEXT', timing_note: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',

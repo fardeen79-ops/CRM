@@ -29,6 +29,26 @@ export const STATUS = {
 export const CARD_EXCEPTIONS = { deviation: 'Product deviation', promotion: 'New promotion' };
 const APPROVERS = ['team_leader', 'sales_manager', 'asm'];
 
+// Files sourced on a Sunday, or entered after 6 pm UAE time, are flagged and wait for the team
+// leader's or sales manager's approval before verification. The Sunday rule reads the sourcing
+// date on the file; the after-hours rule reads the moment the file is entered (the only time known).
+export const TIMING_FLAGS = { sunday: 'Sourced on a Sunday', after_hours: 'Entered after 6 pm' };
+export const TIMING_CUTOFF_HOUR = 18;
+/** The clock the timing rules read; tests and demo seeding replace `now`. */
+export const timing = { now: () => Date.now() };
+export function timingFlagsOf(sourcingDate, ms = timing.now()) {
+  const flags = [];
+  if (sourcingDate && new Date(`${sourcingDate}T00:00:00Z`).getUTCDay() === 0) flags.push('sunday');
+  if (new Date(ms + 4 * 3600e3).getUTCHours() >= TIMING_CUTOFF_HOUR) flags.push('after_hours');
+  return flags;
+}
+export const timingFlags = (row) => String(row.timing_flag || '').split(',').filter(Boolean);
+const timingLabels = (row) => timingFlags(row).map((f) => TIMING_FLAGS[f].replace(/^./, (c) => c.toLowerCase())).join(' and ');
+/** A flagged file that nobody on the team has approved yet. */
+export const needsTimingApproval = (row) => Boolean(row.timing_flag) && !row.timing_approved_at;
+const needsCardApproval = (row) => cardBelowSalary(row) && !row.card_salary_exception;
+const needsApproval = (row) => needsCardApproval(row) || needsTimingApproval(row);
+
 export const CALL_OUTCOMES = ['connected', 'no_answer', 'busy', 'switched_off', 'wrong_number', 'call_back_later'];
 // A "call back later" outcome needs the date and time the customer asked for, up to this far ahead.
 export const CALLBACK_MAX_DAYS = 30;
@@ -263,6 +283,9 @@ export const ACTIONS = {
   // Card sold below its salary requirement: the team decides the reason, or sends it back.
   approve_card:    { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.PENDING },
   decline_card:    { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.RETURNED, noteRequired: true },
+  // Sourced on a Sunday or entered after 6 pm: the team approves the timing, or sends it back.
+  approve_timing:  { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.PENDING },
+  decline_timing:  { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.RETURNED, noteRequired: true },
 };
 
 // Plain text fields and their length limits; name, product and number fields are validated separately.
@@ -431,7 +454,8 @@ function validateProduct(input, current, out) {
     } else {
       for (let i = buyouts.length - 1; i >= 0; i--) if (buyouts[i].role === 'primary') buyouts.splice(i, 1);
     }
-    if (type === 'fresh' || type === 'buy_out') {
+    {
+      // Fresh, buy-out and top-up loans all confirm whether there are secondary buyouts and list them.
       const answer = clean(pick('secondary_buyout'), 3)?.toLowerCase() ?? null;
       const secondary = buyouts.filter((b) => b.role === 'secondary');
       if (secondary.some((b) => !SECONDARY_BUYOUT_KINDS.includes(b.kind))) throw new WorkflowError(400, 'Secondary buyouts can be a credit card, non-STL loan, auto loan or mortgage');
@@ -624,7 +648,7 @@ const CASE_SELECT = `
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
          sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
          qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name, ub.name AS urgent_by_name,
-         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name, ceb.name AS card_exception_by_name
+         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name, ceb.name AS card_exception_by_name, tab.name AS timing_approved_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
   LEFT JOIN users at ON at.id = c.assigned_to
@@ -641,7 +665,8 @@ const CASE_SELECT = `
   LEFT JOIN users scb ON scb.id = c.qc_scored_by
   LEFT JOIN users csb ON csb.id = c.card_status_by
   LEFT JOIN users cbb ON cbb.id = c.callback_by
-  LEFT JOIN users ceb ON ceb.id = c.card_exception_by`;
+  LEFT JOIN users ceb ON ceb.id = c.card_exception_by
+  LEFT JOIN users tab ON tab.id = c.timing_approved_by`;
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
 const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.parse(text); } catch { return []; } };
@@ -909,15 +934,19 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   // A card below the salary requirement goes for verification with a reason, or to the team for approval.
   const exception = cardBelowSalary(data) ? cardExceptionOf(input) : null;
   if (exception) Object.assign(data, { card_salary_exception: exception, card_exception_by: user.id, card_exception_at: ts, card_exception_note: clean(input.card_exception_note, 500) });
-  const status = cardBelowSalary(data) && !exception ? STATUS.APPROVAL : STATUS.PENDING;
-  const cols = [...EDITABLE_FIELDS, 'card_salary_exception', 'card_exception_by', 'card_exception_at', 'card_exception_note', 'status', 'created_by', 'created_at', 'updated_at'];
+  // Bulk uploads carry past files, so the timing rules apply only to files entered one by one.
+  data.timing_flag = bulk ? null : timingFlagsOf(data.sourcing_date).join(',') || null;
+  const status = needsApproval(data) ? STATUS.APPROVAL : STATUS.PENDING;
+  const cols = [...EDITABLE_FIELDS, 'card_salary_exception', 'card_exception_by', 'card_exception_at', 'card_exception_note', 'timing_flag', 'status', 'created_by', 'created_at', 'updated_at'];
   const { lastInsertRowid } = db
     .prepare(`INSERT INTO cases (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-    .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), data.card_salary_exception ?? null, data.card_exception_by ?? null, data.card_exception_at ?? null, data.card_exception_note ?? null, status, user.id, ts, ts);
+    .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), data.card_salary_exception ?? null, data.card_exception_by ?? null, data.card_exception_at ?? null, data.card_exception_note ?? null, data.timing_flag, status, user.id, ts, ts);
   const id = Number(lastInsertRowid);
   addEvent(db, id, user.id, 'created', { to: status, detail: 'sent_to_check' });
   if (exception) addEvent(db, id, user.id, 'card_exception', { detail: `${CARD_EXCEPTIONS[exception]}: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}, customer salary AED ${data.salary.toLocaleString('en-US')}` });
-  if (status === STATUS.APPROVAL) sendForApproval(db, id, user, data);
+  if (data.timing_flag) addEvent(db, id, user.id, 'timing_flagged', { detail: timingFlags(data).map((f) => TIMING_FLAGS[f]).join('; ') });
+  if (needsCardApproval(data)) sendForApproval(db, id, user, data);
+  if (needsTimingApproval(data)) sendForTimingApproval(db, id, user, data);
   if (bulk) addEvent(db, id, user.id, 'bulk_upload', { detail: 'Added from a bulk upload file' });
   if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
   recordReadBack(db, id, user.id, input.read_back);
@@ -928,6 +957,12 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
 function sendForApproval(db, id, user, row) {
   addEvent(db, id, user.id, 'card_approval_requested', { detail: `${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}; customer salary AED ${row.salary.toLocaleString('en-US')}` });
   notify(db, approverIds(row), id, `Approval needed: ${caseRef(id)} (${row.customer_name}) — ${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}, customer earns AED ${row.salary.toLocaleString('en-US')}. Choose product deviation or new promotion, or return it to ${user.name}`);
+}
+
+/** Alerts the file's team that a file sourced on a Sunday or entered after 6 pm needs their approval. */
+function sendForTimingApproval(db, id, user, row) {
+  addEvent(db, id, user.id, 'timing_approval_requested', { detail: timingLabels(row) });
+  notify(db, approverIds(row), id, `Approval needed: ${caseRef(id)} (${row.customer_name}) was ${timingLabels(row)}. Approve it for verification, or return it to ${user.name}`);
 }
 
 function canEdit(user, row) {
@@ -975,10 +1010,11 @@ export function updateCase(db, user, id, input) {
     // While the file is with sales, the salary check decides whether it waits for the team's approval.
     const after = { ...row, ...data };
     if ([STATUS.PENDING, STATUS.APPROVAL].includes(row.status)) {
-      const needs = cardBelowSalary(after) && !after.card_salary_exception;
+      const needs = needsApproval(after);
       if (needs && row.status !== STATUS.APPROVAL) {
         db.prepare('UPDATE cases SET status = ?, assigned_to = NULL WHERE id = ?').run(STATUS.APPROVAL, id);
-        sendForApproval(db, id, user, after);
+        if (needsCardApproval(after)) sendForApproval(db, id, user, after);
+        if (needsTimingApproval(after)) sendForTimingApproval(db, id, user, after);
       } else if (!needs && row.status === STATUS.APPROVAL) {
         db.prepare('UPDATE cases SET status = ? WHERE id = ?').run(STATUS.PENDING, id);
         addEvent(db, id, user.id, 'card_approval_cleared', { from: STATUS.APPROVAL, to: STATUS.PENDING, detail: after.card_salary_exception ? CARD_EXCEPTIONS[after.card_salary_exception] : 'salary now meets the card requirement' });
@@ -1039,6 +1075,8 @@ function verificationActions(user, row) {
       if (user.role === 'sales') return isOwner(user, row);
       if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id) return false;
       if (name === 'bot_call') return config.callBot && !botCallPending(row);
+      if (name === 'approve_card' || name === 'decline_card') return needsCardApproval(row);
+      if (name === 'approve_timing' || name === 'decline_timing') return needsTimingApproval(row);
       return name !== 'claim' || !row.assigned_to;
     })
     .map(([name]) => name);
@@ -1207,16 +1245,31 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         break;
       case 'resubmit':
         set.assigned_to = null;
-        if (cardBelowSalary(row) && !row.card_salary_exception) { set.status = STATUS.APPROVAL; sendForApproval(db, id, user, row); }
+        if (needsApproval(row)) set.status = STATUS.APPROVAL;
+        if (needsCardApproval(row)) sendForApproval(db, id, user, row);
+        if (needsTimingApproval(row)) sendForTimingApproval(db, id, user, row);
         break;
       case 'approve_card': {
         const exception = cardExceptionOf({ card_salary_exception: extra.exception ?? extra.card_salary_exception });
         if (!exception) throw new WorkflowError(400, 'Choose Product deviation or New promotion');
         Object.assign(set, { card_salary_exception: exception, card_exception_by: user.id, card_exception_at: ts, card_exception_note: note || null, assigned_to: null });
         detail = `${CARD_EXCEPTIONS[exception]}: ${row.credit_card} needs AED ${Number(row.card_min_salary).toLocaleString('en-US')}, customer salary AED ${Number(row.salary).toLocaleString('en-US')}`;
-        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) approved by ${user.name} as ${CARD_EXCEPTIONS[exception].toLowerCase()} and sent for verification`);
+        // The timing still needs its own approval: the file keeps waiting.
+        if (needsTimingApproval(row)) set.status = STATUS.APPROVAL;
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) approved by ${user.name} as ${CARD_EXCEPTIONS[exception].toLowerCase()}${needsTimingApproval(row) ? '; its timing still needs approval' : ' and sent for verification'}`);
         break;
       }
+      case 'approve_timing':
+        Object.assign(set, { timing_approved_by: user.id, timing_approved_at: ts, timing_note: note || null, assigned_to: null });
+        if (needsCardApproval(row)) set.status = STATUS.APPROVAL;
+        detail = timingLabels(row);
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) ${timingLabels(row)}: approved by ${user.name}${needsCardApproval(row) ? '; the card still needs approval' : ' and sent for verification'}`);
+        break;
+      case 'decline_timing':
+        Object.assign(set, { tl_action: 'decline_timing', tl_note: note, tl_actioned_by: user.id, tl_actioned_at: ts, assigned_to: null });
+        detail = timingLabels(row);
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) returned by ${user.name}: ${note}`);
+        break;
       case 'decline_card':
         Object.assign(set, { tl_action: 'decline_card', tl_note: note, tl_actioned_by: user.id, tl_actioned_at: ts, assigned_to: null });
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) returned by ${user.name}: ${note}`);
