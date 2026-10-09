@@ -9,15 +9,15 @@ import { uaeDay } from './cycles.js';
 export const BOOSTER_PRODUCTS = { all: 'All products', ...PRODUCTS };
 export const BOOSTER_AUDIENCE = { core: 'Core staff of the product', all: 'Every sales person' };
 export const BOOSTER_ADMINS = ['business_head', 'mis'];
-const UPCOMING_DAYS = 14;
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const BOOSTER_UPCOMING_DAYS = 14;
+const BOOSTER_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export const canManageBoosters = (user) => BOOSTER_ADMINS.includes(user.role);
-const requireAdmin = (user) => { if (!canManageBoosters(user)) throw new WorkflowError(403, 'Only business heads and MIS run boosters'); };
+const requireBoosterAdmin = (user) => { if (!canManageBoosters(user)) throw new WorkflowError(403, 'Only business heads and MIS run boosters'); };
 
-const BOOSTER_SELECT = `SELECT b.*, u.name AS created_by_name FROM boosters b LEFT JOIN users u ON u.id = b.created_by`;
-const parse = (b) => b && ({ ...b, team_leader_ids: JSON.parse(b.team_leader_ids || '[]'), status: statusOf(b) });
-function statusOf(b) {
+const BOOSTER_SELECT_SQL = `SELECT b.*, u.name AS created_by_name FROM boosters b LEFT JOIN users u ON u.id = b.created_by`;
+const parseBooster = (b) => b && ({ ...b, team_leader_ids: JSON.parse(b.team_leader_ids || '[]'), status: boosterStatus(b) });
+function boosterStatus(b) {
   const today = uaeDay();
   if (!b.active) return 'off';
   if (today < b.starts_on) return 'upcoming';
@@ -25,14 +25,14 @@ function statusOf(b) {
   return 'running';
 }
 
-function validate(input, current = null) {
+function validateBooster(input, current = null) {
   const s = (v, max) => { const t = String(v ?? '').trim(); return t ? t.slice(0, max) : null; };
   const title = s(input.title ?? current?.title, 120);
   if (!title) throw new WorkflowError(400, 'Give the booster a title');
   const product = s(input.product ?? current?.product ?? 'all', 30);
   if (!BOOSTER_PRODUCTS[product]) throw new WorkflowError(400, `Product must be one of: ${Object.values(BOOSTER_PRODUCTS).join(', ')}`);
   const starts_on = s(input.starts_on ?? current?.starts_on, 10); const ends_on = s(input.ends_on ?? current?.ends_on, 10);
-  if (!DAY.test(starts_on || '') || !DAY.test(ends_on || '')) throw new WorkflowError(400, 'Give the start and end dates as YYYY-MM-DD');
+  if (!BOOSTER_DAY.test(starts_on || '') || !BOOSTER_DAY.test(ends_on || '')) throw new WorkflowError(400, 'Give the start and end dates as YYYY-MM-DD');
   if (ends_on < starts_on) throw new WorkflowError(400, 'The booster ends before it starts');
   const region = s(input.region ?? current?.region, 3)?.toUpperCase() || null;
   if (region && !REGIONS[region]) throw new WorkflowError(400, 'Region must be DXB or AUH, or blank for both');
@@ -44,37 +44,37 @@ function validate(input, current = null) {
 }
 
 export function listBoosters(db, user) {
-  requireAdmin(user);
-  return db.prepare(`${BOOSTER_SELECT} ORDER BY b.starts_on DESC, b.id DESC`).all().map(parse);
+  requireBoosterAdmin(user);
+  return db.prepare(`${BOOSTER_SELECT_SQL} ORDER BY b.starts_on DESC, b.id DESC`).all().map(parseBooster);
 }
 
 export function createBooster(db, user, input) {
-  requireAdmin(user);
-  const v = validate(input);
+  requireBoosterAdmin(user);
+  const v = validateBooster(input);
   const { lastInsertRowid } = db.prepare('INSERT INTO boosters (title, product, reward, details, starts_on, ends_on, region, audience, team_leader_ids, active, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(v.title, v.product, v.reward, v.details, v.starts_on, v.ends_on, v.region, v.audience, v.team_leader_ids, v.active, user.id, new Date().toISOString());
-  return parse(db.prepare(`${BOOSTER_SELECT} WHERE b.id = ?`).get(Number(lastInsertRowid)));
+  return parseBooster(db.prepare(`${BOOSTER_SELECT_SQL} WHERE b.id = ?`).get(Number(lastInsertRowid)));
 }
 
 export function updateBooster(db, user, id, input) {
-  requireAdmin(user);
+  requireBoosterAdmin(user);
   const current = db.prepare('SELECT * FROM boosters WHERE id = ?').get(Number(id));
   if (!current) throw new WorkflowError(404, 'Booster not found');
-  const v = validate(input, current);
+  const v = validateBooster(input, current);
   db.prepare('UPDATE boosters SET title = ?, product = ?, reward = ?, details = ?, starts_on = ?, ends_on = ?, region = ?, audience = ?, team_leader_ids = ?, active = ? WHERE id = ?')
     .run(v.title, v.product, v.reward, v.details, v.starts_on, v.ends_on, v.region, v.audience, v.team_leader_ids, v.active, current.id);
-  return parse(db.prepare(`${BOOSTER_SELECT} WHERE b.id = ?`).get(current.id));
+  return parseBooster(db.prepare(`${BOOSTER_SELECT_SQL} WHERE b.id = ?`).get(current.id));
 }
 
 export function deleteBooster(db, user, id) {
-  requireAdmin(user);
+  requireBoosterAdmin(user);
   const r = db.prepare('DELETE FROM boosters WHERE id = ?').run(Number(id));
   if (!r.changes) throw new WorkflowError(404, 'Booster not found');
   return { ok: true };
 }
 
 /** Does a booster cover this sales person? Region, audience (core staff of the product) and named teams. */
-function coversStaff(b, s) {
+function boosterCovers(b, s) {
   if (b.region && s.region !== b.region) return false;
   if (b.audience === 'core' && b.product !== 'all' && s.core_product !== b.product) return false;
   const teams = JSON.parse(b.team_leader_ids || '[]');
@@ -82,7 +82,7 @@ function coversStaff(b, s) {
   return true;
 }
 
-const productMatch = (b) => (b.product === 'all' ? '1 = 1' : `(c.product = '${b.product}' OR (c.product = 'bundle' AND ',' || c.bundle_products || ',' LIKE '%,${b.product},%'))`);
+const boosterProductMatch = (b) => (b.product === 'all' ? '1 = 1' : `(c.product = '${b.product}' OR (c.product = 'bundle' AND ',' || c.bundle_products || ',' LIKE '%,${b.product},%'))`);
 
 /**
  * The boosters that apply to the viewer, with progress: a sales person's own completed files in the
@@ -91,9 +91,9 @@ const productMatch = (b) => (b.product === 'all' ? '1 = 1' : `(c.product = '${b.
  */
 export function boostersFor(db, user) {
   const today = uaeDay();
-  const soon = new Date(Date.parse(today) + UPCOMING_DAYS * 864e5).toISOString().slice(0, 10);
+  const soon = new Date(Date.parse(today) + BOOSTER_UPCOMING_DAYS * 864e5).toISOString().slice(0, 10);
   const recent = new Date(Date.parse(today) - 7 * 864e5).toISOString().slice(0, 10);
-  const live = db.prepare(`${BOOSTER_SELECT} WHERE b.active = 1 AND b.starts_on <= ? AND b.ends_on >= ? ORDER BY b.starts_on, b.id`).all(soon, recent);
+  const live = db.prepare(`${BOOSTER_SELECT_SQL} WHERE b.active = 1 AND b.starts_on <= ? AND b.ends_on >= ? ORDER BY b.starts_on, b.id`).all(soon, recent);
   if (!live.length) return [];
   let staff;
   if (user.role === 'sales') staff = db.prepare('SELECT id, name, region, core_product, team_leader_id FROM users WHERE id = ?').all(user.id);
@@ -102,16 +102,16 @@ export function boostersFor(db, user) {
   else return [];
   const out = [];
   for (const b of live) {
-    const covered = staff.filter((s) => coversStaff(b, s));
+    const covered = staff.filter((s) => boosterCovers(b, s));
     if (!covered.length) continue;
     const ids = covered.map((s) => s.id);
     const rows = db.prepare(`SELECT c.product, c.bundle_products, c.pl_disbursed_amount, c.al_disbursed_amount, COALESCE(c.sales_staff_id, c.created_by) AS staff_id FROM cases c
-      WHERE COALESCE(c.sales_staff_id, c.created_by) IN (${ids.map(() => '?').join(',')}) AND ${COMPLETED_IN_SQL} AND ${productMatch(b)} AND COALESCE(c.complaint_status, '') <> 'valid'`).all(...ids, b.starts_on, b.ends_on);
+      WHERE COALESCE(c.sales_staff_id, c.created_by) IN (${ids.map(() => '?').join(',')}) AND ${COMPLETED_IN_SQL} AND ${boosterProductMatch(b)} AND COALESCE(c.complaint_status, '') <> 'valid'`).all(...ids, b.starts_on, b.ends_on);
     let aed = 0;
     for (const r of rows) { const ps = caseProducts(r); if (ps.includes('personal_loan') && (b.product === 'all' || b.product === 'personal_loan')) aed += r.pl_disbursed_amount ?? 0; if (ps.includes('auto_loan') && (b.product === 'all' || b.product === 'auto_loan')) aed += r.al_disbursed_amount ?? 0; }
     const days_left = Math.max(0, Math.round((Date.parse(b.ends_on) - Date.parse(today)) / 864e5));
     const days_to_start = Math.max(0, Math.round((Date.parse(b.starts_on) - Date.parse(today)) / 864e5));
-    out.push({ ...parse(b), product_label: BOOSTER_PRODUCTS[b.product], covered: covered.length, covered_names: user.role === 'sales' ? [] : covered.map((s) => s.name), progress: { files: rows.length, staff_with_files: new Set(rows.map((r) => r.staff_id)).size, aed: Math.round(aed) }, days_left, days_to_start });
+    out.push({ ...parseBooster(b), product_label: BOOSTER_PRODUCTS[b.product], covered: covered.length, covered_names: user.role === 'sales' ? [] : covered.map((s) => s.name), progress: { files: rows.length, staff_with_files: new Set(rows.map((r) => r.staff_id)).size, aed: Math.round(aed) }, days_left, days_to_start });
   }
   return out;
 }
