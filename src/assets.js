@@ -3,7 +3,14 @@
 // heads can see it; a sales person sees their own tab. Every status change and assignment is logged.
 import { WorkflowError } from './cases.js';
 
-export const ASSET_STATUS = { in_use: 'Active, in use', it_custody: 'With IT custody', handed_over: 'Handed over on exit' };
+export const ASSET_STATUS = { in_use: 'Active, in use', it_custody: 'With IT custody', handed_over: 'Handed over on exit', returned_to_bank: 'Returned to bank' };
+/** The day a tab went back to the bank, as YYYY-MM-DD. */
+function returnDate(value) {
+  const s = assetText(value, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(Date.parse(s))) throw new WorkflowError(400, 'Enter the date the tab was returned to the bank (YYYY-MM-DD)');
+  if (s > new Date(Date.now() + 4 * 3600e3).toISOString().slice(0, 10)) throw new WorkflowError(400, 'The return date cannot be in the future');
+  return s;
+}
 export const NETWORKS = { etisalat: 'Etisalat', du: 'du' };
 export const ACCESSORIES = { charger: 'Charger', stylus: 'Stylus', card_reader: 'Card reader' };
 /** Who keeps the register. */
@@ -106,24 +113,25 @@ export function assignAsset(db, user, id, { holder_id, note } = {}) {
   const other = assetOf(db, holder.id);
   if (other && other.id !== id) throw new WorkflowError(409, `${holder.name} already holds tab ${other.tab_no}; move it to IT custody or hand it over first`);
   const ts = assetNow();
-  db.prepare(`UPDATE assets SET status = 'in_use', holder_id = ?, previous_holder_id = ?, assigned_at = ?, status_note = ?, status_by = ?, status_at = ?, updated_at = ? WHERE id = ?`)
+  db.prepare(`UPDATE assets SET status = 'in_use', holder_id = ?, previous_holder_id = ?, assigned_at = ?, status_note = ?, status_by = ?, status_at = ?, returned_on = NULL, updated_at = ? WHERE id = ?`)
     .run(holder.id, current.holder_id && current.holder_id !== holder.id ? current.holder_id : current.previous_holder_id, ts, assetText(note, 300) || null, user.id, ts, ts, id);
   logAssetEvent(db, id, user.id, 'assigned', `Assigned to ${holder.name}`, assetText(note, 300) || null);
   return getAsset(db, id);
 }
 
-/** Moves the tab to IT custody or records it handed over on the holder's exit. */
-export function setAssetStatus(db, user, id, { status, note } = {}) {
+/** Moves the tab to IT custody, records it handed over on the holder's exit, or returned to the bank on a date. */
+export function setAssetStatus(db, user, id, { status, note, returned_on } = {}) {
   requireAssetAdmin(user);
-  if (!ASSET_STATUS[status]) throw new WorkflowError(400, 'Choose a status: Active in use, With IT custody or Handed over on exit');
+  if (!ASSET_STATUS[status]) throw new WorkflowError(400, 'Choose a status: Active in use, With IT custody, Handed over on exit or Returned to bank');
+  const returned = status === 'returned_to_bank' ? returnDate(returned_on) : null;
   if (status === 'in_use') throw new WorkflowError(400, 'To put a tab in use, assign it to a staff member');
   const current = getAsset(db, id);
-  if (current.status === status) throw new WorkflowError(409, `The tab is already ${ASSET_STATUS[status]}`);
+  if (current.status === status && !(returned && returned !== current.returned_on)) throw new WorkflowError(409, `The tab is already ${ASSET_STATUS[status]}`);
   if (status === 'handed_over' && !current.holder_id && !current.previous_holder_id) throw new WorkflowError(400, 'This tab was never assigned; move it to IT custody instead');
   const ts = assetNow();
-  db.prepare(`UPDATE assets SET status = ?, holder_id = NULL, previous_holder_id = COALESCE(holder_id, previous_holder_id), status_note = ?, status_by = ?, status_at = ?, updated_at = ? WHERE id = ?`)
-    .run(status, assetText(note, 300) || null, user.id, ts, ts, id);
-  logAssetEvent(db, id, user.id, 'status', `${ASSET_STATUS[status]}${current.holder_name ? ` (from ${current.holder_name})` : ''}`, assetText(note, 300) || null);
+  db.prepare(`UPDATE assets SET status = ?, holder_id = NULL, previous_holder_id = COALESCE(holder_id, previous_holder_id), status_note = ?, status_by = ?, status_at = ?, returned_on = ?, updated_at = ? WHERE id = ?`)
+    .run(status, assetText(note, 300) || null, user.id, ts, returned, ts, id);
+  logAssetEvent(db, id, user.id, 'status', `${ASSET_STATUS[status]}${returned ? ` on ${returned}` : ''}${current.holder_name ? ` (from ${current.holder_name})` : ''}`, assetText(note, 300) || null);
   return getAsset(db, id);
 }
 
@@ -141,7 +149,7 @@ export function inventoryRows(db, region = null) {
   return listAssets(db, { region }).map((a) => ({
     tab_no: a.tab_no, serial_no: a.serial_no, status: ASSET_STATUS[a.status], holder: a.holder_name || '', holder_hrms_code: a.holder_hrms_code || '', holder_sales_code: a.holder_sales_code || '',
     region: a.holder_region || a.region || '', team_leader: a.holder_team_leader || '', charger: a.charger ? 'Yes' : 'No', stylus: a.stylus ? 'Yes' : 'No', card_reader: a.card_reader ? 'Yes' : 'No',
-    network: NETWORKS[a.network] || '', sim_number: a.sim_number || '', entra_id: a.entra_id || '', mobile_number: a.mobile_number || '', assigned_at: a.assigned_at, status_at: a.status_at,
+    network: NETWORKS[a.network] || '', sim_number: a.sim_number || '', entra_id: a.entra_id || '', mobile_number: a.mobile_number || '', assigned_at: a.assigned_at, status_at: a.status_at, returned_on: a.returned_on || null,
     previous_holder: a.previous_holder_name || '', status_note: a.status_note || '', notes: a.notes || '',
   }));
 }

@@ -166,7 +166,7 @@ The CRM ships with the bank's product list built in: 34 cards in 18 families, ea
 
 ### Assets: the sourcing tabs issued to sales staff
 
-Each sales person is issued a tab by the bank for sourcing. The **Tab register** records, per tab: the **serial number**, **tab number**, **accessories assigned** (charger, stylus, card reader), **network** (Etisalat or du), **SIM card number**, **Microsoft Entra ID** and the **mobile number registered** on it, plus notes. A tab is in one of three states: **Active, in use** (held by a named staff member), **With IT custody** (spare, in repair, or returned) or **Handed over on exit** (returned by a leaver). Assigning a tab puts it in use with that person; a person can hold only one tab at a time. Moving it to IT custody or marking it handed over clears the holder and remembers them as the previous holder. Every registration, edit, assignment and status change is logged with who did it and when.
+Each sales person is issued a tab by the bank for sourcing. The **Tab register** records, per tab: the **serial number**, **tab number**, **accessories assigned** (charger, stylus, card reader), **network** (Etisalat or du), **SIM card number**, **Microsoft Entra ID** and the **mobile number registered** on it, plus notes. A tab is in one of four states: **Active, in use** (held by a named staff member), **With IT custody** (spare, in repair, or returned), **Handed over on exit** (returned by a leaver) or **Returned to bank**, which records the **date it went back** (shown on the register and the inventory). Assigning a tab puts it in use with that person; a person can hold only one tab at a time. Moving it to IT custody or marking it handed over clears the holder and remembers them as the previous holder. Every registration, edit, assignment and status change is logged with who did it and when.
 
 - A new **IT** role keeps the register (`Staff → Add user → IT`). An IT account sees only the register, the staff list (names, codes, roles and regions, no salaries or contact details) and the inventory report: no files, chat or targets.
 - **MIS and business heads** see and can change the register too, and the Staff page shows each sales person's tab (or "No tab issued").
@@ -175,7 +175,7 @@ Each sales person is issued a tab by the bank for sourcing. The **Tab register**
 
 **Bulk upload → Tab register** (IT, MIS, business heads) takes a CSV with the tab and serial numbers, Yes/No for each accessory, network, SIM, Entra ID, registered mobile, an **Issued to** column (HRMS or sales code), an optional status and notes. A serial already registered updates that tab; naming a holder issues it; a status of With IT custody or Handed over on exit moves it. Nothing is saved until the preview is confirmed.
 
-API: `POST /api/import/assets`, `GET/POST /api/assets`, `GET /api/assets/mine`, `GET/PATCH /api/assets/:id`, `POST /api/assets/:id/assign` (`holder_id`, `note`), `POST /api/assets/:id/status` (`status` it_custody or handed_over, `note`), report key `assets`.
+API: `POST /api/import/assets`, `GET/POST /api/assets`, `GET /api/assets/mine`, `GET/PATCH /api/assets/:id`, `POST /api/assets/:id/assign` (`holder_id`, `note`), `POST /api/assets/:id/status` (`status` it_custody, handed_over or returned_to_bank, `note`, `returned_on` for the bank return date), report key `assets`.
 
 ### Go-live staff list
 

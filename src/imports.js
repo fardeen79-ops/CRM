@@ -127,6 +127,7 @@ export const ASSET_IMPORT_COLUMNS = [
   { key: 'mobile_number', header: 'Mobile number registered', example: '050 411 2201', help: 'The number registered on the tab' },
   { key: 'issued_to', header: 'Issued to', example: 'EN10004', help: 'HRMS code or sales code of the staff member holding the tab; blank leaves it with IT' },
   { key: 'status', header: 'Status', example: 'Active, in use', allowed: Object.values(ASSET_STATUS), help: 'Blank = Active, in use when issued to someone, else With IT custody' },
+  { key: 'returned_on', header: 'Returned to bank on', example: '', help: 'YYYY-MM-DD, needed when the status is Returned to bank' },
   { key: 'notes', header: 'Notes', example: '', help: 'Condition, case, anything IT should know' },
 ];
 export const PAYOUT_RULE_IMPORT_COLUMNS = [
@@ -443,7 +444,7 @@ export function importAssets(db, user, csv, { dryRun = false } = {}) {
       if (asset.holder_id !== holder.id) asset = assignAsset(db, user, asset.id, { holder_id: holder.id, note: 'Bulk upload' });
     } else {
       if (holder && asset.holder_id !== holder.id && !assetOf(db, holder.id)) asset = assignAsset(db, user, asset.id, { holder_id: holder.id, note: 'Bulk upload' });
-      if (asset.status !== status) asset = setAssetStatus(db, user, asset.id, { status, note: 'Bulk upload' });
+      if (asset.status !== status || (status === 'returned_to_bank' && v.returned_on && v.returned_on !== asset.returned_on)) asset = setAssetStatus(db, user, asset.id, { status, note: 'Bulk upload', returned_on: v.returned_on });
     }
     return { id: asset.id, label: `${asset.tab_no} (${asset.serial_no})`, email: existing ? `updated · ${ASSET_STATUS[asset.status]}${asset.holder_name ? ` with ${asset.holder_name}` : ''}` : `registered · ${ASSET_STATUS[asset.status]}${asset.holder_name ? ` with ${asset.holder_name}` : ''}` };
   }))));

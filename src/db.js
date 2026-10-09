@@ -300,6 +300,7 @@ CREATE TABLE IF NOT EXISTS assets (
   status_note        TEXT,
   status_by          INTEGER REFERENCES users(id),
   status_at          TEXT,
+  returned_on        TEXT, -- the day it went back to the bank
   created_by         INTEGER REFERENCES users(id),
   created_at         TEXT NOT NULL,
   updated_at         TEXT NOT NULL

@@ -518,7 +518,7 @@ function assets(db, user, { region }) {
   return {
     columns: [col('tab_no', 'Tab no.', 'text'), col('serial_no', 'Serial no.', 'text'), col('status', 'Status', 'text'), col('holder', 'Held by', 'text'), col('holder_hrms_code', 'HRMS code', 'text'), col('holder_sales_code', 'Sales code', 'text'),
       col('region', 'Region', 'text'), col('team_leader', 'Team leader', 'text'), col('charger', 'Charger', 'text'), col('stylus', 'Stylus', 'text'), col('card_reader', 'Card reader', 'text'), col('network', 'Network', 'text'),
-      col('sim_number', 'SIM card no.', 'text'), col('entra_id', 'Microsoft Entra ID', 'text'), col('mobile_number', 'Registered mobile', 'text'), col('assigned_at', 'Assigned on', 'datetime'), col('status_at', 'Status since', 'datetime'),
+      col('sim_number', 'SIM card no.', 'text'), col('entra_id', 'Microsoft Entra ID', 'text'), col('mobile_number', 'Registered mobile', 'text'), col('assigned_at', 'Assigned on', 'datetime'), col('status_at', 'Status since', 'datetime'), col('returned_on', 'Returned to bank on', 'date'),
       col('previous_holder', 'Previous holder', 'text'), col('status_note', 'Status note', 'text'), col('notes', 'Notes', 'text')],
     rows,
     note: `${s.total} tabs: ${Object.entries(ASSET_STATUS).map(([k, l]) => `${s[k]} ${l.toLowerCase()}`).join(', ')}. ${s.staff_without_tab} active sales staff hold no tab.`,

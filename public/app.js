@@ -3050,7 +3050,7 @@ async function viewReports(params) {
 // ---------- staff (MIS and business heads) ----------
 
 // ---------- asset register: the sourcing tabs issued to sales staff ----------
-const ASSET_CHIP = { in_use: 'good', it_custody: 'warn', handed_over: '' };
+const ASSET_CHIP = { in_use: 'good', it_custody: 'warn', handed_over: '', returned_to_bank: 'bad' };
 const assetStatusChip = (a) => html`<span class="chip ${ASSET_CHIP[a.status] || ''}">${state.meta.asset_status[a.status] || a.status}</span>`;
 const accessoriesText = (a) => Object.entries(state.meta.accessories).filter(([k]) => a[k]).map(([, l]) => l).join(', ') || 'None';
 
@@ -3103,7 +3103,7 @@ async function viewAssets(params = new URLSearchParams()) {
     <div class="page-head"><div><h1>Tab register</h1><p class="muted lede">Every sourcing tab issued to sales staff: its number and serial, accessories, SIM and sign-in details, and who holds it. ${r === 'it' ? 'You keep this register.' : 'The IT department keeps this register.'} Download the full inventory from Reports.</p></div>
       <div class="actions"><a class="btn" href="#/import/assets">Bulk upload</a><a class="btn" href="#/reports?report=assets&run=1">Inventory report</a></div></div>
     <div class="kpis staff-kpis">
-      ${[['Tabs registered', summary.total, 'all statuses'], ...Object.entries(state.meta.asset_status).map(([k, l]) => [l, summary[k], k === 'in_use' ? 'with sales staff' : k === 'it_custody' ? 'spare, in repair or returned' : 'returned by leavers']), ['Sales staff without a tab', summary.staff_without_tab, 'active accounts']]
+      ${[['Tabs registered', summary.total, 'all statuses'], ...Object.entries(state.meta.asset_status).map(([k, l]) => [l, summary[k], { in_use: 'with sales staff', it_custody: 'spare, in repair or returned', handed_over: 'returned by leavers', returned_to_bank: 'no longer with the agency' }[k]]), ['Sales staff without a tab', summary.staff_without_tab, 'active accounts']]
         .map(([l, v, sub]) => html`<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-value">${v ?? 0}</span><span class="kpi-sub">${sub}</span></div>`)}
     </div>
     <form class="toolbar" id="asset-filters">
@@ -3121,7 +3121,7 @@ async function viewAssets(params = new URLSearchParams()) {
           <td>${a.holder_name ? html`${a.holder_name}<div class="muted small">${[a.holder_sales_code, a.holder_region, a.holder_team_leader ? `TL ${a.holder_team_leader}` : ''].filter(Boolean).join(' · ')}</div>` : html`<span class="muted">—</span>${a.previous_holder_name ? html`<div class="muted small">last ${a.previous_holder_name}</div>` : ''}`}</td>
           <td class="small">${accessoriesText(a)}<div class="muted">${state.meta.networks[a.network] || 'No network'}${a.sim_number ? html` · <span class="mono">${a.sim_number}</span>` : ''}</div></td>
           <td class="small">${a.entra_id || html`<span class="muted">No Entra ID</span>`}<div class="muted">${a.mobile_number ? html`<span class="mono">${a.mobile_number}</span>` : 'No mobile registered'}</div></td>
-          <td>${assetStatusChip(a)}<div class="muted small">${a.status === 'in_use' ? `since ${fmtDate(a.assigned_at)}` : a.status_at ? `since ${fmtDate(a.status_at)}` : ''}${a.status_note ? html`<br>${a.status_note}` : ''}</div></td>
+          <td>${assetStatusChip(a)}<div class="muted small">${a.status === 'in_use' ? `since ${fmtDate(a.assigned_at)}` : a.status === 'returned_to_bank' && a.returned_on ? `on ${a.returned_on}` : a.status_at ? `since ${fmtDate(a.status_at)}` : ''}${a.status_note ? html`<br>${a.status_note}` : ''}</div></td>
           <td><div class="actions"><button class="btn-link" data-asset-open="${a.id}">Open</button></div></td></tr>
           <tr hidden data-asset-panel="${a.id}"><td colspan="6">
             <div class="grid two-col asset-panel">
@@ -3132,10 +3132,12 @@ async function viewAssets(params = new URLSearchParams()) {
                   <div class="field-row"><input name="note" placeholder="Note (optional)"></div>
                   <button class="btn-primary">Assign · Active, in use</button></form>
                 <form data-asset-status="${a.id}" style="margin-top:14px"><h3>Change status</h3>
-                  <div class="segmented two-up">
+                  <div class="segmented three-up">
                     <label><input type="radio" name="status" value="it_custody" ${a.status !== 'it_custody' ? raw('checked') : raw('disabled')}><span>With IT custody</span></label>
                     <label><input type="radio" name="status" value="handed_over" ${a.status === 'handed_over' ? raw('disabled') : ''}><span>Handed over on exit</span></label>
+                    <label><input type="radio" name="status" value="returned_to_bank"><span>Returned to bank</span></label>
                   </div>
+                  <div class="field-row" data-returned-row hidden><label for="rd-${a.id}">Date returned to the bank <span class="req">*</span></label><input id="rd-${a.id}" name="returned_on" type="date" value="${a.returned_on || todayLocal()}" max="${todayLocal()}"></div>
                   <div class="field-row" style="margin-top:8px"><input name="note" placeholder="Reason (repair, spare, resignation date…)"></div>
                   <button class="btn">Update status</button></form>
                 <div class="asset-history" data-asset-history="${a.id}"><p class="muted small">Loading history…</p></div>
@@ -3164,6 +3166,7 @@ async function viewAssets(params = new URLSearchParams()) {
   }));
   app.querySelectorAll('[data-asset-edit]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); run(() => api(`/assets/${f.dataset.assetEdit}`, { method: 'PATCH', body: formBody(f) }).then(() => toast('Tab details saved')), f); }));
   app.querySelectorAll('[data-asset-assign]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); run(() => api(`/assets/${f.dataset.assetAssign}/assign`, { method: 'POST', body: Object.fromEntries(new FormData(f).entries()) }).then(() => toast('Tab assigned')), f); }));
+  app.querySelectorAll('[data-asset-status]').forEach((f) => { const row = f.querySelector('[data-returned-row]'); const sync = () => { row.hidden = f.querySelector('input[name=status]:checked')?.value !== 'returned_to_bank'; }; f.querySelectorAll('input[name=status]').forEach((i) => (i.onchange = sync)); sync(); });
   app.querySelectorAll('[data-asset-status]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); const body = Object.fromEntries(new FormData(f).entries()); if (!body.status) return toast('Choose a status', 'error'); run(() => api(`/assets/${f.dataset.assetStatus}/status`, { method: 'POST', body }).then(() => toast('Status updated')), f); }));
 }
 

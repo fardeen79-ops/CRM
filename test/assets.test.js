@@ -125,3 +125,22 @@ test('bulk upload of the tab register: new serials are registered, known ones up
   assert.equal((await gov('POST', '/import/assets', { csv })).status, 403);
   assert.ok((await it('GET', '/me')).data.meta.import_columns.assets.some((c) => c.key === 'issued_to'));
 });
+
+test('returned to bank: a status with a date, in the register, the upload and the inventory', async () => {
+  const it = await login('it@t.local');
+  const a = (await it('POST', '/assets', { tab_no: 'TAB-401', serial_no: 'SN401', holder_id: ids['amal@t.local'] })).data.asset;
+  assert.equal((await it('POST', `/assets/${a.id}/status`, { status: 'returned_to_bank' })).status, 400);
+  assert.equal((await it('POST', `/assets/${a.id}/status`, { status: 'returned_to_bank', returned_on: '2099-01-01' })).status, 400);
+  const r = (await it('POST', `/assets/${a.id}/status`, { status: 'returned_to_bank', returned_on: '2026-10-01', note: 'Batch 3 return' })).data.asset;
+  assert.deepEqual([r.status, r.returned_on, r.holder_id, r.previous_holder_name], ['returned_to_bank', '2026-10-01', null, 'Amal']);
+  assert.equal((await it('POST', `/assets/${a.id}/status`, { status: 'returned_to_bank', returned_on: '2026-10-01' })).status, 409);
+  assert.equal((await it('POST', `/assets/${a.id}/status`, { status: 'returned_to_bank', returned_on: '2026-10-02' })).data.asset.returned_on, '2026-10-02');
+  assert.match((await it('GET', `/assets/${a.id}`)).data.events[0].detail, /Returned to bank on 2026-10-02/);
+  const up = (await it('POST', '/import/assets', { csv: 'Tab no,Serial no,Status,Returned to bank on\nTAB-402,SN402,Returned to bank,2026-09-30\nTAB-403,SN403,Returned to bank,' })).data;
+  assert.deepEqual([up.ok, up.failed], [1, 1]);
+  assert.match(up.rows[1].error, /returned to the bank/);
+  const row = (await it('GET', '/reports/assets')).data.rows.find((x) => x.tab_no === 'TAB-402');
+  assert.deepEqual([row.status, row.returned_on], ['Returned to bank', '2026-09-30']);
+  assert.equal((await it('GET', '/assets?status=returned_to_bank')).data.assets.length, 2);
+  assert.equal((await it('GET', '/assets')).data.summary.returned_to_bank, 2);
+});
