@@ -132,6 +132,13 @@ export const ASSET_IMPORT_COLUMNS = [
   { key: 'returned_on', header: 'Returned to bank on', example: '', help: 'YYYY-MM-DD, needed when the status is Returned to bank' },
   { key: 'notes', header: 'Notes', example: '', help: 'Condition, case, anything IT should know' },
 ];
+export const PAYROLL_IMPORT_COLUMNS = [
+  { key: 'hrms_code', header: 'HRMS code', required: true, example: 'EN10234', help: 'The staff member, any role' },
+  { key: 'cycle', header: 'Cycle', required: true, example: 'Oct 2026', help: 'The sales cycle the pay is for (Oct 2026 or 2026-10)' },
+  { key: 'salary_paid', header: 'Salary paid (AED)', required: true, example: '6500', help: 'The salary actually paid for the cycle' },
+  { key: 'incentive_paid', header: 'Incentive paid (AED)', example: '', help: 'Only if it differs from the scheme; blank uses the computed incentive' },
+  { key: 'notes', header: 'Notes', example: '', help: '' },
+];
 export const PAYOUT_RULE_IMPORT_COLUMNS = [
   { key: 'rule', header: 'Rule', required: true, example: 'card:Mass', help: `One of: ${PAYOUT_KEYS.join(', ')} (the rule's name as shown on the Payout rules page also works)` },
   { key: 'value', header: 'Value', required: true, example: '1400', help: 'AED per card for the card rules; percent of the loan amount for the loan rules (3 = 3%)' },
@@ -424,6 +431,27 @@ export function importTargetRules(db, user, csv, { dryRun = false } = {}) {
 }
 
 /** Replaces the bank's payout rates: one row per rule, the rest keep their current value. */
+/** Records the salaries (and, if given, incentives) actually paid per person per cycle. Business head or Dubai MIS. */
+export function importPayroll(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user, 'payroll');
+  if (!canSeePayout(user)) throw new WorkflowError(403, 'Only the business head or Dubai MIS upload salaries paid');
+  const { header, records, unknown } = readFile(csv, PAYROLL_IMPORT_COLUMNS);
+  const ts = new Date().toISOString();
+  const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => {
+    const v = record.values;
+    const code = String(v.hrms_code || '').trim();
+    const u = db.prepare('SELECT id, name, role FROM users WHERE hrms_code = ? COLLATE NOCASE').get(code);
+    if (!u) throw new Error(`No staff member with the HRMS code ${code}`);
+    const cycle = parseCycle(v.cycle);
+    const salary = money(v.salary_paid, 'Salary paid');
+    const incentive = v.incentive_paid === '' || v.incentive_paid == null ? null : money(v.incentive_paid, 'Incentive paid');
+    db.prepare('INSERT INTO payroll (user_id, cycle, salary_paid, incentive_paid, notes, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, cycle) DO UPDATE SET salary_paid = excluded.salary_paid, incentive_paid = excluded.incentive_paid, notes = excluded.notes, set_by = excluded.set_by, set_at = excluded.set_at')
+      .run(u.id, cycle, salary, incentive, String(v.notes || '').trim().slice(0, 300) || null, user.id, ts);
+    return { id: u.id, label: `${u.name} · ${cycle}`, email: `AED ${salary.toLocaleString('en-US')}${incentive != null ? ` + incentive AED ${incentive.toLocaleString('en-US')}` : ''}` };
+  })));
+  return summarize(header, unknown, results, dryRun);
+}
+
 /** Registers or updates tabs from a CSV file, by serial number, and issues them to the named staff. */
 export function importAssets(db, user, csv, { dryRun = false } = {}) {
   if (!ASSET_ADMINS.includes(user.role)) throw new WorkflowError(403, 'Only IT, MIS and business heads upload the tab register');

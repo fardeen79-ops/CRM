@@ -704,4 +704,8 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .dash-trend .axis { font-size: 12px; fill: var(--muted); }
 .dash-trend .axis.now { fill: var(--text); font-weight: 600; }
 .dash-quiet { margin: -10px 0 22px; }
+table.pnl td.num, table.pnl th.num { text-align: right; white-space: nowrap; }
+table.pnl tr.total td { font-weight: 600; border-top: 2px solid var(--border); }
+table.pnl tr.net td { font-size: 16px; }
+table.pnl .neg { color: var(--muted); }
 @media (max-width: 720px) { .dash-row { grid-template-columns: 1fr; } }

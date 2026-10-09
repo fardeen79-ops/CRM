@@ -9,6 +9,7 @@ import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
 import { inventoryRows, ASSET_VIEWERS, assetSummary, ASSET_STATUS } from './assets.js';
 import { allowsReport } from './roles.js';
+import { profitAndLoss, PNL_VIEWERS } from './pnl.js';
 import { PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
 const ALL = ['mis', 'business_head'];
@@ -33,6 +34,7 @@ export const REPORTS = {
   sm_incentives: { name: 'Credit card sales manager incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM of core credit card staff earns: a flat amount per card the team sold, by the team\'s achievement of its combined card targets (AED 15 from 70%, 20 from 80%, 30 from 100%, 35 from 110%, 40 from 125%, 45 from 140%, 50 from 150%; nil below 70%).' },
   pl_sm_incentives: { name: 'Personal loan sales manager incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM with core personal loan staff earns: a percentage of the team\'s whole loan production (core staff plus loans cross-sold by the rest of the team) by its achievement of the core staff\'s combined targets (0.02% from 80%, 0.0625% from 100%, 0.075% from 125%, 0.10% from 150%; nil below 80%). The same grid applies to every manager with loan staff (confirmed).' },
   assets: { name: 'Tab inventory', roles: ASSET_VIEWERS, period: 'the register as it stands now', description: 'Every sourcing tab issued by the bank: number, serial, who holds it, accessories, network, SIM, Microsoft Entra ID and registered mobile, with its status (in use, with IT, handed over on exit).' },
+  pnl: { name: 'Profit and loss', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'Revenue (the bank\'s payout on files completed in the cycle) less the salaries actually paid and the incentives earned, by role: sales staff, team leaders, ASMs, sales managers, business heads, processing, MIS. Salaries come from the Salaries paid upload; anyone without one is estimated from their profile salary.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -530,7 +532,24 @@ function assets(db, user, { region }) {
   };
 }
 
-const RUNNERS = { assets, sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+function pnl(db, user, { period, region }) {
+  if (!period.cycle) throw new WorkflowError(400, 'The profit and loss is per sales cycle: choose a cycle, not dates');
+  const p = profitAndLoss(db, user, { cycle: period.cycle, region });
+  const rows = [
+    { line: 'Revenue: credit cards', amount: p.revenue.by_product.credit_card, detail: '' }, { line: 'Revenue: personal loans', amount: p.revenue.by_product.personal_loan, detail: '' },
+    { line: 'Revenue: auto loans', amount: p.revenue.by_product.auto_loan, detail: '' }, { line: 'Revenue', amount: p.revenue.total, detail: `${p.revenue.files} files completed` },
+    ...p.rows.map((l) => ({ line: `Salaries: ${l.label}`, amount: -(l.salary_paid + l.salary_estimated), detail: `${l.staff} staff${l.without_upload ? `, ${l.without_upload} estimated from profile salary` : ''}` })),
+    ...p.rows.filter((l) => l.incentive_paid).map((l) => ({ line: `Incentives: ${l.label}`, amount: -l.incentive_paid, detail: l.incentive_override ? `${l.incentive_override} actual amounts uploaded` : 'as computed under the schemes' })),
+    { line: 'Total costs', amount: -p.costs, detail: '' }, { line: 'Net', amount: p.net, detail: p.margin_pct == null ? '' : `${p.margin_pct}% of revenue` },
+  ];
+  return {
+    columns: [col('line', 'Line', 'text'), col('amount', 'AED', 'aed'), col('detail', 'Detail', 'text')], rows,
+    note: `${p.uploaded_people} people have a salary uploaded for ${p.label}${p.without_upload ? `; ${p.without_upload} active staff do not and are estimated from their profile salary` : ''}. Incentives are the schemes' amounts unless an actual was uploaded.`,
+    totals: { line: 'Net', amount: p.net },
+  };
+}
+
+const RUNNERS = { pnl, assets, sourcing, pipeline, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {

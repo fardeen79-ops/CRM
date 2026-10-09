@@ -17,12 +17,14 @@ export const PAGES = {
   assets: { label: 'Tab register', help: 'The sourcing tabs issued to staff', paths: /^\/api\/assets(\/|$)/ },
   chat: { label: 'Messages', help: 'Case discussions and direct messages', paths: /^\/api\/(conversations|messages)(\/|$)/ },
   roles: { label: 'Roles', help: 'Defining roles (IT, Dubai MIS and business heads only)', paths: /^\/api\/roles(\/|$)/ },
+  pnl: { label: 'Profit and loss', help: 'Revenue less salaries and incentives, per cycle (business heads only)', paths: /^\/api\/pnl(\/|$)/ },
 };
 /** The uploads a role can be given. */
-export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', cards: 'Card activation', card_products: 'Card products', target_rules: 'Salary targets', targets: 'Targets', payout_rules: 'Payout rules', assets: 'Tab register' };
+export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', cards: 'Card activation', card_products: 'Card products', target_rules: 'Salary targets', targets: 'Targets', payout_rules: 'Payout rules', assets: 'Tab register', payroll: 'Salaries paid' };
 
 /** The built-in roles: what each one sees, which a custom role based on it can only narrow. */
 const MANAGE = ['cases', 'targets', 'team', 'cards', 'reports', 'uploads', 'staff', 'access_log', 'assets', 'chat', 'roles'];
+const HEAD = [...MANAGE, 'pnl'];
 export const BUILTIN_ROLES = {
   sales: { label: 'Sales', pages: ['cases', 'targets', 'my_tab', 'chat'], uploads: [] },
   processing: { label: 'Processing', pages: ['cases', 'chat'], uploads: [] },
@@ -30,7 +32,7 @@ export const BUILTIN_ROLES = {
   asm: { label: 'Assistant Sales Manager', pages: ['cases', 'targets', 'team', 'reports', 'chat'], uploads: [] },
   sales_manager: { label: 'Sales Manager', pages: ['cases', 'targets', 'team', 'reports', 'chat'], uploads: [] },
   mis: { label: 'MIS', pages: MANAGE, uploads: Object.keys(UPLOAD_KINDS) },
-  business_head: { label: 'Business Head', pages: MANAGE, uploads: Object.keys(UPLOAD_KINDS) },
+  business_head: { label: 'Business Head', pages: HEAD, uploads: Object.keys(UPLOAD_KINDS) },
   governance: { label: 'Governance', pages: ['cases', 'team', 'reports', 'access_log', 'chat'], uploads: [] },
   it: { label: 'IT', pages: ['assets', 'uploads', 'reports', 'roles'], uploads: ['assets'] },
 };

@@ -10,6 +10,7 @@ import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.j
 import * as assets from './assets.js';
 import * as roles from './roles.js';
 import { dashboardFor } from './dashboard.js';
+import { profitAndLoss, payrollFor } from './pnl.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -206,7 +207,7 @@ function routes(db, dispatch, bot) {
         it_email: cases.config.itEmail,
         call_bot: cases.config.callBot,
         ocr: ocrAssets(),
-        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, payout_rules: imports.PAYOUT_RULE_IMPORT_COLUMNS, assets: imports.ASSET_IMPORT_COLUMNS },
+        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, payout_rules: imports.PAYOUT_RULE_IMPORT_COLUMNS, assets: imports.ASSET_IMPORT_COLUMNS, payroll: imports.PAYROLL_IMPORT_COLUMNS },
         card_statuses: cases.CARD_STATES,
         card_range_days: cases.CARD_RANGE_DAYS,
         card_mappers: cases.CARD_MAPPERS,
@@ -360,6 +361,8 @@ function routes(db, dispatch, bot) {
     // Sets every sales person's targets for a cycle from their salary and the salary-band rules.
     ['POST', /^\/api\/targets\/generate$/, async ({ user, body }) => performance.generateTargets(db, user, body.cycle)],
     ['POST', /^\/api\/import\/target_rules$/, async ({ user, body }) => imports.importTargetRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+    ['POST', /^\/api\/import\/payroll$/, async ({ user, body }) => imports.importPayroll(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+    ['GET', /^\/api\/pnl$/, async ({ user, query }) => ({ pnl: profitAndLoss(db, user, { cycle: query.get('cycle'), region: query.get('region') }), payroll: payrollFor(db, query.get('cycle') || profitAndLoss(db, user, {}).cycle, query.get('region')).map(({ user_id, name, role, region, hrms_code, salary_paid, incentive_paid, notes, set_at }) => ({ user_id, name, role, region, hrms_code, salary_paid, incentive_paid, notes, set_at })) })],
     ['POST', /^\/api\/import\/assets$/, async ({ user, body }) => imports.importAssets(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
     ['POST', /^\/api\/import\/payout_rules$/, async ({ user, body }) => imports.importPayoutRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 

@@ -168,6 +168,12 @@ Every credit card has a **family**, a **card category** and, when the bank provi
 
 The CRM ships with the bank's product list built in: 34 cards in 18 families, each with its category (**Mass**, **Premium** or **Super Premium**), minimum salary and points (450 to 1,050 per card). MIS or a business head replaces it with a newer list from **Bulk upload → Card products** using the downloadable template (Card name, Family, Card category, Points). Cards left out of the upload are retired: they stay on existing files but are no longer offered. `GET /api/me` reports `card_list_source` as `built_in` or `uploaded`.
 
+### Profit and loss, and salaries paid
+
+**Bulk upload → Salaries paid** (business head or Dubai MIS) records the salary actually paid to each person for a sales cycle, any role, by HRMS code (`HRMS code, Cycle, Salary paid (AED), Incentive paid (AED), Notes`). The incentive column is only for an actual that differs from what the scheme computes; blank uses the computed amount. Uploading the same person and cycle again replaces the figure.
+
+**Profit & loss** (business heads; a CEO account is a business head, or a role based on one) shows, per cycle and optionally per region: **revenue**, the bank's payout on files completed in the cycle by product; less **salaries** by role (sales staff, team leaders, ASMs, sales managers, business heads, processing, MIS, governance, IT), from the upload, with anyone lacking one **estimated from their profile salary and flagged**; less **incentives** by role, the schemes' amounts for the cycle or the uploaded actual; giving the **net** and margin. The same statement is a downloadable report (`pnl`). The uploaded salaries for the cycle are listed under the statement. API: `GET /api/pnl?cycle=&region=`, `POST /api/import/payroll`.
+
 ### Roles: defining roles on top of the built-in ones
 
 **IT, Dubai MIS and business heads** can define roles on the **Roles** page. A custom role is **based on** a built-in role (Sales, Processing, Team Leader, ASM, Sales Manager, MIS, Business Head, Governance, IT) and behaves exactly like it in the workflow: the same files, the same actions, the same masking. What the definition changes is what the role is given, and it can only ever be **less** than the base:
