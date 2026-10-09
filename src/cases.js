@@ -385,6 +385,9 @@ export function cardEligibility(row) {
   const higher = higherCards(row.salary, cardProduct(row.credit_card));
   return { card_higher_options: higher.length, card_eligible_category: higher[0]?.category ?? null };
 }
+/** What the card check measures: a self-employed customer's average balance stands in for a salary. */
+export const incomeWord = (row) => (row.customer_type === 'self_employed' ? 'average balance' : 'salary');
+const incomeNeed = (row) => (row.customer_type === 'self_employed' ? 'average balance' : 'monthly salary');
 /** Is the customer's salary below the chosen card's requirement? */
 export const cardBelowSalary = (row) => row.credit_card != null && row.card_min_salary != null && row.salary != null && row.salary < row.card_min_salary;
 /** The reason chosen for selling a card below its requirement, or null; a bad value is refused. */
@@ -984,7 +987,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   const data = validateCaseInput(input);
   Object.assign(data, cardSnapshot(data));
   Object.assign(data, cardEligibility(data));
-  if (data.credit_card && data.card_min_salary != null && data.salary == null) throw new WorkflowError(400, `Enter the customer's monthly salary: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}`);
+  if (data.credit_card && data.card_min_salary != null && data.salary == null) throw new WorkflowError(400, `Enter the customer's ${incomeNeed(data)}: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}`);
   // Sales staff source files as themselves; everyone else names the sales person.
   Object.assign(data, salesStaffSnapshot(db, user.role === 'sales' ? user.id : input.sales_staff_id));
   const ts = now();
@@ -1000,7 +1003,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
     .run(...EDITABLE_FIELDS.map((f) => data[f] ?? null), data.card_salary_exception ?? null, data.card_exception_by ?? null, data.card_exception_at ?? null, data.card_exception_note ?? null, data.timing_flag, status, user.id, ts, ts);
   const id = Number(lastInsertRowid);
   addEvent(db, id, user.id, 'created', { to: status, detail: 'sent_to_check' });
-  if (exception) addEvent(db, id, user.id, 'card_exception', { detail: `${CARD_EXCEPTIONS[exception]}: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}, customer salary AED ${data.salary.toLocaleString('en-US')}` });
+  if (exception) addEvent(db, id, user.id, 'card_exception', { detail: `${CARD_EXCEPTIONS[exception]}: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}, customer ${incomeWord(data)} AED ${data.salary.toLocaleString('en-US')}` });
   if (data.timing_flag) addEvent(db, id, user.id, 'timing_flagged', { detail: timingFlags(data).map((f) => TIMING_FLAGS[f]).join('; ') });
   if (needsCardApproval(data)) sendForApproval(db, id, user, data);
   if (needsTimingApproval(data)) sendForTimingApproval(db, id, user, data);
@@ -1012,8 +1015,8 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
 
 /** Alerts the file's team that a card sold below its salary requirement needs their decision. */
 function sendForApproval(db, id, user, row) {
-  addEvent(db, id, user.id, 'card_approval_requested', { detail: `${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}; customer salary AED ${row.salary.toLocaleString('en-US')}` });
-  notify(db, approverIds(row), id, `Approval needed: ${caseRef(id)} (${row.customer_name}) — ${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}, customer earns AED ${row.salary.toLocaleString('en-US')}. Choose product deviation or new promotion, or return it to ${user.name}`);
+  addEvent(db, id, user.id, 'card_approval_requested', { detail: `${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}; customer ${incomeWord(row)} AED ${row.salary.toLocaleString('en-US')}` });
+  notify(db, approverIds(row), id, `Approval needed: ${caseRef(id)} (${row.customer_name}) — ${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}, customer ${row.customer_type === 'self_employed' ? 'has an average balance of' : 'earns'} AED ${row.salary.toLocaleString('en-US')}. Choose product deviation or new promotion, or return it to ${user.name}`);
 }
 
 /** Alerts the file's team that a file sourced on a Sunday or entered after 6 pm needs their approval. */
@@ -1046,7 +1049,7 @@ export function updateCase(db, user, id, input) {
   }
   // A reason for a card below the salary requirement can be given (or changed) while the file is still with sales.
   const merged = { ...row, ...data };
-  if (merged.credit_card && merged.card_min_salary != null && merged.salary == null) throw new WorkflowError(400, `Enter the customer's monthly salary: ${merged.credit_card} needs AED ${merged.card_min_salary.toLocaleString('en-US')}`);
+  if (merged.credit_card && merged.card_min_salary != null && merged.salary == null) throw new WorkflowError(400, `Enter the customer's ${incomeNeed(merged)}: ${merged.credit_card} needs AED ${merged.card_min_salary.toLocaleString('en-US')}`);
   const reasonGiven = 'card_salary_exception' in input && [STATUS.PENDING, STATUS.RETURNED, STATUS.APPROVAL].includes(row.status);
   if (reasonGiven) {
     const exception = cardBelowSalary(merged) ? cardExceptionOf(input) : null;
@@ -1063,7 +1066,7 @@ export function updateCase(db, user, id, input) {
       id
     );
     addEvent(db, id, user.id, 'edited', { detail: changed.join(', ') });
-    if (changed.includes('card_salary_exception') && data.card_salary_exception) addEvent(db, id, user.id, 'card_exception', { detail: `${CARD_EXCEPTIONS[data.card_salary_exception]}: ${merged.credit_card} needs AED ${merged.card_min_salary.toLocaleString('en-US')}, customer salary AED ${merged.salary.toLocaleString('en-US')}` });
+    if (changed.includes('card_salary_exception') && data.card_salary_exception) addEvent(db, id, user.id, 'card_exception', { detail: `${CARD_EXCEPTIONS[data.card_salary_exception]}: ${merged.credit_card} needs AED ${merged.card_min_salary.toLocaleString('en-US')}, customer ${incomeWord(merged)} AED ${merged.salary.toLocaleString('en-US')}` });
     // While the file is with sales, the salary check decides whether it waits for the team's approval.
     const after = { ...row, ...data };
     if ([STATUS.PENDING, STATUS.APPROVAL].includes(row.status)) {
@@ -1074,7 +1077,7 @@ export function updateCase(db, user, id, input) {
         if (needsTimingApproval(after)) sendForTimingApproval(db, id, user, after);
       } else if (!needs && row.status === STATUS.APPROVAL) {
         db.prepare('UPDATE cases SET status = ? WHERE id = ?').run(STATUS.PENDING, id);
-        addEvent(db, id, user.id, 'card_approval_cleared', { from: STATUS.APPROVAL, to: STATUS.PENDING, detail: after.card_salary_exception ? CARD_EXCEPTIONS[after.card_salary_exception] : 'salary now meets the card requirement' });
+        addEvent(db, id, user.id, 'card_approval_cleared', { from: STATUS.APPROVAL, to: STATUS.PENDING, detail: after.card_salary_exception ? CARD_EXCEPTIONS[after.card_salary_exception] : `${incomeWord(after)} now meets the card requirement` });
       }
     }
     if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
@@ -1316,7 +1319,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         const exception = cardExceptionOf({ card_salary_exception: extra.exception ?? extra.card_salary_exception });
         if (!exception) throw new WorkflowError(400, 'Choose Product deviation or New promotion');
         Object.assign(set, { card_salary_exception: exception, card_exception_by: user.id, card_exception_at: ts, card_exception_note: note || null, assigned_to: null });
-        detail = `${CARD_EXCEPTIONS[exception]}: ${row.credit_card} needs AED ${Number(row.card_min_salary).toLocaleString('en-US')}, customer salary AED ${Number(row.salary).toLocaleString('en-US')}`;
+        detail = `${CARD_EXCEPTIONS[exception]}: ${row.credit_card} needs AED ${Number(row.card_min_salary).toLocaleString('en-US')}, customer ${incomeWord(row)} AED ${Number(row.salary).toLocaleString('en-US')}`;
         // The timing still needs its own approval: the file keeps waiting.
         if (needsTimingApproval(row)) set.status = STATUS.APPROVAL;
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) approved by ${user.name} as ${CARD_EXCEPTIONS[exception].toLowerCase()}${needsTimingApproval(row) ? '; its timing still needs approval' : ' and sent for verification'}`);

@@ -21,8 +21,8 @@ const CASE_STATUS_LABEL = {
 const OTHER_BANK = '__other';
 /** Labels for the income fields: a self-employed customer has an average balance and a bank they bank with. */
 const incomeLabelsFor = (type) => type === 'self_employed'
-  ? { amount: 'Average balance (AED)', bank: 'Banking with', choose: 'Choose the bank the customer banks with…' }
-  : { amount: 'Monthly salary (AED)', bank: 'Salary transferred to', choose: "Choose the customer's salary bank…" };
+  ? { amount: 'Average balance (AED)', bank: 'Banking with', choose: 'Choose the bank the customer banks with…', word: 'average balance', need: 'average balance', earns: 'has an average balance of' }
+  : { amount: 'Monthly salary (AED)', bank: 'Salary transferred to', choose: "Choose the customer's salary bank…", word: 'salary', need: 'monthly salary', earns: 'earns' };
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
   asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance', it: 'IT',
@@ -969,7 +969,7 @@ function miniTable(head, rows) {
 const COLS = {
   ref: ['Ref', (c) => html`<strong>${c.ref}</strong>${timingChips(c)}`],
   why_waiting: ['Waiting for', (c) => html`<div class="chips">
-    ${c.status === 'awaiting_approval' && c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary != null ? c.salary < c.card_min_salary : !(c.timing_flag && !c.timing_approved_at)) ? html`<span class="chip bad">Card below salary</span>` : ''}
+    ${c.status === 'awaiting_approval' && c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary != null ? c.salary < c.card_min_salary : !(c.timing_flag && !c.timing_approved_at)) ? html`<span class="chip bad">Card below ${incomeLabelsFor(c.customer_type).word}</span>` : ''}
     ${timingChips(c, true)}
   </div>`],
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
@@ -1377,6 +1377,8 @@ async function viewCaseForm(id, leadId = null) {
   const checkCardSalary = () => {
     const opt = cardSelect.selectedOptions[0];
     const min = opt?.dataset.minSalary ? Number(opt.dataset.minSalary) : null;
+    const inc = incomeLabelsFor($('#f-customer_type').value);
+    const Inc = inc.word[0].toUpperCase() + inc.word.slice(1);
     const typed = salaryInput.value.replace(/,/g, '').trim();
     // On an edit form the salary is masked; the server's own verdict stands until a new salary is typed.
     const masked = salaryInput.hasAttribute('data-masked') && typed === '';
@@ -1384,7 +1386,7 @@ async function viewCaseForm(id, leadId = null) {
     if (cardField.hidden || !opt?.value || min == null) { checkBox.innerHTML = ''; checkBox.dataset.state = ''; return; }
     if (Number.isNaN(salary) && !masked) {
       checkBox.dataset.state = 'no-salary';
-      checkBox.innerHTML = html`<div class="callout warn small"><strong>Enter the customer's monthly salary.</strong> ${opt.value} needs AED ${min.toLocaleString()}; the salary decides whether this card can go ahead.</div>`.s;
+      checkBox.innerHTML = html`<div class="callout warn small"><strong>Enter the customer's ${inc.need}.</strong> ${opt.value} needs AED ${min.toLocaleString()}; the ${inc.word} decides whether this card can go ahead.</div>`.s;
       return;
     }
     const below = masked ? (checkBox.dataset.knownBelow === '1' && opt.value === c.credit_card) : salary < min;
@@ -1392,7 +1394,7 @@ async function viewCaseForm(id, leadId = null) {
       const chosen = checkBox.dataset.exception || '';
       checkBox.dataset.state = 'below';
       checkBox.innerHTML = html`<div class="callout danger card-check">
-        <strong>Salary below the card requirement.</strong> ${opt.value} needs AED ${min.toLocaleString()} a month${masked ? '' : `; the customer earns AED ${salary.toLocaleString()}`}.
+        <strong>${Inc} below the card requirement.</strong> ${opt.value} needs AED ${min.toLocaleString()}${inc.word === 'salary' ? ' a month' : ''}${masked ? '' : `; the customer ${inc.earns} AED ${salary.toLocaleString()}`}.
         <div class="sub-label" style="margin-top:10px">Why is this card being sold?</div>
         <div class="segmented two-up" role="radiogroup" aria-label="Reason">
           ${Object.entries(state.meta.card_exceptions).map(([k, l]) => html`<label><input type="radio" name="card_salary_exception" value="${k}" ${chosen === k ? raw('checked') : ''}><span>${l}</span></label>`)}
@@ -1407,7 +1409,7 @@ async function viewCaseForm(id, leadId = null) {
     const higher = allCards.filter((k) => k.min_salary != null && k.min_salary > min && k.min_salary <= salary).sort((a, b) => b.min_salary - a.min_salary);
     checkBox.dataset.state = higher.length ? 'higher' : 'ok';
     checkBox.innerHTML = higher.length ? html`<div class="callout info card-check">
-      <strong>The customer qualifies for a higher card.</strong> A salary of AED ${salary.toLocaleString()} meets the requirement for ${higher.length} ${higher.length === 1 ? 'card' : 'cards'} above ${opt.dataset.category || 'this one'}. Consider offering one:
+      <strong>The customer qualifies for a higher card.</strong> A${inc.word === 'salary' ? '' : 'n'} ${inc.word} of AED ${salary.toLocaleString()} meets the requirement for ${higher.length} ${higher.length === 1 ? 'card' : 'cards'} above ${opt.dataset.category || 'this one'}. Consider offering one:
       <div class="chips" style="margin-top:8px">${higher.slice(0, 6).map((k) => html`<button type="button" class="chip" data-pick-card="${k.name}" title="Needs AED ${k.min_salary.toLocaleString()}">${k.name} · ${k.category}</button>`)}${higher.length > 6 ? html`<span class="muted small" style="align-self:center">and ${higher.length - 6} more in the card list</span>` : ''}</div>
     </div>`.s : html`<p class="muted small" style="margin:8px 0 0">Salary meets the AED ${min.toLocaleString()} requirement for this card.</p>`.s;
     checkBox.querySelectorAll('[data-pick-card]').forEach((b) => (b.onclick = () => { cardSelect.value = b.dataset.pickCard; syncCard(); }));
@@ -1479,6 +1481,7 @@ async function viewCaseForm(id, leadId = null) {
     $('label[for=f-salary]').firstChild.textContent = l.amount;
     $('label[for=f-salary_bank]').firstChild.textContent = `${l.bank} `;
     salaryBank.options[0].textContent = l.choose;
+    checkCardSalary();
   };
   const salaryBankOther = $('#f-salary_bank_other');
   salaryBank.onchange = () => { const other = salaryBank.value === OTHER_BANK; salaryBankOther.hidden = !other; salaryBankOther.disabled = !other; salaryBankOther.required = other; if (other) salaryBankOther.focus(); };
@@ -1616,7 +1619,7 @@ async function viewCaseForm(id, leadId = null) {
     }
     const check = document.getElementById('card-salary-check');
     if (check?.dataset.state === 'below' && !form.querySelector('[name=card_salary_exception]:checked')) {
-      if (!confirm('No reason chosen for selling this card below its salary requirement. Send the file to your team leader / sales manager for approval before verification?')) return;
+      if (!confirm(`No reason chosen for selling this card below its requirement (the customer's ${incomeLabelsFor($('#f-customer_type').value).word}). Send the file to your team leader / sales manager for approval before verification?`)) return;
     }
     try {
       const body = formData(form);
@@ -1700,7 +1703,7 @@ async function viewCase(id) {
       ${label(c.incomplete_reason)}${c.incomplete_note ? `: ${c.incomplete_note}` : ''} <span class="muted">— ${c.assigned_to_name}</span></div>`;
   } else if (c.status === 'awaiting_approval') {
     const reasons = [];
-    if (a.has('approve_card') || (c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary == null || c.salary < c.card_min_salary))) reasons.push(html`<div>${c.credit_card} needs a monthly salary of AED ${fmtAmount(c.card_min_salary)} and the customer's salary is below it. No product deviation or promotion was chosen.</div>`);
+    if (a.has('approve_card') || (c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary == null || c.salary < c.card_min_salary))) reasons.push(html`<div>${c.credit_card} needs a${incomeLabelsFor(c.customer_type).word === 'salary' ? '' : 'n'} ${incomeLabelsFor(c.customer_type).need} of AED ${fmtAmount(c.card_min_salary)} and the customer's ${incomeLabelsFor(c.customer_type).word} is below it. No product deviation or promotion was chosen.</div>`);
     if (c.timing_flag && !c.timing_approved_at) reasons.push(html`<div>${String(c.timing_flag).split(',').map((f) => state.meta.timing_flags?.[f] || f).join(' and ')}: files sourced on a Sunday or entered after 6 pm need the team's approval.</div>`);
     banner = html`<div class="callout warn"><strong>Awaiting team leader / sales manager approval</strong>${reasons}<div class="muted small">The file waits for the team's decision before verification.</div></div>`;
   } else if (c.status === 'returned_to_sales') {
@@ -1769,8 +1772,8 @@ async function viewCase(id) {
   }
   if (a.has('release')) panel.push(html`<hr><button data-action="release">Release back to queue</button>`);
   if (a.has('approve_card')) {
-    panel.push(html`<h3>Card below salary requirement</h3>
-      <p class="muted small">${c.credit_card} needs AED ${fmtAmount(c.card_min_salary)} a month. Record why it is being sold and send the file for verification, or return it to ${c.sales_staff_name || 'sales'}.</p>
+    panel.push(html`<h3>Card below ${incomeLabelsFor(c.customer_type).word} requirement</h3>
+      <p class="muted small">${c.credit_card} needs AED ${fmtAmount(c.card_min_salary)}${c.customer_type === 'self_employed' ? ' average balance' : ' a month'}. Record why it is being sold and send the file for verification, or return it to ${c.sales_staff_name || 'sales'}.</p>
       <form data-form="card_approval">
         <div class="segmented two-up" role="radiogroup" aria-label="Reason">
           ${Object.entries(state.meta.card_exceptions).map(([k, l]) => html`<label><input type="radio" name="exception" value="${k}"><span>${l}</span></label>`)}
@@ -2020,7 +2023,7 @@ async function viewCase(id) {
             ${c.credit_card ? html`<dt>Credit card</dt><dd><strong>${c.credit_card}</strong></dd>` : ''}
             ${c.card_category ? html`<dt>Card category</dt><dd><strong>${c.card_category}</strong>${c.card_points != null ? html` <span class="muted">· ${c.card_points} points</span>` : ''}</dd>` : ''}
             ${c.timing_flag ? html`<dt>Sourcing timing</dt><dd>${String(c.timing_flag).split(',').map((f) => state.meta.timing_flags?.[f] || f).join(' and ')} · ${c.timing_approved_at ? html`<span class="chip good">Approved by ${c.timing_approved_by_name} · ${fmtDate(c.timing_approved_at)}</span>${c.timing_note ? html`<div class="muted small">${c.timing_note}</div>` : ''}` : html`<span class="chip warn">Awaiting team approval</span>`}</dd>` : ''}
-            ${c.credit_card && c.card_min_salary != null ? html`<dt>Salary check</dt><dd>Card needs AED ${fmtAmount(c.card_min_salary)} a month · ${c.card_salary_exception || c.status === 'awaiting_approval' ? html`<span class="chip bad">Customer below requirement</span>` : html`<span class="chip good">Customer meets requirement</span>`}</dd>` : ''}
+            ${c.credit_card && c.card_min_salary != null ? html`<dt>${c.customer_type === 'self_employed' ? 'Average balance' : 'Salary'} check</dt><dd>Card needs AED ${fmtAmount(c.card_min_salary)}${c.customer_type === 'self_employed' ? '' : ' a month'} · ${c.card_salary_exception || c.status === 'awaiting_approval' ? html`<span class="chip bad">Customer below requirement</span>` : html`<span class="chip good">Customer meets requirement</span>`}</dd>` : ''}
             ${c.card_salary_exception ? html`<dt>Sold as</dt><dd><strong>${state.meta.card_exceptions[c.card_salary_exception] || c.card_salary_exception}</strong><div class="muted small">by ${c.card_exception_by_name || '—'} on ${fmtDate(c.card_exception_at)}${c.card_exception_note ? ` · ${c.card_exception_note}` : ''}</div></dd>` : ''}
             ${c.card_fee_type ? html`<dt>Card sourced type</dt><dd><strong>${state.meta.card_fee_types[c.card_fee_type] || c.card_fee_type}</strong></dd>` : ''}
             ${c.auto_loan_type ? html`<dt>Auto loan</dt><dd><strong>${state.meta.auto_loan_types[c.auto_loan_type] || c.auto_loan_type} car</strong>${c.al_payout_class && c.al_payout_class !== 'full' ? html` · <span class="chip warn">${(state.meta.auto_loan_classes || {})[c.al_payout_class] || c.al_payout_class}</span>` : ''} · ${[c.car_make, c.car_model, c.car_year].filter(Boolean).join(' ')}${c.dealer_details ? html`<div class="muted small">Dealer: ${c.dealer_details}</div>` : ''}${c.al_lead_source ? html`<div class="muted small">Lead source: ${c.al_lead_source}</div>` : ''}</dd>` : ''}
