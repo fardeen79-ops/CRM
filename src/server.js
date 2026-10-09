@@ -9,6 +9,7 @@ import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
 import * as assets from './assets.js';
 import * as roles from './roles.js';
+import { dashboardFor } from './dashboard.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
@@ -217,6 +218,8 @@ function routes(db, dispatch, bot) {
     })],
 
     ['GET', /^\/api\/stats$/, async ({ user, query }) => cases.stats(db, user, { region: query.get('region') })],
+    // The signed-in user's own dashboard: this cycle, the last six, and the incentive so far.
+    ['GET', /^\/api\/dashboard$/, async ({ user, query }) => dashboardFor(db, user, { region: query.get('region') })],
 
     // The sales hierarchy for a cycle, rolled up at every level the viewer may see (?cycle=&region=).
     ['GET', /^\/api\/hierarchy$/, async ({ user, query }) => performance.hierarchy(db, user, { cycle: query.get('cycle'), region: query.get('region') })],

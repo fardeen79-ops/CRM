@@ -25,6 +25,10 @@ npm start
 
 Run the tests with `npm test`.
 
+## Each user's dashboard
+
+The landing page is personal. It opens with the sales cycle (day, days left) and the person's own achievement against target with progress bars (a leader's or manager's team, everything for MIS and business heads), the **incentive so far** for the people who earn one, and a **six-cycle trend** of files sourced and completed in their scope, with the numbers available as a table. Then only what **needs their attention** (returned files, pending verifications, edit requests, approvals, urgent flags), the role's work list, a compact row of **file counts** for the cycle, and the team table for leaders. Business heads and Dubai MIS also see the payout from the bank. `GET /api/dashboard` returns the cycle, counts, trend and incentive for the signed-in user.
+
 ## Case workflow
 
 ```

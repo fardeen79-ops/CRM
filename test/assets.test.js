@@ -144,3 +144,15 @@ test('returned to bank: a status with a date, in the register, the upload and th
   assert.equal((await it('GET', '/assets?status=returned_to_bank')).data.assets.length, 2);
   assert.equal((await it('GET', '/assets')).data.summary.returned_to_bank, 2);
 });
+
+test('each user gets their own dashboard data: cycle, file counts in scope, six-cycle trend, incentive', async () => {
+  const dana = await login('dana@t.local');
+  const it = await login('it@t.local');
+  const d = (await dana('GET', '/dashboard')).data;
+  assert.ok(/^\d{4}-\d{2}$/.test(d.cycle) && d.days >= 28 && d.days_left >= 0 && d.day >= 1);
+  assert.deepEqual(Object.keys(d.files).sort(), ['applicant_review', 'awaiting_approval', 'completed', 'in_verification', 'open', 'rejected', 'returned', 'sourced', 'verification_pending']);
+  assert.equal(d.trend.length, 6);
+  assert.equal(d.trend[5].cycle, d.cycle);
+  assert.ok(d.incentive === null || typeof d.incentive.total === 'number');
+  assert.equal((await it('GET', '/dashboard')).status, 403);
+});

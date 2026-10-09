@@ -76,7 +76,7 @@ const canPickRegion = () => Boolean(state.user) && REGION_ROLES.includes(state.u
 const loadRegion = () => { try { state.region = localStorage.getItem('crm-region') || ''; } catch { state.region = ''; } };
 const saveRegion = (r) => { state.region = r; try { r ? localStorage.setItem('crm-region', r) : localStorage.removeItem('crm-region'); } catch { /* storage blocked */ } };
 // Reads that follow the region view when one is chosen.
-const REGION_PATHS = /^\/(cases|stats|targets|hierarchy|reports\/)/;
+const REGION_PATHS = /^\/(cases|stats|dashboard|targets|hierarchy|reports\/)/;
 
 // ---------- helpers ----------
 const esc = (v) =>
@@ -524,12 +524,49 @@ async function route() {
 }
 
 // ---------- dashboard ----------
+// The incentive so far this cycle, for the people who earn one.
+const INCENTIVE_TYPE = { credit_card: 'credit cards', personal_loan: 'personal loans', auto_loan: 'auto loans', cc_team_leader: 'card team', pl_team_leader: 'loan team', cc_sales_manager: 'card teams', pl_sales_manager: 'loan teams' };
+function incentiveTile(inc) {
+  return html`<a class="card dash-incentive" href="#/targets">
+    <div class="kpi-label">Incentive so far</div>
+    <div class="kpi-value">AED ${fmtAmount(inc.total)}</div>
+    <div class="muted small">${inc.parts.map((p) => `${INCENTIVE_TYPE[p.type] || p.type} AED ${fmtAmount(p.amount)}`).join(' · ')}</div>
+    <div class="muted small">Subject to the conditions on My targets.</div>
+  </a>`;
+}
+
+// Files sourced and completed over the last six cycles: two thin bars per cycle, a legend, direct
+// labels on the current cycle, a tooltip on hover and the numbers as a table underneath.
+function trendCard(trend, r) {
+  if (!trend?.length) return '';
+  const W = 600; const H = 190; const padL = 8; const padB = 34; const padT = 26;
+  const max = Math.max(1, ...trend.flatMap((t) => [t.sourced, t.completed]));
+  const slot = (W - padL * 2) / trend.length;
+  const bw = Math.min(26, slot * 0.3);
+  const y = (v) => padT + (H - padT - padB) * (1 - v / max);
+  const bar = (x, v, cls, label) => html`<g class="tbar ${cls}"><title>${label}: ${v}</title><rect x="${x}" y="${y(v)}" width="${bw}" height="${Math.max(0, H - padB - y(v))}" rx="4" ry="4"></rect></g>`;
+  const last = trend.length - 1;
+  return html`<div class="card dash-trend">
+    <div class="card-head"><h2>${r === 'sales' ? 'My last six cycles' : 'Last six cycles'}</h2>
+      <div class="legend small"><span class="swatch sourced"></span> Sourced <span class="swatch completed"></span> Completed</div></div>
+    <svg viewBox="0 0 ${W} ${H}" class="trend" role="img" aria-label="Files sourced and completed per cycle">
+      ${[0.5, 1].map((f) => html`<line x1="${padL}" x2="${W - padL}" y1="${y(max * f)}" y2="${y(max * f)}" class="grid"></line>`)}
+      ${trend.map((t, i) => { const cx = padL + slot * i + slot / 2; return html`
+        ${bar(cx - bw - 1, t.sourced, 'sourced', `${t.label} sourced`)}
+        ${bar(cx + 1, t.completed, 'completed', `${t.label} completed`)}
+        ${i === last ? html`<text x="${cx - bw / 2 - 1}" y="${y(t.sourced) - 6}" class="val" text-anchor="middle">${t.sourced}</text><text x="${cx + bw / 2 + 1}" y="${y(t.completed) - 6}" class="val" text-anchor="middle">${t.completed}</text>` : ''}
+        <text x="${cx}" y="${H - 12}" class="axis ${i === last ? 'now' : ''}" text-anchor="middle">${t.label.replace(/ 20\d\d$/, '')}</text>`; })}
+    </svg>
+    <details class="small"><summary class="muted">Numbers</summary>${miniTable(['Cycle', 'Sourced', 'Completed'], trend.map((t) => [t.label, t.sourced, t.completed]))}</details>
+  </div>`;
+}
+
 async function viewDashboard() {
   const r = effRole();
   // Targets for the current sales cycle, for the people who have them.
   const hasTargets = ['sales', 'team_leader', 'sales_manager', 'mis', 'business_head'].includes(r);
   const hasTeam = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
-  const [s, cyc, team] = await Promise.all([api('/stats'), hasTargets ? api('/targets') : null, hasTeam ? api('/hierarchy').catch(() => null) : null]);
+  const [s, cyc, team, dash] = await Promise.all([api('/stats'), hasTargets ? api('/targets') : null, hasTeam ? api('/hierarchy').catch(() => null) : null, api('/dashboard').catch(() => null)]);
   const by = s.by_status;
   const cs = s.by_case_status;
   const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
@@ -613,10 +650,20 @@ async function viewDashboard() {
     </a>`)}
   </div>`;
 
+  const d = dash || { files: {}, trend: [], incentive: null };
+  const attention = r === 'processing' ? verifyTiles : verifyTiles.filter((t) => t[3]);
+  const fileTiles = [
+    ['Sourced', d.files.sourced, `#/cases?cycle=${d.cycle}`, false, 'this cycle'],
+    ['Completed', d.files.completed, `#/cases?cycle=${d.cycle}&case_status=completed`, false, 'this cycle'],
+    ['In verification', d.files.in_verification, '#/cases?status=in_verification', false, 'awaiting or in progress'],
+    ['Returned to sales', d.files.returned, '#/cases?status=returned_to_sales', d.files.returned > 0, 'need correction'],
+    ['Applicant review', d.files.applicant_review, '#/cases?case_status=applicant_review', false, 'open'],
+    ['Rejected', d.files.rejected, `#/cases?cycle=${d.cycle}&case_status=rejected`, false, 'this cycle'],
+  ];
   shell(html`
     <div class="page-head dash-head">
       <div>
-        <div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · ${ROLE_LABEL[state.user.role_key || state.user.role]}${state.region ? ` · ${state.meta.regions[state.region]}` : canPickRegion() ? ' · All regions' : ''}</div>
+        <div class="eyebrow">${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} · ${ROLE_LABEL[state.user.role_key || state.user.role]}${state.region ? ` · ${state.meta.regions[state.region]}` : ''}</div>
         <h1>Hello, ${state.user.name.split(' ')[0]}</h1>
         <p class="muted lede">${intro}</p>
       </div>
@@ -635,18 +682,23 @@ async function viewDashboard() {
       ['Average score', s.governance.avg_score ?? '—', '#/cases', false, 'out of 10'],
       ['Complaints', s.governance.complaints, '#/cases'],
     ])}` : ''}
-    ${cyc ? html`<h2 class="tiles-head">${cycleName(cyc.cycle)} cycle · ${cycleSpan(cyc.cycle)} · ${cyc.days_left} ${cyc.days_left === 1 ? 'day' : 'days'} left <a class="tiles-link" href="#/targets">${r === 'sales' ? 'My targets' : 'Targets'} →</a></h2>
-      ${targetTiles(cyc, cyc.total)}` : ''}
+    <h2 class="tiles-head">${d.label} cycle · day ${d.day} of ${d.days} · ${d.days_left} ${d.days_left === 1 ? 'day' : 'days'} left ${cyc ? html`<a class="tiles-link" href="#/targets">${r === 'sales' ? 'My targets' : 'Targets'} →</a>` : ''}</h2>
+    ${cyc ? targetTiles(cyc, cyc.total) : ''}
+    <div class="grid two-col dash-row">
+      ${d.incentive ? incentiveTile(d.incentive) : ''}
+      ${trendCard(d.trend, r)}
+    </div>
     ${s.revenue ? html`<h2 class="tiles-head">Payout from the bank · ${cycleName(s.revenue.cycle)} cycle</h2>${tileGrid([
       ['Earned', `AED ${fmtAmount(s.revenue.completed_aed)}`, '#/reports?report=sourcing&run=1', false, `${s.revenue.completed_files} ${s.revenue.completed_files === 1 ? 'file' : 'files'} completed this cycle`],
       ['In the pipeline', `AED ${fmtAmount(s.revenue.pipeline_aed)}`, '#/cases', false, `${s.revenue.pipeline_files} open ${s.revenue.pipeline_files === 1 ? 'file' : 'files'}, if all complete`],
     ])}` : ''}
-    ${statusOverview(cs, s.total)}
-    ${team && team.nodes.length ? html`<div class="card team-card"><div class="card-head"><h2>${team.levels[0] === 'staff' ? 'My team' : `By ${team.level_labels[team.levels[0]].toLowerCase()}`} · ${cycleName(team.cycle)} cycle</h2><a class="tiles-link" href="#/team">Full team view →</a></div>
-      ${teamTable({ ...team, nodes: team.nodes.map((n) => ({ ...n, children: [] })) })}</div>` : ''}
-    <h2 class="tiles-head">Verification</h2>
-    ${tileGrid(verifyTiles)}
-    ${oversight ? html`<div class="grid two-col"><div>${main}</div><div>${teamTables}</div></div>` : main}`);
+    <h2 class="tiles-head">${r === 'processing' ? 'Your queue' : 'Needs your attention'}</h2>
+    ${attention.length ? tileGrid(attention) : html`<p class="muted small dash-quiet">Nothing is waiting on you right now.</p>`}
+    ${main}
+    <h2 class="tiles-head">${r === 'sales' ? 'My files' : r === 'processing' ? 'Files' : 'Files in your scope'} <a class="tiles-link" href="#/cases">All cases →</a></h2>
+    ${tileGrid(fileTiles)}
+    ${team && team.nodes.length ? html`<div class="card team-card"><div class="card-head"><h2>${team.levels[0] === 'staff' ? 'My team' : `By ${team.level_labels[team.levels[0]].toLowerCase()}`} · ${cycleName(team.cycle)} cycle</h2><a class="tiles-link" href="#/team">Team view →</a></div>
+      ${teamTable({ ...team, nodes: team.nodes.map((n) => ({ ...n, children: [] })) })}</div>` : ''}`);
   bindRows();
 }
 
