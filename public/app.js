@@ -2433,6 +2433,8 @@ async function viewTargets(cycleParam) {
     ${targetTiles(rep, rep.total)}
     ${r === 'sales' ? html`<p><a href="${casesLink()}">View my completed cases in this cycle →</a></p>` : ''}
     ${mine?.incentive ? (mine.type === 'personal_loan' ? plIncentiveCard(mine) : mine.type === 'auto_loan' ? alIncentiveCard(mine) : incentiveCard(mine)) : ''}
+    ${mine && r === 'sales' && !mine.incentive ? html`<div class="callout info"><strong>No incentive scheme applies to you yet.</strong> ${state.user.core_product === 'multi_product' ? 'The schemes cover core credit card, personal loan and auto loan staff; a scheme for multi product staff has not been defined.' : 'Your core product is not set on your profile. Ask MIS to set it to Credit Cards, Personal Loans or Auto Loans and the matching scheme will show here.'}</div>` : ''}
+    ${mine && r !== 'sales' && !(mine.teams || []).length ? html`<div class="callout info"><strong>No incentive scheme applies to your team yet.</strong> Leaders and managers earn on core credit card and core personal loan staff; there is no scheme for auto loan or multi product teams.</div>` : ''}
       ${(mine?.teams || []).map((t) => ({ pl_team_leader: plTlIncentiveCard, cc_team_leader: tlIncentiveCard, cc_sales_manager: smIncentiveCard, pl_sales_manager: plSmIncentiveCard }[t.type])({ ...mine, incentive: t.incentive }))}
     ${groupTable('By team leader', rep.by_team_leader)}
     ${groupTable('By sales manager', rep.by_sales_manager)}
