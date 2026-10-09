@@ -380,7 +380,8 @@ function releaseHeldFiles(db, userId) {
 
 /**
  * The history as staff see it. While the switch is on, a held file reads as verified: its hold shows
- * as an ordinary verification, and earlier holds and releases are left out. With the switch off the
+ * as an ordinary verification by the processing team (not the person who pressed the button), and
+ * earlier holds and releases are left out. With the switch off the
  * full history shows. The stored events never change.
  */
 export function presentEvents(row, events, switchOn) {
@@ -388,7 +389,7 @@ export function presentEvents(row, events, switchOn) {
   const latestHold = row.tat_override_from ? events.filter((e) => e.type === 'tat_hold').reduce((a, e) => (!a || e.id > a.id ? e : a), null) : null;
   return events
     .filter((e) => !['tat_hold', 'tat_release'].includes(e.type) || e === latestHold)
-    .map((e) => (e === latestHold ? { ...e, type: 'complete', detail: null } : e));
+    .map((e) => (e === latestHold ? { ...e, type: 'complete', detail: null, user_id: null, user_name: 'Processing team', user_role: null } : e));
 }
 
 export function tatSwitchStatus(db, user) {

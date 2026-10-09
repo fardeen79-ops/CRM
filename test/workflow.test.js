@@ -317,6 +317,8 @@ test('TAT switch: business heads and Dubai MIS hold late files as completed, and
   assert.equal(held.case_status, 'sent_to_check'); // verification only
   // While the switch is on the file reads as verified: history, verification time and reports.
   assert.equal(held.events[0].type, 'complete');
+  assert.equal(held.events[0].user_name, 'Processing team');
+  assert.equal(held.stages.rows.at(-2).moved_by, 'Processing team');
   assert.ok(!held.events.some((e) => e.type.startsWith('tat_')));
   assert.ok(held.verified_at);
   assert.equal(held.stages.rows.at(-1).stage, 'with_bank');
