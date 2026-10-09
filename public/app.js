@@ -589,7 +589,34 @@ function potentialBlock(p, { unit, scheme }) {
       : scheme === 'pl' && p.next_band ? html` ${nothingOpen ? 'You are earning: the' : 'The'} next band, ${p.next_band.label} at ${p.next_band.rate.toFixed(2)}%, is ${u(p.next_band.short_by)} away.`
       : html` ${nothingOpen ? 'You are past the target: every' : 'Every'} further ${unit === 'aed' ? 'dirham' : 'point'} ${nothingOpen ? '' : 'beyond that '}is paid.`}
     ${scheme === 'pl' && p.cards_needed_after > 0 && p.open_cards + (p.cards_sold || 0) ? html` <span class="muted">Cards cross-sold pay once production reaches the threshold: ${u(p.cards_needed_after)} to go.</span>` : ''}
+    ${pushLine(p, { unit, scheme, needed })}
   </div>`;
+}
+
+// The push: what the next step is worth in dirhams, so the gap reads as money within reach.
+function pushLine(p, { unit, scheme, needed }) {
+  if (scheme === 'pl' && p.next_band) {
+    const nb = p.next_band;
+    const atBand = Math.round((nb.from * nb.rate) / 100);
+    if (needed > 0) {
+      return html`<div class="push"><strong>Worth it:</strong> reach AED ${fmtAmount(nb.from)} and the whole production pays ${nb.rate.toFixed(2)}%, that is <strong>AED ${fmtAmount(atBand)}</strong> in hand, and every extra AED 100,000 adds AED ${fmtAmount(Math.round(100000 * nb.rate / 100))}.</div>`;
+    }
+    const nowAed = p.incentive_aed ?? 0;
+    return html`<div class="push"><strong>Worth it:</strong> AED ${fmtAmount(nb.short_by)} more lifts the whole production to ${nb.rate.toFixed(2)}%: about <strong>AED ${fmtAmount(atBand)}</strong> instead of AED ${fmtAmount(nowAed)}.</div>`;
+  }
+  if (scheme === 'cc' && p.rate != null) {
+    const per100 = Math.round(100 * p.rate);
+    return needed > 0
+      ? html`<div class="push"><strong>Worth it:</strong> every point past the target pays AED ${p.rate.toFixed(2)}; the first 1,000 points beyond it are <strong>AED ${fmtAmount(per100 * 10)}</strong>. One more Premium card is usually several hundred points.</div>`
+      : html`<div class="push"><strong>Keep going:</strong> every 100 points you add now is another <strong>AED ${fmtAmount(per100)}</strong>.</div>`;
+  }
+  if (scheme === 'al' && p.multiplier != null) {
+    const perLoan = Math.round(100000 * 0.8 / 100 * p.multiplier); // a AED 100,000 new or used car loan
+    return needed > 0
+      ? html`<div class="push"><strong>Worth it:</strong> past the target, every point pays AED ${p.multiplier.toFixed(2)}; a AED 100,000 car loan is 800 points, about <strong>AED ${fmtAmount(perLoan)}</strong>.${p.full_payout_met ? '' : ' Reaching AED 250,000 of new and used car disbursal lifts the rate to AED 1.10 a point.'}</div>`
+      : html`<div class="push"><strong>Keep going:</strong> each further AED 100,000 car loan is about <strong>AED ${fmtAmount(perLoan)}</strong> more.</div>`;
+  }
+  return '';
 }
 
 // The submission calendar: one cell per day of the cycle. Sales: green with a submission, red without.

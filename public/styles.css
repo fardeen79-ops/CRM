@@ -786,3 +786,6 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .cal-date { font-weight: 600; } .cal-n { font-size: 10px; opacity: .9; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --cal-off: #2a2342; } }
 :root[data-theme="dark"] { --cal-off: #2a2342; }
+.incentive-potential .push { margin-top: 6px; }
+/* In the potential block only the opening sentence is a heading; bold figures inside sentences stay inline. */
+.incentive-potential strong:not(:first-child) { display: inline; margin: 0; }
