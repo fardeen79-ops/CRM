@@ -590,12 +590,9 @@ export function importCards(db, user, csv, { dryRun = false } = {}) {
     const ref = v.reference.trim();
     if (!ref) throw new Error('Reference is required');
     const idMatch = ref.match(/^crm-?0*(\d+)$/i);
-    const eid = ref.replace(/[\s-]/g, '');
     const matches = idMatch
       ? db.prepare('SELECT * FROM cases WHERE id = ?').all(Number(idMatch[1]))
-      : /^784\d{12}$/.test(eid)
-        ? db.prepare("SELECT * FROM cases WHERE REPLACE(eid_number, '-', '') = ?").all(eid)
-        : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE').all(ref);
+      : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE').all(ref);
     const cards = matches.filter((c) => c.case_status === 'completed' && includesCard(c));
     if (!matches.length) throw new Error(`No case found for ${ref}`);
     if (!cards.length) throw new Error(`${ref} is not a completed credit card case (${matches.map((c) => caseRef(c.id)).join(', ')})`);

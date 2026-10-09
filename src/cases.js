@@ -347,7 +347,7 @@ export const ACTIONS = {
 const TEXT_FIELDS = {
   salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, salary_bank: 200,
   phone: 30, alt_phone: 30, email: 200, address: 2000, city: 100, source: 200, sales_notes: 2000,
-  eid_number: 30, passport_number: 30, bidaya_id: 50, app_id: 50,
+  bidaya_id: 50, app_id: 50,
 };
 const PRODUCT_FIELDS = [
   'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank',
@@ -596,16 +596,6 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
     }
   }
 
-  if (out.eid_number) {
-    // Emirates ID: 15 digits starting 784, stored as 784-YYYY-NNNNNNN-C.
-    const d = out.eid_number.replace(/[\s-]/g, '');
-    if (!/^784\d{12}$/.test(d)) throw new WorkflowError(400, 'Emirates ID must be 15 digits starting with 784 (784-YYYY-NNNNNNN-C)');
-    out.eid_number = `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7, 14)}-${d.slice(14)}`;
-  }
-  if (out.passport_number) {
-    out.passport_number = out.passport_number.replace(/\s/g, '').toUpperCase();
-    if (!/^[A-Z0-9]{5,20}$/.test(out.passport_number)) throw new WorkflowError(400, 'Passport number should be 5–20 letters and digits');
-  }
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
   if (has('salary')) out.salary = parseNumber(input.salary, 'Salary');
   if (has('sourcing_date')) {
@@ -737,7 +727,7 @@ const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: p
 const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.parse(text); } catch { return []; } };
 
 // Personal details that only some people may see once a file is submitted.
-export const SENSITIVE_FIELDS = ['company_name', 'salary', 'eid_number', 'passport_number'];
+export const SENSITIVE_FIELDS = ['company_name', 'salary'];
 // What sales staff can no longer see on a file once it is submitted: the customer's phone numbers.
 // They type a replacement if a number is wrong; the processors do the calling.
 export const SALES_HIDDEN_FIELDS = ['phone', 'alt_phone'];
@@ -758,13 +748,11 @@ export function canViewSensitive(user, row) {
 
 // Personal identifiers are masked on every screen until someone chooses to reveal them, which is
 // logged. Masks keep enough to recognise the record: the last digits.
-export const MASKED_FIELDS = ['phone', 'alt_phone', 'eid_number', 'passport_number', 'salary'];
+export const MASKED_FIELDS = ['phone', 'alt_phone', 'salary'];
 export function maskValue(field, value) {
   if (value == null || value === '') return value;
   const s = String(value);
   if (field === 'salary') return 'AED ••,•••';
-  if (field === 'eid_number') return s.replace(/^(784-)?(\d{4})-(\d{7})-(\d)$/, (_, p, y, n, c) => `784-••••-••••${n.slice(-3)}-${c}`);
-  if (field === 'passport_number') return s.length > 3 ? `${s[0]}${'•'.repeat(s.length - 3)}${s.slice(-2)}` : '•••';
   // Phone numbers: keep the spacing and the last four digits.
   return s.replace(/\d(?=(?:\D*\d){4})/g, '•');
 }
@@ -947,9 +935,8 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
   if (q) {
     const term = `%${String(q).trim()}%`;
     const idMatch = String(q).match(/^(?:crm-)?0*(\d+)$/i);
-    // Searching sensitive fields is limited to files where the viewer may see them, so a match
-    // cannot reveal a hidden Emirates ID, passport number or employer.
-    const sensitive = '(c.company_name LIKE ? OR c.eid_number LIKE ? OR REPLACE(c.eid_number, \'-\', \'\') LIKE ? OR c.passport_number LIKE ?)';
+    // Searching the employer is limited to files where the viewer may see it, so a match cannot reveal a hidden company.
+    const sensitive = '(c.company_name LIKE ?)';
     let sensitiveClause = '';
     if (user.role === 'processing') {
       sensitiveClause = ` OR (c.status IN (${PROCESSOR_SENSITIVE_STATUSES.map(() => '?').join(',')}) AND ${sensitive})`;
@@ -961,7 +948,7 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
       OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${user.role === 'sales' ? '' : ' OR c.phone LIKE ? OR c.complaint_number LIKE ?'}${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
     params.push(...Array(user.role === 'sales' ? 9 : 11).fill(term));
     if (user.role === 'processing') params.push(...PROCESSOR_SENSITIVE_STATUSES);
-    if (sensitiveClause) params.push(...Array(4).fill(term));
+    if (sensitiveClause) params.push(term);
     if (idMatch) params.push(Number(idMatch[1]));
   }
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
@@ -971,7 +958,7 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
 }
 
 // The sales person read the number aloud and it matched the box: noted on the timeline.
-const READ_BACK_LABELS = { eid_number: 'Emirates ID', passport_number: 'passport number' };
+const READ_BACK_LABELS = {};
 function recordReadBack(db, caseId, userId, fields) {
   const checked = [].concat(fields || []).filter((f) => READ_BACK_LABELS[f]);
   if (checked.length) addEvent(db, caseId, userId, 'read_back', { detail: `${checked.map((f) => READ_BACK_LABELS[f]).join(' and ')} read aloud and matched` });

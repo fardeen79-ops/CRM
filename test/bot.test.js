@@ -71,7 +71,7 @@ async function botResult(url, payload, { signature } = {}) {
 const newCase = { fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
   first_name: 'Asha', last_name: 'Rao', phone: '0501234567', region: 'DXB', core_product: 'personal_loan',
   product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 150000, interest_rate: 6.5, pl_tenure: 48,
-  company_name: 'Emirates Steel', salary: 25000, eid_number: '784-1990-1234567-1',
+  company_name: 'Emirates Steel', salary: 25000,
 };
 
 test('bot call: request, signed result, logged on the case; the processor sets the result', async () => {
@@ -94,8 +94,7 @@ test('bot call: request, signed result, logged on the case; the processor sets t
   const sent = botRequests[0];
   assert.equal(sent.signature, sign(SECRET, sent.body), 'the request to the bot is signed');
   assert.equal(sent.json.customer.phone, '0501234567');
-  assert.deepEqual(sent.json.checks.map((c) => c.key), ['full_name', 'product', 'company_name', 'salary', 'eid_last4']);
-  assert.equal(sent.json.checks.find((c) => c.key === 'eid_last4').expected, '5671');
+  assert.deepEqual(sent.json.checks.map((c) => c.key), ['full_name', 'product', 'company_name', 'salary']);
   const callback = sent.json.callback_url;
   assert.match(callback, /\/api\/bot\/calls\/[a-f0-9]{48}$/);
 
@@ -128,7 +127,7 @@ test('bot call: request, signed result, logged on the case; the processor sets t
   assert.equal(c.status, 'in_verification', 'the bot never sets the verification result');
   assert.equal(c.call_attempts, 1);
   assert.equal(c.bot_call.status, 'completed');
-  assert.deepEqual(c.bot_call.checks.map((x) => x.result), ['confirmed', 'confirmed', 'mismatch', 'confirmed', 'not_answered']);
+  assert.deepEqual(c.bot_call.checks.map((x) => x.result), ['confirmed', 'confirmed', 'mismatch', 'confirmed']);
   assert.equal(c.bot_call.recording_url, 'https://bot.example/rec/1.mp3');
   const event = c.events.find((e) => e.type === 'bot_call_result');
   assert.match(event.note, /1 detail did not match: Employer/);

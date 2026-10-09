@@ -526,6 +526,9 @@ function migrate(db) {
     db.exec(SCHEMA);
     for (const r of old) for (const p of ['credit_card', 'personal_loan', 'auto_loan']) db.prepare('INSERT INTO processor_allocations (team_leader_id, product, processor_id, set_by, set_at) VALUES (?, ?, ?, ?, ?)').run(r.team_leader_id, p, r.processor_id, r.set_by, r.set_at);
   }
+  // Emirates ID and passport numbers are no longer kept: anything stored before is wiped.
+  db.exec('UPDATE cases SET eid_number = NULL, passport_number = NULL WHERE eid_number IS NOT NULL OR passport_number IS NOT NULL');
+  db.exec("DELETE FROM access_log WHERE what IN ('reveal:eid_number', 'reveal:passport_number')");
   const leadCols = db.prepare('PRAGMA table_info(leads)').all().map((c) => c.name);
   if (!leadCols.includes('follow_up_time')) db.exec('ALTER TABLE leads ADD COLUMN follow_up_time TEXT');
   const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);

@@ -23,3 +23,17 @@ test('a first-release database opens and gains the newer columns', () => {
   db.exec("UPDATE users SET role = 'it' WHERE email = 'old@x.local'");
   db.close();
 });
+
+test('Emirates ID and passport numbers stored before are wiped when the database opens', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'crm-wipe-')), 'old.db');
+  let db = openDb(file);
+  db.exec("INSERT INTO users (name, email, role, password_hash) VALUES ('S', 's@x.local', 'sales', 'x')");
+  db.exec("INSERT INTO cases (customer_name, phone, product, status, created_by, eid_number, passport_number) VALUES ('C', '0501234567', 'credit_card', 'pending_verification', 1, '784-1990-1234567-1', 'N1234567')");
+  db.exec("INSERT INTO access_log (user_id, case_id, what, at) VALUES (1, 1, 'reveal:eid_number', '2026-10-01T00:00:00.000Z')");
+  db.close();
+  db = openDb(file);
+  const wiped = db.prepare('SELECT eid_number, passport_number FROM cases').get();
+  assert.deepEqual([wiped.eid_number, wiped.passport_number], [null, null]);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM access_log WHERE what LIKE 'reveal:eid%'").get().n, 0);
+  db.close();
+});

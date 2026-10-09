@@ -38,8 +38,6 @@ export function verificationChecks(row) {
   if (product) checks.push({ key: 'product', label: 'Product applied for', question: 'Which product did you apply for?', expected: product });
   if (row.company_name) checks.push({ key: 'company_name', label: 'Employer', question: 'What is the name of the company you work for?', expected: row.company_name });
   if (row.salary != null) checks.push({ key: 'salary', label: 'Monthly salary', question: 'What is your monthly salary in AED?', expected: String(row.salary) });
-  const eid = String(row.eid_number || '').replace(/\D/g, '');
-  if (eid) checks.push({ key: 'eid_last4', label: 'Emirates ID (last 4 digits)', question: 'What are the last four digits of your Emirates ID?', expected: eid.slice(-4) });
   return checks;
 }
 

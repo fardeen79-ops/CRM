@@ -352,8 +352,7 @@ test('customer identity fields and personal loan amounts are captured and valida
   const sales = await login('sales@t.local');
   const base = {
     first_name: 'Mohammed', middle_name: 'Ali', last_name: 'Rahman', phone: '+971 50 123 4567',
-    company_name: 'Acme Trading LLC', salary: '25,000', eid_number: '784 1990 1234567 1',
-    passport_number: 'n 1234567', bidaya_id: 'BID-0042', app_id: 'APP-7781',
+    company_name: 'Acme Trading LLC', salary: '25,000', bidaya_id: 'BID-0042', app_id: 'APP-7781',
     product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '120,000', interest_rate: '5.99',
   };
 
@@ -361,24 +360,21 @@ test('customer identity fields and personal loan amounts are captured and valida
   assert.equal(r.status, 201);
   const c = r.data.case;
   assert.equal(c.customer_name, 'Mohammed Ali Rahman');
-  assert.equal(c.eid_number, '784-••••-••••567-1');
+  // Emirates ID and passport numbers are not kept: sent values are dropped, never stored.
+  assert.equal((await sales('POST', '/cases', { ...base, phone: '+971 50 123 9999', eid_number: '784-1990-1234567-1', passport_number: 'N1234567' })).data.case.eid_number, null);
   // Once submitted, sales staff cannot uncover the masked values; a processor can.
   assert.equal(c.can_reveal, false);
-  assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=eid_number`)).status, 403);
+  assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=salary`)).status, 403);
   const procView = await login('proc@t.local');
-  assert.equal((await procView('GET', `/cases/${c.id}/reveal?fields=eid_number`)).data.values.eid_number, '784-1990-1234567-1');
-  assert.equal(c.passport_number, 'N•••••67');
   assert.equal(c.salary, 'AED ••,•••');
   assert.equal((await procView('GET', `/cases/${c.id}/reveal?fields=salary`)).data.values.salary, 25000);
   assert.equal(c.loan_amount, 120000);
   assert.equal(c.interest_rate, 5.99);
   assert.equal(c.full_loan_amount, null);
 
-  // Required names, EID / passport format, rate and loan amount rules
+  // Required names, rate and loan amount rules
   assert.equal((await sales('POST', '/cases', { ...base, first_name: '' })).status, 400);
   assert.equal((await sales('POST', '/cases', { ...base, last_name: '' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, eid_number: '123-4567' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, passport_number: 'AB' })).status, 400);
   assert.equal((await sales('POST', '/cases', { ...base, interest_rate: '' })).status, 400);
   assert.equal((await sales('POST', '/cases', { ...base, interest_rate: '120' })).status, 400);
   assert.equal((await sales('POST', '/cases', { ...base, loan_amount: '0' })).status, 400);
@@ -396,7 +392,7 @@ test('customer identity fields and personal loan amounts are captured and valida
   // Changing only the middle name rebuilds the full name; IDs are searchable
   r = await sales('PUT', `/cases/${c.id}`, { middle_name: '' });
   assert.equal(r.data.case.customer_name, 'Mohammed Rahman');
-  for (const q of ['784199012345671', 'N1234567', 'BID-0042', 'APP-7781', 'Acme']) {
+  for (const q of ['BID-0042', 'APP-7781', 'Acme']) {
     assert.ok((await sales('GET', `/cases?q=${encodeURIComponent(q)}`)).data.cases.some((x) => x.id === c.id), q);
   }
 
@@ -486,7 +482,7 @@ test('in Applicant review sales cannot edit, but can send an edit request to the
   assert.ok((await sm('GET', '/notifications')).data.items.some((n) => n.message.startsWith('Edit request:')));
 
   // The sales manager edits the details and marks the request done; sales is told
-  r = await sm('PUT', `/cases/${id}`, { eid_number: '784-1990-1234567-1' });
+  r = await sm('PUT', `/cases/${id}`, { company_name: 'Acme Trading LLC' });
   assert.equal(r.status, 200);
   const mis = await login('mis@t.local');
   assert.equal((await mis('PUT', `/cases/${id}`, { city: 'x' })).status, 403); // MIS can set status but not edit
@@ -534,28 +530,28 @@ test('processors mark verification completed, pending or rejected; case status i
   assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /verification pending/.test(n.message)));
 });
 
-test('team leaders never see company, salary, Emirates ID or passport; processors lose them once verification is completed or rejected', async () => {
+test('team leaders never see company or salary; processors lose them once verification is completed or rejected', async () => {
   const sales = await login('sales@t.local');
   const proc = await login('proc@t.local');
   const lead = await login('lead@t.local');
   const sm = await login('sm@t.local');
   const mis = await login('mis@t.local');
   const bh = await login('bh@t.local');
-  const secret = { company_name: 'Hidden Trading LLC', salary: 41000, eid_number: '784-1991-7654321-0', passport_number: 'P7654321' };
+  const secret = { company_name: 'Hidden Trading LLC', salary: 41000 };
   const id = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
-  // Emirates ID and passport are masked on screen, so read them through the logged reveal.
+  // The salary is masked on screen, so read it through the logged reveal.
   const fields = async (who) => {
     const c = (await who('GET', `/cases/${id}`)).data.case;
-    const rv = await who('GET', `/cases/${id}/reveal?fields=eid_number,passport_number,salary`);
-    const v = rv.status === 200 ? rv.data.values : { eid_number: null, passport_number: null, salary: null };
+    const rv = await who('GET', `/cases/${id}/reveal?fields=salary`);
+    const v = rv.status === 200 ? rv.data.values : { salary: null };
     if (rv.status !== 200) assert.equal(rv.status, 403);
-    return { company_name: c.company_name, salary: v.salary, eid_number: v.eid_number, passport_number: v.passport_number, hidden: c.hidden_fields };
+    return { company_name: c.company_name, salary: v.salary, hidden: c.hidden_fields };
   };
   const shown = { ...secret, hidden: [] };
-  const hidden = { company_name: null, salary: null, eid_number: null, passport_number: null, hidden: ['company_name', 'salary', 'eid_number', 'passport_number'] };
+  const hidden = { company_name: null, salary: null, hidden: ['company_name', 'salary'] };
 
-  // Sales staff see the company name but can no longer reveal the masked identifiers they typed.
-  assert.deepEqual(await fields(sales), { ...shown, salary: null, eid_number: null, passport_number: null, hidden: ['phone', 'alt_phone'] });
+  // Sales staff see the company name but can no longer reveal the masked salary they typed.
+  assert.deepEqual(await fields(sales), { ...shown, salary: null, hidden: ['phone', 'alt_phone'] });
   assert.deepEqual(await fields(sm), shown);
   assert.deepEqual(await fields(mis), shown);
   assert.deepEqual(await fields(bh), shown);
@@ -564,40 +560,36 @@ test('team leaders never see company, salary, Emirates ID or passport; processor
 
   // Also hidden in lists, and searching cannot reveal a match
   const leadRow = (await lead('GET', '/cases')).data.cases.find((c) => c.id === id);
-  assert.equal(leadRow.eid_number, null);
   assert.equal(leadRow.company_name, null);
-  for (const q of ['7654321', 'P7654321', 'Hidden Trading']) {
-    assert.ok(!(await lead('GET', `/cases?q=${q}`)).data.cases.some((c) => c.id === id), q);
-    assert.ok((await mis('GET', `/cases?q=${q}`)).data.cases.some((c) => c.id === id), q);
-  }
-  assert.ok((await proc('GET', '/cases?q=P7654321')).data.cases.some((c) => c.id === id));
+  assert.ok(!(await lead('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
+  assert.ok((await mis('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
+  assert.ok((await proc('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
 
   // Verification Pending: the processor still sees the details
   let r = await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'documents_pending', note: 'Missing slips' });
-  assert.equal(r.data.case.eid_number, '784-••••-••••321-0');
+  assert.equal(r.data.case.company_name, 'Hidden Trading LLC');
   assert.deepEqual(await fields(proc), shown);
-  assert.ok((await proc('GET', '/cases?q=P7654321')).data.cases.some((c) => c.id === id));
   assert.deepEqual(await fields(lead), hidden);
 
   // Back to the queue, then verification Completed: hidden from the processor (response redacted too)
   await lead('POST', `/cases/${id}/actions`, { action: 'reverify' });
   assert.deepEqual(await fields(proc), shown);
   r = await proc('POST', `/cases/${id}/actions`, { action: 'complete' });
-  assert.equal(r.data.case.eid_number, null);
+  assert.equal(r.data.case.company_name, null);
   assert.deepEqual(await fields(proc), hidden);
-  assert.ok(!(await proc('GET', '/cases?q=P7654321')).data.cases.some((c) => c.id === id));
+  assert.ok(!(await proc('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
 
   // Verification Rejected hides them as well
   const id2 = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
   await proc('POST', `/cases/${id2}/actions`, { action: 'reject_verification', note: 'Employer denies' });
-  assert.equal((await proc('GET', `/cases/${id2}`)).data.case.passport_number, null);
+  assert.equal((await proc('GET', `/cases/${id2}`)).data.case.company_name, null);
 
   // A team leader can replace a hidden value (e.g. for an edit request) without ever reading it
-  r = await lead('PUT', `/cases/${id}`, { passport_number: 'Q1112223' });
+  r = await lead('PUT', `/cases/${id}`, { company_name: 'Renamed Trading LLC' });
   assert.equal(r.status, 200);
-  assert.equal(r.data.case.passport_number, null);
-  assert.equal((await fields(sm)).passport_number, 'Q1112223');
-  assert.equal((await fields(sm)).eid_number, secret.eid_number); // untouched fields keep their values
+  assert.equal(r.data.case.company_name, null);
+  assert.equal((await fields(sm)).company_name, 'Renamed Trading LLC');
+  assert.equal((await fields(sm)).salary, secret.salary); // untouched fields keep their values
 });
 
 test('files capture region, core product and the sales staff details from the user profile', async () => {
@@ -960,7 +952,7 @@ test('card activation is mapped on completed card cases, one by one or from a ba
   const lead = await login('lead@t.local');
   const make = async (extra) => (await sally('POST', '/cases', { ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card', ...extra })).data.case.id;
   const a = await make({ app_id: 'CARD-APP-1' });
-  const b = await make({ eid_number: '784-1991-7654321-5' });
+  const b = await make({ app_id: 'CARD-APP-2' });
   const c = await make({});
   const loan = (await sally('POST', '/cases', newCase)).data.case.id;
   for (const id of [a, b, c, loan]) await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
@@ -974,11 +966,11 @@ test('card activation is mapped on completed card cases, one by one or from a ba
   r = await mis('POST', `/cases/${a}/actions`, { action: 'set_card_status', card_status: 'active', activation_date: '2026-01-05' });
   assert.deepEqual([r.data.case.card_status, r.data.case.card_activation_date, r.data.case.card_status_by_name], ['active', '2026-01-05', 'Mira']);
 
-  // From a bank report, matched by CRM reference, App ID or Emirates ID.
+  // From a bank report, matched by CRM reference or App ID.
   const ref = (id) => `CRM-${String(id).padStart(6, '0')}`;
   const csv = ['Reference,Card status,Activation date',
     `CARD-APP-1,Inactive,`,
-    `784199176543215,active,03/02/2026`,
+    `CARD-APP-2,active,03/02/2026`,
     `${ref(loan)},Active,`,
     `NOPE-1,Active,`,
   ].join('\n');
@@ -1198,16 +1190,16 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   const proc = await login('proc@t.local');
   const lead = await login('lead@t.local');
   const gov = await login('gov@t.local');
-  const data = { ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', eid_number: '784-1988-4821736-2', passport_number: 'Z4821736', salary: 28500 };
+  const data = { ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', salary: 28500 };
   const id = (await sales('POST', '/cases', data)).data.case.id;
   const c = (await proc('GET', `/cases/${id}`)).data.case;
-  assert.deepEqual([c.phone, c.alt_phone, c.eid_number, c.passport_number], ['+••• •• ••• 4567', '••••••4567', '784-••••-••••736-2', 'Z•••••36']);
-  assert.deepEqual(c.masked_fields, ['phone', 'alt_phone', 'eid_number', 'passport_number', 'salary']);
+  assert.deepEqual([c.phone, c.alt_phone], ['+••• •• ••• 4567', '••••••4567']);
+  assert.deepEqual(c.masked_fields, ['phone', 'alt_phone', 'salary']);
   assert.equal(c.salary, 'AED ••,•••');
   assert.deepEqual((await proc('GET', `/cases/${id}/reveal?fields=salary`)).data.values, { salary: 28500 });
   // Lists are masked too, and search still finds the full value.
-  const listed = (await proc('GET', '/cases?q=4821736')).data.cases.find((x) => x.id === id);
-  assert.equal(listed.eid_number, '784-••••-••••736-2');
+  const listed = (await proc('GET', '/cases?q=4567')).data.cases.find((x) => x.id === id);
+  assert.equal(listed.phone, '+••• •• ••• 4567');
   // Sales staff do not see the phone numbers at all once the file is submitted, and cannot search by them.
   const salesView = (await sales('GET', `/cases/${id}`)).data.case;
   assert.deepEqual([salesView.phone, salesView.alt_phone], [null, null]);
@@ -1218,18 +1210,18 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   assert.equal((await sales('PUT', `/cases/${id}`, { city: 'Sharjah' })).status, 200);
   assert.deepEqual((await proc('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
   // A team leader cannot reveal what is hidden for their role, but can reveal the phone.
-  assert.equal((await lead('GET', `/cases/${id}/reveal?fields=eid_number`)).status, 403);
+  assert.equal((await lead('GET', `/cases/${id}/reveal?fields=salary`)).status, 403);
   assert.deepEqual((await lead('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
   assert.equal((await proc('GET', `/cases/${id}/reveal?fields=nothing`)).status, 400);
-  const all = (await proc('GET', `/cases/${id}/reveal?fields=phone,eid_number,passport_number`)).data.values;
-  assert.deepEqual(all, { phone: '+971 50 123 4567', eid_number: '784-1988-4821736-2', passport_number: 'Z4821736' });
+  const all = (await proc('GET', `/cases/${id}/reveal?fields=phone,alt_phone`)).data.values;
+  assert.deepEqual(all, { phone: '+971 50 123 4567', alt_phone: '0551234567' });
 
   // The access log: views and reveals, who and when; repeats within minutes are not duplicated.
   await proc('GET', `/cases/${id}/reveal?fields=phone`);
   assert.equal((await sales('GET', '/access-log')).status, 403);
   const log = (await gov('GET', `/access-log?case=${id}`)).data.items;
   const mine = log.filter((e) => e.user_name === 'Pam').map((e) => e.what).sort();
-  assert.deepEqual(mine, ['reveal:eid_number', 'reveal:passport_number', 'reveal:phone', 'reveal:salary', 'view']);
+  assert.deepEqual(mine, ['reveal:alt_phone', 'reveal:phone', 'reveal:salary', 'view']);
   assert.ok(log.some((e) => e.user_name === 'Lead' && e.what === 'reveal:phone'));
   assert.equal(log[0].ref, `CRM-${String(id).padStart(6, '0')}`);
   assert.ok((await gov('GET', '/access-log')).data.items.length >= log.length);
@@ -1307,14 +1299,11 @@ test('chat: case discussions with @mentions, direct messages, team groups, overs
   assert.equal((await gov('POST', `/conversations/${dm.id}/messages`, { body: 'hello' })).status, 403);
 });
 
-test('a read-back check is recorded on the case timeline', async () => {
+test('read-back flags from older clients are ignored now that no identifier is read back', async () => {
   const sales = await login('sales@t.local');
-  const r = await sales('POST', '/cases', { ...newCase, eid_number: '784-1990-1234567-1', passport_number: 'N1234567', read_back: ['eid_number', 'passport_number', 'bogus'] });
+  const r = await sales('POST', '/cases', { ...newCase, read_back: ['eid_number', 'passport_number', 'bogus'] });
   assert.equal(r.status, 201);
-  const ev = r.data.case.events.find((e) => e.type === 'read_back');
-  assert.equal(ev.detail, 'Emirates ID and passport number read aloud and matched');
-  const e2 = await sales('PUT', `/cases/${r.data.case.id}`, { passport_number: 'N7654321', read_back: ['passport_number'] });
-  assert.equal(e2.data.case.events[0].detail, 'passport number read aloud and matched');
+  assert.ok(!r.data.case.events.some((e) => e.type === 'read_back'));
 });
 
 test('a card\'s category is filled from the product list and the list can be replaced by upload', async () => {
