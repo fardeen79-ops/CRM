@@ -3134,6 +3134,27 @@ async function viewReports(params) {
 
 
 // ---------- leads: a sales person's prospects before there is a file ----------
+// A mobile number on a lead dials from the phone, after the person confirms.
+const telHref = (phone) => String(phone || '').replace(/[^\d+]/g, '');
+function confirmCall(phone, name) {
+  const modal = document.createElement('div');
+  modal.className = 'scan-modal call-modal';
+  modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 'call-title');
+  modal.innerHTML = html`<div class="scan-sheet call-sheet">
+    <h2 id="call-title">Call ${name}?</h2>
+    <p class="call-number mono">${phone}</p>
+    <p class="muted small">Your phone's dialler will open with this number. The call is made from your own phone.</p>
+    <div class="actions"><a class="btn btn-primary" href="tel:${telHref(phone)}" data-call-go>📞 Call</a><button type="button" class="btn" data-call-cancel>Cancel</button></div>
+  </div>`.s;
+  document.body.append(modal);
+  const close = () => { modal.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  modal.querySelector('[data-call-cancel]').onclick = close;
+  modal.querySelector('[data-call-go]').onclick = () => setTimeout(close, 300);
+  modal.onclick = (e) => { if (e.target === modal) close(); };
+  modal.querySelector('[data-call-go]').focus();
+}
 const LEAD_CHIP = { open: 'warn', converted: 'good', not_interested: '', not_eligible: 'bad' };
 async function viewLeads(params = new URLSearchParams()) {
   const r = effRole();
@@ -3175,7 +3196,7 @@ async function viewLeads(params = new URLSearchParams()) {
         <thead><tr>${mine ? '' : html`<th>Staff</th>`}<th>Customer</th><th>Interested in</th><th>Follow up</th><th>Status</th><th></th></tr></thead>
         <tbody>${leads.length ? leads.map((l) => html`<tr data-lead-row="${l.id}">
           ${mine ? '' : html`<td>${l.owner_name}<div class="muted small">${l.owner_sales_code || ''}</div></td>`}
-          <td><strong>${l.customer_name}</strong><div class="muted small"><span class="mono">${l.phone}</span>${l.company_name ? ` · ${l.company_name}` : ''}${l.salary != null ? ` · AED ${fmtAmount(l.salary)}` : ''}</div>${l.notes ? html`<div class="small">${l.notes}</div>` : ''}</td>
+          <td><strong>${l.customer_name}</strong><div class="muted small"><a class="mono call-link" href="tel:${telHref(l.phone)}" data-call="${l.phone}" data-call-name="${l.customer_name}" title="Call ${l.customer_name}">📞 ${l.phone}</a>${l.company_name ? ` · ${l.company_name}` : ''}${l.salary != null ? ` · AED ${fmtAmount(l.salary)}` : ''}</div>${l.notes ? html`<div class="small">${l.notes}</div>` : ''}</td>
           <td class="small">${l.product ? state.meta.products[l.product] : html`<span class="muted">—</span>`}${l.source ? html`<div class="muted">${l.source}</div>` : ''}</td>
           <td class="small">${l.follow_up_at ? html`<span class="${l.status === 'open' && l.follow_up_at <= today ? 'lock' : ''}">${l.follow_up_at}</span>` : html`<span class="muted">—</span>`}</td>
           <td><span class="chip ${LEAD_CHIP[l.status] || ''}">${state.meta.lead_status[l.status]}</span>${l.case_id ? html`<div class="small"><a href="#/cases/${l.case_id}">Open the file →</a></div>` : ''}${l.status_note ? html`<div class="muted small">${l.status_note}</div>` : ''}<div class="muted small">${fmtDate(l.status_at || l.created_at)}</div></td>
@@ -3207,6 +3228,7 @@ async function viewLeads(params = new URLSearchParams()) {
     toast('Lead details filled from the sheet');
   };
   document.getElementById('lead-new').onsubmit = async (e) => { e.preventDefault(); try { await api('/leads', { method: 'POST', body: formData(e.target) }); toast('Lead added'); reload(); } catch (err) { toast(err.message, true); } };
+  app.querySelectorAll('[data-call]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); confirmCall(a.dataset.call, a.dataset.callName); }));
   app.querySelectorAll('[data-lead-edit]').forEach((b) => (b.onclick = () => { const row = app.querySelector(`[data-lead-editor="${b.dataset.leadEdit}"]`); row.hidden = !row.hidden; }));
   app.querySelectorAll('[data-lead-cancel]').forEach((b) => (b.onclick = () => { app.querySelector(`[data-lead-editor="${b.dataset.leadCancel}"]`).hidden = true; }));
   app.querySelectorAll('[data-lead-form]').forEach((f) => (f.onsubmit = async (e) => { e.preventDefault(); try { await api(`/leads/${f.dataset.leadForm}`, { method: 'PATCH', body: formData(f) }); toast('Lead saved'); reload(); } catch (err) { toast(err.message, true); } }));

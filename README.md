@@ -38,6 +38,8 @@ Sales staff keep their prospects in **My leads** before there is a file: name, m
 
 **Scan a lead sheet**: on the add-lead form, the sales person can photograph a printed or hand-written lead sheet with the phone's camera (or choose a photo). The text is read on the device with the same OCR engine as the Emirates ID scanner, and labelled lines (Name, Mobile, Email, Company, Salary, Product, Source, City, Follow up, Remarks) or, failing those, a recognisable mobile number, email, salary, product and name fill the form, marked for checking; OCR slips in digits (O for 0, l for 1) are repaired in the number. Nothing is saved until the person checks and adds the lead; nothing leaves the phone. Clear printed sheets read well; hand-writing reads only when neat.
 
+**Calling a lead**: the mobile number on each lead is a call link. Tapping it asks "Call <name>?" with the number and **Call** or **Cancel**; Call opens the phone's dialler with the number (a `tel:` link), so the call is made from the staff member's own phone and nothing is dialled without the confirmation. This is on the leads page only; customer numbers on files stay as they are.
+
 The page counts open leads, follow-ups due, converted, not interested and not eligible, and filters by status or text. API: `GET/POST /api/leads`, `GET/PATCH /api/leads/:id`, `POST /api/leads/:id/status`; `POST /api/cases` with `lead_id` converts the lead.
 
 ## Case workflow

@@ -705,6 +705,12 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .dash-trend .axis.now { fill: var(--text); font-weight: 600; }
 .dash-quiet { margin: -10px 0 22px; }
 .lead-scan-view { aspect-ratio: 3 / 4; max-height: 60vh; }
+.call-link { text-decoration: none; color: var(--primary); }
+.call-link:hover { text-decoration: underline; }
+.call-sheet { max-width: 380px; text-align: center; }
+.call-sheet .call-number { font-size: 24px; font-weight: 600; margin: 6px 0 10px; }
+.call-sheet .actions { justify-content: center; margin-top: 12px; }
+.call-sheet .actions .btn-primary { min-width: 140px; }
 #lead-new .card-head { align-items: center; }
 table.pnl td.num, table.pnl th.num { text-align: right; white-space: nowrap; }
 table.pnl tr.total td { font-weight: 600; border-top: 2px solid var(--border); }
