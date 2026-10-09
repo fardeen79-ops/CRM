@@ -3,11 +3,11 @@ import { transaction } from './db.js';
 import { hashPassword } from './auth.js';
 import { BOT_EMAIL } from './users.js';
 import {
-  BOT_APPROVERS, BOT_DECISIONS, CALL_OUTCOMES, PRODUCTS, STATUS, WorkflowError, addEvent, applyAction, botApprovals, caseProducts, caseRef,
+  BOT_APPROVERS, BOT_DECISIONS, CALL_OUTCOMES, canListenToBotCalls, logAccess, PRODUCTS, STATUS, WorkflowError, addEvent, applyAction, botApprovals, caseProducts, caseRef,
   getCase, notify, processorsFor, productLabel, timing,
 } from './cases.js';
 import {
-  CHECK_RESULTS, DEFAULT_PLAYBOOK, FIELDS, LANGUAGES, MATCH_TYPES, PLACEHOLDERS, RULE_CHOICES, SCRIPT_LABELS, STRICTNESS,
+  CALLING_WINDOW, CHECK_RESULTS, DEFAULT_PLAYBOOK, FIELDS, LANGUAGES, MATCH_TYPES, PLACEHOLDERS, RULE_CHOICES, SCRIPT_LABELS, STRICTNESS,
   buildChecks, callResult, hearWithAI, normalizePlaybook, spoken, startCall,
 } from './bot-engine.js';
 import { AI_MODEL, aiConfigured } from './bot-ai.js';
@@ -63,7 +63,7 @@ export function getPlaybook(db) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(PLAYBOOK_KEY);
   if (!row) return normalizePlaybook(DEFAULT_PLAYBOOK);
   try {
-    return normalizePlaybook(JSON.parse(row.value));
+    return normalizePlaybook(JSON.parse(row.value), { strict: false });
   } catch {
     return normalizePlaybook(DEFAULT_PLAYBOOK);
   }
@@ -95,7 +95,7 @@ export function playbookView(db, user, { enabled }) {
       fields: Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.label])),
       default_match: Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.match])),
       match_types: MATCH_TYPES, strictness: STRICTNESS, languages: LANGUAGES, rule_choices: RULE_CHOICES,
-      script_labels: SCRIPT_LABELS, placeholders: PLACEHOLDERS,
+      script_labels: SCRIPT_LABELS, placeholders: PLACEHOLDERS, calling_window: CALLING_WINDOW,
       // The AI needs Anthropic credentials on the CRM (for practice) and on the calling service.
       ai_available: aiConfigured(), ai_model: AI_MODEL,
     },
@@ -448,11 +448,40 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
     return getCase(db, user, caseId);
   }
 
+  /**
+   * Plays a bot call's recording to someone allowed to listen, fetched from the calling service
+   * with a signed request (the recording itself stays with the calling service and Twilio). Each
+   * listen is written to the access log.
+   */
+  async function streamRecording(user, callId, res) {
+    if (!canListenToBotCalls(user)) throw new WorkflowError(403, 'Only governance, business heads and the verification team leader can listen to bot calls');
+    const call = db.prepare('SELECT id, case_id, recording_url FROM bot_calls WHERE id = ?').get(callId);
+    if (!call) throw new WorkflowError(404, 'Bot call not found');
+    getCase(db, user, call.case_id); // the listener must be able to open the file
+    if (!call.recording_url || !/^https?:\/\//i.test(call.recording_url)) throw new WorkflowError(404, 'This call has no recording');
+    const path = new URL(call.recording_url).pathname;
+    const ts = String(Date.now());
+    let up;
+    try {
+      up = await fetch(call.recording_url, {
+        headers: secret ? { 'x-crm-timestamp': ts, 'x-crm-signature': sign(secret, `GET ${path}\n${ts}`) } : {},
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      throw new WorkflowError(502, `The recording could not be fetched: ${err.message}`);
+    }
+    if (!up.ok) throw new WorkflowError(up.status === 404 ? 404 : 502, up.status === 404 ? 'The recording is no longer available' : `The calling service answered ${up.status}`);
+    const audio = Buffer.from(await up.arrayBuffer());
+    logAccess(db, user, call.case_id, 'listen:bot_call');
+    res.writeHead(200, { 'content-type': up.headers.get('content-type') || 'audio/mpeg', 'content-length': audio.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    res.end(audio);
+  }
+
   /** The bot calls page: requests waiting on approvals first, then recent calls. */
   function requests(user) {
     const lead = user.role === 'processing' && user.role_key === 'processing_lead';
     if (!lead && !BOT_APPROVERS.includes(user.role)) throw new WorkflowError(403, 'Only governance, business heads and the verification team leader see bot calls');
-    const rows = db.prepare(`SELECT b.id, b.case_id, b.status, b.requested_at, b.request_note, b.gov_at, b.bh_at, b.placed_at, b.finished_at, b.outcome, b.decision_note,
+    const rows = db.prepare(`SELECT b.id, b.case_id, b.status, b.requested_at, b.recording_url IS NOT NULL AS has_recording, b.request_note, b.gov_at, b.bh_at, b.placed_at, b.finished_at, b.outcome, b.decision_note,
         c.customer_name, c.status AS verification_status, c.bot_approvals, c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.region,
         u.name AS requested_by_name, g.name AS gov_by_name, h.name AS bh_by_name, d.name AS decided_by_name
       FROM bot_calls b JOIN cases c ON c.id = b.case_id JOIN users u ON u.id = b.requested_by
@@ -468,12 +497,14 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
         // Can this person approve it right here?
         can_decide: r.status === 'awaiting_approval' && OPEN.includes(r.verification_status) && BOT_APPROVERS.includes(user.role) && !String(bot_approvals || '').split(',').includes(user.role),
         can_withdraw: lead && ['awaiting_approval', 'approved'].includes(r.status),
+        has_recording: Boolean(r.has_recording),
+        can_listen: Boolean(r.has_recording) && canListenToBotCalls(user),
       })),
     };
   }
 
   return {
-    enabled, deliver, receive, sweep, decide, requests,
+    enabled, deliver, receive, sweep, decide, requests, streamRecording,
     /** Remembers the CRM's address from requests, for callback URLs when PUBLIC_URL is not set. */
     seen(origin) { lastOrigin = origin; },
   };

@@ -5,6 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
 import { createUser } from '../src/auth.js';
@@ -15,6 +16,7 @@ const SECRET = 'shared-secret';
 const AUTH_TOKEN = 'twilio-auth-token';
 let db, crm, crmBase, botService, botBase, twilio;
 const dialled = [];
+let recordingSid;
 
 const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, () => { const { port } = s.address(); s.close(() => r(port)); }); });
 
@@ -23,6 +25,12 @@ before(async () => {
   twilio = http.createServer(async (req, res) => {
     let body = '';
     for await (const c of req) body += c;
+    // Recordings, behind the account's credentials.
+    if (req.method === 'GET') {
+      const ok = req.headers.authorization === `Basic ${Buffer.from(`AC123:${AUTH_TOKEN}`).toString('base64')}` && /\/Recordings\/RE[0-9a-f]{32}\.mp3$/.test(req.url);
+      res.writeHead(ok ? 200 : 404, { 'content-type': 'audio/mpeg' });
+      return res.end(ok ? 'ID3-fake-audio' : '');
+    }
     const form = new URLSearchParams(body);
     if (form.get('To').endsWith('0000')) {
       res.writeHead(400, { 'content-type': 'application/json' });
@@ -91,6 +99,9 @@ async function converse(call, answers) {
     r = await hook(pathOf(action.replace(/&amp;/g, '&')), { CallSid: 'CA', SpeechResult: a });
     lines.push(said(r.text));
   }
+  // Calls are recorded: Twilio says the recording is ready, then that the call ended.
+  recordingSid = `RE${crypto.randomBytes(16).toString('hex')}`;
+  await hook(pathOf(call.form.get('RecordingStatusCallback')), { CallSid: 'CA', RecordingStatus: 'completed', RecordingSid: recordingSid, RecordingUrl: `https://api.twilio.com/2010-04-01/Accounts/AC123/Recordings/${recordingSid}` });
   await hook(pathOf(call.form.get('StatusCallback')), { CallSid: 'CA', CallStatus: 'completed' });
   return { lines, last: r.text };
 }
@@ -187,7 +198,25 @@ test('the bot calls, holds the conversation and completes the verification', asy
   assert.equal(c.verified_by_name, 'Verification Bot');
   assert.equal(c.bot_call.status, 'completed');
   assert.deepEqual(c.bot_call.checks.map((x) => x.result), ['confirmed', 'confirmed', 'confirmed', 'confirmed']);
+  assert.match(c.bot_call.transcript, /^Bot: This call is recorded for verification and quality purposes\. Hello/);
   assert.match(c.bot_call.transcript, /Customer: Emirates Steel/);
+  assert.equal(c.bot_call.has_recording, true);
+  assert.equal(c.bot_call.can_listen, false, 'processors do not listen to bot calls');
+
+  // Governance listens through the CRM; the listen is logged. Processors cannot.
+  const gina = await login('gov@t.local');
+  assert.equal((await gina('GET', `/cases/${id}`)).data.case.bot_call.can_listen, true);
+  const cookieFor = async (email) => (await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) })).headers.get('set-cookie').split(';')[0];
+  let audio = await fetch(`${crmBase}/api/bot/calls/${c.bot_call.id}/recording`, { headers: { cookie: await cookieFor('gov@t.local') } });
+  assert.equal(audio.status, 200);
+  assert.equal(audio.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(await audio.text(), 'ID3-fake-audio');
+  audio = await fetch(`${crmBase}/api/bot/calls/${c.bot_call.id}/recording`, { headers: { cookie: await cookieFor('proc@t.local') } });
+  assert.equal(audio.status, 403);
+  const log = (await gina('GET', `/access-log?case=${id}`)).data.items;
+  assert.ok(log.some((e) => e.what === 'listen:bot_call' && e.user_name === 'Gina'));
+  // The calling service only hands recordings to signed requests from the CRM.
+  assert.equal((await fetch(`${botBase}/recordings/${recordingSid}`)).status, 401);
   assert.ok(c.events.some((e) => e.type === 'complete' && /Verified by the calling bot: all 4 details confirmed/.test(e.note)));
   // The verification team leader who asked for the call hears the result.
   const notes = (await (await login('vlead@t.local'))('GET', '/notifications')).data.items;

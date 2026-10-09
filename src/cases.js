@@ -240,6 +240,8 @@ const BOT_CALL_OPEN = ['requested', 'in_progress'];
 export const BOT_CALL_WAITING = ['awaiting_approval', 'approved'];
 export const BOT_APPROVERS = ['governance', 'business_head'];
 export const BOT_DECISIONS = ['approve_bot_call', 'decline_bot_call', 'withdraw_bot_call'];
+/** Who may listen to bot call recordings: governance, business heads and the verification team leader. */
+export const canListenToBotCalls = (user) => BOT_APPROVERS.includes(user.role) || (user.role === 'processing' && user.role_key === 'processing_lead');
 export const botApprovals = (row) => String(row.bot_approvals || '').split(',').filter(Boolean);
 const botCallPending = (row) => BOT_CALL_WAITING.includes(row.bot_call_status) || (BOT_CALL_OPEN.includes(row.bot_call_status)
   && Date.now() - Date.parse(row.bot_call_at) < BOT_CALL_TIMEOUT_MINUTES * 60_000);
@@ -1071,7 +1073,11 @@ export function getCase(db, user, id) {
     .all(id);
   const shown = presentEvents(row, events);
   const out = { ...present(user, row), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
-  if (user.role !== 'sales' && row.bot_call_status) out.bot_call = latestBotCall(db, id);
+  if (user.role !== 'sales' && row.bot_call_status) {
+    // The recording itself is played through the CRM (bot.js), only to those allowed to listen.
+    const { recording_url, ...call } = latestBotCall(db, id);
+    out.bot_call = { ...call, has_recording: Boolean(recording_url), can_listen: Boolean(recording_url) && canListenToBotCalls(user) };
+  }
   if (['governance', 'business_head'].includes(user.role) && ['approved', 'received'].includes(row.recording_status)) {
     out.recording_email = recordingEmail(row);
   }

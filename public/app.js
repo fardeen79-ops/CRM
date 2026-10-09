@@ -1794,7 +1794,9 @@ function botCallCard(b) {
     ${b.error ? html`<div class="callout danger"><strong>The bot could not place the call</strong>${b.error}</div>` : ''}
     ${b.checks.length ? html`<dl class="details">${b.checks.map((ch) => html`<dt>${ch.label}</dt><dd><span class="chip ${CHECK_RESULT[ch.result][1]}">${CHECK_RESULT[ch.result][0]}</span>${ch.by === 'ai' ? html` <span class="chip" title="The bot's rules could not settle this answer; the AI read it">AI</span>` : ''}</dd>`)}</dl>` : ''}
     ${b.summary ? html`<div class="note">${b.summary}</div>` : ''}
-    ${b.recording_url ? html`<p class="small"><a href="${b.recording_url}" target="_blank" rel="noopener noreferrer">Listen to the recording</a></p>` : ''}
+    ${b.can_listen ? html`<div class="bot-recording"><audio controls preload="none" src="/api/bot/calls/${b.id}/recording"></audio>
+        <p class="muted small">Listening is recorded in the access log.</p></div>`
+      : b.has_recording ? html`<p class="muted small">The call was recorded. Governance, business heads and the verification team leader can listen to it.</p>` : ''}
     ${b.transcript ? html`<details><summary class="small">Transcript</summary><pre class="transcript">${b.transcript}</pre></details>` : ''}
   </div>`;
 }
@@ -3092,7 +3094,7 @@ function paintWatermark() {
   }
 }
 
-const ACCESS_LABEL = { view: 'Opened the case', 'reveal:phone': 'Revealed mobile number', 'reveal:alt_phone': 'Revealed alternate phone', 'reveal:eid_number': 'Revealed Emirates ID', 'reveal:passport_number': 'Revealed passport number', 'reveal:salary': 'Revealed salary' };
+const ACCESS_LABEL = { view: 'Opened the case', 'listen:bot_call': 'Listened to a bot call recording', 'reveal:phone': 'Revealed mobile number', 'reveal:alt_phone': 'Revealed alternate phone', 'reveal:eid_number': 'Revealed Emirates ID', 'reveal:passport_number': 'Revealed passport number', 'reveal:salary': 'Revealed salary' };
 
 async function viewAccessLog(params) {
   const caseId = params.get('case') || '';
@@ -3888,7 +3890,7 @@ async function viewBotCalls() {
     <td class="small">${c.requested_by_name} · ${ago(c.requested_at)}<div>${c.request_note || ''}</div></td>
     <td class="small"><span class="chip ${c.gov_at ? 'good' : ''}">${c.gov_at ? `✓ ${c.gov_by_name}` : 'Waiting'}</span></td>
     <td class="small"><span class="chip ${c.bh_at ? 'good' : ''}">${c.bh_at ? `✓ ${c.bh_by_name}` : 'Waiting'}</span></td>
-    <td class="small">${BOT_CALL_STATUS[c.status] || label(c.status)}${c.outcome ? html`<div class="muted">${label(c.outcome)}</div>` : ''}${c.decision_note ? html`<div class="muted">${c.decided_by_name ? `${c.decided_by_name}: ` : ''}${c.decision_note}</div>` : ''}</td>
+    <td class="small">${BOT_CALL_STATUS[c.status] || label(c.status)}${c.outcome ? html`<div class="muted">${label(c.outcome)}</div>` : ''}${c.can_listen ? html`<audio controls preload="none" class="row-audio" src="/api/bot/calls/${c.id}/recording"></audio>` : ''}${c.decision_note ? html`<div class="muted">${c.decided_by_name ? `${c.decided_by_name}: ` : ''}${c.decision_note}</div>` : ''}</td>
     <td class="small nowrap">${c.can_decide ? html`<button type="button" class="btn-link" data-approve="${c.case_id}">Approve</button> · <button type="button" class="btn-link" data-decline="${c.case_id}">Decline</button>` : ''}${c.can_withdraw ? html`<button type="button" class="btn-link" data-withdraw="${c.case_id}">Withdraw</button>` : ''}</td>
   </tr>`;
   const table = (list) => html`<div class="table-wrap"><table>
@@ -4000,7 +4002,7 @@ async function viewBot() {
             <div class="field-row"><label>When a detail does not match</label><select name="rule_mismatch">${opts(m.rule_choices.mismatch, r.mismatch)}</select></div>
             <div class="field-row"><label>When the customer cannot be reached</label><select name="rule_not_reached">${opts(m.rule_choices.not_reached, r.not_reached)}</select></div>
             <div class="field-row"><label>Unanswered bot calls before marking it pending</label><input type="number" name="rule_max_attempts" min="1" max="10" value="${r.max_attempts}"></div>
-            <div class="field-row"><label>Calling hours (UAE time)</label><div class="actions"><input type="time" name="rule_call_from" value="${r.call_from}" aria-label="From"> <input type="time" name="rule_call_to" value="${r.call_to}" aria-label="To"></div></div>
+            <div class="field-row"><label>Calling hours (UAE time, within the approved ${m.calling_window.from}–${m.calling_window.to})</label><div class="actions"><input type="time" name="rule_call_from" value="${r.call_from}" min="${m.calling_window.from}" max="${m.calling_window.to}" aria-label="From"> <input type="time" name="rule_call_to" value="${r.call_to}" min="${m.calling_window.from}" max="${m.calling_window.to}" aria-label="To"></div></div>
           </div>
           <label class="check"><input type="checkbox" name="rule_call_sunday" ${r.call_sunday ? raw('checked') : ''}> Call on Sundays</label>
           <p class="muted small">The bot never calls on its own: each call is asked for by the verification team leader and approved by governance and a business head, and is placed only within calling hours. The bot never rejects a verification: a team leader decides files it marks pending.</p>
@@ -4017,7 +4019,8 @@ async function viewBot() {
           <div class="field-row"><label>Employer</label><input name="company_name" value="${practice.sample.company_name}"></div>
           <div class="field-row"><label>Monthly salary</label><input name="salary" value="${practice.sample.salary}"></div>
         </form>
-        <button type="button" class="btn-primary" id="bot-start">Start a practice call</button>
+        <div class="actions"><button type="button" class="btn-primary" id="bot-start">Start a practice call</button>
+          ${'speechSynthesis' in window ? html`<label class="check small"><input type="checkbox" id="bot-speak"> Hear the bot (your browser's voice, not the phone voice)</label>` : ''}</div>
         <div id="bot-chat"></div>
       </div>
     </div>`);
@@ -4135,10 +4138,21 @@ async function viewBot() {
       run();
     }));
   };
+  // Reads the bot's newest line aloud, in the playbook's language, when "Hear the bot" is ticked.
+  const speak = (res) => {
+    if (!document.getElementById('bot-speak')?.checked) return;
+    const line = [...res.turns].reverse().find((t) => t.who === 'bot');
+    if (!line) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(line.text);
+    u.lang = form.language.value;
+    speechSynthesis.speak(u);
+  };
   const run = async () => {
     try {
       practice.result = await api('/bot/practice', { method: 'POST', body: { playbook: collect(), sample: formData(document.getElementById('bot-sample')), answers: practice.answers } });
       drawChat();
+      speak(practice.result);
     } catch (err) { toast(err.message, true); }
   };
   const say = (text) => { practice.answers.push(text); run(); };

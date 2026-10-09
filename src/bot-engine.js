@@ -53,10 +53,14 @@ export const RULE_CHOICES = {
   not_reached: { review: 'Leave it for a processor to review', pending: 'Mark verification pending (customer unreachable) after the set number of unanswered bot calls' },
 };
 
+// The approved calling hours (UAE time). A playbook may narrow them, never widen them.
+export const CALLING_WINDOW = Object.freeze({ from: '09:00', to: '18:00' });
+
 export const DEFAULT_PLAYBOOK = Object.freeze({
   bank_name: 'the bank',
   language: 'en-GB',
   voice: '',
+  recording_notice: 'This call is recorded for verification and quality purposes.',
   greeting: 'Hello, this is the verification team calling on behalf of {bank}. Am I speaking with {first_name}?',
   wrong_person: "Sorry to have troubled you. We'll try again later. Goodbye.",
   intro: 'Thank you, {first_name}. I am calling to verify your application for {product}. It takes about a minute. Is now a good time?',
@@ -82,13 +86,14 @@ export const DEFAULT_PLAYBOOK = Object.freeze({
     max_attempts: 3,
     ai_confirms_count: false,
     call_from: '09:00',
-    call_to: '20:00',
+    call_to: '18:00',
     call_sunday: false,
   },
 });
 
-const SCRIPT_LINES = ['greeting', 'wrong_person', 'intro', 'call_later', 'didnt_catch', 'who_we_are', 'ask_again', 'closing'];
+const SCRIPT_LINES = ['recording_notice', 'greeting', 'wrong_person', 'intro', 'call_later', 'didnt_catch', 'who_we_are', 'ask_again', 'closing'];
 export const SCRIPT_LABELS = {
+  recording_notice: 'Recording notice (said first; leave empty if calls are not recorded)',
   greeting: 'Greeting and identity question',
   wrong_person: 'If someone else answers',
   intro: 'Introduction (asks if now is a good time)',
@@ -140,7 +145,7 @@ function words(list, label) {
  * Checks a playbook sent by the teaching page (or stored) and fills anything missing from the
  * defaults. Throws PlaybookError with a message for the person teaching the bot.
  */
-export function normalizePlaybook(input = {}) {
+export function normalizePlaybook(input = {}, { strict = true } = {}) {
   const d = DEFAULT_PLAYBOOK;
   const p = { ...d, ...input, rules: { ...d.rules, ...(input.rules || {}) } };
   const out = {
@@ -150,7 +155,7 @@ export function normalizePlaybook(input = {}) {
     max_reprompts: int(p.max_reprompts, 0, 3, 'Times to re-ask'),
     ai: Boolean(p.ai),
   };
-  for (const line of SCRIPT_LINES) out[line] = checkPlaceholders(str(p[line], 500, SCRIPT_LABELS[line]), SCRIPT_LABELS[line]);
+  for (const line of SCRIPT_LINES) out[line] = checkPlaceholders(str(p[line], 500, SCRIPT_LABELS[line], { required: line !== 'recording_notice' }), SCRIPT_LABELS[line]);
 
   const checks = Array.isArray(p.checks) ? p.checks : [];
   if (checks.length > 12) throw new PlaybookError('The bot can ask 12 questions at most');
@@ -193,6 +198,14 @@ export function normalizePlaybook(input = {}) {
     call_to: time(r.call_to, 'Calling hours end'),
     call_sunday: Boolean(r.call_sunday),
   };
+  // Outside the approved window: refused when teaching (strict), pulled inside when reading a
+  // playbook saved before the window was set.
+  const { from, to } = CALLING_WINDOW;
+  if (out.rules.call_from < from || out.rules.call_to > to) {
+    if (strict) throw new PlaybookError(`Calling hours must be within the approved ${from} to ${to} UAE time`);
+    out.rules.call_from = out.rules.call_from < from ? from : out.rules.call_from;
+    out.rules.call_to = out.rules.call_to > to ? to : out.rules.call_to;
+  }
   if (out.rules.call_from >= out.rules.call_to) throw new PlaybookError('Calling hours must end after they start');
   return out;
 }
@@ -351,7 +364,7 @@ export function startCall(playbook, { values = {}, checks } = {}) {
     checks: (checks || buildChecks(playbook, values)).map((c) => ({ key: c.key, label: c.label, match: c.match, strictness: c.strictness, question: c.question, expected: c.expected, result: 'not_answered', heard: null })),
     values: v, turns: [], done: false, outcome: null, ended_by: null, say: null,
   };
-  return botSays(state, fill(playbook.greeting, v));
+  return botSays(state, [playbook.recording_notice, fill(playbook.greeting, v)].filter(Boolean).join(' '));
 }
 
 function botSays(state, text) {

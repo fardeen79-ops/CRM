@@ -38,7 +38,7 @@ test('a full call: identity, introduction, each check, closing', () => {
   assert.match(s.say, /That is everything we needed/);
   const r = callResult(s);
   assert.deepEqual(r.checks.map((c) => c.result), ['confirmed', 'confirmed', 'confirmed', 'confirmed']);
-  assert.match(r.transcript, /^Bot: Hello, this is the verification team calling on behalf of the bank\. Am I speaking with Mohammed\?/);
+  assert.match(r.transcript, /^Bot: This call is recorded for verification and quality purposes\. Hello, this is the verification team calling on behalf of the bank\. Am I speaking with Mohammed\?/);
 });
 
 test('asks once more on a mismatch, re-asks when it hears nothing, then moves on', () => {
@@ -78,7 +78,16 @@ test('teaching: new words, custom questions and skipped checks', () => {
   assert.throws(() => normalizePlaybook({ greeting: 'Hello {firstname}' }), /\{firstname\} is not a detail the bot knows/);
   assert.throws(() => normalizePlaybook({ yes_words: ['yes', 'no'] }), /cannot mean both yes and no/);
   assert.throws(() => normalizePlaybook({ checks: [{ label: 'X', field: 'none', match: 'name', question: 'Q?' }] }), /must be a yes \/ no question/);
-  assert.throws(() => normalizePlaybook({ rules: { call_from: '20:00', call_to: '09:00' } }), /end after they start/);
+  assert.throws(() => normalizePlaybook({ rules: { call_from: '17:00', call_to: '10:00' } }), /end after they start/);
+  // Approved calling hours: 09:00 to 18:00 UAE time. Narrower is fine; wider is refused when
+  // teaching, and pulled inside for a playbook saved before.
+  assert.equal(normalizePlaybook({}).rules.call_to, '18:00');
+  assert.equal(normalizePlaybook({ rules: { call_from: '10:00', call_to: '16:00' } }).rules.call_from, '10:00');
+  assert.throws(() => normalizePlaybook({ rules: { call_from: '09:00', call_to: '20:00' } }), /within the approved 09:00 to 18:00 UAE time/);
+  assert.throws(() => normalizePlaybook({ rules: { call_from: '08:00', call_to: '17:00' } }), /within the approved/);
+  const old = normalizePlaybook({ rules: { call_from: '08:00', call_to: '20:00' } }, { strict: false }).rules;
+  assert.deepEqual([old.call_from, old.call_to], ['09:00', '18:00']);
+  assert.equal(normalizePlaybook({ recording_notice: '' }).recording_notice, '', 'the recording notice can be left out');
 });
 
 test('with the AI switched on, it settles what the rules cannot, using only taught lines', async () => {

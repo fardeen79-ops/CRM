@@ -218,7 +218,8 @@ test('bot call: signed result, logged on the case; with default rules the proces
   assert.equal(c.call_attempts, 1);
   assert.equal(c.bot_call.status, 'completed');
   assert.deepEqual(c.bot_call.checks.map((x) => x.result), ['confirmed', 'confirmed', 'mismatch', 'confirmed']);
-  assert.equal(c.bot_call.recording_url, 'https://bot.example/rec/1.mp3');
+  assert.equal(c.bot_call.has_recording, true);
+  assert.equal(c.bot_call.recording_url, undefined, 'the recording is played through the CRM, never linked directly');
   const event = c.events.find((e) => e.type === 'bot_call_result');
   assert.match(event.note, /1 detail did not match: Employer/);
 

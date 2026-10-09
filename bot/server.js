@@ -71,7 +71,8 @@ export function createBotService({
   authToken = process.env.TWILIO_AUTH_TOKEN,
   from = process.env.TWILIO_FROM,
   twilioApi = process.env.TWILIO_API || 'https://api.twilio.com',
-  record = process.env.BOT_RECORD === '1',
+  // Calls are recorded unless BOT_RECORD=0, so the bank can listen to what the bot said.
+  record = process.env.BOT_RECORD !== '0',
   country = process.env.BOT_COUNTRY_CODE || '971',
   log = console,
   // Claude reads answers the rules cannot settle, when the playbook switches the AI on.
@@ -211,13 +212,35 @@ export function createBotService({
       return '';
     }
     if (kind === 'recording') {
-      if (params.RecordingStatus === 'completed' && /^https:\/\//.test(params.RecordingUrl || '')) {
-        s.recording_url = `${params.RecordingUrl}.mp3`;
+      if (params.RecordingStatus === 'completed' && /^RE[0-9a-f]{32}$/.test(params.RecordingSid || '')) {
+        // Twilio's own link needs the account's credentials, so the CRM fetches it through this
+        // service (GET /recordings/:sid, signed).
+        s.recording_url = `${base}/recordings/${params.RecordingSid}`;
         if (s.result) send(s);
       }
       return '';
     }
     throw new HttpError(404, 'Not found');
+  }
+
+  /**
+   * A call recording, for the CRM to play to the people allowed to listen. The CRM signs
+   * "GET <path>\n<timestamp>" with CALL_BOT_SECRET; requests older than five minutes are refused.
+   */
+  async function recording(sid, req, res) {
+    if (!secret) throw new HttpError(403, 'Recordings are served only when CALL_BOT_SECRET is set');
+    const ts = Number(req.headers['x-crm-timestamp']);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > 300e3) throw new HttpError(401, 'Stale or missing timestamp');
+    if (!safeEqual(req.headers['x-crm-signature'], sign(secret, `GET /recordings/${sid}\n${ts}`))) throw new HttpError(401, 'Invalid signature');
+    if (!telephony) throw new HttpError(404, 'Not found');
+    const up = await fetch(`${twilioApi}/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Recordings/${sid}.mp3`, {
+      headers: { authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}` },
+      signal: AbortSignal.timeout(20_000),
+    }).catch((err) => { throw new HttpError(502, `Twilio could not be reached: ${err.message}`); });
+    if (!up.ok) throw new HttpError(up.status === 404 ? 404 : 502, up.status === 404 ? 'Recording not found' : `Twilio answered ${up.status}`);
+    const audio = Buffer.from(await up.arrayBuffer());
+    res.writeHead(200, { 'content-type': up.headers.get('content-type') || 'audio/mpeg', 'content-length': audio.length, 'cache-control': 'no-store' });
+    res.end(audio);
   }
 
   const server = http.createServer(async (req, res) => {
@@ -227,7 +250,9 @@ export function createBotService({
       res.end(type === 'application/json' ? JSON.stringify(body) : body);
     };
     try {
-      if (req.method === 'GET' && url.pathname === '/health') return reply(200, { ok: true, telephony, calls_in_progress: sessions.size });
+      if (req.method === 'GET' && url.pathname === '/health') return reply(200, { ok: true, telephony, recording: record, calls_in_progress: sessions.size });
+      const rec = req.method === 'GET' && url.pathname.match(/^\/recordings\/(RE[0-9a-f]{32})$/);
+      if (rec) return await recording(rec[1], req, res);
       if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed');
       const raw = await readBody(req);
       if (url.pathname === '/calls') return reply(202, await placeCall(raw, req.headers['x-crm-signature']));

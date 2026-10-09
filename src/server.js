@@ -313,6 +313,8 @@ function routes(db, dispatch, bot, interpret) {
 
     // Teaching the bot: its playbook, and practice calls typed on the teaching page.
     ['GET', /^\/api\/bot\/requests$/, async ({ user }) => bot.requests(user)],
+    // Listen to a bot call: the audio is streamed through the CRM and the listen is logged.
+    ['GET', /^\/api\/bot\/calls\/(\d+)\/recording$/, async ({ user, params, res }) => { await bot.streamRecording(user, Number(params[0]), res); }],
     ['GET', /^\/api\/bot\/playbook$/, async ({ user }) => playbookView(db, user, { enabled: bot.enabled })],
     ['PUT', /^\/api\/bot\/playbook$/, async ({ user, body }) => savePlaybook(db, user, body)],
     ['POST', /^\/api\/bot\/practice$/, async ({ user, body }) => practice(user, body, { interpret })],

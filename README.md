@@ -20,7 +20,7 @@ On first run it creates a team leader account, `admin@crm.local` / `changeme123`
 To try it with sample data:
 
 ```bash
-npm run seed:demo         # leader@, sales@, sales2@, processing@demo.local — password "password123"
+npm run seed:demo         # leader@, manager@, sales@, sales2@, processing@, vlead@ (verification TL), governance@, head@ (business head) demo.local — password "password123"
 npm start
 ```
 
@@ -516,7 +516,7 @@ The CRM has a **calling bot** that phones customers and runs the verification ca
 **A bot call is never automatic.** Every call is pushed through by people:
 1. The **verification team leader** asks for a bot call on a file (**Ask for a bot call** on the file), with a reason. Processors cannot.
 2. **Governance** and a **business head** both approve it, in either order, on the file or on the **Bot call approvals** page (with a count in the sidebar). Either can **decline** it with a reason. The verification team leader can **withdraw** it until the bot calls. Approvers are notified of each request; the team leader hears when it is approved, declined or the result comes in.
-3. Once both have approved, the call is placed straight away within the **calling hours** (UAE time, 09:00 to 20:00 by default, not on Sundays unless allowed), otherwise when they next open. A file verified by a person in the meantime is not called.
+3. Once both have approved, the call is placed straight away within the **approved calling hours, 09:00 to 18:00 UAE time** (not on Sundays unless allowed), otherwise when they next open. The playbook can narrow these hours but not widen them: saving hours outside 09:00–18:00 is refused, and a playbook saved earlier with wider hours is held to them. A file verified by a person in the meantime is not called.
 
 The bot never calls new files on its own and never retries an unanswered call: another attempt is a new request with new approvals. The **Bot calls** page lists waiting requests and the last 30 days, with who approved what.
 
@@ -557,7 +557,9 @@ Unanswered calls are counted per file since it last went back into the queue; ea
 - **When it is unavailable:** if it is slow (more than 6 seconds, as a caller is waiting), declines, or is not set up, the bot carries on with its rules and re-asks. Requests opt into Anthropic's refusal fallback (`fallbacks: "default"`), so a declined reading is retried on Anthropic's recommended fallback model.
 - **Setting it up:** set `ANTHROPIC_API_KEY` on the CRM (practice calls) and on the calling service (live calls), then switch the AI on in the playbook. `BOT_AI_MODEL` picks another model (a smaller one answers faster) and `BOT_AI_TIMEOUT_MS` the time limit. Check with the bank's compliance team before switching it on: customer answers and file values are sent to Anthropic.
 
-**On the file.** The **Bot call** card shows the request, its reason and both approvals, then the call. Asking for a bot call does not pick the file up, so processors keep working it. Only one bot call per file runs at a time. A call with no result after 30 minutes no longer blocks a new one, and a late result for it is refused. The **Bot call** card shows each detail as *Confirmed*, *Did not match* or *Not answered*, the summary, the transcript and the recording link when calls are recorded. The call counts as a call attempt and appears in the activity history. The processor on the file is told the result, or else the verification team leader who asked for the call. Only the result of each check is saved with the file, not the value the customer gave; what was said is in the transcript. Sales staff don't see bot calls. The dashboard's processor table counts the bot's verifications under *Verification Bot*. The bot's account cannot sign in and is not listed on the Staff page.
+**Listening to bot calls.** Every bot call is recorded (the bot opens with the taught **recording notice**, "This call is recorded for verification and quality purposes."). **Governance, business heads and the verification team leader** can listen to the call from the **Bot call** card on the file or the **Bot calls** page, with a player in the page. The audio is played through the CRM: it fetches the recording from the calling service with a signed request, and the calling service fetches it from Twilio, so nobody needs Twilio access and no recording link leaves the CRM. Each listen is written to the **access log** ("Listened to a bot call recording"). Others see that a recording exists. Recordings stay in the bank's Twilio account; set its retention there. To hear how the bot sounds before any call, tick **Hear the bot** in a practice call: the browser reads the bot's lines aloud (in the browser's voice, not the phone voice).
+
+**On the file.** The **Bot call** card shows the request, its reason and both approvals, then the call. Asking for a bot call does not pick the file up, so processors keep working it. Only one bot call per file runs at a time. A call with no result after 30 minutes no longer blocks a new one, and a late result for it is refused. The **Bot call** card shows each detail as *Confirmed*, *Did not match* or *Not answered*, the summary, the transcript and the recording. The call counts as a call attempt and appears in the activity history. The processor on the file is told the result, or else the verification team leader who asked for the call. Only the result of each check is saved with the file, not the value the customer gave; what was said is in the transcript. Sales staff don't see bot calls. The dashboard's processor table counts the bot's verifications under *Verification Bot*. The bot's account cannot sign in and is not listed on the Staff page.
 
 #### Running the calling service
 
@@ -578,7 +580,7 @@ CALL_BOT_URL=https://bot.example.com/calls CALL_BOT_SECRET=<same secret> PUBLIC_
 | `TWILIO_FROM` | The caller number, a Twilio number in international format |
 | `BOT_PUBLIC_URL` | The bot's own HTTPS address, which Twilio sends call events to |
 | `CALL_BOT_SECRET` | The same secret as the CRM's, to sign requests and results |
-| `BOT_RECORD` | `1` to record calls; the result then waits up to two minutes for the recording link |
+| `BOT_RECORD` | Calls are recorded by default; `0` turns recording off (then clear the recording notice in the playbook). The result waits up to two minutes for the recording |
 | `BOT_COUNTRY_CODE` | Country code for numbers written locally (default `971`, so `050 123 4567` is dialled as `+971501234567`) |
 | `BOT_PORT` | Port (default `4000`) |
 | `ANTHROPIC_API_KEY` | For the AI on live calls, when the playbook switches it on (`BOT_AI_MODEL`, `BOT_AI_TIMEOUT_MS` optional) |
@@ -586,6 +588,7 @@ CALL_BOT_URL=https://bot.example.com/calls CALL_BOT_SECRET=<same secret> PUBLIC_
 - Twilio's webhooks are checked against Twilio's signature, and requests from the CRM against `CALL_BOT_SECRET`.
 - Without the Twilio settings the service refuses calls with a clear reason, which shows on the file.
 - `GET /health` reports whether telephony is set up and how many calls are in progress.
+- `GET /recordings/:sid` hands a recording to the CRM only with a signature over `GET <path>\n<timestamp>` made with `CALL_BOT_SECRET` and a timestamp less than five minutes old, so `CALL_BOT_SECRET` is required to listen to calls.
 - Calls in progress are kept in memory: restarting the service drops them, and the CRM stops waiting after 30 minutes.
 - Before going live, check with the bank's compliance team: automated calls to customers, the caller number, call recording, and the customer details sent to Twilio for the call (name, number, and the values the bot compares answers with) all need approval. Practise with your own number as the customer first.
 
@@ -690,6 +693,7 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `POST /cases/:id/actions` with `bot_call` | Asks for a bot call, with a `note` giving the reason (verification team leader) |
 | `POST /bot/calls/:token` | Result from the calling bot (no session; one-time token, plus signature when `CALL_BOT_SECRET` is set) |
 | `POST /cases/:id/actions` with `approve_bot_call` / `decline_bot_call` (note) / `withdraw_bot_call` | Governance and business heads approve or decline a requested bot call; the verification team leader withdraws one |
+| `GET /bot/calls/:id/recording` | The bot call's audio, streamed through the CRM (governance, business heads, verification team leader); logged in the access log |
 | `GET /bot/requests` | Bot calls waiting for approval and the last 30 days (governance, business heads, verification team leader) |
 | `GET/PUT /bot/playbook`, `POST /bot/practice` | Teach the bot and practise with it (`{playbook, sample, answers}`); business heads and the verification team leader |
 | `GET /stats` | Dashboard counts |
