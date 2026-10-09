@@ -789,3 +789,10 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .incentive-potential .push { margin-top: 6px; }
 /* In the potential block only the opening sentence is a heading; bold figures inside sentences stay inline. */
 .incentive-potential strong:not(:first-child) { display: inline; margin: 0; }
+
+/* Staff on zero */
+.kpi-pct { font-size: 16px; font-weight: 600; color: var(--muted); margin-left: 4px; }
+.zero-card { display: grid; gap: 14px; margin-bottom: 18px; }
+.zero-block strong { display: block; margin-bottom: 6px; }
+.zero-names { display: flex; flex-wrap: wrap; gap: 6px; }
+.zero-names .chip { text-decoration: none; }

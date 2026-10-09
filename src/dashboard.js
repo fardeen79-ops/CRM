@@ -95,6 +95,26 @@ export function submissionCalendar(db, user, scope, params, cycle) {
   return { cycle, start, end, today, team, days, summary: { green: counted.filter((d) => d.status === 'green').length, orange: counted.filter((d) => d.status === 'orange').length, red: counted.filter((d) => d.status === 'red').length, days: counted.length } };
 }
 
+/**
+ * The leader's sales staff with nothing to show this cycle: zero ends or disbursals (no file of
+ * theirs completed in the cycle) and zero submissions (no file sourced in the cycle), each as a
+ * count, a share of the active team, and the names. Business heads and MIS see every sales person,
+ * narrowed by the region filter when one is set.
+ */
+export function zeroStaff(db, user, cycle, { region } = {}) {
+  const { start, end } = cycleRange(cycle);
+  const field = TEAM_FIELDS[user.role];
+  const where = field ? `u.${field} = ?` : REGIONS[String(region || '').toUpperCase()] ? 'u.region = ?' : '1 = 1';
+  const args = field ? [user.id] : REGIONS[String(region || '').toUpperCase()] ? [String(region).toUpperCase()] : [];
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader,
+      (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND COALESCE(c.sourcing_date, date(c.created_at, '+4 hours')) BETWEEN ? AND ?) AS sourced,
+      (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND ${COMPLETED_IN_SQL}) AS completed
+    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id
+    WHERE u.role = 'sales' AND u.active = 1 AND ${where} ORDER BY u.name`).all(start, end, start, end, ...args);
+  const pick = (list) => ({ count: list.length, pct: staff.length ? Math.round((list.length / staff.length) * 1000) / 10 : null, staff: list.map(({ id, name, sales_code, region, team_leader, sourced, completed }) => ({ id, name, sales_code, region, team_leader, sourced, completed })) });
+  return { cycle, team: staff.length, zero_ends: pick(staff.filter((s) => !s.completed)), zero_submissions: pick(staff.filter((s) => !s.sourced)) };
+}
+
 export function crossSellFor(db, scope, params, start, end) {
   const rows = db.prepare(`SELECT c.product, c.bundle_products, c.credit_card, c.pl_disbursed_amount, c.al_disbursed_amount, u.core_product
     FROM cases c JOIN users u ON u.id = COALESCE(c.sales_staff_id, c.created_by)
@@ -162,5 +182,6 @@ export function dashboardFor(db, user, { region } = {}) {
   const cross_sell = CROSS_SELL_VIEWERS.includes(user.role) ? crossSellFor(db, scope, params, start, end) : null;
   const contribution = ['business_head', 'mis'].includes(user.role) ? contributionFor(db, scope, params, start, end) : null;
   const calendar = CALENDAR_ROLES.includes(user.role) ? submissionCalendar(db, user, scope, params, cycle) : null;
-  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, calendar, follow_ups: followUps(db, user) };
+  const zero = [...TEAM_LEADER_ROLES, 'business_head', 'mis'].includes(user.role) ? zeroStaff(db, user, cycle, { region }) : null;
+  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, calendar, zero, follow_ups: followUps(db, user) };
 }

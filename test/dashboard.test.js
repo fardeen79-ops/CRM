@@ -15,6 +15,7 @@ before(async () => {
   add('SM One', 'sm1@t.local', 'sales_manager', { region: 'DXB' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
   add('TL Two', 'tl2@t.local', 'team_leader', { region: 'DXB' });
+  add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'personal_loan', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Cara', 'cara@t.local', 'sales', { region: 'DXB', sales_code: 'D-2', core_product: 'credit_card', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Lina', 'lina@t.local', 'sales', { region: 'DXB', sales_code: 'D-3', core_product: 'personal_loan', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Rina', 'rina@t.local', 'sales', { region: 'DXB', sales_code: 'D-4', core_product: 'multi_product', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm1@t.local'] });
@@ -164,4 +165,23 @@ test('the submission calendar: green days for a sales person, team-share colours
   assert.equal((await tl2('GET', '/dashboard')).data.calendar.days.find((d) => d.date === '2026-10-05').status, 'green');
   // MIS has no calendar.
   assert.equal((await mis('GET', '/dashboard')).data.calendar, null);
+});
+
+test('leaders see how many of their staff are on zero ends or disbursals and zero submissions, with names', async () => {
+  const tl = await login('tl@t.local');
+  const tl2 = await login('tl2@t.local');
+  const head = await login('head@t.local');
+  const cara = await login('cara@t.local');
+  // TL Two's team: Cara, Lina and Rina all sourced and completed files in earlier tests.
+  const z2 = (await tl2('GET', '/dashboard')).data.zero;
+  assert.equal(z2.team, 3);
+  assert.deepEqual([z2.zero_ends.count, z2.zero_submissions.count], [0, 0]);
+  // TL Dubai's team: Dana has not sourced anything, so she is on zero for both.
+  const z1 = (await tl('GET', '/dashboard')).data.zero;
+  assert.deepEqual([z1.team, z1.zero_ends.count, z1.zero_ends.pct, z1.zero_ends.staff.map((s) => s.name), z1.zero_submissions.count], [1, 1, 100, ['Dana'], 1]);
+  // The business head sees everyone; sales staff get nothing.
+  const zh = (await head('GET', '/dashboard')).data.zero;
+  assert.equal(zh.team, 4);
+  assert.equal(zh.zero_ends.pct, 25);
+  assert.equal((await cara('GET', '/dashboard')).data.zero, null);
 });

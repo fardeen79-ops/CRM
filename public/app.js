@@ -619,6 +619,22 @@ function pushLine(p, { unit, scheme, needed }) {
   return '';
 }
 
+// Staff with nothing to show this cycle: zero ends or disbursals, and zero submissions, with the names.
+function zeroCard(z, r) {
+  if (!z) return '';
+  const pct = (v) => (v == null ? '—' : `${v}%`);
+  const who = (list) => (list.length ? html`<div class="chips zero-names">${list.map((s) => html`<a class="chip bad" href="#/cases?staff=${s.id}&cycle=${z.cycle}" title="${s.sales_code || ''}${s.team_leader ? ` · ${s.team_leader}` : ''} · ${s.sourced} sourced, ${s.completed} completed this cycle">${s.name}</a>`)}</div>` : html`<div class="muted small">Nobody: everyone on the team has something this cycle.</div>`);
+  return html`<h2 class="tiles-head">Staff on zero · ${cycleName(z.cycle)} cycle${['team_leader', 'sales_manager'].includes(r) ? html` <a class="tiles-link" href="#/team">Team view →</a>` : ''}</h2>
+    <div class="kpis">
+      <div class="kpi ${z.zero_ends.count ? 'kpi-alert' : ''}"><span class="kpi-label">Zero ends or disbursals</span><span class="kpi-value">${z.zero_ends.count} <span class="kpi-pct">${pct(z.zero_ends.pct)}</span></span><span class="kpi-sub">of ${z.team} active sales staff with no file completed this cycle</span></div>
+      <div class="kpi ${z.zero_submissions.count ? 'kpi-alert' : ''}"><span class="kpi-label">Zero submissions</span><span class="kpi-value">${z.zero_submissions.count} <span class="kpi-pct">${pct(z.zero_submissions.pct)}</span></span><span class="kpi-sub">of ${z.team} active sales staff with no file sourced this cycle</span></div>
+    </div>
+    ${z.team ? html`<div class="card zero-card">
+      <div class="zero-block"><strong>No ends or disbursals yet</strong>${who(z.zero_ends.staff)}</div>
+      <div class="zero-block"><strong>No submissions yet</strong>${who(z.zero_submissions.staff)}</div>
+    </div>` : html`<p class="muted small dash-quiet">No active sales staff in your scope yet.</p>`}`;
+}
+
 // The submission calendar: one cell per day of the cycle. Sales: green with a submission, red without.
 // Leaders: green when 70%+ of the team submitted, orange from 50%, red below. Weekends with nothing are days off.
 function calendarCard(cal, r) {
@@ -861,6 +877,7 @@ async function viewDashboard() {
     <h2 class="tiles-head">${r === 'processing' ? 'Your queue' : 'Needs your attention'}</h2>
     ${attention.length ? tileGrid(attention) : html`<p class="muted small dash-quiet">Nothing is waiting on you right now.</p>`}
     ${fu && (fu.overdue.length || fu.due_today.length || fu.due_tomorrow.length) ? followUpCard(fu, r) : ''}
+    ${d.zero ? zeroCard(d.zero, r) : ''}
     ${d.calendar ? calendarCard(d.calendar, r) : ''}
     ${main}
     <h2 class="tiles-head">${r === 'sales' ? 'My files' : r === 'processing' ? 'Files' : 'Files in your scope'} <a class="tiles-link" href="#/cases">All cases →</a></h2>
