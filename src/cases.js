@@ -899,7 +899,7 @@ export function notify(db, userIds, caseId, message, link = null) {
 const activeUserIds = (db, role) =>
   db.prepare('SELECT id FROM users WHERE role = ? AND active = 1').all(role).map((r) => r.id);
 /** The processors a file can reach: the one allocated to its team leader, else every active processor. */
-const processorsFor = (db, row) => {
+export const processorsFor = (db, row) => {
   if (!row.team_leader_id) return activeUserIds(db, 'processing');
   const products = caseProducts(row);
   const mine = db.prepare('SELECT a.product, a.processor_id FROM processor_allocations a JOIN users u ON u.id = a.processor_id WHERE a.team_leader_id = ? AND u.active = 1').all(row.team_leader_id)
@@ -1346,7 +1346,8 @@ function verificationActions(user, row) {
     .filter(([name, rule]) => {
       if (!rule.roles.includes(user.role) || !rule.from.includes(row.status)) return false;
       if (user.role === 'sales') return isOwner(user, row);
-      if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id) return false;
+      // The calling bot records its results on any file, including one a processor has picked up.
+      if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id && !user.is_bot) return false;
       if (name === 'bot_call') return config.callBot && !botCallPending(row);
       if (name === 'approve_card' || name === 'decline_card') return needsCardApproval(row);
       if (name === 'approve_timing' || name === 'decline_timing') return needsTimingApproval(row);
@@ -1451,8 +1452,11 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         if (callbackAt) detail = `${outcome} ${callbackAt}`;
         break;
       case 'bot_call': {
-        set.assigned_to = row.assigned_to ?? user.id;
-        if (row.status === STATUS.PENDING) set.status = STATUS.IN_VERIFICATION;
+        // The bot's own calls (new files, retries) leave the file in the queue for processors.
+        if (!user.is_bot) {
+          set.assigned_to = row.assigned_to ?? user.id;
+          if (row.status === STATUS.PENDING) set.status = STATUS.IN_VERIFICATION;
+        }
         Object.assign(set, { bot_call_status: 'requested', bot_call_at: ts });
         // A newer call replaces one the bot never reported back on; a late result for it is refused.
         db.prepare(`UPDATE bot_calls SET status = 'expired', finished_at = ? WHERE case_id = ? AND status IN ('requested', 'in_progress')`).run(ts, id);

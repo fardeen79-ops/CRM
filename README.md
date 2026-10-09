@@ -508,38 +508,93 @@ Every step is recorded in the case's activity timeline. People are notified in-a
 - sales when their case is verified, returned or rejected
 - the processor when a case they handled is sent back or rejected
 
-### Verification calls through a bot
+### Verification bot
 
-When a calling bot is set up (`CALL_BOT_URL`), processors see **Call with bot** on cases they can verify. The bot phones the customer and asks them to confirm their details. The processor then reviews what came back and saves the verification result as usual.
+The CRM has a **calling bot** that phones customers and runs the verification call by voice. It is taught on the **Verification bot** page (Admin), by business heads and the verification team leader. It can complete verifications on its own when every detail is confirmed, if you allow it.
 
-> The bot never completes, holds or rejects a verification. Its call is logged like any other call, and the processor decides.
+**How a bot call goes.**
+1. The bot greets the customer and checks it is speaking to them: "Hello, this is the verification team calling on behalf of Emirates NBD. Am I speaking with Asha?"
+2. It says why it is calling and asks if now is a good time.
+3. It asks one question per detail and compares each answer with the file: by default the **full name**, **product applied for**, **employer** and **monthly salary**. A question is skipped when the file has no value for it.
+4. It closes the call. If someone else answers, or it is not a good time, it says goodbye politely and records that.
 
-1. **Call with bot** picks the case up, like logging a call, and sends the request to the bot service. Only one bot call per case runs at a time. A call with no result after 30 minutes no longer blocks a new one, and a late result for it is refused.
-2. The bot calls the customer and checks up to five details: **full name**, **product applied for**, **employer**, **monthly salary** and the **last four digits of the Emirates ID** (employer, salary and Emirates ID only when they are on the file).
-3. When the bot reports back, the case shows a **Bot call** card: each detail as *Confirmed*, *Did not match* or *Not answered*, the bot's summary, the transcript and a link to the recording. The call counts as a call attempt, appears in the activity history, and the processor is notified, for example "bot call: 1 detail did not match: Employer".
-4. If the bot service refuses the request, or reports that the call failed, the case says so and the processor can try again or call the customer themselves.
+The bot re-asks (up to twice, by default) when it hears nothing it understands. When an answer does not match, it asks once more before recording a mismatch, because speech recognition mishears. A voicemail is hung up on and counts as not answered.
 
-Only the result of each check is saved, never the value the customer gave. Sales staff don't see bot calls.
+**Teaching the bot** (Verification bot page).
 
-**Connecting a bot.** Any voice-bot or IVR provider works, or a small adapter in front of one. The CRM sends a `POST` to `CALL_BOT_URL`:
+| Section | What you teach |
+|---|---|
+| Voice | The bank name it says, the language (English UK/US/India or Arabic UAE) and, optionally, a voice |
+| What the bot says | Every line: greeting, introduction, closing, what to say if someone else answers, when it is not a good time, when it did not understand, and when an answer does not match. Lines can use details from the file: `{first_name}`, `{name}`, `{product}`, `{bank}`, `{company_name}`, `{salary}`… A typo such as `{firstname}` is refused when you save. |
+| What the bot checks | The questions, in order: switch each on or off, reword it, choose the detail on the file it is compared with and how (**Name**: sounds-alike spelling is fine but the first and last name must be heard; **Key words**: most of the words on file, or their initials, so "ADNOC" matches *Abu Dhabi National Oil Company*; **Amount**: within 20%, 10% or 2%; **Yes / no**: the customer must say yes), and how strict to be. Add your own questions, for example "Do you agree to a credit check with {bank}?" as a yes / no question. Up to 12. |
+| Words the bot understands | The words and phrases that mean yes and no, in any language (it ships with English and common Arabic and Hindi words such as *aiwa*, *naam*, *haan*, *la*). |
+| What the bot may decide | See below. |
+
+**Practising.** The practice panel plays a call with a made-up customer, using your unsaved changes. Type what the customer says (or **Say nothing**), and each answer shows how the bot understood it: *Understood: yes*, *Matches the file*, *Does not match the file* or *Did not understand*. When it did not understand a yes or no, click **teach it: means yes / means no** and the call replays with the new word. At the end you see each check's result and what the bot would do with these rules. Nothing from real files is shown on the teaching page. **Save** to use the changes on the next call.
+
+**What the bot may decide.** By default it decides nothing: every result is left for a processor to review. You can allow it to:
+- **Complete the verification** when every detail is confirmed. It is recorded as verified by *Verification Bot*, with a note, and the sales person is told as usual.
+- **Mark verification pending** when a detail does not match (reason *Incorrect details*), so the team leader decides, as when a processor marks it pending.
+- **Mark verification pending** when the customer cannot be reached after the set number of attempts (reason *Customer unreachable*).
+- **Try again** after a set number of minutes when nobody answers, the line is busy or the customer asks to be called later, up to the set number of attempts. A retry is skipped once a processor has logged their own call.
+- **Call new files on its own**, without waiting for a processor. Its own calls leave the file in the queue, so a processor can still pick it up.
+
+Retries and its own calls happen only within the **calling hours** (UAE time, 09:00 to 20:00 by default, not on Sundays unless allowed). The bot never rejects a verification: rejection stays with people.
+
+**On the file.** Processors can press **Call with bot** on any file they can verify, at any time; it picks the file up like logging a call. Only one bot call per file runs at a time. A call with no result after 30 minutes no longer blocks a new one, and a late result for it is refused. The **Bot call** card shows each detail as *Confirmed*, *Did not match* or *Not answered*, the summary, the transcript and the recording link when calls are recorded. The call counts as a call attempt and appears in the activity history. The processor on the file is told the result (or, for the bot's own calls, the processors the file is routed to), except while a retry is still to come. Only the result of each check is saved with the file, not the value the customer gave; what was said is in the transcript. Sales staff don't see bot calls. The dashboard's processor table counts the bot's verifications under *Verification Bot*. The bot's account cannot sign in and is not listed on the Staff page.
+
+#### Running the calling service
+
+The calling service is in `bot/server.js`. It places calls through **Twilio** (text to speech and speech recognition) and runs the playbook the CRM sends with each call.
+
+```bash
+# On a server Twilio can reach over HTTPS:
+TWILIO_ACCOUNT_SID=AC… TWILIO_AUTH_TOKEN=… TWILIO_FROM=+9714… \
+BOT_PUBLIC_URL=https://bot.example.com CALL_BOT_SECRET=<shared secret> npm run bot   # port 4000
+
+# The CRM:
+CALL_BOT_URL=https://bot.example.com/calls CALL_BOT_SECRET=<same secret> PUBLIC_URL=https://crm.example.com npm start
+```
+
+| Bot variable | Purpose |
+|---|---|
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | The Twilio account that places the calls |
+| `TWILIO_FROM` | The caller number, a Twilio number in international format |
+| `BOT_PUBLIC_URL` | The bot's own HTTPS address, which Twilio sends call events to |
+| `CALL_BOT_SECRET` | The same secret as the CRM's, to sign requests and results |
+| `BOT_RECORD` | `1` to record calls; the result then waits up to two minutes for the recording link |
+| `BOT_COUNTRY_CODE` | Country code for numbers written locally (default `971`, so `050 123 4567` is dialled as `+971501234567`) |
+| `BOT_PORT` | Port (default `4000`) |
+
+- Twilio's webhooks are checked against Twilio's signature, and requests from the CRM against `CALL_BOT_SECRET`.
+- Without the Twilio settings the service refuses calls with a clear reason, which shows on the file.
+- `GET /health` reports whether telephony is set up and how many calls are in progress.
+- Calls in progress are kept in memory: restarting the service drops them, and the CRM stops waiting after 30 minutes.
+- Before going live, check with the bank's compliance team: automated calls to customers, the caller number, call recording, and the customer details sent to Twilio for the call (name, number, and the values the bot compares answers with) all need approval. Practise with your own number as the customer first.
+
+#### Using another calling service
+
+Any voice-bot or IVR provider can stand in for `bot/server.js` if it speaks the same protocol. The CRM sends a `POST` to `CALL_BOT_URL`:
 
 ```json
 { "event": "verification_call.request", "call_id": 7, "case_id": 12, "ref": "CRM-000012",
   "callback_url": "https://crm.example.com/api/bot/calls/3f9c…",
   "customer": { "name": "Asha Rao", "phone": "0501234567", "alt_phone": null },
-  "checks": [ { "key": "full_name", "label": "Full name", "question": "Please confirm your full name.", "expected": "Asha Rao" },
-              { "key": "eid_last4", "label": "Emirates ID (last 4 digits)", "question": "…", "expected": "5671" } ],
+  "checks": [ { "key": "full_name", "label": "Full name", "question": "Please confirm your full name.", "match": "name", "strictness": "normal", "expected": "Asha Rao" },
+              { "key": "product", "label": "Product applied for", "question": "Which product did you apply for?", "match": "text", "strictness": "relaxed", "expected": ["Personal Loan", "Personal Loan (Fresh)"] } ],
+  "values": { "bank": "Emirates NBD", "first_name": "Asha", "product": "Personal Loan", "…": "…" },
+  "playbook": { "greeting": "…", "intro": "…", "closing": "…", "yes_words": ["yes", "…"], "…": "…" },
   "check_results": ["confirmed", "mismatch", "not_answered"],
   "call_outcomes": ["connected", "no_answer", "busy", "switched_off", "wrong_number", "call_back_later"] }
 ```
 
-Any `2xx` answer means the bot accepted the call. The bot then posts to `callback_url`, once with `{"status": "in_progress"}` if it wants to show that the call has started (optional), and once with the result:
+`expected` is the value on file, or a list of accepted answers. `src/bot-engine.js` holds the conversation and matching rules and has no other imports, so another service can reuse it. Any `2xx` answer means the call was accepted; an error answer with `{"error": "…"}` shows that reason on the file. The service then posts to `callback_url`, once with `{"status": "in_progress"}` when the customer picks up (optional), and once with the result:
 
 ```json
 { "status": "completed", "outcome": "connected",
-  "checks": [ { "key": "full_name", "result": "confirmed" }, { "key": "eid_last4", "result": "mismatch" } ],
-  "summary": "Customer confirmed their name; Emirates ID digits did not match.",
-  "transcript": "Bot: …", "recording_url": "https://…" }
+  "checks": [ { "key": "full_name", "result": "confirmed" }, { "key": "product", "result": "mismatch" } ],
+  "summary": "Confirmed: Full name. Did not match: Product applied for.",
+  "transcript": "Bot: …\nCustomer: …", "recording_url": "https://…" }
 ```
 
 or `{"status": "failed", "error": "number not in service"}`. Checks left out count as not answered.
@@ -548,7 +603,7 @@ or `{"status": "failed", "error": "number not in service"}`. Checks left out cou
 - The callback URL holds a random one-time token for that call. A result is accepted once.
 - Set `CALL_BOT_SECRET` to sign both directions. Each request carries `x-crm-signature: sha256=<hex>`, an HMAC-SHA256 of the raw body with the secret. The CRM signs its requests to the bot and refuses results without a valid signature.
 - The request contains the customer's details so the bot can compare answers. Only point `CALL_BOT_URL` at a service your bank has approved to handle them.
-- Set `PUBLIC_URL` to the address the bot can reach the CRM at (for example `https://crm.example.com`). Without it, the callback URL uses the address the processor opened the CRM with.
+- Set `PUBLIC_URL` to the address the bot can reach the CRM at (for example `https://crm.example.com`). Without it, the callback URL uses the address someone last opened the CRM with, and the bot's own calls wait until someone has signed in.
 
 ### Team-leader webhook
 
@@ -575,7 +630,7 @@ See [`deploy/DEPLOY.md`](deploy/DEPLOY.md): Docker (`deploy/Dockerfile`, `deploy
 | `PROCESSING_WEBHOOK_URL` | – | Webhook for due call-back alerts (`callback.due`) |
 | `IT_EMAIL` | – | IT department address that approved call recording requests are emailed to |
 | `IT_EMAIL_WEBHOOK_URL` | – | Email relay (Power Automate, Zapier, an SMTP bridge…) that receives `POST {to, subject, text}` and sends it |
-| `CALL_BOT_URL` | – | Calling bot service that places verification calls; turns on **Call with bot** |
+| `CALL_BOT_URL` | – | The calling bot service (`npm run bot`, at `…/calls`); turns on **Call with bot** and the bot's own calls |
 | `CALL_BOT_SECRET` | – | Shared secret for signing bot requests and results (recommended) |
 | `PUBLIC_URL` | – | The CRM's address as the bot reaches it, for callback URLs |
 | `COOKIE_SECURE` | – | Set to `1` when serving over HTTPS |
@@ -587,7 +642,8 @@ src/
   index.js     entry point (first-run admin, starts server)
   server.js    HTTP routing, auth cookies, JSON API, static files, webhook dispatch
   cases.js     case workflow / state machine, notifications, stats
-  bot.js       verification calls through a calling bot (request, signed results)
+  bot.js       verification calls through the calling bot: playbook, practice, requests, signed results, the bot's decisions and own calls
+  bot-engine.js  the bot's conversation and answer matching (shared with bot/server.js)
   chat.js      case discussions, direct messages, groups, mentions
   imports.js   bulk upload of users, cases, card activation and targets (CSV parsing, row checks, column guide)
   cycles.js    sales cycles (21st to 20th, UAE time)
@@ -598,6 +654,7 @@ src/
   db.js        SQLite schema
 public/        single-page UI (vanilla JS, no build step); speech.js handles dictation and read-back
 scripts/       demo seed data
+bot/server.js  the calling bot service (Twilio): `npm run bot`
 test/          end-to-end API tests (node:test)
 ```
 
@@ -613,6 +670,7 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `POST /cases/:id/actions` | `{action, note?, outcome?, reason?, callback_at?}` (`callback_at` is required with `outcome: 'call_back_later'`: an ISO date-time), where action is one of `claim`, `release`, `log_call`, `complete`, `mark_incomplete`, `return_to_sales`, `reverify`, `reject`, `resubmit` |
 | `POST /cases/:id/actions` with `bot_call` | Asks the calling bot to phone the customer (processing) |
 | `POST /bot/calls/:token` | Result from the calling bot (no session; one-time token, plus signature when `CALL_BOT_SECRET` is set) |
+| `GET/PUT /bot/playbook`, `POST /bot/practice` | Teach the bot and practise with it (`{playbook, sample, answers}`); business heads and the verification team leader |
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
 | `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |

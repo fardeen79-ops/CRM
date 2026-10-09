@@ -473,9 +473,18 @@ CREATE TABLE IF NOT EXISTS bot_calls (
   summary      TEXT,
   transcript   TEXT,
   recording_url TEXT,
-  error        TEXT
+  error        TEXT,
+  asked        TEXT  -- JSON [{key, label}]: the checks sent to the bot, so later playbook changes don't affect the result
 );
 CREATE INDEX IF NOT EXISTS idx_bot_calls_case ON bot_calls(case_id);
+
+-- Settings kept as JSON by key, such as the verification bot's playbook.
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_by INTEGER REFERENCES users(id),
+  updated_at TEXT NOT NULL
+);
 `;
 
 export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
@@ -522,6 +531,8 @@ const ADDED_USER_COLUMNS = {
 };
 
 function migrate(db) {
+  const botCols = db.prepare('PRAGMA table_info(bot_calls)').all().map((c) => c.name);
+  if (!botCols.includes('asked')) db.exec('ALTER TABLE bot_calls ADD COLUMN asked TEXT');
   if (!db.prepare('PRAGMA table_info(notifications)').all().some((c) => c.name === 'link')) db.exec('ALTER TABLE notifications ADD COLUMN link TEXT');
   const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
   for (const [name, type] of Object.entries(ADDED_COLUMNS)) {

@@ -314,6 +314,7 @@ const ICON_PATHS = {
   stamp: '<path d="M9 3h6v6l3 3v3H6v-3l3-3z"/><path d="M5 21h14"/>',
   eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="3"/>',
   chat: '<path d="M4 5h16v11H9l-5 4V5z"/>',
+  bot: '<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 8V4M9 13h.01M15 13h.01M9.5 16.5h5"/><circle cx="12" cy="3.5" r="1"/>',
 };
 const icon = (name) => raw(`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`);
 
@@ -361,6 +362,7 @@ function navGroups() {
   if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
   if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users', 'data-roles-count', state.meta.roles_pending || 0]);
   if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
+  if (state.meta.can_teach_bot) admin.push(['#/bot', 'Verification bot', 'bot']);
   if (state.meta.can_manage_boosters) admin.push(['#/boosters', 'Boosters', 'flag']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/holidays', 'Holidays', 'calendar']);
   if (admin.length) groups.push(['Admin', admin]);
@@ -476,6 +478,7 @@ async function route() {
     if (path === '/assets') return await viewAssets(params);
     if (path === '/roles') return await viewRoles();
     if (path === '/allocation') return await viewAllocation();
+    if (path === '/bot') return await viewBot();
     if (path === '/boosters') return await viewBoosters();
     if (path === '/holidays') return await viewHolidays();
     if (path === '/pnl') return await viewPnl(params);
@@ -1847,7 +1850,7 @@ async function viewCase(id) {
       </form>`);
   }
   if (a.has('bot_call')) {
-    panel.push(html`<h3>Call with bot</h3><p class="muted small">The bot calls the customer and asks them to confirm their details. You still save the verification result.</p>
+    panel.push(html`<h3>Call with bot</h3><p class="muted small">The bot calls the customer and asks them to confirm their details. Depending on what it has been taught, it completes the verification, sends it to the team leader, or leaves it for you.</p>
       <button data-action="bot_call">🤖 Call with bot</button>`);
   } else if (meta.call_bot && ['requested', 'in_progress'].includes(c.bot_call_status) && a.has('log_call')) {
     panel.push(html`<h3>Call with bot</h3><p class="muted small">${c.bot_call_status === 'in_progress' ? 'The bot is on the call now.' : 'Waiting for the bot to call the customer.'}
@@ -3838,6 +3841,227 @@ async function viewAllocation() {
       await viewAllocation();
     } catch (err) { toast(err.message, true); sel.disabled = false; }
   }));
+}
+
+// Verification bot: teach the calling bot what to say, what to check and what it may decide, and
+// practise with it by typing a customer's answers. Business heads and the verification team leader.
+const BOT_RESULT = { confirmed: ['Confirmed', 'good'], mismatch: ['Did not match', 'bad'], not_answered: ['Not answered', ''] };
+const BOT_HEARD = { yes: 'Understood: yes', no: 'Understood: no', confirmed: 'Matches the file', mismatch: 'Does not match the file', unclear: 'Did not understand' };
+async function viewBot() {
+  const data = await api('/bot/playbook');
+  const m = data.meta;
+  let draft = structuredClone(data.playbook);
+  const practice = { answers: [], sample: { full_name: 'Asha Rao', product: 'Personal Loan', company_name: 'Emirates Steel', salary: '25,000' }, result: null };
+  const opts = (choices, selected) => Object.entries(choices).map(([k, l]) => html`<option value="${k}" ${k === selected ? raw('selected') : ''}>${l}</option>`);
+  const placeholders = m.placeholders.map((p) => `{${p}}`).join(' ');
+  const s = data.stats;
+
+  const checkHtml = (c, i, n) => html`<div class="bot-check ${c.enabled ? '' : 'off'}" data-key="${c.key}">
+    <div class="bot-check-head">
+      <label class="check"><input type="checkbox" name="enabled" ${c.enabled ? raw('checked') : ''}> <strong>${i + 1}.</strong></label>
+      <input name="label" value="${c.label}" maxlength="60" aria-label="Question name">
+      <span class="actions">
+        <button type="button" class="btn-link" data-move="-1" ${i === 0 ? raw('disabled') : ''} aria-label="Move up">↑</button>
+        <button type="button" class="btn-link" data-move="1" ${i === n - 1 ? raw('disabled') : ''} aria-label="Move down">↓</button>
+        <button type="button" class="btn-link" data-remove>Remove</button>
+      </span>
+    </div>
+    <div class="field-row"><textarea name="question" rows="2" maxlength="300" aria-label="What the bot asks">${c.question}</textarea></div>
+    <div class="form-grid three">
+      <div class="field-row"><label>Compared with</label><select name="field">${opts(m.fields, c.field)}</select></div>
+      <div class="field-row"><label>How</label><select name="match">${opts(m.match_types, c.match)}</select></div>
+      <div class="field-row"><label>Strictness</label><select name="strictness">${opts(m.strictness, c.strictness)}</select></div>
+    </div>
+  </div>`;
+  const checksHtml = () => html`${draft.checks.map((c, i) => checkHtml(c, i, draft.checks.length))}
+    <button type="button" id="bot-add-check" ${draft.checks.length >= 12 ? raw('disabled') : ''}>+ Add a question</button>`;
+
+  const r = draft.rules;
+  shell(html`
+    <div class="page-head"><div><h1>Verification bot</h1>
+      <p class="muted">Teach the calling bot how to run a verification call: what it says, which details it checks and how strictly, the words it understands, and what it may decide on its own. Practise on the right before you save; the bot uses the saved version on its next call.</p></div></div>
+    ${data.enabled ? '' : html`<div class="callout warn"><strong>The calling service is not connected yet</strong>You can teach and practise now. The bot starts calling once IT runs the calling service and sets <code>CALL_BOT_URL</code> (see the README).</div>`}
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Bot calls</span><span class="kpi-value">${s.calls}</span><span class="kpi-sub">last 30 days</span></div>
+      <div class="kpi"><span class="kpi-label">Customer reached</span><span class="kpi-value">${s.reached}</span><span class="kpi-sub">${s.not_reached} not reached · ${s.failed} failed to place</span></div>
+      <div class="kpi"><span class="kpi-label">Verified by the bot</span><span class="kpi-value">${s.verified}</span><span class="kpi-sub">every detail confirmed</span></div>
+      <div class="kpi"><span class="kpi-label">Sent to team leaders</span><span class="kpi-value">${s.marked_pending}</span><span class="kpi-sub">marked verification pending</span></div>
+    </div>
+    <div class="grid two-col">
+      <form id="bot-form">
+        <div class="card"><h2>Voice</h2>
+          <div class="form-grid three">
+            <div class="field-row"><label>Bank name, as the bot says it</label><input name="bank_name" maxlength="80" value="${draft.bank_name}"></div>
+            <div class="field-row"><label>Language</label><select name="language">${opts(m.languages, draft.language)}</select></div>
+            <div class="field-row"><label>Voice (optional)</label><input name="voice" maxlength="60" value="${draft.voice}" placeholder="e.g. Polly.Amy"></div>
+          </div>
+        </div>
+        <div class="card"><h2>What the bot says</h2>
+          <p class="muted small">Details from the file can be used in any line: ${placeholders}</p>
+          ${Object.entries(m.script_labels).map(([k, l]) => html`<div class="field-row"><label>${l}</label><textarea name="line_${k}" rows="2" maxlength="500">${draft[k]}</textarea></div>`)}
+        </div>
+        <div class="card"><h2>What the bot checks</h2>
+          <p class="muted small">The bot asks these in order. A question is skipped when the file has no value for its detail. <b>Name</b> allows sounds-alike spelling but needs the first and last name; <b>Key words</b> needs most of the words on file (or their initials, like ADNOC); <b>Amount</b> is allowed 20%, 10% or 2% off when Relaxed, Normal or Strict; <b>Yes / no</b> needs the customer to say yes. <b>Relaxed</b> forgives more mishearing, <b>Strict</b> needs a near-exact answer.</p>
+          <div id="bot-checks">${checksHtml()}</div>
+        </div>
+        <div class="card"><h2>Words the bot understands</h2>
+          <div class="form-grid">
+            <div class="field-row"><label>Mean yes</label><textarea name="yes_words" rows="4">${draft.yes_words.join(', ')}</textarea></div>
+            <div class="field-row"><label>Mean no</label><textarea name="no_words" rows="4">${draft.no_words.join(', ')}</textarea></div>
+          </div>
+          <p class="muted small">Separate words and phrases with commas. When the bot does not understand an answer in practice, you can teach it the answer there.</p>
+          <div class="field-row"><label>Times to re-ask when it hears nothing it understands</label><select name="max_reprompts">${[0, 1, 2, 3].map((n) => html`<option ${n === draft.max_reprompts ? raw('selected') : ''}>${n}</option>`)}</select></div>
+        </div>
+        <div class="card"><h2>What the bot may decide</h2>
+          <div class="form-grid">
+            <div class="field-row"><label>When every detail is confirmed</label><select name="rule_all_confirmed">${opts(m.rule_choices.all_confirmed, r.all_confirmed)}</select></div>
+            <div class="field-row"><label>When a detail does not match</label><select name="rule_mismatch">${opts(m.rule_choices.mismatch, r.mismatch)}</select></div>
+            <div class="field-row"><label>When the customer cannot be reached</label><select name="rule_not_reached">${opts(m.rule_choices.not_reached, r.not_reached)}</select></div>
+            <div class="field-row"><label>Call attempts before giving up</label><input type="number" name="rule_max_attempts" min="1" max="10" value="${r.max_attempts}"></div>
+            <div class="field-row"><label>Minutes between attempts</label><input type="number" name="rule_retry_minutes" min="10" max="1440" value="${r.retry_minutes}"></div>
+            <div class="field-row"><label>Calling hours (UAE time)</label><div class="actions"><input type="time" name="rule_call_from" value="${r.call_from}" aria-label="From"> <input type="time" name="rule_call_to" value="${r.call_to}" aria-label="To"></div></div>
+          </div>
+          <label class="check"><input type="checkbox" name="rule_auto_call_new" ${r.auto_call_new ? raw('checked') : ''}> Call new files on its own, without waiting for a processor</label>
+          <label class="check"><input type="checkbox" name="rule_call_sunday" ${r.call_sunday ? raw('checked') : ''}> Call on Sundays</label>
+          <p class="muted small">Retries and the bot's own calls happen only within calling hours. Processors can still press <b>Call with bot</b> on any file, at any time. The bot never rejects a verification: a team leader decides files it marks pending.</p>
+        </div>
+        <div class="actions bot-save"><button class="btn-primary">Save what the bot has learned</button> <button type="button" id="bot-reset">Start again from the defaults</button>
+          <span class="muted small">${data.updated_at ? `Last saved by ${data.updated_by_name || 'someone'} ${ago(data.updated_at)}` : 'Using the defaults'}</span></div>
+      </form>
+      <div class="card bot-practice">
+        <h2>Practice call</h2>
+        <p class="muted small">Play the customer: type what they would say. Uses this made-up customer and your unsaved changes.</p>
+        <form class="form-grid" id="bot-sample">
+          <div class="field-row"><label>Name</label><input name="full_name" value="${practice.sample.full_name}"></div>
+          <div class="field-row"><label>Product</label><input name="product" value="${practice.sample.product}"></div>
+          <div class="field-row"><label>Employer</label><input name="company_name" value="${practice.sample.company_name}"></div>
+          <div class="field-row"><label>Monthly salary</label><input name="salary" value="${practice.sample.salary}"></div>
+        </form>
+        <button type="button" class="btn-primary" id="bot-start">Start a practice call</button>
+        <div id="bot-chat"></div>
+      </div>
+    </div>`);
+
+  const form = document.getElementById('bot-form');
+  const words = (v) => v.split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
+  const collect = () => {
+    const f = formData(form);
+    const out = { bank_name: f.bank_name, language: f.language, voice: f.voice, max_reprompts: Number(f.max_reprompts), yes_words: words(f.yes_words), no_words: words(f.no_words) };
+    for (const k of Object.keys(m.script_labels)) out[k] = f[`line_${k}`];
+    out.checks = [...form.querySelectorAll('.bot-check')].map((el) => ({
+      key: el.dataset.key, enabled: el.querySelector('[name=enabled]').checked, label: el.querySelector('[name=label]').value,
+      question: el.querySelector('[name=question]').value, field: el.querySelector('[name=field]').value,
+      match: el.querySelector('[name=match]').value, strictness: el.querySelector('[name=strictness]').value,
+    }));
+    out.rules = {
+      all_confirmed: f.rule_all_confirmed, mismatch: f.rule_mismatch, not_reached: f.rule_not_reached,
+      max_attempts: Number(f.rule_max_attempts), retry_minutes: Number(f.rule_retry_minutes), call_from: f.rule_call_from, call_to: f.rule_call_to,
+      auto_call_new: form.rule_auto_call_new.checked, call_sunday: form.rule_call_sunday.checked,
+    };
+    return out;
+  };
+
+  const bindChecks = () => {
+    const box = document.getElementById('bot-checks');
+    const redraw = () => { box.innerHTML = checksHtml().s; bindChecks(); };
+    box.querySelectorAll('.bot-check').forEach((el, i) => {
+      el.querySelector('[name=enabled]').onchange = (e) => el.classList.toggle('off', !e.target.checked);
+      // A new detail suggests how to compare it.
+      el.querySelector('[name=field]').onchange = (e) => { el.querySelector('[name=match]').value = m.default_match[e.target.value]; };
+      el.querySelectorAll('[data-move]').forEach((b) => (b.onclick = () => {
+        draft = collect();
+        const j = i + Number(b.dataset.move);
+        [draft.checks[i], draft.checks[j]] = [draft.checks[j], draft.checks[i]];
+        redraw();
+      }));
+      el.querySelector('[data-remove]').onclick = () => { draft = collect(); draft.checks.splice(i, 1); redraw(); };
+    });
+    document.getElementById('bot-add-check').onclick = () => {
+      draft = collect();
+      let n = draft.checks.length + 1;
+      while (draft.checks.some((c) => c.key === `custom_${n}`)) n++;
+      draft.checks.push({ key: `custom_${n}`, label: 'New question', field: 'none', match: 'yes', strictness: 'normal', enabled: true, question: 'Do you confirm that you applied with {bank}?' });
+      redraw();
+    };
+  };
+  bindChecks();
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/bot/playbook', { method: 'PUT', body: { playbook: collect() } });
+      toast('Saved. The bot uses this on its next call');
+      await viewBot();
+    } catch (err) { toast(err.message, true); }
+  };
+  document.getElementById('bot-reset').onclick = async () => {
+    try {
+      await api('/bot/playbook', { method: 'PUT', body: { playbook: data.defaults } });
+      toast('Back to the defaults');
+      await viewBot();
+    } catch (err) { toast(err.message, true); }
+  };
+
+  // ---- practice ----
+  const chat = document.getElementById('bot-chat');
+  // Yes / no answers it did not understand can be taught; other answers are compared with the file.
+  const teachable = (t) => t.who === 'customer' && t.understood === 'unclear' && t.text
+    && (!t.check || collect().checks.find((c) => c.key === t.check)?.match === 'yes');
+  const outcomeRule = (res) => {
+    const rules = collect().rules; const ch = m.rule_choices;
+    if (res.outcome !== 'connected') return `${ch.not_reached[rules.not_reached]} (after ${rules.max_attempts} ${rules.max_attempts === 1 ? 'attempt' : 'attempts'})`;
+    if (res.checks.some((c) => c.result === 'mismatch')) return ch.mismatch[rules.mismatch];
+    if (res.checks.length && res.checks.every((c) => c.result === 'confirmed')) return ch.all_confirmed[rules.all_confirmed];
+    return 'Leave it for a processor to review';
+  };
+  const drawChat = () => {
+    const res = practice.result;
+    if (!res) { chat.innerHTML = ''; return; }
+    chat.innerHTML = html`<div class="chat">${res.turns.map((t, i) => html`<div class="bubble ${t.who}">
+        <div>${t.text || html`<span class="muted">(says nothing)</span>`}</div>
+        ${t.who === 'customer' ? html`<div class="bubble-note ${t.understood === 'unclear' || t.understood === 'mismatch' ? 'warn' : ''}">${BOT_HEARD[t.understood] || ''}
+          ${teachable(t) ? html` · teach it: <button type="button" class="btn-link" data-teach="yes" data-turn="${i}">means yes</button> / <button type="button" class="btn-link" data-teach="no" data-turn="${i}">means no</button>` : ''}</div>` : ''}
+      </div>`)}</div>
+      ${res.done ? html`<div class="bot-outcome">
+          <h3>Call ended · ${res.outcome === 'connected' ? 'customer reached' : label(res.outcome)}</h3>
+          <dl class="details">${res.checks.map((c) => html`<dt>${c.label}</dt><dd><span class="chip ${BOT_RESULT[c.result][1]}">${BOT_RESULT[c.result][0]}</span>${c.heard ? html` <span class="muted small">heard “${c.heard}”</span>` : ''}</dd>`)}</dl>
+          ${res.summary ? html`<p class="small">${res.summary}</p>` : ''}
+          <p class="small"><b>With these rules the bot would:</b> ${outcomeRule(res)}.</p>
+          <div class="actions"><button type="button" id="bot-again">Practise again</button></div>
+        </div>`
+        : html`<form id="bot-reply" class="bot-reply">
+          <input name="said" placeholder="What the customer says…" autocomplete="off" aria-label="What the customer says">
+          <button class="btn-primary">Say</button><button type="button" id="bot-silent">Say nothing</button>
+          ${practice.answers.length ? html`<button type="button" id="bot-undo" class="btn-link">Undo</button>` : ''}
+        </form>`}`;
+    chat.querySelector('.chat').scrollTop = 1e6;
+    const reply = document.getElementById('bot-reply');
+    if (reply) {
+      reply.said.focus();
+      reply.onsubmit = (e) => { e.preventDefault(); say(reply.said.value); };
+      document.getElementById('bot-silent').onclick = () => say('');
+      const undo = document.getElementById('bot-undo');
+      if (undo) undo.onclick = () => { practice.answers.pop(); run(); };
+    }
+    document.getElementById('bot-again')?.addEventListener('click', start);
+    chat.querySelectorAll('[data-teach]').forEach((b) => (b.onclick = () => {
+      const phrase = res.turns[Number(b.dataset.turn)].text.trim().toLowerCase().replace(/[.!?,]+$/, '');
+      const box = form.querySelector(`[name=${b.dataset.teach === 'yes' ? 'yes_words' : 'no_words'}]`);
+      box.value = [...words(box.value), phrase].join(', ');
+      toast(`The bot now knows “${phrase}” means ${b.dataset.teach}. Save to keep it`);
+      run();
+    }));
+  };
+  const run = async () => {
+    try {
+      practice.result = await api('/bot/practice', { method: 'POST', body: { playbook: collect(), sample: formData(document.getElementById('bot-sample')), answers: practice.answers } });
+      drawChat();
+    } catch (err) { toast(err.message, true); }
+  };
+  const say = (text) => { practice.answers.push(text); run(); };
+  const start = () => { practice.answers = []; run(); };
+  document.getElementById('bot-sample').onsubmit = (e) => e.preventDefault();
+  document.getElementById('bot-start').onclick = start;
 }
 
 // Boosters: business heads and MIS create product campaigns with dates, a reward line and an audience.

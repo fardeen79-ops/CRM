@@ -31,12 +31,15 @@ export function regionOf(value) {
   return region;
 }
 
+export const BOT_EMAIL = 'verification-bot@system.local';
+
 export function findUser(db, id) {
   return db.prepare(`SELECT ${USER_COLUMNS} FROM ${USER_FROM} WHERE u.id = ?`).get(id) || null;
 }
 
 export function listUsers(db, { role } = {}) {
-  const where = role ? 'WHERE u.role = ? AND u.active = 1' : '';
+  // The verification bot's own account is not a member of staff.
+  const where = `WHERE u.email != '${BOT_EMAIL}'${role ? ' AND u.role = ? AND u.active = 1' : ''}`;
   return db.prepare(`SELECT ${USER_COLUMNS} FROM ${USER_FROM} ${where} ORDER BY u.role, u.name`).all(...(role ? [role] : []));
 }
 

@@ -23,7 +23,7 @@ import * as performance from './performance.js';
 import * as reports from './reports.js';
 import * as chat from './chat.js';
 import { cycleOf, uaeDay } from './cycles.js';
-import { makeCallBot } from './bot.js';
+import { canTeachBot, makeCallBot, playbookView, practice, savePlaybook } from './bot.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -212,6 +212,7 @@ function routes(db, dispatch, bot) {
         callback_max_days: cases.CALLBACK_MAX_DAYS,
         it_email: cases.config.itEmail,
         call_bot: cases.config.callBot,
+        can_teach_bot: canTeachBot(user),
         ocr: ocrAssets(),
         import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, payout_rules: imports.PAYOUT_RULE_IMPORT_COLUMNS, assets: imports.ASSET_IMPORT_COLUMNS, payroll: imports.PAYROLL_IMPORT_COLUMNS },
         card_statuses: cases.CARD_STATES,
@@ -306,8 +307,16 @@ function routes(db, dispatch, bot) {
 
     // Result of a bot verification call. The token in the URL identifies the call; with
     // CALL_BOT_SECRET set the body must also be signed (x-crm-signature).
-    ['POST', /^\/api\/bot\/calls\/([a-f0-9]{48})$/, async ({ req, params, body }) =>
-      bot.receive(params[0], req.rawBody || '', req.headers['x-crm-signature'], body), { public: true }],
+    ['POST', /^\/api\/bot\/calls\/([a-f0-9]{48})$/, async ({ req, params, body }) => {
+      const { triggers, ...result } = bot.receive(params[0], req.rawBody || '', req.headers['x-crm-signature'], body);
+      dispatch(triggers);
+      return result;
+    }, { public: true }],
+
+    // Teaching the bot: its playbook, and practice calls typed on the teaching page.
+    ['GET', /^\/api\/bot\/playbook$/, async ({ user }) => playbookView(db, user, { enabled: bot.enabled })],
+    ['PUT', /^\/api\/bot\/playbook$/, async ({ user, body }) => savePlaybook(db, user, body)],
+    ['POST', /^\/api\/bot\/practice$/, async ({ user, body }) => practice(user, body)],
 
     ['GET', /^\/api\/notifications$/, async ({ user }) => cases.listNotifications(db, user)],
 
@@ -535,6 +544,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
       const token = parseCookies(req.headers.cookie).sid;
       const user = auth.userForToken(db, token);
       if (!matched.opts.public && !user) throw new HttpError(401, 'Please sign in');
+      if (user) bot.seen(originOf(req));
       // The IT department works the asset register only: no files, chat, targets or staff changes.
       if (user?.role === 'it' && !IT_PATHS.test(url.pathname)) throw new HttpError(403, 'IT accounts manage assets only');
       // A custom role may have fewer screens, uploads and downloads than the role it is based on.
@@ -556,8 +566,11 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   const timer = setInterval(() => {
     try { dispatch(cases.triggerDueCallbacks(db)); } catch (err) { console.error('[callbacks]', err); }
     try { sweepLeavers(db); } catch (err) { console.error('[leavers]', err); }
+    // The bot's own calls: new files and retries, when its playbook says so.
+    bot.sweep().catch((err) => console.error('[bot]', err));
   }, 30e3);
   timer.unref();
   server.on('close', () => clearInterval(timer));
+  server.bot = bot;
   return server;
 }

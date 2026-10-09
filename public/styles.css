@@ -859,3 +859,22 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .power-btn.off { background: #c2362f; }
 .power-btn.on { background: #0f7a3d; box-shadow: 0 0 0 3px color-mix(in srgb, #0f7a3d 30%, transparent); }
 .power-btn:hover { filter: brightness(1.1); border: 0; }
+/* Verification bot: teaching page and practice call */
+.bot-check { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px 2px; margin-bottom: 12px; }
+.bot-check.off { opacity: .55; }
+.bot-check-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.bot-check-head input[name=label] { flex: 1; min-width: 0; font-weight: 600; }
+.bot-check-head .actions { flex-wrap: nowrap; }
+.bot-save { align-items: center; margin-bottom: 24px; }
+.bot-practice { position: sticky; top: 16px; }
+.chat { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; margin: 14px 0 10px; padding-right: 4px; }
+.bubble { max-width: 88%; padding: 8px 12px; border-radius: 14px; font-size: 14px; line-height: 1.4; }
+.bubble.bot { align-self: flex-start; background: var(--primary-soft); border-bottom-left-radius: 4px; }
+.bubble.customer { align-self: flex-end; background: var(--bg); border: 1px solid var(--border); border-bottom-right-radius: 4px; }
+.bubble-note { font-size: 12px; color: var(--s-done); margin-top: 3px; }
+.bubble-note.warn { color: var(--s-incomplete); }
+.bot-reply { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.bot-reply input { flex: 1 1 180px; min-width: 0; }
+.bot-outcome { border-top: 1px solid var(--border); padding-top: 10px; }
+.bot-outcome h3 { margin-top: 0; }
+@media (max-width: 900px) { .bot-practice { position: static; } }
