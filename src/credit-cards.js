@@ -71,7 +71,7 @@ let source = 'built_in';
 
 /** Uses the uploaded product list when there is one, else the built-in list. Call on start and after an upload. */
 export function loadCardProducts(db) {
-  const rows = db.prepare('SELECT name, family, category, points, min_salary FROM card_products WHERE active = 1 ORDER BY family, name').all();
+  const rows = db.prepare('SELECT name, family, category, points, min_salary, page_url FROM card_products WHERE active = 1 ORDER BY family, name').all();
   products = rows.length ? rows : DEFAULT_CARD_PRODUCTS;
   source = rows.length ? 'uploaded' : 'built_in';
   return products;

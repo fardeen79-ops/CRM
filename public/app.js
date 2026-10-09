@@ -1373,7 +1373,7 @@ async function viewCaseForm(id, leadId = null) {
   // salary that qualifies for a higher card prompts the sales person to offer one.
   const salaryInput = $('#f-salary');
   const checkBox = $('#card-salary-check');
-  const allCards = state.meta.credit_cards.flatMap((f) => f.cards);
+  const allCards = state.meta.credit_cards.flatMap((f) => f.cards.map((k) => ({ ...k, family: f.family })));
   const checkCardSalary = () => {
     const opt = cardSelect.selectedOptions[0];
     const min = opt?.dataset.minSalary ? Number(opt.dataset.minSalary) : null;
@@ -1408,11 +1408,31 @@ async function viewCaseForm(id, leadId = null) {
     if (masked) { checkBox.innerHTML = ''; checkBox.dataset.state = 'ok'; return; }
     const higher = allCards.filter((k) => k.min_salary != null && k.min_salary > min && k.min_salary <= salary).sort((a, b) => b.min_salary - a.min_salary);
     checkBox.dataset.state = higher.length ? 'higher' : 'ok';
+    // Every higher card the customer qualifies for, by family; the sales person picks one to pitch.
+    const byFamily = new Map();
+    for (const k of higher) { if (!byFamily.has(k.family)) byFamily.set(k.family, []); byFamily.get(k.family).push(k); }
     checkBox.innerHTML = higher.length ? html`<div class="callout info card-check">
-      <strong>The customer qualifies for a higher card.</strong> A${inc.word === 'salary' ? '' : 'n'} ${inc.word} of AED ${salary.toLocaleString()} meets the requirement for ${higher.length} ${higher.length === 1 ? 'card' : 'cards'} above ${opt.dataset.category || 'this one'}. Consider offering one:
-      <div class="chips" style="margin-top:8px">${higher.slice(0, 6).map((k) => html`<button type="button" class="chip" data-pick-card="${k.name}" title="Needs AED ${k.min_salary.toLocaleString()}">${k.name} · ${k.category}</button>`)}${higher.length > 6 ? html`<span class="muted small" style="align-self:center">and ${higher.length - 6} more in the card list</span>` : ''}</div>
-    </div>`.s : html`<p class="muted small" style="margin:8px 0 0">Salary meets the AED ${min.toLocaleString()} requirement for this card.</p>`.s;
-    checkBox.querySelectorAll('[data-pick-card]').forEach((b) => (b.onclick = () => { cardSelect.value = b.dataset.pickCard; syncCard(); }));
+      <strong>The customer qualifies for a higher card.</strong> A${inc.word === 'salary' ? '' : 'n'} ${inc.word} of AED ${salary.toLocaleString()} meets the requirement for ${higher.length} ${higher.length === 1 ? 'card' : 'cards'} above ${opt.value}. Pick one to see its pitch:
+      <div class="pitch-pick">
+        <select id="pitch-card" aria-label="Higher card to pitch">
+          <option value="">Choose a higher card…</option>
+          ${[...byFamily].map(([fam, cards]) => html`<optgroup label="${fam}">${cards.map((k) => html`<option value="${k.name}">${k.name} · ${k.category} · needs AED ${k.min_salary.toLocaleString()}</option>`)}</optgroup>`)}
+        </select>
+        <button type="button" class="btn" id="pitch-open" disabled>Show pitch</button>
+      </div>
+    </div>`.s : html`<p class="muted small" style="margin:8px 0 0">${Inc} meets the AED ${min.toLocaleString()} requirement for this card.</p>`.s;
+    const pick = checkBox.querySelector('#pitch-card');
+    if (!pick) return;
+    const openPitch = () => pick.value && showCardPitch({
+      current: { name: opt.value, category: opt.dataset.category },
+      suggested: pick.value,
+      income: salary,
+      inc,
+      customer: [$('#f-salutation')?.value, $('#f-last_name')?.value.trim()].filter(Boolean).length === 2 ? `${$('#f-salutation').value} ${$('#f-last_name').value.trim()}` : $('#f-first_name')?.value.trim(),
+      onSwitch: (name) => { cardSelect.value = name; syncCard(); },
+    });
+    pick.onchange = () => { checkBox.querySelector('#pitch-open').disabled = !pick.value; openPitch(); };
+    checkBox.querySelector('#pitch-open').onclick = openPitch;
   };
   salaryInput.addEventListener('input', checkCardSalary);
   cardSelect.onchange = syncCard;
@@ -3397,6 +3417,92 @@ async function viewReports(params) {
 
 
 
+
+// ---------- card pitch: a short deck for offering a higher card ----------
+// Opens when the sales person picks a higher card the customer qualifies for. The features are read
+// from the card's page on the Emirates NBD website each time (the server keeps the last good reading).
+async function showCardPitch({ current, suggested, income, inc, customer, onSwitch }) {
+  const modal = document.createElement('div');
+  modal.className = 'scan-modal pitch-modal';
+  modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 'pitch-title');
+  modal.innerHTML = html`<div class="scan-sheet pitch-sheet"><h2 id="pitch-title">${suggested}</h2><p class="muted" aria-live="polite">Reading the card's page on emiratesnbd.com…</p></div>`.s;
+  document.body.append(modal);
+  const close = () => { modal.remove(); document.removeEventListener('keydown', onKey); };
+  let go = () => {};
+  const onKey = (e) => { if (e.key === 'Escape') close(); else if (e.key === 'ArrowRight') go(1); else if (e.key === 'ArrowLeft') go(-1); };
+  document.addEventListener('keydown', onKey);
+  modal.onclick = (e) => { if (e.target === modal) close(); };
+
+  let p;
+  try { p = await api(`/cards/pitch?name=${encodeURIComponent(suggested)}`); } catch (err) {
+    if (!modal.isConnected) return;
+    modal.querySelector('.pitch-sheet').innerHTML = html`<h2 id="pitch-title">${suggested}</h2><p class="error">${err.message}</p><div class="actions"><button type="button" class="btn" data-pitch-close>Close</button></div>`.s;
+    modal.querySelector('[data-pitch-close]').onclick = close;
+    return;
+  }
+  if (!modal.isConnected) return;
+  const amount = `AED ${income.toLocaleString()}`;
+  const when = p.fetched_at ? new Date(p.fetched_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const source = p.source === 'live'
+    ? html`Read just now from <a href="${p.url}" target="_blank" rel="noopener">the card's page on emiratesnbd.com</a>.`
+    : p.source === 'saved'
+      ? html`Couldn't read the website now (${p.problem}). Showing the copy saved on ${when}; <a href="${p.url}" target="_blank" rel="noopener">check the card's page</a> before quoting it.`
+      : html`Couldn't read the website (${p.problem}), and there's no saved copy yet. <a href="${p.url}" target="_blank" rel="noopener">Open the card's page</a> to talk through its features.`;
+  const top = p.features.slice(0, 3);
+  const hello = customer ? `${customer}, ` : '';
+  const slides = [
+    html`<div class="pitch-slide">
+      <div class="eyebrow">Upgrade</div>
+      <h3>${p.title || p.card.name}</h3>
+      <div class="pitch-compare">
+        <div><div class="muted small">Chosen now</div><strong>${current.name}</strong><div class="muted small">${current.category || ''}</div></div>
+        <div class="pitch-arrow" aria-hidden="true">→</div>
+        <div class="pitch-up"><div class="muted small">Customer qualifies for</div><strong>${p.card.name}</strong><div class="muted small">${p.card.category}${p.card.min_salary != null ? ` · needs AED ${p.card.min_salary.toLocaleString()}` : ''}</div></div>
+      </div>
+      <p>The customer's ${inc.word} of <strong>${amount}</strong> meets this card's requirement, so they can have the ${p.card.category} card rather than the ${current.category || 'lower'} one.</p>
+      ${p.headline ? html`<p class="pitch-headline">${p.headline}</p>` : ''}
+    </div>`,
+    html`<div class="pitch-slide">
+      <div class="eyebrow">What the customer gets</div>
+      <h3>${p.card.name}</h3>
+      ${p.features.length ? html`<ul class="pitch-features">${p.features.map((f) => html`<li>${f}</li>`)}</ul>` : html`<p class="muted">No features to show.</p>`}
+      <p class="muted small pitch-source">${source}</p>
+    </div>`,
+    html`<div class="pitch-slide">
+      <div class="eyebrow">Say it like this</div>
+      <h3>Your pitch</h3>
+      <blockquote class="pitch-script">
+        <p>${hello}based on your ${inc.word} of ${amount}, you qualify for our ${p.card.name}, a ${p.card.category} card, instead of the ${current.name}.</p>
+        ${top.length ? html`<p>With it you get:</p><ul>${top.map((f) => html`<li>${f}</li>`)}</ul>` : ''}
+        <p>Shall I put your application in for the ${p.card.name}?</p>
+      </blockquote>
+      <p class="muted small">Quote only what is on the bank's page, and check fees and eligibility before promising them.</p>
+    </div>`,
+  ];
+  let at = 0;
+  const sheet = modal.querySelector('.pitch-sheet');
+  const render = () => {
+    sheet.innerHTML = html`
+      <div class="scan-head"><div><h2 id="pitch-title">Pitch: ${p.card.name}</h2><p class="muted small">Slide ${at + 1} of ${slides.length}</p></div><button type="button" class="btn-link" data-pitch-close aria-label="Close">✕</button></div>
+      ${slides[at]}
+      <div class="pitch-nav">
+        <button type="button" class="btn" data-pitch-step="-1" ${at === 0 ? raw('disabled') : ''}>‹ Back</button>
+        <div class="pitch-dots">${slides.map((_, i) => html`<button type="button" class="pitch-dot ${i === at ? 'on' : ''}" data-pitch-go="${i}" aria-label="Slide ${i + 1}"></button>`)}</div>
+        <button type="button" class="btn" data-pitch-step="1" ${at === slides.length - 1 ? raw('disabled') : ''}>Next ›</button>
+      </div>
+      <div class="actions pitch-actions">
+        <button type="button" class="btn btn-primary" data-pitch-switch>Switch to ${p.card.name}</button>
+        <button type="button" class="btn" data-pitch-close>Keep ${current.name}</button>
+      </div>`.s;
+    sheet.querySelectorAll('[data-pitch-close]').forEach((b) => (b.onclick = close));
+    sheet.querySelectorAll('[data-pitch-step]').forEach((b) => (b.onclick = () => go(Number(b.dataset.pitchStep))));
+    sheet.querySelectorAll('[data-pitch-go]').forEach((b) => (b.onclick = () => { at = Number(b.dataset.pitchGo); render(); }));
+    sheet.querySelector('[data-pitch-switch]').onclick = () => { onSwitch(p.card.name); close(); toast(`Switched to ${p.card.name}`); };
+  };
+  go = (d) => { const n = at + d; if (n >= 0 && n < slides.length) { at = n; render(); } };
+  render();
+  sheet.querySelector('[data-pitch-switch]').focus();
+}
 
 // ---------- leads: a sales person's prospects before there is a file ----------
 // A mobile number on a lead dials from the phone, after the person confirms.

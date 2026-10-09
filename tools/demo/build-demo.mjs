@@ -12,7 +12,7 @@ const schema = read('src/db.js').match(/const SCHEMA = `([\s\S]*?)`;/)[1];
 const addedCols = read('src/db.js').match(/const ADDED_COLUMNS = \{([\s\S]*?)\};/)[1];
 const addedUserCols = read('src/db.js').match(/const ADDED_USER_COLUMNS = \{([\s\S]*?)\};/)[1];
 const strip = (src) => src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
-const casesSrc = strip(read('src/credit-cards.js')) + strip(read('src/banks.js')) + strip(read('src/users.js')) + strip(read('src/cycles.js')) + strip(read('src/cases.js')) + strip(read('src/payouts.js')) + strip(read('src/performance.js')) + strip(read('src/incentives.js')) + strip(read('src/dashboard.js')) + strip(read('src/pnl.js')) + strip(read('src/leads.js')) + strip(read('src/roles.js')) + strip(read('src/allocations.js')) + strip(read('src/boosters.js')) + strip(read('src/assets.js')) + strip(read('src/imports.js')) + strip(read('src/chat.js')) + strip(read('src/reports.js')) + '\nconst chatUnread = unreadCount;\n';
+const casesSrc = strip(read('src/credit-cards.js')) + strip(read('src/card-pitch.js')) + strip(read('src/banks.js')) + strip(read('src/users.js')) + strip(read('src/cycles.js')) + strip(read('src/cases.js')) + strip(read('src/payouts.js')) + strip(read('src/performance.js')) + strip(read('src/incentives.js')) + strip(read('src/dashboard.js')) + strip(read('src/pnl.js')) + strip(read('src/leads.js')) + strip(read('src/roles.js')) + strip(read('src/allocations.js')) + strip(read('src/boosters.js')) + strip(read('src/assets.js')) + strip(read('src/imports.js')) + strip(read('src/chat.js')) + strip(read('src/reports.js')) + '\nconst chatUnread = unreadCount;\n';
 const css = read('public/styles.css');
 // The app's ES-module imports (mrz.js, eid-scan.js) are inlined into one module for the demo.
 const stripModule = (src) => src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
@@ -47,6 +47,7 @@ function migrateDemo(d) {
   for (const [name, type] of Object.entries(ADDED_USER_COLUMNS)) if (!userCols.includes(name)) d.exec('ALTER TABLE users ADD COLUMN ' + name + ' ' + type);
   if (!cols('notifications').includes('link')) d.exec('ALTER TABLE notifications ADD COLUMN link TEXT');
   if (!cols('card_products').includes('min_salary')) d.exec('ALTER TABLE card_products ADD COLUMN min_salary REAL');
+  if (!cols('card_products').includes('page_url')) d.exec('ALTER TABLE card_products ADD COLUMN page_url TEXT');
   d.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_hrms ON users(hrms_code COLLATE NOCASE)');
   d.exec('UPDATE cases SET team_leader_id = (SELECT team_leader_id FROM users WHERE id = cases.sales_staff_id), sales_manager_id = (SELECT sales_manager_id FROM users WHERE id = cases.sales_staff_id), asm_id = (SELECT asm_id FROM users WHERE id = cases.sales_staff_id) WHERE team_leader_id IS NULL AND sales_staff_id IS NOT NULL');
 }
@@ -410,6 +411,8 @@ function handle(method, pathname, query, body) {
   if ((m = pathname.match(/^\/api\/roles\/([a-z0-9_]+)$/)) && method === 'PATCH') { const r = updateRole(db, user, m[1], body, { reportsForBase: reportKeysForBase }); persist(); return { role: r }; }
   if ((m = pathname.match(/^\/api\/roles\/([a-z0-9_]+)$/)) && method === 'DELETE') { const r = deleteRole(db, user, m[1]); persist(); return r; }
   if ((m = pathname.match(/^\/api\/roles\/([a-z0-9_]+)\/(approve|reject)$/)) && method === 'POST') { const r = decideRole(db, user, m[1], { approve: m[2] === 'approve', note: body.note }); persist(); return { role: r }; }
+  // The demo cannot read the bank's website from the browser, so the pitch uses saved readings only.
+  if (pathname === '/api/cards/pitch' && method === 'GET') { const p = savedCardPitch(db, query.get('name') || '', { reason: "the demo can't read the bank's website from your browser" }); if (!p) throw Object.assign(new Error('That card is not in the card list'), { status: 404 }); return p; }
   if (pathname === '/api/leads' && method === 'GET') return listLeads(db, user, { status: query.get('status'), q: query.get('q') });
   if (pathname === '/api/leads' && method === 'POST') { const r = createLead(db, user, body); persist(); return [201, { lead: r }]; }
   if ((m = pathname.match(/^\/api\/leads\/(\d+)$/)) && method === 'GET') return { lead: getLead(db, user, Number(m[1])) };

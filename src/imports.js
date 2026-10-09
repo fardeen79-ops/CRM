@@ -8,6 +8,7 @@ import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYO
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
+import { isBankPage } from './card-pitch.js';
 import { BANKS } from './banks.js';
 import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
 import { TEAM_LEADER_ROLES, hrmsCodeOf } from './users.js';
@@ -106,6 +107,7 @@ export const CARD_PRODUCT_IMPORT_COLUMNS = [
   { key: 'category', header: 'Card category', required: true, example: 'Signature', help: 'Shown on the form when the card is chosen, and saved on each file' },
   { key: 'points', header: 'Points', example: '', help: 'Optional. Points the card earns the sales person; a number' },
   { key: 'min_salary', header: 'Minimum salary (AED)', example: '5000', help: 'Monthly salary the customer needs for this card. A lower salary needs a product deviation or promotion, or team approval' },
+  { key: 'page_url', header: 'Website page', example: 'https://www.emiratesnbd.com/en/cards/credit-cards/skywards-signature-credit-card', help: "Optional. The card's page on the Emirates NBD website, read for the sales pitch. Left empty, the usual address for the card's name is used" },
 ];
 
 export const TARGET_RULE_IMPORT_COLUMNS = [
@@ -362,9 +364,11 @@ export function importCardProducts(db, user, csv, { dryRun = false } = {}) {
         minSalary = Number(String(v.min_salary).replace(/,/g, '').replace(/^aed\s*/i, ''));
         if (!Number.isFinite(minSalary) || minSalary < 0) throw new Error(`Minimum salary must be an amount: ${v.min_salary}`);
       }
-      db.prepare(`INSERT INTO card_products (name, family, category, points, min_salary, active, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-        ON CONFLICT (name) DO UPDATE SET family = excluded.family, category = excluded.category, points = excluded.points, min_salary = excluded.min_salary, active = 1, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
-        .run(name, family, category, points, minSalary, user.id, ts);
+      const pageUrl = String(v.page_url ?? '').trim() || null;
+      if (pageUrl && !isBankPage(pageUrl)) throw new Error(`Website page must be an https address on emiratesnbd.com: ${pageUrl}`);
+      db.prepare(`INSERT INTO card_products (name, family, category, points, min_salary, page_url, active, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT (name) DO UPDATE SET family = excluded.family, category = excluded.category, points = excluded.points, min_salary = excluded.min_salary, page_url = excluded.page_url, active = 1, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
+        .run(name, family, category, points, minSalary, pageUrl, user.id, ts);
       return { label: `${name} · ${category}`, email: `${family}${points != null ? ` · ${points} points` : ''}${minSalary != null ? ` · min salary AED ${minSalary.toLocaleString('en-US')}` : ''}` };
     })));
     // Only a file with at least one good row replaces the list; cards it leaves out are retired.

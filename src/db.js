@@ -258,9 +258,21 @@ CREATE TABLE IF NOT EXISTS card_products (
   category   TEXT NOT NULL,
   points     REAL,
   min_salary REAL, -- minimum monthly salary (AED) the customer needs for this card
+  page_url   TEXT, -- the card's page on the bank's website, read for the sales pitch
   active     INTEGER NOT NULL DEFAULT 1,
   updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL
+);
+
+-- The last good reading of each card's page on the bank's website, for the sales pitch when the
+-- site cannot be read.
+CREATE TABLE IF NOT EXISTS card_pitch_cache (
+  card_name  TEXT PRIMARY KEY COLLATE NOCASE,
+  url        TEXT NOT NULL,
+  title      TEXT,
+  headline   TEXT,
+  features   TEXT NOT NULL, -- JSON list of feature lines
+  fetched_at TEXT NOT NULL
 );
 
 -- Salary-based target rules: a sales person whose salary falls in a band gets that target for the
@@ -500,6 +512,7 @@ function migrate(db) {
       asm_id = (SELECT asm_id FROM users WHERE id = cases.sales_staff_id)
     WHERE team_leader_id IS NULL AND sales_staff_id IS NOT NULL`);
   if (!db.prepare('PRAGMA table_info(card_products)').all().some((c) => c.name === 'min_salary')) db.exec('ALTER TABLE card_products ADD COLUMN min_salary REAL');
+  if (!db.prepare('PRAGMA table_info(card_products)').all().some((c) => c.name === 'page_url')) db.exec('ALTER TABLE card_products ADD COLUMN page_url TEXT');
   // Cases created before the sourcing date existed were sourced on the day they were entered.
   db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
   // Loans completed before disbursed amounts were recorded: assume the amount on the file.

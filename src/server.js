@@ -7,6 +7,7 @@ import * as cases from './cases.js';
 import * as allocations from './allocations.js';
 import * as boosters from './boosters.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
+import { cardPitch } from './card-pitch.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
 import * as assets from './assets.js';
@@ -224,6 +225,12 @@ function routes(db, dispatch, bot) {
 
     ['GET', /^\/api\/stats$/, async ({ user, query }) => cases.stats(db, user, { region: query.get('region') })],
     // The signed-in user's own dashboard: this cycle, the last six, and the incentive so far.
+    // Pitch for a higher card: its features read from the bank's website now, or the last good reading.
+    ['GET', /^\/api\/cards\/pitch$/, async ({ query }) => {
+      const pitch = await cardPitch(db, query.get('name') || '');
+      if (!pitch) throw new HttpError(404, 'That card is not in the card list');
+      return pitch;
+    }],
     ['GET', /^\/api\/dashboard$/, async ({ user, query }) => dashboardFor(db, user, { region: query.get('region') })],
 
     // The sales hierarchy for a cycle, rolled up at every level the viewer may see (?cycle=&region=).
