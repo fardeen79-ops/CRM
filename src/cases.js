@@ -75,6 +75,10 @@ export const PRODUCTS = {
   accounts: 'Accounts',
 };
 export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
+// How the file is sourced: the regular process, or against a fixed deposit, which is offered only
+// for credit cards and personal loans (alone or bundled together).
+export const SOURCING_TYPES = { regular: 'Regular', fixed_deposit: 'Fixed Deposit' };
+export const FIXED_DEPOSIT_PRODUCTS = ['credit_card', 'personal_loan'];
 
 export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
 // How a credit card was sold: first year free, full annual fee, or free for life.
@@ -347,7 +351,7 @@ export const ACTIONS = {
 
 // Plain text fields and their length limits; name, product and number fields are validated separately.
 const TEXT_FIELDS = {
-  salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, salary_bank: 200, customer_type: 20,
+  salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, salary_bank: 200, customer_type: 20, sourcing_type: 20,
   phone: 30, alt_phone: 30, email: 200, address: 2000, city: 100, source: 200, sales_notes: 2000,
   bidaya_id: 50, app_id: 50,
 };
@@ -470,6 +474,13 @@ function validateProduct(input, current, out) {
     // Stored in a fixed order so the same bundle always reads the same way.
     out.bundle_products = Object.keys(PRODUCTS).filter((p) => picked.has(p)).join(',');
   }
+
+  const sourcing = clean(pick('sourcing_type')) || 'regular';
+  if (!SOURCING_TYPES[sourcing]) throw new WorkflowError(400, 'Sourcing type must be Regular or Fixed Deposit');
+  if (sourcing === 'fixed_deposit' && !caseProducts(out).every((p) => FIXED_DEPOSIT_PRODUCTS.includes(p))) {
+    throw new WorkflowError(400, 'Fixed Deposit sourcing is only for Credit Card and Personal Loan');
+  }
+  out.sourcing_type = sourcing;
 
   const includes = (p) => product === p || String(out.bundle_products).split(',').includes(p);
 
@@ -624,7 +635,7 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
     if (!CORE_PRODUCTS[core]) throw new WorkflowError(400, 'Choose the core product: Credit Card, Personal Loan, Auto Loan or Multi product');
     out.core_product = core;
   }
-  if (!partial || PRODUCT_FIELDS.some((f) => f in input)) validateProduct(input, current, out);
+  if (!partial || PRODUCT_FIELDS.some((f) => f in input) || 'sourcing_type' in input) validateProduct(input, current, out);
   return out;
 }
 

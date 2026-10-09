@@ -1232,6 +1232,13 @@ async function viewCaseForm(id, leadId = null) {
       <section>
         <h2>Product</h2>
         <div class="form-grid">
+          <div class="full">
+            <label for="f-sourcing_type">Sourcing type <span class="req">*</span></label>
+            <select id="f-sourcing_type" name="sourcing_type" required style="max-width:320px">
+              ${Object.entries(state.meta.sourcing_types).map(([k, l]) => html`<option value="${k}" ${(c.sourcing_type || 'regular') === k ? raw('selected') : ''}>${l}</option>`)}
+            </select>
+            <div class="muted small" id="sourcing-hint" ${c.sourcing_type === 'fixed_deposit' ? '' : raw('hidden')}>Fixed Deposit is only for Credit Card and Personal Loan.</div>
+          </div>
           <div>
             <label for="f-core_product">Core product <span class="req">*</span></label>
             <select id="f-core_product" name="core_product" required>
@@ -1479,6 +1486,19 @@ async function viewCaseForm(id, leadId = null) {
     coreSelect.value = map[productSelect.value] || '';
   };
   productSelect.onchange = () => { updateProductFields(); suggestCore(); };
+  // Fixed Deposit sourcing offers only credit cards and personal loans; other products are switched off.
+  const sourcingSelect = $('#f-sourcing_type');
+  const applySourcing = () => {
+    const fd = sourcingSelect.value === 'fixed_deposit';
+    const allowed = (p) => !fd || state.meta.fixed_deposit_products.includes(p);
+    $('#sourcing-hint').hidden = !fd;
+    for (const o of productSelect.options) if (o.value && o.value !== 'bundle') o.disabled = !allowed(o.value);
+    if (productSelect.value && productSelect.value !== 'bundle' && !allowed(productSelect.value)) productSelect.value = '';
+    boxes.forEach((b) => { b.disabled = !allowed(b.value); if (b.disabled) b.checked = false; b.closest('label').classList.toggle('muted', b.disabled); });
+    updateProductFields(); suggestCore();
+  };
+  sourcingSelect.onchange = applySourcing;
+  applySourcing();
   const staffSelect = pickStaff ? $('#f-sales_staff_id') : null;
   if (staffSelect) {
     staffSelect.onchange = () => {
@@ -2026,6 +2046,7 @@ async function viewCase(id) {
           </dl>
           <h2 class="sub">Product</h2>
           <dl class="details">
+            ${row('Sourcing type', state.meta.sourcing_types[c.sourcing_type || 'regular'])}
             ${row('Core product', state.meta.core_products[c.core_product])}
             ${c.payout ? html`<dt>Agency payout</dt><dd><strong>AED ${fmtAmount(c.payout.total)}</strong>${c.payout.parts.length ? html`<div class="muted small">${c.payout.parts.map((p) => `${p.basis}${p.rate != null ? ` · ${p.rate}% of AED ${fmtAmount(p.amount)}` : ''}: AED ${fmtAmount(p.payout)}`).join(' · ')}</div>` : html`<div class="muted small">No payable product on this file yet</div>`}</dd>` : ''}
             <dt>Product</dt><dd>${c.product === 'bundle'

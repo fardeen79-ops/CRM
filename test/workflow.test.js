@@ -263,6 +263,31 @@ test('product must be one of the fixed options, and a bundle needs two or more p
   assert.deepEqual(Object.keys(me.data.meta.products), ['personal_loan', 'credit_card', 'auto_loan', 'accounts']);
 });
 
+test('sourcing type: Regular by default; Fixed Deposit only for credit cards and personal loans', async () => {
+  const sales = await login('sales@t.local');
+  const base = { customer_name: 'Deposit Test', phone: '9876543211' };
+  const pl = { personal_loan_type: 'fresh', loan_amount: 50000, interest_rate: 6 };
+
+  let r = await sales('POST', '/cases', { ...base, product: 'auto_loan' });
+  assert.equal(r.data.case.sourcing_type, 'regular');
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'auto_loan', sourcing_type: 'fixed_deposit' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'accounts', sourcing_type: 'fixed_deposit' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'], ...pl, sourcing_type: 'fixed_deposit' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { ...base, product: 'personal_loan', ...pl, sourcing_type: 'gold' })).status, 400);
+
+  r = await sales('POST', '/cases', { ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit' });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.case.sourcing_type, 'fixed_deposit');
+  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card', 'personal_loan'], credit_card: 'Skywards Infinite Credit Card', salary: 40000, ...pl, sourcing_type: 'fixed_deposit' });
+  assert.equal(r.status, 201);
+
+  // A Fixed Deposit file cannot be switched to another product, and an auto loan cannot become Fixed Deposit.
+  const id = r.data.case.id;
+  assert.equal((await sales('PUT', `/cases/${id}`, { product: 'auto_loan' })).status, 400);
+  const auto = (await sales('POST', '/cases', { ...base, product: 'auto_loan' })).data.case.id;
+  assert.equal((await sales('PUT', `/cases/${auto}`, { sourcing_type: 'fixed_deposit' })).status, 400);
+});
+
 test('credit card cases must name a card from the list', async () => {
   const sales = await login('sales@t.local');
   const base = { customer_name: 'Card Test', phone: '9876543210' };

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS cases (
   last_name          TEXT,
   company_name       TEXT,
   customer_type      TEXT, -- salaried or self_employed
+  sourcing_type      TEXT, -- regular or fixed_deposit (credit card and personal loan only)
   salary_bank        TEXT, -- the bank the customer's salary is currently transferred to
   salary             REAL,
   eid_number         TEXT,
@@ -470,7 +471,7 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
 // Columns added after the first release; ALTER existing databases in place.
 const ADDED_COLUMNS = {
   bundle_products: 'TEXT', credit_card: 'TEXT', personal_loan_type: 'TEXT', buyout_bank: 'TEXT',
-  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL', customer_type: 'TEXT',
+  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT',
   eid_number: 'TEXT', passport_number: 'TEXT', bidaya_id: 'TEXT', app_id: 'TEXT',
   loan_amount: 'REAL', interest_rate: 'REAL', full_loan_amount: 'REAL', incremental_amount: 'REAL',
   case_status: "TEXT NOT NULL DEFAULT 'sent_to_check'", case_status_note: 'TEXT',
