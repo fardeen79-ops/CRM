@@ -173,7 +173,9 @@ Each sales person is issued a tab by the bank for sourcing. The **Tab register**
 - **Sales staff** see their own tab on their dashboard under **My tab**.
 - The **Tab inventory** report (IT, MIS, business heads) lists every tab with its holder, accessories, SIM, Entra ID and mobile, and can be downloaded as a spreadsheet at any time; its note counts tabs by status and the active sales staff without one.
 
-API: `GET/POST /api/assets`, `GET /api/assets/mine`, `GET/PATCH /api/assets/:id`, `POST /api/assets/:id/assign` (`holder_id`, `note`), `POST /api/assets/:id/status` (`status` it_custody or handed_over, `note`), report key `assets`.
+**Bulk upload → Tab register** (IT, MIS, business heads) takes a CSV with the tab and serial numbers, Yes/No for each accessory, network, SIM, Entra ID, registered mobile, an **Issued to** column (HRMS or sales code), an optional status and notes. A serial already registered updates that tab; naming a holder issues it; a status of With IT custody or Handed over on exit moves it. Nothing is saved until the preview is confirmed.
+
+API: `POST /api/import/assets`, `GET/POST /api/assets`, `GET /api/assets/mine`, `GET/PATCH /api/assets/:id`, `POST /api/assets/:id/assign` (`holder_id`, `note`), `POST /api/assets/:id/status` (`status` it_custody or handed_over, `note`), report key `assets`.
 
 ### Go-live staff list
 

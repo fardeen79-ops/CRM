@@ -147,7 +147,7 @@ const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http
 // Who adds and edits staff: MIS and business heads.
 const USER_ADMINS = ['mis', 'business_head'];
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
-const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications)(\/|$)/;
+const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|import\/assets)(\/|$)/;
 
 function routes(db, dispatch, bot) {
   return [
@@ -202,7 +202,7 @@ function routes(db, dispatch, bot) {
         it_email: cases.config.itEmail,
         call_bot: cases.config.callBot,
         ocr: ocrAssets(),
-        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, payout_rules: imports.PAYOUT_RULE_IMPORT_COLUMNS },
+        import_columns: { users: imports.USER_IMPORT_COLUMNS, cases: imports.CASE_IMPORT_COLUMNS, cards: imports.CARD_IMPORT_COLUMNS, targets: imports.TARGET_IMPORT_COLUMNS, card_products: imports.CARD_PRODUCT_IMPORT_COLUMNS, target_rules: imports.TARGET_RULE_IMPORT_COLUMNS, payout_rules: imports.PAYOUT_RULE_IMPORT_COLUMNS, assets: imports.ASSET_IMPORT_COLUMNS },
         card_statuses: cases.CARD_STATES,
         card_range_days: cases.CARD_RANGE_DAYS,
         card_mappers: cases.CARD_MAPPERS,
@@ -343,6 +343,7 @@ function routes(db, dispatch, bot) {
     // Sets every sales person's targets for a cycle from their salary and the salary-band rules.
     ['POST', /^\/api\/targets\/generate$/, async ({ user, body }) => performance.generateTargets(db, user, body.cycle)],
     ['POST', /^\/api\/import\/target_rules$/, async ({ user, body }) => imports.importTargetRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+    ['POST', /^\/api\/import\/assets$/, async ({ user, body }) => imports.importAssets(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
     ['POST', /^\/api\/import\/payout_rules$/, async ({ user, body }) => imports.importPayoutRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],

@@ -11,6 +11,7 @@ import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } f
 import { BANKS } from './banks.js';
 import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
 import { TEAM_LEADER_ROLES, hrmsCodeOf } from './users.js';
+import { ASSET_ADMINS, ASSET_STATUS, NETWORKS, createAsset, updateAsset, assignAsset, setAssetStatus, assetOf } from './assets.js';
 
 export const MAX_ROWS = 1000;
 // Only MIS and business heads can bulk upload, for users and cases alike.
@@ -114,6 +115,20 @@ export const TARGET_RULE_IMPORT_COLUMNS = [
 ];
 
 
+export const ASSET_IMPORT_COLUMNS = [
+  { key: 'tab_no', header: 'Tab no', required: true, example: 'TAB-0142', help: 'The tab number on the asset label' },
+  { key: 'serial_no', header: 'Serial no', required: true, example: 'SM-T510-004417', help: 'Unique per tab; a row with a serial already registered updates that tab' },
+  { key: 'charger', header: 'Charger', example: 'Yes', allowed: ['Yes', 'No'], help: 'Blank = No' },
+  { key: 'stylus', header: 'Stylus', example: 'No', allowed: ['Yes', 'No'], help: 'Blank = No' },
+  { key: 'card_reader', header: 'Card reader', example: 'Yes', allowed: ['Yes', 'No'], help: 'Blank = No' },
+  { key: 'network', header: 'Network', example: 'Etisalat', allowed: ['Etisalat', 'du'], help: '' },
+  { key: 'sim_number', header: 'SIM card number', example: '89971012000707', help: 'Digits' },
+  { key: 'entra_id', header: 'Microsoft Entra ID', example: 'name@company.ae', help: '' },
+  { key: 'mobile_number', header: 'Mobile number registered', example: '050 411 2201', help: 'The number registered on the tab' },
+  { key: 'issued_to', header: 'Issued to', example: 'EN10004', help: 'HRMS code or sales code of the staff member holding the tab; blank leaves it with IT' },
+  { key: 'status', header: 'Status', example: 'Active, in use', allowed: Object.values(ASSET_STATUS), help: 'Blank = Active, in use when issued to someone, else With IT custody' },
+  { key: 'notes', header: 'Notes', example: '', help: 'Condition, case, anything IT should know' },
+];
 export const PAYOUT_RULE_IMPORT_COLUMNS = [
   { key: 'rule', header: 'Rule', required: true, example: 'card:Mass', help: `One of: ${PAYOUT_KEYS.join(', ')} (the rule's name as shown on the Payout rules page also works)` },
   { key: 'value', header: 'Value', required: true, example: '1400', help: 'AED per card for the card rules; percent of the loan amount for the loan rules (3 = 3%)' },
@@ -406,6 +421,35 @@ export function importTargetRules(db, user, csv, { dryRun = false } = {}) {
 }
 
 /** Replaces the bank's payout rates: one row per rule, the rest keep their current value. */
+/** Registers or updates tabs from a CSV file, by serial number, and issues them to the named staff. */
+export function importAssets(db, user, csv, { dryRun = false } = {}) {
+  if (!ASSET_ADMINS.includes(user.role)) throw new WorkflowError(403, 'Only IT, MIS and business heads upload the tab register');
+  const { header, records, unknown } = readFile(csv, ASSET_IMPORT_COLUMNS);
+  const yes = (v) => { const s = norm(v); if (!s || s === 'no' || s === 'n' || s === '0' || s === 'false') return 0; if (s === 'yes' || s === 'y' || s === '1' || s === 'true') return 1; throw new Error(`Use Yes or No, not "${v}"`); };
+  const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
+    const v = record.values;
+    const details = { tab_no: v.tab_no, serial_no: v.serial_no, charger: yes(v.charger), stylus: yes(v.stylus), card_reader: yes(v.card_reader), network: v.network ? choose(v.network, NETWORKS, 'Network') : '', sim_number: v.sim_number, entra_id: v.entra_id, mobile_number: v.mobile_number, notes: v.notes };
+    const existing = db.prepare('SELECT id FROM assets WHERE serial_no = ? COLLATE NOCASE').get(String(v.serial_no).trim());
+    let asset = existing ? updateAsset(db, user, existing.id, details) : createAsset(db, user, details);
+    let holder = null;
+    if (v.issued_to) {
+      const code = String(v.issued_to).trim();
+      holder = db.prepare('SELECT id, name, active FROM users WHERE (hrms_code = ? COLLATE NOCASE OR sales_code = ? COLLATE NOCASE)').get(code, code);
+      if (!holder) throw new Error(`No staff member with the HRMS or sales code ${code}`);
+    }
+    const status = v.status ? choose(v.status, ASSET_STATUS, 'Status') : (holder ? 'in_use' : asset.status);
+    if (status === 'in_use') {
+      if (!holder) throw new Error('Active, in use needs an Issued to code');
+      if (asset.holder_id !== holder.id) asset = assignAsset(db, user, asset.id, { holder_id: holder.id, note: 'Bulk upload' });
+    } else {
+      if (holder && asset.holder_id !== holder.id && !assetOf(db, holder.id)) asset = assignAsset(db, user, asset.id, { holder_id: holder.id, note: 'Bulk upload' });
+      if (asset.status !== status) asset = setAssetStatus(db, user, asset.id, { status, note: 'Bulk upload' });
+    }
+    return { id: asset.id, label: `${asset.tab_no} (${asset.serial_no})`, email: existing ? `updated · ${ASSET_STATUS[asset.status]}${asset.holder_name ? ` with ${asset.holder_name}` : ''}` : `registered · ${ASSET_STATUS[asset.status]}${asset.holder_name ? ` with ${asset.holder_name}` : ''}` };
+  }))));
+  return summarize(header, unknown, results, dryRun);
+}
+
 export function importPayoutRules(db, user, csv, { dryRun = false } = {}) {
   requireBulkRole(user);
   if (!canSeePayout(user)) throw new WorkflowError(403, 'Only the business head or DXB MIS can change payout rates');

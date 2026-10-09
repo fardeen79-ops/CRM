@@ -313,7 +313,7 @@ function navGroups() {
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
   const cardApprovals = ['#/card-approvals', 'Card approvals', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
-  if (r === 'it') return [['', [['#/assets', 'Tab register', 'tablet'], ['#/reports?report=assets&run=1', 'Inventory report', 'report']]]];
+  if (r === 'it') return [['', [['#/assets', 'Tab register', 'tablet'], ['#/import/assets', 'Bulk upload', 'upload'], ['#/reports?report=assets&run=1', 'Inventory report', 'report']]]];
   const work = [['#/', 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
   if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
@@ -502,7 +502,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules|assets)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
@@ -2690,6 +2690,13 @@ const BULK = {
     template: 'salary-targets-template.csv',
     done: ['#/targets', 'Open targets'],
   },
+  assets: {
+    tab: 'Tab register',
+    title: 'Upload the tab register',
+    lede: 'One row per sourcing tab: tab and serial numbers, accessories, network and SIM, Microsoft Entra ID and the registered mobile, and who it is issued to (HRMS or sales code). A serial already registered updates that tab; a status column moves it to IT custody or handed over.',
+    template: 'tab-register-template.csv',
+    done: ['#/assets', 'Open the tab register'],
+  },
   payout_rules: {
     tab: 'Payout rules',
     title: 'Upload the bank\'s payout rates',
@@ -2715,12 +2722,14 @@ const BULK_WORDS = {
   card_products: { one: 'card', many: 'cards', verb: 'Listed', who: 'Card', names: ['cardname'], sep: ' ', after: 'The New case form now offers exactly these cards.', excel: '' },
   target_rules: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['product', 'salaryfromaed'], sep: ' · ', after: 'Press Generate from salaries on the Targets page to apply them.', excel: '' },
   payout_rules: { one: 'rule', many: 'rules', verb: 'Saved', who: 'Rule', names: ['rule'], sep: ' ', after: 'Payouts on files, the dashboard and reports now use these rates.', excel: '' },
+  assets: { one: 'tab', many: 'tabs', verb: 'Saved', who: 'Tab', names: ['tabno', 'serialno'], sep: ' · ', after: 'They are in the tab register now.', excel: 'SIM card number and Mobile number registered' },
 };
 
 function viewBulkUpload(kind) {
   const cfg = BULK[kind];
   const words = BULK_WORDS[kind];
-  if (!BULK_ROLES.includes(state.user.role)) throw new Error('Only MIS and business heads can bulk upload');
+  if (state.user.role === 'it' && kind !== 'assets') throw new Error('IT accounts upload the tab register only');
+  if (!BULK_ROLES.includes(state.user.role) && state.user.role !== 'it') throw new Error('Only MIS and business heads can bulk upload');
   if (kind === 'payout_rules' && !state.meta.can_see_payout) { shell(html`<div class="card empty">Payout rates are for the business head and DXB MIS only</div>`); return; }
   const columns = state.meta.import_columns[kind];
   const required = (c) => c.required;
@@ -2729,7 +2738,7 @@ function viewBulkUpload(kind) {
   shell(html`
     <div class="page-head">
       <div><h1>${cfg.title}</h1><p class="muted lede">${cfg.lede}</p></div>
-      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).filter(([k]) => k !== 'payout_rules' || state.meta.can_see_payout).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
+      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).filter(([k]) => (k !== 'payout_rules' || state.meta.can_see_payout) && (state.user.role !== 'it' || k === 'assets')).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
     </div>
     <div class="bulk-steps">
       <section class="card">
@@ -3092,7 +3101,7 @@ async function viewAssets(params = new URLSearchParams()) {
   const sel = (k) => params.get(k) || '';
   shell(html`
     <div class="page-head"><div><h1>Tab register</h1><p class="muted lede">Every sourcing tab issued to sales staff: its number and serial, accessories, SIM and sign-in details, and who holds it. ${r === 'it' ? 'You keep this register.' : 'The IT department keeps this register.'} Download the full inventory from Reports.</p></div>
-      <div class="actions"><a class="btn" href="#/reports?report=assets&run=1">Inventory report</a></div></div>
+      <div class="actions"><a class="btn" href="#/import/assets">Bulk upload</a><a class="btn" href="#/reports?report=assets&run=1">Inventory report</a></div></div>
     <div class="kpis staff-kpis">
       ${[['Tabs registered', summary.total, 'all statuses'], ...Object.entries(state.meta.asset_status).map(([k, l]) => [l, summary[k], k === 'in_use' ? 'with sales staff' : k === 'it_custody' ? 'spare, in repair or returned' : 'returned by leavers']), ['Sales staff without a tab', summary.staff_without_tab, 'active accounts']]
         .map(([l, v, sub]) => html`<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-value">${v ?? 0}</span><span class="kpi-sub">${sub}</span></div>`)}

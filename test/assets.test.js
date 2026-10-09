@@ -95,3 +95,33 @@ test('IT registers tabs, assigns them, changes status; sales staff see their own
   assert.equal((await gov('GET', '/reports/assets')).status, 404);
   assert.equal((await it('GET', '/reports/sourcing')).status, 404);
 });
+
+test('bulk upload of the tab register: new serials are registered, known ones updated, holders issued, statuses moved', async () => {
+  const it = await login('it@t.local');
+  const gov = await login('gov@t.local');
+  const csv = ['Tab no,Serial no,Charger,Stylus,Card reader,Network,SIM card number,Microsoft Entra ID,Mobile number registered,Issued to,Status,Notes',
+    'TAB-201,SN201,Yes,No,Yes,Etisalat,89971012000201,amal@derbygroup.ae,050 111 0201,A-1,,New batch',
+    'TAB-202,SN202,Yes,Yes,No,du,89971012000202,,,,,Spare',
+    'TAB-203,SN203,No,No,No,,,,,ZZ-9,,',
+    'TAB-001-B,SN001,Yes,Yes,Yes,du,,,,,With IT custody,Relabelled',
+    'TAB-204,SN204,Yes,No,No,Etisalat,,,,,Active in use,'].join('\n');
+  const preview = (await it('POST', '/import/assets', { csv, dry_run: true })).data;
+  assert.deepEqual([preview.dry_run, preview.total, preview.ok, preview.failed], [true, 5, 3, 2]);
+  assert.match(preview.rows[2].error, /ZZ-9/);
+  assert.match(preview.rows[4].error, /Issued to/);
+  assert.equal((await it('GET', '/assets?q=SN201')).data.assets.length, 0);
+  const done = (await it('POST', '/import/assets', { csv })).data;
+  assert.deepEqual([done.ok, done.failed], [3, 2]);
+  const amal = (await it('GET', '/assets?q=SN201')).data.assets[0];
+  assert.deepEqual([amal.status, amal.holder_name, amal.stylus, amal.network, amal.notes], ['in_use', 'Amal', 0, 'etisalat', 'New batch']);
+  assert.equal((await it('GET', '/assets?q=SN202')).data.assets[0].status, 'it_custody');
+  const relabelled = (await it('GET', '/assets?q=SN001')).data.assets[0];
+  assert.deepEqual([relabelled.tab_no, relabelled.stylus, relabelled.network, relabelled.status], ['TAB-001-B', 1, 'du', 'it_custody']);
+  // Uploading again with the holder moved to IT custody returns the tab.
+  const again = (await it('POST', '/import/assets', { csv: 'Tab no,Serial no,Status\nTAB-201,SN201,Handed over on exit' })).data;
+  assert.equal(again.ok, 1);
+  const back = (await it('GET', '/assets?q=SN201')).data.assets[0];
+  assert.deepEqual([back.status, back.holder_id, back.previous_holder_name], ['handed_over', null, 'Amal']);
+  assert.equal((await gov('POST', '/import/assets', { csv })).status, 403);
+  assert.ok((await it('GET', '/me')).data.meta.import_columns.assets.some((c) => c.key === 'issued_to'));
+});
