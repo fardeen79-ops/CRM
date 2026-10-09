@@ -717,6 +717,14 @@ async function viewDashboard() {
       ['Earned', `AED ${fmtAmount(s.revenue.completed_aed)}`, '#/reports?report=sourcing&run=1', false, `${s.revenue.completed_files} ${s.revenue.completed_files === 1 ? 'file' : 'files'} completed this cycle`],
       ['In the pipeline', `AED ${fmtAmount(s.revenue.pipeline_aed)}`, '#/cases', false, `${s.revenue.pipeline_files} open ${s.revenue.pipeline_files === 1 ? 'file' : 'files'}, if all complete`],
     ])}` : ''}
+    ${d.cross_sell ? html`<h2 class="tiles-head">Cross-sell · ${d.label} cycle <a class="tiles-link" href="#/cases?cycle=${d.cycle}&case_status=completed">Completed files →</a></h2>
+      ${d.cross_sell.length ? tileGrid(d.cross_sell.flatMap((t) => t.products.map((p) => [
+        `${t.core_label} team → ${p.label}`,
+        p.files,
+        `#/cases?cycle=${d.cycle}&case_status=completed`,
+        false,
+        p.amount ? `AED ${fmtAmount(p.amount)} disbursed · cross-sold on completed files` : `${p.product === 'credit_card' ? 'cards' : 'files'} cross-sold on completed files`,
+      ]))) : html`<p class="muted small dash-quiet">No cross-sell on the files completed so far this cycle.</p>`}` : ''}
     <h2 class="tiles-head">${r === 'processing' ? 'Your queue' : 'Needs your attention'}</h2>
     ${attention.length ? tileGrid(attention) : html`<p class="muted small dash-quiet">Nothing is waiting on you right now.</p>`}
     ${fu && (fu.overdue.length || fu.due_today.length || fu.due_tomorrow.length) ? followUpCard(fu, r) : ''}
