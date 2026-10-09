@@ -59,6 +59,7 @@ const ACTION_LABEL = {
   recording_it_email: 'IT emailed for the recording',
   receive_recording: 'Call recording received',
   set_complaint: 'Complaint number added',
+  complaint_decision: 'Complaint decided',
   score_quality: 'Verification call scored',
   set_card_status: 'Card activation saved',
   callback_due: 'Call-back due',
@@ -793,7 +794,8 @@ const COLS = {
     ${c.qc_flag ? html`<span class="chip warn">QC</span>` : ''}
     ${c.qc_score != null ? html`<span class="chip ${scoreClass(c.qc_score)}">${c.qc_score}/10</span>` : ''}
     ${c.recording_status ? recordingChip(c.recording_status) : ''}
-    ${c.complaint_number ? html`<span class="chip bad">Complaint ${c.complaint_number}</span>` : ''}
+    ${c.complaint_number ? html`<span class="chip bad">Complaint ${c.complaint_number}${c.complaint_status ? ` · ${c.complaint_status === 'valid' ? 'valid' : 'invalid'}` : ''}</span>` : ''}
+    ${c.complaint_status === 'valid' ? html`<span class="chip warn" title="${state.meta.complaint_remark || ''}">No incentive</span>` : ''}
     ${!c.qc_flag && c.qc_score == null && !c.recording_status && !c.complaint_number ? html`<span class="muted">—</span>` : ''}
   </div>`],
   source_by: ['Sourced by', (c) => html`${c.sales_staff_name || c.created_by_name}${c.sales_code ? html`<div class="muted small mono">${c.sales_code}</div>` : ''}`],
@@ -1491,6 +1493,7 @@ function eventDetail(e) {
   if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);
   if (e.type === 'request_edit' || e.type === 'resolve_edit_request') return `${state.meta.edit_queues[e.detail] || label(e.detail)} queue`;
   if (e.type === 'score_quality') return `${e.detail}/10`;
+  if (e.type === 'complaint_decision') return e.detail === 'valid' ? 'Valid · removed from incentive' : 'Invalid · counts for incentive';
   if (['set_complaint', 'receive_recording', 'recording_it_email', 'card_status', 'bulk_upload', 'disbursal'].includes(e.type)) return e.detail;
   return label(e.detail);
 }
@@ -1740,7 +1743,16 @@ async function viewCase(id) {
       <form data-form="set_complaint">
         <div class="field-row"><input name="complaint_number" required maxlength="50" placeholder="e.g. CMP-2026-0091" value="${c.complaint_number || ''}" aria-label="Complaint number"></div>
         <button class="btn-primary">${c.complaint_number ? 'Update complaint number' : 'Add complaint number'}</button>
-      </form>`);
+      </form>
+      ${a.has('decide_complaint') ? html`<form data-form="decide_complaint" class="complaint-decision">
+        <p class="muted small">Is complaint ${c.complaint_number} valid? A valid complaint removes the file from ${c.sales_staff_name || 'the sales person'}'s incentive for the cycle.</p>
+        <div class="segmented two-up" role="radiogroup" aria-label="Complaint decision">
+          <label><input type="radio" name="complaint_status" value="valid" ${c.complaint_status === 'valid' ? raw('checked') : ''}><span>Valid</span></label>
+          <label><input type="radio" name="complaint_status" value="invalid" ${c.complaint_status === 'invalid' ? raw('checked') : ''}><span>Invalid</span></label>
+        </div>
+        <div class="field-row" style="margin-top:10px"><textarea name="note" placeholder="Finding or reference (optional)">${c.complaint_decision_note || ''}</textarea></div>
+        <button class="btn-primary">Save decision</button>
+      </form>` : ''}`);
   }
   if (a.has('set_case_status')) {
     const choices = state.meta.settable_case_statuses.filter((k) => k !== c.case_status);
@@ -1875,7 +1887,8 @@ async function viewCase(id) {
           <h2>Quality &amp; governance</h2>
           <dl class="details">
             <dt>Quality check</dt><dd>${c.qc_flag ? html`<span class="chip warn">Marked for QC</span><div class="muted small">${c.qc_by_name} · ${fmtDate(c.qc_at)}</div>${c.qc_note ? html`<div>${c.qc_note}</div>` : ''}` : html`<span class="muted">Not marked</span>`}</dd>
-            <dt>Complaint number</dt><dd>${c.complaint_number ? html`<strong class="mono">${c.complaint_number}</strong><div class="muted small">${c.complaint_by_name} · ${fmtDate(c.complaint_at)}</div>` : '—'}</dd>
+            <dt>Complaint number</dt><dd>${c.complaint_number ? html`<strong class="mono">${c.complaint_number}</strong><div class="muted small">${c.complaint_by_name} · ${fmtDate(c.complaint_at)}</div>
+              ${c.complaint_status ? html`<div><span class="chip ${c.complaint_status === 'valid' ? 'bad' : 'good'}">${c.complaint_status === 'valid' ? 'Valid complaint' : 'Invalid complaint'}</span> <span class="muted small">${c.complaint_decided_by_name} · ${fmtDate(c.complaint_decided_at)}</span></div>${c.complaint_status === 'valid' ? html`<div class="small">${state.meta.complaint_remark}.</div>` : ''}${c.complaint_decision_note ? html`<div class="muted small">${c.complaint_decision_note}</div>` : ''}` : html`<div class="muted small">Not yet marked valid or invalid</div>`}` : '—'}</dd>
             <dt>Call score</dt><dd>${c.qc_score != null ? html`<span class="chip ${scoreClass(c.qc_score)}">${c.qc_score} / 10</span><div class="muted small">${c.qc_scored_by_name} · ${fmtDate(c.qc_scored_at)}</div>${c.qc_score_note ? html`<div>${c.qc_score_note}</div>` : ''}` : html`<span class="muted">Not scored</span>`}</dd>
             <dt>Call recording</dt><dd>${c.recording_status ? html`
               ${recordingChip(c.recording_status)}
@@ -2208,6 +2221,7 @@ function plIncentiveCard({ incentive: i, rules, conditions = [], pl_bands = [], 
     </ul>
     <table class="bands"><thead><tr><th>Production in the cycle</th><th>Rate on the whole production</th></tr></thead>
       <tbody>${pl_bands.map((b) => html`<tr class="${b.label === i.band ? 'on' : ''}"><td>${b.label}</td><td>${b.rate.toFixed(2)}%</td></tr>`)}</tbody></table>
+    ${i.remark ? html`<div class="callout danger incentive-remark"><strong>${i.remark}.</strong> ${i.excluded_files === 1 ? 'That file is' : 'Those files are'} left out of the production above.</div>` : ''}
     <p class="muted small">Only loans disbursed on files completed in the cycle count. An Emirates Islamic buy-out counts at ${rules.eib_buyout_share}% of its disbursed amount; a top-up at ${i.topup_share}% of its incremental amount${i.topup_share < 100 ? '' : ' (70% from the October 2026 cycle)'}.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
@@ -2302,6 +2316,7 @@ function alIncentiveCard({ incentive: i, al_rules: r, conditions = [] }) {
     <ul class="checklist">
       <li>${i.full_payout_met ? '✓' : '○'} New and used car disbursal: AED ${fmtAmount(i.full_payout_aed)} of AED ${fmtAmount(r.full_payout_aed)}${i.full_payout_met ? '' : ` (AED ${fmtAmount(i.short_by)} more for AED ${r.multiplier_high.toFixed(2)} a point)`}${i.algo_aed ? ` · algo loans (AED ${fmtAmount(i.algo_aed)}) earn points but do not count here` : ''}</li>
     </ul>
+    ${i.remark ? html`<div class="callout danger incentive-remark"><strong>${i.remark}.</strong> ${i.excluded_files === 1 ? 'That file is' : 'Those files are'} left out of the points above.</div>` : ''}
     <p class="muted small">A loan's points are its disbursed amount at the scheme's rate for its class: new and used car loans ${r.rates_pct.new.toFixed(2)}%, algo loans ${r.rates_pct.algo.toFixed(2)}%, low-payout non-algo loans nil. Points beyond target pay AED ${r.multiplier_high.toFixed(2)} each once new and used disbursal reaches AED ${fmtAmount(r.full_payout_aed)} in the cycle, otherwise AED ${r.multiplier_low.toFixed(2)}. Only loans on files completed in the cycle count.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;
@@ -2322,6 +2337,7 @@ function incentiveCard({ incentive: i, rules, conditions = [] }) {
       <li>${i.criterion === 'mix' ? '✓' : '○'} Premium mix: ${i.premium_cards} of ${i.cards_sold} cards Premium or above (${i.mix_pct}% · needs ${rules.mix_share}%)</li>
       <li>${i.criterion === 'cross_sell' || i.pl_counted >= rules.cross_sell_aed ? '✓' : '○'} Cross-sell: AED ${fmtAmount(i.pl_counted)} of personal loans counted (needs AED ${fmtAmount(rules.cross_sell_aed)}${i.eib_loans ? `; Emirates Islamic buy-outs count at ${rules.eib_buyout_share}%` : ''})</li>
     </ul>
+    ${i.remark ? html`<div class="callout danger incentive-remark"><strong>${i.remark}.</strong> ${i.excluded_files === 1 ? 'That file is' : 'Those files are'} left out of the points above.</div>` : ''}
     <p class="muted small">Meet either and excess points pay AED ${rules.rate_high.toFixed(2)} each, otherwise AED ${rules.rate_low.toFixed(2)}. Personal loans count AED ${rules.pl_aed_per_point} per point (Emirates Islamic buy-outs at ${rules.eib_buyout_share}%, top-ups at ${i.topup_share}% of the incremental amount). Only completed files in the cycle count.</p>
     ${conditions.length ? html`<div class="callout warn incentive-conditions"><strong>Conditions.</strong> ${conditions.join(' ')}</div>` : ''}
   </div>`;

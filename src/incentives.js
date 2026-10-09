@@ -4,7 +4,16 @@
 // Super Premium cards, or cross-sold at least AED 50,000 of personal loans; otherwise AED 0.70 each.
 // Personal loans count towards the points too: AED 50,000 disbursed = 500 points, and a loan buying
 // out an Emirates Islamic loan counts at half its disbursed amount.
-import { caseProducts, includesCard, COMPLETED_IN_SQL, REGIONS, WorkflowError } from './cases.js';
+import { caseProducts, includesCard, COMPLETED_IN_SQL, NO_VALID_COMPLAINT_SQL, COMPLAINT_REMARK, REGIONS, WorkflowError } from './cases.js';
+
+// A sales person's files completed in the cycle that count for incentive: files with a valid
+// complaint are left out (every scheme, and every team total built from them).
+const STAFF_FILES_SQL = `COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL} AND ${NO_VALID_COMPLAINT_SQL}`;
+/** How many of the sales person's completed files were removed for valid complaints, with the remark to show. */
+function complaintExclusion(db, staffId, start, end) {
+  const n = db.prepare(`SELECT COUNT(*) AS n FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL} AND c.complaint_status = 'valid'`).get(staffId, start, end).n;
+  return { excluded_files: n, remark: n ? `${COMPLAINT_REMARK} (${n} ${n === 1 ? 'file' : 'files'})` : '' };
+}
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { isEibBuyout } from './payouts.js';
 import { achievedBy, autoLoanRate, autoLoanPoints, AUTO_LOAN_POINT_RATES } from './performance.js';
@@ -48,7 +57,7 @@ export const plBandLabel = (b) => (b.to === Infinity ? `${aedK(b.from)}+` : `${a
 /** One personal loan sales person's incentive for a cycle: production in the cycle, its band and rate. */
 export function plIncentiveFor(db, staffId, cycle) {
   const { start, end } = cycleRange(cycle);
-  const rows = db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
   const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'personal_loan'").get(staffId, cycle)?.target ?? null;
   let loans = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
@@ -78,7 +87,7 @@ export function plIncentiveFor(db, staffId, cycle) {
     cycle, target, loans, eib_loans, top_ups, topup_share: topupShare(cycle), pl_disbursed, pl_counted, achievement_pct: target ? Math.round((pl_counted / target) * 1000) / 10 : null,
     band: band ? plBandLabel(band) : `Below ${aedK(PL_INCENTIVE_BANDS[0].from)}`, rate_pct, core_aed,
     cards_sold: cards.noon + cards.Mass + cards.Premium + cards['Super Premium'] + cards.other, cards, cards_aed: round2(cards_aed), cards_threshold, cards_qualified, cards_incentive_aed, incentive_aed: round2(core_aed + cards_incentive_aed),
-    next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length,
+    next_band: next ? { label: plBandLabel(next), from: next.from, rate: next.rate, short_by: round2(next.from - pl_counted) } : null, files: rows.length, ...complaintExclusion(db, staffId, start, end),
   };
 }
 export const INCENTIVE_CRITERIA = { mix: 'Premium mix', cross_sell: 'Cross-sell', none: 'Neither' };
@@ -107,7 +116,7 @@ export function countedAutoLoan(c) {
 /** One auto loan sales person's incentive for a cycle: points from disbursal, excess over target, the multiplier earned. */
 export function alIncentiveFor(db, staffId, cycle) {
   const { start, end } = cycleRange(cycle);
-  const rows = db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
   const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'auto_loan'").get(staffId, cycle)?.target ?? null;
   const n = { new: 0, used: 0, algo: 0, low: 0 };
   let loans = 0; let disbursed = 0; let full_payout_aed = 0; let algo_aed = 0; let low_aed = 0; let points = 0;
@@ -128,7 +137,7 @@ export function alIncentiveFor(db, staffId, cycle) {
   return {
     cycle, target, loans, new_loans: n.new, used_loans: n.used, algo_loans: n.algo, low_loans: n.low, disbursed, full_payout_aed, algo_aed, low_aed, points,
     achievement_pct: target ? Math.round((points / target) * 1000) / 10 : null, excess_points, full_payout_met: high, multiplier,
-    short_by: high ? 0 : round2(AL_INCENTIVE_RULES.full_payout_aed - full_payout_aed), incentive_aed: excess_points == null ? null : round2(excess_points * multiplier), files: rows.length,
+    short_by: high ? 0 : round2(AL_INCENTIVE_RULES.full_payout_aed - full_payout_aed), incentive_aed: excess_points == null ? null : round2(excess_points * multiplier), files: rows.length, ...complaintExclusion(db, staffId, start, end),
   };
 }
 
@@ -162,7 +171,7 @@ export function countedLoan(c, cycle) {
 /** One staff member's incentive for a cycle, from their completed files and card target. */
 export function incentiveFor(db, staffId, cycle) {
   const { start, end } = cycleRange(cycle);
-  const rows = db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end);
+  const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
   const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'credit_card'").get(staffId, cycle)?.target ?? null;
   let cards_sold = 0; let premium_cards = 0; let card_points = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
@@ -190,7 +199,7 @@ export function incentiveFor(db, staffId, cycle) {
   const incentive_aed = excess_points == null ? null : round2(excess_points * rate);
   return {
     cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, eib_loans, top_ups, topup_share: topupShare(cycle), pl_points, total_points,
-    excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, incentive_aed, files: rows.length,
+    excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, incentive_aed, files: rows.length, ...complaintExclusion(db, staffId, start, end),
   };
 }
 
@@ -281,7 +290,7 @@ export function plTlIncentiveFor(db, leaderId, cycle) {
     const i = plIncentiveFor(db, s.id, cycle);
     if (i.target == null) staff_without_target++; else combined_target += i.target;
     loans += i.loans; pl_disbursed += i.pl_disbursed; pl_counted += i.pl_counted; files += i.files;
-    for (const c of db.prepare(`SELECT c.credit_card, c.card_category FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND c.credit_card IS NOT NULL AND ${COMPLETED_IN_SQL}`).all(s.id, start, end)) {
+    for (const c of db.prepare(`SELECT c.credit_card, c.card_category FROM cases c WHERE c.credit_card IS NOT NULL AND ${STAFF_FILES_SQL}`).all(s.id, start, end)) {
       if (isNoonCard(c)) { cards.noon++; cards_aed += PL_TL_RULES.noon_aed; } else if (PL_TL_RULES.card_aed[c.card_category] != null) { cards[c.card_category]++; cards_aed += PL_TL_RULES.card_aed[c.card_category]; } else cards.other++;
     }
     return { id: s.id, name: s.name, sales_code: s.sales_code, target: i.target, pl_counted: i.pl_counted, loans: i.loans };
@@ -335,7 +344,7 @@ const smTeamOf = (db, managerId, role, product = null) => db.prepare(`SELECT id,
 function plCountedFor(db, staffId, cycle) {
   const { start, end } = cycleRange(cycle);
   let counted = 0; let disbursed = 0; let loans = 0;
-  for (const c of db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND ${COMPLETED_IN_SQL}`).all(staffId, start, end)) {
+  for (const c of db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end)) {
     const loan = countedLoan(c, cycle);
     if (loan) { loans++; counted += loan.counted; disbursed += loan.disbursed; }
   }
@@ -355,7 +364,7 @@ export function ccSmIncentiveFor(db, managerId, role, cycle) {
   }
   // Cards cross-sold by the rest of the team (loan and other staff) count in the card numbers.
   for (const s of everyone.filter((s) => s.core_product !== 'credit_card')) {
-    for (const c of db.prepare(`SELECT c.* FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = ? AND c.credit_card IS NOT NULL AND ${COMPLETED_IN_SQL}`).all(s.id, start, end)) {
+    for (const c of db.prepare(`SELECT c.* FROM cases c WHERE c.credit_card IS NOT NULL AND ${STAFF_FILES_SQL}`).all(s.id, start, end)) {
       if (!includesCard(c)) continue;
       cross_sell_cards++; cards_sold++; points += achievedBy('credit_card', c);
     }

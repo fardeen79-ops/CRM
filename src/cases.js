@@ -187,9 +187,14 @@ export function caseScope(user, c = 'c') {
 // Where a sales person can send a case in Applicant review to have its details corrected.
 export const EDIT_QUEUES = { team_leader: 'Team Leader', sales_manager: 'Sales Manager' };
 const EDITOR_ROLES = ['team_leader', 'sales_manager', 'asm'];
+// A complaint on a file is valid or invalid once governance has looked at it.
+export const COMPLAINT_STATUS = { valid: 'Valid', invalid: 'Invalid' };
+export const COMPLAINT_REMARK = 'Removed from incentive due to valid complaint cases';
+/** Files with a valid complaint earn no incentive: the SQL that keeps them out of the staff's files. */
+export const NO_VALID_COMPLAINT_SQL = "COALESCE(c.complaint_status, '') <> 'valid'";
 // Governance: quality checks, call recordings, complaint numbers and call-quality scores.
 const GOVERNANCE_ACTIONS = [
-  'mark_qc', 'clear_qc', 'set_complaint', 'score_quality', 'flag_urgent', 'clear_urgent',
+  'mark_qc', 'clear_qc', 'set_complaint', 'decide_complaint', 'score_quality', 'flag_urgent', 'clear_urgent',
   'request_recording', 'approve_recording', 'decline_recording', 'receive_recording',
 ];
 
@@ -238,7 +243,7 @@ const GOVERNANCE_FIELDS = [
   'recording_status', 'recording_request_note', 'recording_requested_by', 'recording_requested_at', 'recording_requested_by_name',
   'recording_ref', 'recording_provided_by', 'recording_provided_at', 'recording_provided_by_name',
   'recording_decided_by', 'recording_decided_at', 'recording_decision_note', 'recording_decided_by_name', 'recording_it_email_at', 'recording_email',
-  'complaint_number', 'complaint_by', 'complaint_at', 'complaint_by_name',
+  'complaint_number', 'complaint_by', 'complaint_at', 'complaint_by_name', 'complaint_status', 'complaint_decided_by', 'complaint_decided_at', 'complaint_decision_note', 'complaint_decided_by_name',
   'urgent_flag', 'urgent_note', 'urgent_by', 'urgent_at', 'urgent_by_name',
   'qc_score', 'qc_score_note', 'qc_scored_by', 'qc_scored_at', 'qc_scored_by_name',
 ];
@@ -648,7 +653,7 @@ const CASE_SELECT = `
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
          sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
          qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name, ub.name AS urgent_by_name,
-         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name, ceb.name AS card_exception_by_name, tab.name AS timing_approved_by_name
+         cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name, ceb.name AS card_exception_by_name, tab.name AS timing_approved_by_name, cdb.name AS complaint_decided_by_name
   FROM cases c
   JOIN users cb ON cb.id = c.created_by
   LEFT JOIN users at ON at.id = c.assigned_to
@@ -666,7 +671,8 @@ const CASE_SELECT = `
   LEFT JOIN users csb ON csb.id = c.card_status_by
   LEFT JOIN users cbb ON cbb.id = c.callback_by
   LEFT JOIN users ceb ON ceb.id = c.card_exception_by
-  LEFT JOIN users tab ON tab.id = c.timing_approved_by`;
+  LEFT JOIN users tab ON tab.id = c.timing_approved_by
+  LEFT JOIN users cdb ON cdb.id = c.complaint_decided_by`;
 
 const withRef = (row) => row && { ...row, ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
 const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.parse(text); } catch { return []; } };
@@ -1054,6 +1060,7 @@ function allowedCaseActions(user, row) {
   const finalResult = VERIFICATION_FINAL.includes(row.status);
   if (user.role === 'governance') {
     out.push(row.qc_flag ? 'clear_qc' : 'mark_qc', 'set_complaint');
+    if (row.complaint_number) out.push('decide_complaint');
     if (finalResult && !['pending_approval', 'approved'].includes(row.recording_status)) out.push('request_recording');
     if (verified) out.push('score_quality');
     if (STILL_VERIFYING.includes(row.status)) out.push(row.urgent_flag ? 'clear_urgent' : 'flag_urgent');
@@ -1459,6 +1466,19 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       db.prepare('UPDATE cases SET complaint_number = ?, complaint_by = ?, complaint_at = ?, updated_at = ? WHERE id = ?')
         .run(number, user.id, ts, ts, id);
       addEvent(db, id, user.id, 'set_complaint', { detail: number, note });
+    } else if (action === 'decide_complaint') {
+      // Governance decides whether the complaint stands. A valid complaint takes the file out of the
+      // sales person's incentive for the cycle; marking it invalid puts it back.
+      const status = clean(extra.complaint_status, 10);
+      if (!COMPLAINT_STATUS[status]) throw new WorkflowError(400, 'Mark the complaint Valid or Invalid');
+      if (status === row.complaint_status) throw new WorkflowError(409, `The complaint is already marked ${COMPLAINT_STATUS[status].toLowerCase()}`);
+      db.prepare('UPDATE cases SET complaint_status = ?, complaint_decided_by = ?, complaint_decided_at = ?, complaint_decision_note = ?, updated_at = ? WHERE id = ?')
+        .run(status, user.id, ts, note, ts, id);
+      addEvent(db, id, user.id, 'complaint_decision', { detail: status, note });
+      const who = [ownerId(row), row.team_leader_id].filter(Boolean);
+      notify(db, who, id, status === 'valid'
+        ? `${ref} (${row.customer_name}): complaint ${row.complaint_number} marked valid by ${user.name}. ${COMPLAINT_REMARK}.`
+        : `${ref} (${row.customer_name}): complaint ${row.complaint_number} marked invalid by ${user.name}; the file counts for incentive again`);
     } else if (action === 'score_quality') {
       const n = Number(score);
       if (score === '' || score == null || !Number.isFinite(n) || n < 0 || n > SCORE_MAX || Math.round(n * 10) !== n * 10) {

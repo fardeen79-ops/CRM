@@ -106,3 +106,34 @@ test('a top-up loan can carry secondary buyout details', async () => {
   const none = (await lina('POST', '/cases', loan({ sourcing_date: '2026-10-05', personal_loan_type: 'top_up', full_loan_amount: 200000, incremental_amount: 50000, secondary_buyout: 'no' }))).data.case;
   assert.deepEqual([none.secondary_buyout, none.pl_buyouts], ['no', []]);
 });
+
+test('governance marks a complaint valid or invalid; a valid one removes the file from incentive with a remark', async () => {
+  const cara = await login('cara@t.local');
+  const mis = await login('mis@t.local');
+  const gov = await login('gov@t.local');
+  const head = await login('head@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  const card = { region: 'DXB', core_product: 'credit_card', customer_name: 'Complaint Case', phone: '+971 50 123 9999', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' };
+  const a = (await cara('POST', '/cases', card)).data.case;
+  const b = (await cara('POST', '/cases', { ...card, customer_name: 'Clean Case', phone: '+971 50 123 8888' })).data.case;
+  for (const id of [a.id, b.id]) assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' })).status, 200);
+  const before = (await cara('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([before.cards_sold, before.excluded_files, before.remark], [2, 0, '']);
+  // No decision until there is a complaint number; then Valid or Invalid only.
+  assert.equal((await gov('POST', `/cases/${a.id}/actions`, { action: 'decide_complaint', complaint_status: 'valid' })).status, 403);
+  await gov('POST', `/cases/${a.id}/actions`, { action: 'set_complaint', complaint_number: 'CMP-2026-0500' });
+  assert.equal((await gov('POST', `/cases/${a.id}/actions`, { action: 'decide_complaint', complaint_status: 'maybe' })).status, 400);
+  assert.equal((await mis('POST', `/cases/${a.id}/actions`, { action: 'decide_complaint', complaint_status: 'valid' })).status, 403);
+  const valid = (await gov('POST', `/cases/${a.id}/actions`, { action: 'decide_complaint', complaint_status: 'valid', note: 'Mis-sold fee' })).data.case;
+  assert.deepEqual([valid.complaint_status, valid.complaint_decided_by_name, valid.complaint_decision_note], ['valid', 'Gina', 'Mis-sold fee']);
+  assert.ok(valid.events.some((e) => e.type === 'complaint_decision' && e.detail === 'valid'));
+  assert.ok((await cara('GET', '/notifications')).data.items.some((n) => n.case_id === a.id && /Removed from incentive due to valid complaint cases/.test(n.message)));
+  const after = (await cara('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
+  assert.deepEqual([after.cards_sold, after.files, after.excluded_files, after.remark], [1, 1, 1, 'Removed from incentive due to valid complaint cases (1 file)']);
+  const row = (await head('GET', `/reports/incentives?cycle=${cycle}`)).data.rows.find((r) => r.staff === 'Cara');
+  assert.deepEqual([row.cards_sold, row.excluded_files, row.remark], [1, 1, 'Removed from incentive due to valid complaint cases (1 file)']);
+  // Invalid puts it back.
+  assert.equal((await gov('POST', `/cases/${a.id}/actions`, { action: 'decide_complaint', complaint_status: 'valid' })).status, 409);
+  assert.equal((await gov('POST', `/cases/${a.id}/actions`, { action: 'decide_complaint', complaint_status: 'invalid' })).data.case.complaint_status, 'invalid');
+  assert.equal((await cara('GET', `/incentives/me?cycle=${cycle}`)).data.incentive.cards_sold, 2);
+});
