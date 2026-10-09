@@ -736,3 +736,7 @@ table.pnl.tree tr.overheads td:first-child { font-style: italic; }
 table.pnl.tree td.loss { color: var(--s-incomplete); }
 table.pnl.tree td.gain { color: var(--s-done); }
 @media (max-width: 720px) { .dash-row { grid-template-columns: 1fr; } }
+
+/* Processor allocation */
+.allocation-table select { min-width: 180px; }
+.plain-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }

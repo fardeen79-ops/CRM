@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as auth from './auth.js';
 import * as cases from './cases.js';
+import * as allocations from './allocations.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
@@ -180,7 +181,7 @@ function routes(db, dispatch, bot) {
         ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}),
         personal_loan_types: cases.PERSONAL_LOAN_TYPES,
         auto_loan_types: cases.AUTO_LOAN_TYPES,
-        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
+        lead_status: leads.LEAD_STATUS, timing_flags: cases.TIMING_FLAGS, can_allocate: allocations.canAllocate(user), complaint_status: cases.COMPLAINT_STATUS, complaint_remark: cases.COMPLAINT_REMARK,
         asset_status: assets.ASSET_STATUS, networks: assets.NETWORKS, accessories: assets.ACCESSORIES, asset_admins: assets.ASSET_ADMINS,
         auto_loan_classes: cases.AUTO_LOAN_CLASSES,
         al_incentive_rules: AL_INCENTIVE_RULES,
@@ -312,6 +313,10 @@ function routes(db, dispatch, bot) {
       if (user.role === 'it') return { users: listUsers(db).map(({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name }) => ({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name })) };
       return { users: listUsers(db) };
     }],
+
+    // Processor allocation: which processor verifies each sales team leader's files.
+    ['GET', /^\/api\/allocations$/, async ({ user }) => allocations.listAllocations(db, user)],
+    ['PUT', /^\/api\/allocations\/(\d+)$/, async ({ user, params, body }) => ({ allocation: allocations.setAllocation(db, user, params[0], body.processor_id) })],
 
     // Roles: custom roles defined on top of the built-in ones, by IT, Dubai MIS and business heads.
     ['GET', /^\/api\/roles$/, async ({ user }) => {

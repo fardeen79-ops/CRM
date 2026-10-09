@@ -37,6 +37,7 @@ const ACTION_LABEL = {
   bot_call_result: 'Bot call finished',
   bot_call_failed: 'Bot call failed',
   complete: 'Verification completed',
+  complete_deviation: 'Verification completed on deviation',
   mark_incomplete: 'Verification pending',
   reject_verification: 'Verification rejected',
   return_to_sales: 'Returned to sales',
@@ -352,6 +353,7 @@ function navGroups() {
   if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
   if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users', 'data-roles-count', state.meta.roles_pending || 0]);
+  if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
   if (admin.length) groups.push(['Admin', admin]);
   return filterNav(groups);
 }
@@ -461,6 +463,7 @@ async function route() {
     if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : await viewDashboard();
     if (path === '/assets') return await viewAssets(params);
     if (path === '/roles') return await viewRoles();
+    if (path === '/allocation') return await viewAllocation();
     if (path === '/pnl') return await viewPnl(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
@@ -779,7 +782,7 @@ const COLS = {
   </div>`],
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => (c.phone == null && c.hidden_fields?.includes('phone') ? html`<span class="lock">Hidden</span>` : c.phone)],
-  status: ['Verification', (c) => html`${badge(c.status)}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}${isDncr(c) ? html` <span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''}${c.callback_at && state.user.role === 'processing' ? html` ${callbackChip(c)}` : ''}`],
+  status: ['Verification', (c) => html`${badge(c.status)}${c.verified_basis === 'deviation' ? html` <span class="chip warn" title="Completed based on deviation, without a verification call">Deviation</span>` : ''}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}${isDncr(c) ? html` <span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''}${c.callback_at && state.user.role === 'processing' ? html` ${callbackChip(c)}` : ''}`],
   case_status: ['Case status', (c) => html`${caseBadge(c.case_status)}${c.case_status === 'completed' && completionLabel(c) ? html`<div class="muted small">${completionLabel(c)}</div>` : ''}`],
   sourced: ['Sourced', (c) => html`<span class="small nowrap">${fmtDay(c.sourcing_date)}</span>`],
   cs_note: ['Status note', (c) => html`${c.case_status_note || ''}<div class="muted small">${c.case_status_by_name || ''}</div>`],
@@ -1548,7 +1551,8 @@ async function viewCase(id) {
     banner = html`<div class="callout info"><strong>Returned to sales by ${c.tl_actioned_by_name}</strong>${c.tl_note}
       ${c.incomplete_reason ? html`<div class="muted small">Original issue: ${label(c.incomplete_reason)}${c.incomplete_note ? ` — ${c.incomplete_note}` : ''}</div>` : ''}</div>`;
   } else if (c.status === 'completed') {
-    banner = html`<div class="callout success"><strong>Verification completed by ${c.verified_by_name} on ${fmtDate(c.verified_at)}</strong>
+    banner = html`<div class="callout ${c.verified_basis === 'deviation' ? 'warn' : 'success'}"><strong>Verification completed by ${c.verified_by_name} on ${fmtDate(c.verified_at)}${c.verified_basis === 'deviation' ? ' · based on deviation' : ''}</strong>
+      ${c.verified_basis === 'deviation' ? html`<div class="small">Completed without a verification call. ${(c.events || []).filter((e) => e.type === 'complete_deviation').map((e) => e.note).filter(Boolean).slice(-1).map((n) => html`Reason: ${n}`)}</div>` : ''}
       ${c.case_status !== 'completed' ? html`<span class="small">The case itself is still ${CASE_STATUS_LABEL[c.case_status]}.</span>` : ''}</div>`;
   } else if (c.status === 'rejected') {
     banner = c.tl_action === 'reject'
@@ -1591,12 +1595,14 @@ async function viewCase(id) {
   if (a.has('complete') || a.has('mark_incomplete') || a.has('reject_verification')) {
     panel.push(html`<hr><h3>Verification result</h3>
       <form data-form="verification" id="verification-form">
-        <div class="segmented three-up" role="radiogroup" aria-label="Verification result">
-          <label><input type="radio" name="result" value="complete" required><span>Completed</span></label>
-          <label><input type="radio" name="result" value="mark_incomplete"><span>Pending</span></label>
-          <label><input type="radio" name="result" value="reject_verification"><span>Rejected</span></label>
-        </div>
-        <p class="muted small" id="vr-hint">Choose the outcome of your verification call.</p>
+        <div class="field-row"><label for="vr-result">Result</label><select id="vr-result" name="result" required>
+          <option value="">Choose the result…</option>
+          <option value="complete">Completed</option>
+          <option value="complete_deviation">Completed based on deviation</option>
+          <option value="mark_incomplete">Pending</option>
+          <option value="reject_verification">Rejected</option>
+        </select></div>
+        <p class="muted small" id="vr-hint">Choose the outcome of your verification call, or complete on a deviation when the customer could not be called.</p>
         <div class="field-row" id="vr-reason" hidden><select name="reason" disabled>
           <option value="">Reason…</option>
           ${meta.incomplete_reasons.map((o) => html`<option value="${o}">${label(o)}</option>`)}
@@ -2034,16 +2040,19 @@ async function viewCase(id) {
       const hint = f.querySelector('#vr-hint');
       const hints = {
         complete: 'Details confirmed with the customer. This does not complete the case; the case status is set separately.',
+        complete_deviation: 'Completed without a verification call. Give the reason for the deviation; it is recorded on the file and the sales person and team leader are told.',
         mark_incomplete: 'You could not finish. Your team leader is alerted to return it to sales, re-verify or reject.',
         reject_verification: 'The customer or details failed verification. Sales and team leaders are told.',
       };
-      f.querySelectorAll('input[name=result]').forEach((r) => (r.onchange = () => {
-        reasonRow.hidden = reason.disabled = r.value === 'complete';
-        reason.required = r.value === 'mark_incomplete';
-        note.required = r.value !== 'complete';
-        note.placeholder = r.value === 'complete' ? 'Verification notes (optional)' : 'Explain why (required)';
-        hint.textContent = hints[r.value];
-      }));
+      const resultSelect = f.querySelector('#vr-result');
+      resultSelect.onchange = () => {
+        const v = resultSelect.value;
+        reasonRow.hidden = reason.disabled = !['mark_incomplete', 'reject_verification'].includes(v);
+        reason.required = v === 'mark_incomplete';
+        note.required = v !== 'complete' && v !== '';
+        note.placeholder = v === 'complete' ? 'Verification notes (optional)' : v === 'complete_deviation' ? 'Reason for the deviation (required)' : 'Explain why (required)';
+        hint.textContent = hints[v] || 'Choose the outcome of your verification call, or complete on a deviation when the customer could not be called.';
+      };
       f.onsubmit = (e) => {
         e.preventDefault();
         const { result, ...rest } = formData(f);
@@ -3394,11 +3403,47 @@ const NAV_PAGE = (href) => {
   if (href.startsWith('#/assets')) return 'assets';
   if (href.startsWith('#/messages')) return 'chat';
   if (href.startsWith('#/roles')) return 'roles';
+  if (href.startsWith('#/allocation')) return 'allocation';
   if (href.startsWith('#/pnl')) return 'pnl';
   return null;
 };
 const allowedPage = (page) => !page || !state.meta.perms?.custom || state.meta.perms.pages.includes(page);
 const canDownload = () => state.meta.perms?.downloads !== false;
+
+// Processor allocation: the verification team leader maps each sales team leader to a processor.
+async function viewAllocation() {
+  const { team_leaders, processors } = await api('/allocations');
+  const byRegion = new Map();
+  for (const t of team_leaders) { const k = t.region || 'No region'; if (!byRegion.has(k)) byRegion.set(k, []); byRegion.get(k).push(t); }
+  shell(html`
+    <div class="page-head"><div><h1>Processor allocation</h1>
+      <p class="muted">Choose which processor verifies each sales team leader's files. An allocated team leader's files reach that processor's queue only; team leaders without one go to the shared queue. The verification team leader sees every file.</p></div></div>
+    <div class="grid two-col">
+      <div class="card"><h2>Sales team leaders</h2>
+        ${team_leaders.length ? html`<div class="table-wrap"><table class="allocation-table">
+          <thead><tr><th>Team leader</th><th>Region</th><th>Staff</th><th>Processor</th><th>Set</th></tr></thead>
+          <tbody>${team_leaders.map((t) => html`<tr>
+            <td><strong>${t.name}</strong></td><td>${t.region ? state.meta.regions[t.region]?.slice(0, 3) || t.region : html`<span class="muted">—</span>`}</td><td>${t.staff}</td>
+            <td><select data-tl="${t.id}" aria-label="Processor for ${t.name}">
+              <option value="">Shared queue</option>
+              ${processors.map((p) => html`<option value="${p.id}" ${t.processor_id === p.id ? raw('selected') : ''}>${p.name}${p.role_key === 'processing_lead' ? ' (verification TL)' : ''}${p.region ? ` · ${p.region}` : ''}</option>`)}
+            </select></td>
+            <td class="muted small">${t.processor_id ? html`${t.set_by_name || ''}<br>${fmtDate(t.set_at)}` : '—'}</td>
+          </tr>`)}</tbody></table></div>` : html`<p class="muted">No active sales team leaders yet.</p>`}
+      </div>
+      <div class="card"><h2>Processors</h2>
+        ${processors.length ? html`<ul class="plain-list">${processors.map((p) => html`<li><strong>${p.name}</strong>${p.role_key === 'processing_lead' ? html` <span class="chip">Verification team leader</span>` : ''}${p.region ? html` <span class="muted small">${p.region}</span>` : ''}<div class="muted small">${p.team_leaders ? `${p.team_leaders} team ${p.team_leaders === 1 ? 'leader' : 'leaders'} allocated` : 'shared queue only'}</div></li>`)}</ul>` : html`<p class="muted">No active processors yet.</p>`}
+      </div>
+    </div>`);
+  document.querySelectorAll('select[data-tl]').forEach((sel) => (sel.onchange = async () => {
+    sel.disabled = true;
+    try {
+      await api(`/allocations/${sel.dataset.tl}`, { method: 'PUT', body: { processor_id: sel.value || null } });
+      toast(sel.value ? 'Processor allocated' : 'Back to the shared queue');
+      await viewAllocation();
+    } catch (err) { toast(err.message, true); sel.disabled = false; }
+  }));
+}
 
 async function viewRoles() {
   if (!state.meta.can_manage_roles) throw new Error('Only IT, Dubai MIS and business heads define roles');

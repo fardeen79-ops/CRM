@@ -19,13 +19,14 @@ export const PAGES = {
   chat: { label: 'Messages', help: 'Case discussions and direct messages', paths: /^\/api\/(conversations|messages)(\/|$)/ },
   roles: { label: 'Roles', help: 'Defining roles (IT, Dubai MIS and business heads only)', paths: /^\/api\/roles(\/|$)/ },
   pnl: { label: 'Profit and loss', help: 'Revenue less salaries and incentives, per cycle (business heads only)', paths: /^\/api\/pnl(\/|$)/ },
+  allocation: { label: 'Processor allocation', help: 'Which processor verifies each sales team leader\'s files (the verification team leader)', paths: /^\/api\/allocations(\/|$)/ },
 };
 /** The uploads a role can be given. */
 export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', cards: 'Card activation', card_products: 'Card products', target_rules: 'Salary targets', targets: 'Targets', payout_rules: 'Payout rules', assets: 'Tab register', payroll: 'Salaries paid' };
 
 /** The built-in roles: what each one sees, which a custom role based on it can only narrow. */
 const MANAGE = ['cases', 'targets', 'team', 'cards', 'reports', 'uploads', 'staff', 'access_log', 'assets', 'chat', 'roles'];
-const HEAD = [...MANAGE, 'pnl'];
+const HEAD = [...MANAGE, 'pnl', 'allocation'];
 export const BUILTIN_ROLES = {
   sales: { label: 'Sales', pages: ['cases', 'leads', 'targets', 'my_tab', 'chat'], uploads: [] },
   processing: { label: 'Processing', pages: ['cases', 'chat'], uploads: [] },
@@ -38,6 +39,13 @@ export const BUILTIN_ROLES = {
   it: { label: 'IT', pages: ['assets', 'uploads', 'reports', 'roles'], uploads: ['assets'] },
 };
 export const BUILTIN_KEYS = Object.keys(BUILTIN_ROLES);
+
+// Roles the system ships ready-made on top of a base role. The verification team leader is a
+// processor who also allocates processors to sales team leaders; nobody can edit or delete it.
+export const SYSTEM_ROLES = {
+  processing_lead: { key: 'processing_lead', label: 'Verification Team Leader', base: 'processing', description: 'Verifies files like any processor and allocates processors to sales team leaders', pages: ['cases', 'chat', 'allocation'], reports: null, uploads: [], downloads: true, payout: false, status: 'approved', system: true },
+};
+export const isProcessingLead = (user) => user.role === 'processing' && user.role_key === 'processing_lead';
 
 /** Who defines roles: IT, Dubai MIS and business heads. */
 export const canManageRoles = (user) => user.role === 'it' || user.role === 'business_head' || (user.role === 'mis' && String(user.region || '').toUpperCase() === 'DXB');
@@ -52,7 +60,7 @@ export function loadRoles(db) {
   cache = new Map(db.prepare('SELECT r.*, c.name AS created_by_name, d.name AS decided_by_name FROM roles r LEFT JOIN users c ON c.id = r.created_by LEFT JOIN users d ON d.id = r.decided_by ORDER BY r.label').all().map((r) => [r.key, { ...r, pages: JSON.parse(r.pages), reports: r.reports == null ? null : JSON.parse(r.reports), uploads: JSON.parse(r.uploads), downloads: !!r.downloads, payout: !!r.payout }]));
   return cache;
 }
-export const customRoles = () => [...cache.values()];
+export const customRoles = () => [...Object.values(SYSTEM_ROLES), ...cache.values()];
 /** Labels for every role, approved custom roles included (pending ones show too, so existing references read well). */
 export const roleLabels = () => ({ ...Object.fromEntries(BUILTIN_KEYS.map((k) => [k, BUILTIN_ROLES[k].label])), ...Object.fromEntries(customRoles().map((r) => [r.key, r.label])) });
 /** The roles a person can be put on: built-in and approved custom roles. */
@@ -73,11 +81,12 @@ export function resolveRole(value) {
 /** What a user may see and do, from their base role narrowed by their custom role, if any. */
 export function permissionsOf(user) {
   const base = BUILTIN_ROLES[user.role] || { pages: [], uploads: [] };
-  const custom = user.role_key ? cache.get(user.role_key) : null;
+  const custom = user.role_key ? SYSTEM_ROLES[user.role_key] || cache.get(user.role_key) : null;
   if (!custom) return { custom: false, pages: base.pages, reports: null, uploads: base.uploads, downloads: true, payout: true };
   return {
     custom: true, key: custom.key, label: custom.label,
-    pages: custom.pages.filter((p) => base.pages.includes(p)),
+    // A system role may add a screen to its base (allocation); an agency-defined one only narrows.
+    pages: custom.system ? custom.pages : custom.pages.filter((p) => base.pages.includes(p)),
     reports: custom.reports, // null = every report of the base role
     uploads: custom.uploads.filter((u) => base.uploads.includes(u)),
     downloads: custom.downloads, payout: custom.payout,
@@ -138,6 +147,7 @@ export function createRole(db, user, input, opts) {
 }
 export function updateRole(db, user, key, input, opts) {
   requireRoleManager(user);
+  if (SYSTEM_ROLES[key]) throw new WorkflowError(400, `${SYSTEM_ROLES[key].label} is a built-in role and cannot be changed`);
   const current = cache.get(key);
   if (!current) throw new WorkflowError(404, 'Role not found');
   const v = validate(input, opts, current);
@@ -162,6 +172,7 @@ export function decideRole(db, user, key, { approve, note } = {}) {
 }
 export function deleteRole(db, user, key) {
   requireRoleManager(user);
+  if (SYSTEM_ROLES[key]) throw new WorkflowError(400, `${SYSTEM_ROLES[key].label} is a built-in role and cannot be deleted`);
   if (!cache.has(key)) throw new WorkflowError(404, 'Role not found');
   const n = db.prepare('SELECT COUNT(*) AS n FROM users WHERE role_key = ?').get(key).n;
   if (n) throw new WorkflowError(409, `${n} ${n === 1 ? 'user has' : 'users have'} this role; move them to another role first`);

@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS cases (
   tl_actioned_at     TEXT,
   verified_by        INTEGER REFERENCES users(id),
   verified_at        TEXT,
+  verified_basis     TEXT,                -- 'deviation' when completed without reaching the customer
   created_at         TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -325,6 +326,14 @@ CREATE TABLE IF NOT EXISTS asset_events (
   note       TEXT,
   created_at TEXT NOT NULL
 );
+-- Processors allocated to sales team leaders by the verification team leader: a team leader's
+-- files are verified by their processor only.
+CREATE TABLE IF NOT EXISTS processor_allocations (
+  team_leader_id INTEGER PRIMARY KEY REFERENCES users(id),
+  processor_id   INTEGER NOT NULL REFERENCES users(id),
+  set_by         INTEGER REFERENCES users(id),
+  set_at         TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS roles (
   key         TEXT PRIMARY KEY,
   label       TEXT NOT NULL,
@@ -452,7 +461,7 @@ const ADDED_COLUMNS = {
   pl_tenure: 'INTEGER', pl_buyouts: 'TEXT', secondary_buyout: 'TEXT', auto_loan_type: 'TEXT', al_payout_class: 'TEXT', car_make: 'TEXT', car_model: 'TEXT', car_year: 'INTEGER', dealer_details: 'TEXT', al_lead_source: 'TEXT', al_interest_rate: 'REAL', al_tenure: 'INTEGER',
   card_min_salary: 'REAL', card_higher_options: 'INTEGER', card_eligible_category: 'TEXT', card_salary_exception: 'TEXT', card_exception_by: 'INTEGER REFERENCES users(id)', card_exception_at: 'TEXT', card_exception_note: 'TEXT',
   callback_at: 'TEXT', callback_by: 'INTEGER REFERENCES users(id)', callback_set_at: 'TEXT', callback_notified_at: 'TEXT',
-  timing_flag: 'TEXT', timing_approved_by: 'INTEGER REFERENCES users(id)', timing_approved_at: 'TEXT', timing_note: 'TEXT',
+  timing_flag: 'TEXT', timing_approved_by: 'INTEGER REFERENCES users(id)', timing_approved_at: 'TEXT', timing_note: 'TEXT', verified_basis: 'TEXT',
 };
 const ADDED_USER_COLUMNS = {
   sales_code: 'TEXT', team_leader_id: 'INTEGER REFERENCES users(id)', sales_manager_id: 'INTEGER REFERENCES users(id)',

@@ -177,7 +177,14 @@ export function caseScope(user, c = 'c') {
   const team = (field) => ({ sql: `(${own} OR ${c}.${field} = ?)`, params: [user.id, user.id] });
   switch (user.role) {
     case 'sales': return { sql: `(${own} OR ${c}.sales_staff_id = ?)`, params: [user.id, user.id] };
-    case 'processing': return user.region ? { sql: `(${c}.region = ? OR ${c}.region IS NULL)`, params: [user.region] } : null;
+    case 'processing': {
+      const clauses = []; const params = [];
+      if (user.region) { clauses.push(`(${c}.region = ? OR ${c}.region IS NULL)`); params.push(user.region); }
+      // A sales team leader's files go to the processor allocated to them; other processors do not
+      // see them. The verification team leader sees every file.
+      if (user.role_key !== 'processing_lead') { clauses.push(`(${c}.team_leader_id IS NULL OR ${c}.team_leader_id NOT IN (SELECT team_leader_id FROM processor_allocations WHERE processor_id <> ?))`); params.push(user.id); }
+      return clauses.length ? { sql: clauses.join(' AND '), params } : null;
+    }
     case 'team_leader': return team('team_leader_id');
     case 'sales_manager': return team('sales_manager_id');
     case 'asm': return team('asm_id');
@@ -278,6 +285,8 @@ export const ACTIONS = {
   // Asks the calling bot to phone the customer; its result is logged like a call (see bot.js).
   bot_call:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: null },
   complete:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.COMPLETED },
+  // Completed without reaching the customer, on a deviation the processor must explain.
+  complete_deviation: { roles: ['processing'], from: OPEN_FOR_PROCESSING, to: STATUS.COMPLETED, noteRequired: true },
   // "Verification pending" in the UI: the processor could not finish and a team leader must decide.
   mark_incomplete: { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.INCOMPLETE, noteRequired: true },
   reject_verification: { roles: ['processing'], from: OPEN_FOR_PROCESSING, to: STATUS.REJECTED, noteRequired: true },
@@ -647,6 +656,11 @@ export function notify(db, userIds, caseId, message, link = null) {
 
 const activeUserIds = (db, role) =>
   db.prepare('SELECT id FROM users WHERE role = ? AND active = 1').all(role).map((r) => r.id);
+/** The processors a file can reach: the one allocated to its team leader, else every active processor. */
+const processorsFor = (db, row) => {
+  const allocated = row.team_leader_id ? db.prepare('SELECT a.processor_id FROM processor_allocations a JOIN users u ON u.id = a.processor_id WHERE a.team_leader_id = ? AND u.active = 1').get(row.team_leader_id)?.processor_id : null;
+  return allocated ? [allocated] : activeUserIds(db, 'processing');
+};
 
 const CASE_SELECT = `
   SELECT c.*, cb.name AS created_by_name, at.name AS assigned_to_name,
@@ -1037,7 +1051,7 @@ export function updateCase(db, user, id, input) {
           callback_at = NULL, callback_notified_at = NULL, updated_at = ? WHERE id = ?`).run(STATUS.PENDING, ts, id);
       addEvent(db, id, user.id, 're_verification', { from: STATUS.COMPLETED, to: STATUS.PENDING, detail: what });
       const ref = caseRef(id);
-      notify(db, [row.verified_by, ...activeUserIds(db, 'processing')], id,
+      notify(db, [row.verified_by, ...processorsFor(db, row)], id,
         `Re-verification needed: ${ref} (${row.customer_name}) — ${what} changed by ${user.name} after verification`);
       notify(db, [ownerId(row), ...activeUserIds(db, 'team_leader')].filter((u) => u !== user.id), id,
         `${ref} (${row.customer_name}) goes back for verification: ${what} changed by ${user.name}`);
@@ -1117,7 +1131,7 @@ export function triggerDueCallbacks(db) {
   const triggers = [];
   for (const row of due) {
     const ref = caseRef(row.id);
-    const to = row.assigned_to ? [row.assigned_to] : activeUserIds(db, 'processing');
+    const to = row.assigned_to ? [row.assigned_to] : processorsFor(db, row);
     notify(db, to, row.id, `Call back now: ${ref} (${row.customer_name}) asked to be called at ${callbackLabel(row.callback_at)}`);
     db.prepare('UPDATE cases SET callback_notified_at = ? WHERE id = ?').run(ts, row.id);
     addEvent(db, row.id, null, 'callback_due', { detail: callbackLabel(row.callback_at) });
@@ -1196,8 +1210,13 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         break;
       }
       case 'complete':
-        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts, urgent_flag: 0, callback_at: null, callback_notified_at: null });
+        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts, verified_basis: null, urgent_flag: 0, callback_at: null, callback_notified_at: null });
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) verification completed by ${user.name}`);
+        break;
+      case 'complete_deviation':
+        Object.assign(set, { assigned_to: row.assigned_to ?? user.id, verified_by: user.id, verified_at: ts, verified_basis: 'deviation', urgent_flag: 0, callback_at: null, callback_notified_at: null });
+        detail = 'deviation';
+        notify(db, [ownerId(row), row.team_leader_id].filter(Boolean), id, `${ref} (${row.customer_name}) verification completed by ${user.name} based on deviation: ${note}`);
         break;
       case 'reject_verification':
         // Verification failing does not change the case status; that stays a separate decision.
@@ -1413,7 +1432,7 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
         .run(note, user.id, ts, ts, id);
       addEvent(db, id, user.id, 'flag_urgent', { note });
       // The processor on the file (or every processor if nobody has it), plus team leaders who own Pending files.
-      const processors = row.assigned_to ? [row.assigned_to] : activeUserIds(db, 'processing');
+      const processors = row.assigned_to ? [row.assigned_to] : processorsFor(db, row);
       notify(db, [...processors, ...activeUserIds(db, 'team_leader')], id,
         `URGENT verification: ${ref} (${row.customer_name}) flagged by ${who} — ${note}`);
     } else if (action === 'clear_urgent') {
