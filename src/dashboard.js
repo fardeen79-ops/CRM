@@ -71,7 +71,7 @@ export function dashboardFor(db, user, { region } = {}) {
   if (user.role === 'sales' || TEAM_LEADER_ROLES.includes(user.role)) {
     try {
       const mine = myIncentive(db, user, cycle);
-      const parts = mine.incentive ? [{ type: mine.type, amount: mine.incentive.incentive_aed ?? 0 }] : (mine.teams || []).map((t) => ({ type: t.type, amount: t.incentive.incentive_aed ?? 0 }));
+      const parts = mine.incentive ? [{ type: mine.type, amount: mine.incentive.incentive_aed ?? 0 }] : [...(mine.teams || []), ...(mine.products || [])].map((t) => ({ type: t.type, amount: t.incentive.incentive_aed ?? 0 }));
       if (parts.length) incentive = { total: Math.round(parts.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100, parts, conditions: mine.conditions };
     } catch { incentive = null; }
   }
