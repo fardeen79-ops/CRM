@@ -30,7 +30,7 @@ const ROLE_LABEL = {
 // Assistant sales managers use the same screens as sales managers, over their own teams.
 const effRole = () => (state.user.role === 'asm' ? 'sales_manager' : state.user.role);
 const ACTION_LABEL = {
-  tat_hold: 'Marked completed (TAT switch on)', tat_release: 'Moved back (TAT switch off)',
+  tat_hold: 'Marked completed (power button on)', tat_release: 'Moved back (power button off)',
   created: 'Case created',
   edited: 'Details edited',
   re_verification: 'Sent back for re-verification',
@@ -296,6 +296,7 @@ const ICON_PATHS = {
   queue: '<path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><path d="M8 7h4M8 17h4"/>',
   urgent: '<path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.5"/>',
   flag: '<path d="M5 21V4"/><path d="M5 4h11l-2 4 2 4H5"/>',
+  power: '<path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/>',
@@ -362,7 +363,7 @@ function navGroups() {
   if (state.meta.can_allocate) admin.push(['#/allocation', 'Processor allocation', 'users']);
   if (state.meta.can_manage_boosters) admin.push(['#/boosters', 'Boosters', 'flag']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/holidays', 'Holidays', 'calendar']);
-  if (state.meta.can_use_tat_switch) admin.push(['#/tat-switch', 'TAT switch', 'clock']);
+  if (state.meta.can_use_tat_switch) admin.push(['#/power-button', 'Power button', 'power']);
   if (admin.length) groups.push(['Admin', admin]);
   return filterNav(groups);
 }
@@ -475,7 +476,7 @@ async function route() {
     if (path === '/allocation') return await viewAllocation();
     if (path === '/boosters') return await viewBoosters();
     if (path === '/holidays') return await viewHolidays();
-    if (path === '/tat-switch') return await viewTatSwitch();
+    if (path === '/power-button') return await viewTatSwitch();
     if (path === '/pnl') return await viewPnl(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
@@ -1719,7 +1720,7 @@ async function viewCaseForm(id, leadId = null) {
     }
     const check = document.getElementById('card-salary-check');
     if (check?.dataset.state === 'below' && !form.querySelector('[name=card_salary_exception]:checked')) {
-      if (!confirm(`No reason chosen for selling this card below its requirement (the customer's ${incomeLabelsFor($('#f-customer_type').value).word}). Send the file to your team leader / sales manager for approval before verification?`)) return;
+      if (!await askConfirm(`No reason chosen for selling this card below its requirement (the customer's ${incomeLabelsFor($('#f-customer_type').value).word}). Send the file to your team leader / sales manager for approval before verification?`)) return;
     }
     try {
       const body = formData(form);
@@ -2723,7 +2724,7 @@ async function viewTargets(cycleParam) {
 
   const gen = document.getElementById('generate-targets');
   if (gen) gen.onclick = async () => {
-    if (!confirm(`Set targets for the ${cycleName(rep.cycle)} cycle from each sales person's salary? Targets already set for products that have a salary band will be replaced.`)) return;
+    if (!await askConfirm(`Set targets for the ${cycleName(rep.cycle)} cycle from each sales person's salary? Targets already set for products that have a salary band will be replaced.`)) return;
     gen.disabled = true;
     try {
       const res = await api('/targets/generate', { method: 'POST', body: { cycle: rep.cycle } });
@@ -3587,6 +3588,28 @@ async function showCardPitch({ current, suggested, income, inc, customer, onSwit
   sheet.querySelector('[data-pitch-switch]').focus();
 }
 
+// An in-page yes/no question. The browser's own confirm() is blocked when the CRM runs inside a
+// sandboxed frame (as the demo does), so every confirmation uses this instead.
+function askConfirm(message, { ok = 'Yes, go ahead', cancel = 'Cancel', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.className = 'scan-modal confirm-modal';
+    modal.setAttribute('role', 'alertdialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 'confirm-text');
+    modal.innerHTML = html`<div class="scan-sheet confirm-sheet">
+      <p id="confirm-text">${message}</p>
+      <div class="actions"><button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-confirm-ok>${ok}</button><button type="button" class="btn" data-confirm-cancel>${cancel}</button></div>
+    </div>`.s;
+    document.body.append(modal);
+    const done = (answer) => { modal.remove(); document.removeEventListener('keydown', onKey); resolve(answer); };
+    const onKey = (e) => { if (e.key === 'Escape') done(false); };
+    document.addEventListener('keydown', onKey);
+    modal.querySelector('[data-confirm-ok]').onclick = () => done(true);
+    modal.querySelector('[data-confirm-cancel]').onclick = () => done(false);
+    modal.onclick = (e) => { if (e.target === modal) done(false); };
+    modal.querySelector('[data-confirm-ok]').focus();
+  });
+}
+
 // ---------- leads: a sales person's prospects before there is a file ----------
 // A mobile number on a lead dials from the phone, after the person confirms.
 const telHref = (phone) => String(phone || '').replace(/[^\d+]/g, '');
@@ -3815,32 +3838,32 @@ async function viewAllocation() {
 }
 
 // Boosters: business heads and MIS create product campaigns with dates, a reward line and an audience.
-// The TAT switch: while on, files past their verification TAT show as verified; off puts them back.
+// The power button (TAT switch): while on, files past their verification TAT show as verified; off puts them back.
 async function viewTatSwitch() {
   const s = await api('/tat-switch');
   shell(html`
-    <div class="page-head"><div><h1>TAT switch</h1><p class="muted lede">While the switch is on, every file past its ${state.meta.verify_tat_days}-working-day verification TAT shows as verified (Completed) and leaves the processing queue, including files that pass their TAT while it stays on. When it is turned off, each of those files goes back to the stage it was at. Case status, targets, incentives and payouts are not affected.</p></div></div>
+    <div class="page-head"><div><h1>Power button</h1><p class="muted lede">While the power button is on, every file past its ${state.meta.verify_tat_days}-working-day verification TAT shows as verified (Completed) and leaves the processing queue, including files that pass their TAT while it stays on. When it is turned off, each of those files goes back to the stage it was at. Case status, targets, incentives and payouts are not affected.</p></div></div>
     <div class="card tat-switch ${s.on ? 'is-on' : ''}">
       <div class="tat-switch-row">
         <div>
           <div class="tat-switch-state">${s.on ? 'On' : 'Off'}</div>
-          <div class="muted">${s.on ? `${s.held} ${s.held === 1 ? 'file is' : 'files are'} showing as completed because of the switch.` : 'Late files stay at their real stage.'}</div>
+          <div class="muted">${s.on ? `${s.held} ${s.held === 1 ? 'file is' : 'files are'} showing as completed because of the power button.` : 'Late files stay at their real stage.'}</div>
         </div>
         <button type="button" class="btn ${s.on ? 'btn-danger' : 'btn-primary'}" id="tat-toggle">${s.on ? 'Turn off and move files back' : 'Turn on'}</button>
       </div>
     </div>
-    <div class="card"><h2>Switch log</h2>
+    <div class="card"><h2>Power button log</h2>
       ${s.log.length ? html`<div class="table-wrap"><table><thead><tr><th>When</th><th>Switched</th><th>By</th><th class="num">Files</th></tr></thead><tbody>
         ${s.log.map((l) => html`<tr><td class="nowrap">${fmtDate(l.at)}</td><td>${l.switched_on ? html`<span class="chip warn">On</span>` : html`<span class="chip">Off</span>`}</td><td>${l.user_name || '—'}</td><td class="num">${l.files} ${l.switched_on ? 'held' : 'moved back'}</td></tr>`)}
-      </tbody></table></div>` : html`<p class="muted">The switch has not been used yet.</p>`}
+      </tbody></table></div>` : html`<p class="muted">The power button has not been used yet.</p>`}
     </div>
   `);
   document.getElementById('tat-toggle').onclick = async () => {
     const msg = s.on
-      ? `Turn the TAT switch off? The ${s.held} ${s.held === 1 ? 'file' : 'files'} it is holding go back to the stage they were at.`
-      : 'Turn the TAT switch on? Every file past its verification TAT will show as completed until the switch is turned off.';
-    if (!confirm(msg)) return;
-    try { const r = await api('/tat-switch', { method: 'PUT', body: { on: !s.on } }); toast(r.on ? `Switch on: ${r.log[0].files} late ${r.log[0].files === 1 ? 'file' : 'files'} now show as completed` : `Switch off: ${r.log[0].files} ${r.log[0].files === 1 ? 'file' : 'files'} moved back`); await viewTatSwitch(); } catch (err) { toast(err.message, true); }
+      ? `Turn the power button off? The ${s.held} ${s.held === 1 ? 'file it is holding goes back to the stage it was at' : 'files it is holding go back to the stage they were at'}.`
+      : 'Turn the power button on? Every file past its verification TAT will show as completed until the power button is turned off.';
+    if (!await askConfirm(msg, { ok: s.on ? 'Turn off' : 'Turn on', danger: s.on })) return;
+    try { const r = await api('/tat-switch', { method: 'PUT', body: { on: !s.on } }); toast(r.on ? `Power button on: ${r.log[0].files} late ${r.log[0].files === 1 ? 'file' : 'files'} now show as completed` : `Power button off: ${r.log[0].files} ${r.log[0].files === 1 ? 'file' : 'files'} moved back`); await viewTatSwitch(); } catch (err) { toast(err.message, true); }
   };
 }
 
@@ -3875,7 +3898,7 @@ async function viewHolidays() {
     try { const r = await api('/holidays', { method: 'POST', body }); toast(`${r.added} ${r.added === 1 ? 'day' : 'days'} added`); await viewHolidays(); } catch (err) { toast(err.message, true); }
   };
   document.querySelectorAll('[data-remove]').forEach((b) => (b.onclick = async () => {
-    if (!confirm('Remove this holiday? Files due around it will be counted again.')) return;
+    if (!await askConfirm('Remove this holiday? Files due around it will be counted again.')) return;
     try { await api(`/holidays/${b.dataset.remove}`, { method: 'DELETE' }); toast('Holiday removed'); await viewHolidays(); } catch (err) { toast(err.message, true); }
   }));
 }
@@ -4005,7 +4028,7 @@ async function viewRoles() {
       } catch (err) { toast(err.message, true); }
     };
     const del = f.querySelector('[data-role-delete]');
-    if (del) del.onclick = async () => { if (!confirm(`Delete the role ${f.label.value}?`)) return; try { await api(`/roles/${del.dataset.roleDelete}`, { method: 'DELETE' }); toast('Role deleted'); viewRoles(); } catch (err) { toast(err.message, true); } };
+    if (del) del.onclick = async () => { if (!await askConfirm(`Delete the role ${f.label.value}?`)) return; try { await api(`/roles/${del.dataset.roleDelete}`, { method: 'DELETE' }); toast('Role deleted'); viewRoles(); } catch (err) { toast(err.message, true); } };
   });
 }
 

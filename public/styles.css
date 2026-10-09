@@ -850,3 +850,5 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .tat-switch-state { font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
 .tat-switch.is-on { border-color: var(--s-pending); background: linear-gradient(0deg, var(--s-pending-bg), var(--s-pending-bg)), var(--surface); }
 .tat-switch.is-on .tat-switch-state { color: var(--s-pending); }
+.confirm-sheet { width: min(440px, 100%); }
+.confirm-sheet p { margin: 0; font-size: 15px; }

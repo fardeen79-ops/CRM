@@ -361,7 +361,7 @@ export function holdOverdueFiles(db, userId = null) {
   const hold = db.prepare('UPDATE cases SET tat_override_from = ?, tat_held_at = ?, status = ?, updated_at = ? WHERE id = ?');
   for (const r of rows) {
     hold.run(r.status, ts, STATUS.COMPLETED, ts, r.id);
-    addEvent(db, r.id, userId, 'tat_hold', { from: r.status, to: STATUS.COMPLETED, detail: 'Past verification TAT while the TAT switch is on' });
+    addEvent(db, r.id, userId, 'tat_hold', { from: r.status, to: STATUS.COMPLETED, detail: 'Past verification TAT while the power button is on' });
   }
   return rows.length;
 }
@@ -373,7 +373,7 @@ function releaseHeldFiles(db, userId) {
   const back = db.prepare('UPDATE cases SET status = ?, tat_override_from = NULL, tat_held_at = NULL, updated_at = ? WHERE id = ?');
   for (const r of rows) {
     back.run(r.tat_override_from, ts, r.id);
-    addEvent(db, r.id, userId, 'tat_release', { from: STATUS.COMPLETED, to: r.tat_override_from, detail: 'TAT switch turned off' });
+    addEvent(db, r.id, userId, 'tat_release', { from: STATUS.COMPLETED, to: r.tat_override_from, detail: 'Power button turned off' });
   }
   return rows.length;
 }
@@ -392,7 +392,7 @@ export function presentEvents(row, events, switchOn) {
 }
 
 export function tatSwitchStatus(db, user) {
-  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can see the TAT switch');
+  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can see the power button');
   const log = db.prepare('SELECT l.switched_on, l.files, l.at, u.name AS user_name FROM tat_switch_log l LEFT JOIN users u ON u.id = l.user_id ORDER BY l.id DESC LIMIT 20').all()
     .map((l) => ({ ...l, switched_on: l.switched_on === 1 }));
   const held = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE tat_override_from IS NOT NULL').get().n;
@@ -400,7 +400,7 @@ export function tatSwitchStatus(db, user) {
 }
 
 export function setTatSwitch(db, user, on) {
-  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can use the TAT switch');
+  if (!canUseTatSwitch(user)) throw new WorkflowError(403, 'Only business heads and Dubai MIS can use the power button');
   const want = Boolean(on);
   if (want === tatSwitchOn(db)) return tatSwitchStatus(db, user);
   transaction(db, () => {
