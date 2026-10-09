@@ -623,7 +623,12 @@ function pushLine(p, { unit, scheme, needed }) {
 function zeroCard(z, r) {
   if (!z) return '';
   const pct = (v) => (v == null ? '—' : `${v}%`);
-  const who = (list) => (list.length ? html`<div class="chips zero-names">${list.map((s) => html`<a class="chip bad" href="#/cases?staff=${s.id}&cycle=${z.cycle}" title="${s.sales_code || ''}${s.team_leader ? ` · ${s.team_leader}` : ''} · ${s.sourced} sourced, ${s.completed} completed this cycle">${s.name}</a>`)}</div>` : html`<div class="muted small">Nobody: everyone on the team has something this cycle.</div>`);
+  const LIMIT = 40;
+  const chip = (s) => html`<a class="chip bad" href="#/cases?staff=${s.id}&cycle=${z.cycle}" title="${s.sales_code || ''}${s.team_leader ? ` · ${s.team_leader}` : ''} · ${s.sourced} sourced, ${s.completed} completed this cycle">${s.name}</a>`;
+  // Long lists (a business head over the whole agency) show the first names and fold the rest.
+  const who = (list) => (list.length
+    ? html`<div class="chips zero-names">${list.slice(0, LIMIT).map(chip)}</div>${list.length > LIMIT ? html`<details class="small zero-more"><summary class="muted">${list.length - LIMIT} more</summary><div class="chips zero-names">${list.slice(LIMIT).map(chip)}</div></details>` : ''}`
+    : html`<div class="muted small">Nobody: everyone on the team has something this cycle.</div>`);
   return html`<h2 class="tiles-head">Staff on zero · ${cycleName(z.cycle)} cycle${['team_leader', 'sales_manager'].includes(r) ? html` <a class="tiles-link" href="#/team">Team view →</a>` : ''}</h2>
     <div class="kpis">
       <div class="kpi ${z.zero_ends.count ? 'kpi-alert' : ''}"><span class="kpi-label">Zero ends or disbursals</span><span class="kpi-value">${z.zero_ends.count} <span class="kpi-pct">${pct(z.zero_ends.pct)}</span></span><span class="kpi-sub">of ${z.team} active sales staff with no file completed this cycle</span></div>

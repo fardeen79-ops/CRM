@@ -796,3 +796,5 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .zero-block strong { display: block; margin-bottom: 6px; }
 .zero-names { display: flex; flex-wrap: wrap; gap: 6px; }
 .zero-names .chip { text-decoration: none; }
+.zero-more { margin-top: 6px; }
+.zero-more summary { cursor: pointer; }
