@@ -39,15 +39,21 @@ export const BUILTIN_KEYS = Object.keys(BUILTIN_ROLES);
 /** Who defines roles: IT, Dubai MIS and business heads. */
 export const canManageRoles = (user) => user.role === 'it' || user.role === 'business_head' || (user.role === 'mis' && String(user.region || '').toUpperCase() === 'DXB');
 export const requireRoleManager = (user) => { if (!canManageRoles(user)) throw new WorkflowError(403, 'Only IT, Dubai MIS and business heads define roles'); };
+/** Who approves a new role: the Dubai business head. */
+export const canApproveRoles = (user) => user.role === 'business_head' && String(user.region || '').toUpperCase() === 'DXB';
+export const ROLE_STATUS = { pending: 'Awaiting approval', approved: 'Approved', rejected: 'Rejected' };
 
 let cache = new Map();
 /** Loads the custom roles into memory; called at start-up and after every change. */
 export function loadRoles(db) {
-  cache = new Map(db.prepare('SELECT * FROM roles ORDER BY label').all().map((r) => [r.key, { ...r, pages: JSON.parse(r.pages), reports: r.reports == null ? null : JSON.parse(r.reports), uploads: JSON.parse(r.uploads), downloads: !!r.downloads, payout: !!r.payout }]));
+  cache = new Map(db.prepare('SELECT r.*, c.name AS created_by_name, d.name AS decided_by_name FROM roles r LEFT JOIN users c ON c.id = r.created_by LEFT JOIN users d ON d.id = r.decided_by ORDER BY r.label').all().map((r) => [r.key, { ...r, pages: JSON.parse(r.pages), reports: r.reports == null ? null : JSON.parse(r.reports), uploads: JSON.parse(r.uploads), downloads: !!r.downloads, payout: !!r.payout }]));
   return cache;
 }
 export const customRoles = () => [...cache.values()];
+/** Labels for every role, approved custom roles included (pending ones show too, so existing references read well). */
 export const roleLabels = () => ({ ...Object.fromEntries(BUILTIN_KEYS.map((k) => [k, BUILTIN_ROLES[k].label])), ...Object.fromEntries(customRoles().map((r) => [r.key, r.label])) });
+/** The roles a person can be put on: built-in and approved custom roles. */
+export const assignableLabels = () => ({ ...Object.fromEntries(BUILTIN_KEYS.map((k) => [k, BUILTIN_ROLES[k].label])), ...Object.fromEntries(customRoles().filter((r) => r.status === 'approved').map((r) => [r.key, r.label])) });
 
 /** A role key as users and uploads give it (built-in key, custom key, or either's label) → { base, key }. */
 export function resolveRole(value) {
@@ -56,6 +62,7 @@ export function resolveRole(value) {
   const builtin = BUILTIN_KEYS.find((k) => k === v || BUILTIN_ROLES[k].label.toLowerCase() === v);
   if (builtin) return { base: builtin, key: null };
   const custom = customRoles().find((r) => r.key === v || r.label.toLowerCase() === v);
+  if (custom && custom.status !== 'approved') throw new WorkflowError(400, `The role ${custom.label} is ${ROLE_STATUS[custom.status].toLowerCase()}; a Dubai business head must approve it before anyone is put on it`);
   if (custom) return { base: custom.base, key: custom.key };
   throw new WorkflowError(400, `Role must be one of: ${Object.values(roleLabels()).join(', ')}`);
 }
@@ -119,8 +126,10 @@ export function createRole(db, user, input, opts) {
   if (!key) throw new WorkflowError(400, 'The role name must contain letters or digits');
   if (BUILTIN_ROLES[key] || cache.has(key) || BUILTIN_KEYS.some((k) => BUILTIN_ROLES[k].label.toLowerCase() === v.label.toLowerCase())) throw new WorkflowError(409, `There is already a role called ${v.label}`);
   const ts = new Date().toISOString();
-  db.prepare('INSERT INTO roles (key, label, base, pages, reports, uploads, downloads, payout, description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(key, v.label, v.base, JSON.stringify(v.pages), v.reports == null ? null : JSON.stringify(v.reports), JSON.stringify(v.uploads), v.downloads, v.payout, v.description, user.id, ts, ts);
+  // A Dubai business head's own role is approved by the act of creating it; everyone else's waits for one.
+  const approved = canApproveRoles(user);
+  db.prepare('INSERT INTO roles (key, label, base, pages, reports, uploads, downloads, payout, description, status, decided_by, decided_at, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(key, v.label, v.base, JSON.stringify(v.pages), v.reports == null ? null : JSON.stringify(v.reports), JSON.stringify(v.uploads), v.downloads, v.payout, v.description, approved ? 'approved' : 'pending', approved ? user.id : null, approved ? ts : null, user.id, ts, ts);
   loadRoles(db);
   return cache.get(key);
 }
@@ -130,8 +139,21 @@ export function updateRole(db, user, key, input, opts) {
   if (!current) throw new WorkflowError(404, 'Role not found');
   const v = validate(input, opts, current);
   if (v.base !== current.base && db.prepare('SELECT COUNT(*) AS n FROM users WHERE role_key = ?').get(key).n) throw new WorkflowError(400, 'Move the users off this role before changing what it is based on');
-  db.prepare('UPDATE roles SET label = ?, base = ?, pages = ?, reports = ?, uploads = ?, downloads = ?, payout = ?, description = ?, updated_at = ? WHERE key = ?')
-    .run(v.label, v.base, JSON.stringify(v.pages), v.reports == null ? null : JSON.stringify(v.reports), JSON.stringify(v.uploads), v.downloads, v.payout, v.description, new Date().toISOString(), key);
+  const status = current.status === 'rejected' ? (canApproveRoles(user) ? 'approved' : 'pending') : current.status;
+  db.prepare('UPDATE roles SET label = ?, base = ?, pages = ?, reports = ?, uploads = ?, downloads = ?, payout = ?, description = ?, status = ?, updated_at = ? WHERE key = ?')
+    .run(v.label, v.base, JSON.stringify(v.pages), v.reports == null ? null : JSON.stringify(v.reports), JSON.stringify(v.uploads), v.downloads, v.payout, v.description, status, new Date().toISOString(), key);
+  loadRoles(db);
+  return cache.get(key);
+}
+/** A Dubai business head approves or rejects a new role. A rejected role can be edited and sent again. */
+export function decideRole(db, user, key, { approve, note } = {}) {
+  if (!canApproveRoles(user)) throw new WorkflowError(403, 'Only a Dubai business head approves roles');
+  const current = cache.get(key);
+  if (!current) throw new WorkflowError(404, 'Role not found');
+  if (current.status === 'approved' && approve) throw new WorkflowError(409, 'The role is already approved');
+  const text = String(note ?? '').trim().slice(0, 300);
+  if (!approve && !text) throw new WorkflowError(400, 'Give the reason for rejecting the role');
+  db.prepare('UPDATE roles SET status = ?, decided_by = ?, decided_at = ?, decision_note = ?, updated_at = ? WHERE key = ?').run(approve ? 'approved' : 'rejected', user.id, new Date().toISOString(), text || null, new Date().toISOString(), key);
   loadRoles(db);
   return cache.get(key);
 }

@@ -326,6 +326,10 @@ CREATE TABLE IF NOT EXISTS roles (
   downloads   INTEGER NOT NULL DEFAULT 1,
   payout      INTEGER NOT NULL DEFAULT 1,
   description TEXT,
+  status      TEXT NOT NULL DEFAULT 'pending', -- pending, approved or rejected by a Dubai business head
+  decided_by  INTEGER REFERENCES users(id),
+  decided_at  TEXT,
+  decision_note TEXT,
   created_by  INTEGER REFERENCES users(id),
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL

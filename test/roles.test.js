@@ -59,17 +59,32 @@ test('a role based on MIS with fewer screens, two reports, no uploads, no downlo
   assert.equal((await it('POST', '/roles', { label: 'X', base: 'ceo' })).status, 400);
   assert.equal((await it('POST', '/roles', { label: 'MIS', base: 'mis' })).status, 409);
   const made = (await it('POST', '/roles', { label: 'Reporting Analyst', base: 'mis', pages: ['cases', 'reports', 'staff', 'uploads', 'roles'], reports: ['sourcing', 'pipeline', 'assets'], uploads: [], downloads: false, payout: false, description: 'Reads reports only' })).data.role;
-  assert.deepEqual([made.key, made.base, made.pages, made.reports, made.uploads, made.downloads, made.payout], ['reporting_analyst', 'mis', ['cases', 'reports', 'staff', 'uploads', 'roles'], ['sourcing', 'pipeline', 'assets'], [], false, false]);
+  assert.deepEqual([made.key, made.base, made.pages, made.reports, made.uploads, made.downloads, made.payout, made.status], ['reporting_analyst', 'mis', ['cases', 'reports', 'staff', 'uploads', 'roles'], ['sourcing', 'pipeline', 'assets'], [], false, false, 'pending']);
   assert.equal((await it('POST', '/roles', { label: 'reporting analyst', base: 'mis' })).status, 409);
+  // Created by IT, so it waits for a Dubai business head: nobody can be put on it yet, and only that head decides.
+  const head = await login('head@t.local');
+  const misAuh = await login('mis-auh@t.local');
+  assert.match((await mis('POST', '/users', { name: 'Early', email: 'early@t.local', role: 'reporting_analyst', mobile_number: '0501112200', hrms_code: 'EN77000', password: PASSWORD })).data.error, /awaiting approval/i);
+  assert.equal((await it('POST', '/roles/reporting_analyst/approve')).status, 403);
+  assert.equal((await misAuh('POST', '/roles/reporting_analyst/approve')).status, 403);
+  assert.equal((await head('POST', '/roles/reporting_analyst/reject', {})).status, 400);
+  const rejected = (await head('POST', '/roles/reporting_analyst/reject', { note: 'Needs the staff screen removed' })).data.role;
+  assert.deepEqual([rejected.status, rejected.decision_note, rejected.decided_by_name], ['rejected', 'Needs the staff screen removed', 'Bilal']);
+  assert.equal((await it('PATCH', '/roles/reporting_analyst', { pages: ['cases', 'reports', 'uploads', 'roles'] })).data.role.status, 'pending');
+  assert.equal((await head('GET', '/me')).data.meta.roles_pending, 1);
+  const approved = (await head('POST', '/roles/reporting_analyst/approve')).data.role;
+  assert.deepEqual([approved.status, approved.decided_by_name], ['approved', 'Bilal']);
+  assert.equal((await head('POST', '/roles/reporting_analyst/approve')).status, 409);
+  assert.ok((await mis('GET', '/me')).data.meta.assignable_roles.reporting_analyst);
   // A user on the role: created with the custom key, stored as its base, labelled by the role.
   const u = (await mis('POST', '/users', { name: 'Rita', email: 'rita@t.local', role: 'reporting_analyst', region: 'DXB', mobile_number: '0501112233', hrms_code: 'EN77001', password: PASSWORD })).data.user;
   assert.deepEqual([u.role, u.role_key], ['mis', 'reporting_analyst']);
   const rita = await login('rita@t.local');
   const me = (await rita('GET', '/me')).data;
-  assert.deepEqual([me.user.role, me.user.role_key, me.meta.perms.custom, me.meta.perms.pages, me.meta.perms.downloads, me.meta.perms.payout, me.meta.role_labels.reporting_analyst, me.meta.can_see_payout, me.meta.can_manage_roles], ['mis', 'reporting_analyst', true, ['cases', 'reports', 'staff', 'uploads', 'roles'], false, false, 'Reporting Analyst', false, true]);
+  assert.deepEqual([me.user.role, me.user.role_key, me.meta.perms.custom, me.meta.perms.pages, me.meta.perms.downloads, me.meta.perms.payout, me.meta.role_labels.reporting_analyst, me.meta.can_see_payout, me.meta.can_manage_roles], ['mis', 'reporting_analyst', true, ['cases', 'reports', 'uploads', 'roles'], false, false, 'Reporting Analyst', false, true]);
   // Screens she was not given are refused; the ones she has work as for MIS.
   assert.equal((await rita('GET', '/cases')).status, 200);
-  assert.equal((await rita('GET', '/users')).status, 200);
+  assert.equal((await rita('GET', '/users')).status, 403);
   assert.equal((await rita('GET', '/targets')).status, 403);
   assert.equal((await rita('GET', '/hierarchy')).status, 403);
   assert.equal((await rita('GET', '/assets')).status, 403);
@@ -106,7 +121,7 @@ test('a role based on sales keeps the sales workflow and profile; the base canno
   const head = await login('head@t.local');
   const mis = await login('mis@t.local');
   const r = (await head('POST', '/roles', { label: 'Senior Sales', base: 'sales', pages: ['cases', 'targets'] })).data.role;
-  assert.deepEqual([r.key, r.pages, r.uploads], ['senior_sales', ['cases', 'targets'], []]);
+  assert.deepEqual([r.key, r.pages, r.uploads, r.status], ['senior_sales', ['cases', 'targets'], [], 'approved']);
   const u = (await mis('POST', '/users', { name: 'Sami', email: 'sami@t.local', role: 'Senior Sales', region: 'DXB', sales_code: 'D-9', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'], mobile_number: '0501112244', hrms_code: 'EN77003', password: PASSWORD })).data.user;
   assert.deepEqual([u.role, u.role_key, u.sales_code], ['sales', 'senior_sales', 'D-9']);
   const sami = await login('sami@t.local');

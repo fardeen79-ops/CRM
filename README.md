@@ -174,7 +174,7 @@ The CRM ships with the bank's product list built in: 34 cards in 18 families, ea
 - **Downloads**: whether report spreadsheets and the staff list can be downloaded.
 - **Pricing**: whether payouts and incentives are visible, where the base role (MIS in Dubai, business head) could see them.
 
-A person is put on a role from the Staff page (new user, or the role field in the edit panel) or by the staff upload, by the role's name. Their account is stored as the base role plus the custom role, so every existing rule keyed on the base role (teams, targets, incentives, scoping) applies unchanged. A role cannot be deleted while someone has it, and its base cannot change while someone has it. API: `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:key`; `GET /api/me` returns `meta.perms` for the signed-in user.
+**Approval.** Every new role needs a **Dubai business head's approval** before anyone can be put on it: a role created by IT or Dubai MIS waits as *Awaiting approval* (the business head sees a count on the Roles link and Approve / Reject buttons, a rejection needs a note, and an edited rejected role goes back for approval); a role a Dubai business head creates is approved by that act. A person is put on a role from the Staff page (new user, or the role field in the edit panel) or by the staff upload, by the role's name. Their account is stored as the base role plus the custom role, so every existing rule keyed on the base role (teams, targets, incentives, scoping) applies unchanged. A role cannot be deleted while someone has it, and its base cannot change while someone has it. API: `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:key`; `GET /api/me` returns `meta.perms` for the signed-in user.
 
 ### Assets: the sourcing tabs issued to sales staff
 

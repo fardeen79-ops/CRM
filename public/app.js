@@ -346,7 +346,7 @@ function navGroups() {
   if (['mis', 'business_head'].includes(r)) admin.push(['#/users', 'Staff', 'users']);
   if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
-  if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users']);
+  if (state.meta.can_manage_roles) admin.push(['#/roles', 'Roles', 'users', 'data-roles-count', state.meta.roles_pending || 0]);
   if (admin.length) groups.push(['Admin', admin]);
   return filterNav(groups);
 }
@@ -3109,7 +3109,7 @@ async function viewRoles() {
     </form>`;
   };
   shell(html`
-    <div class="page-head"><div><h1>Roles</h1><p class="muted lede">Define roles for the agency on top of the built-in ones. A role behaves like the role it is based on (the same files, the same actions) with only the screens, reports, uploads, downloads and pricing you tick. Assign it to people on the Staff page.</p></div></div>
+    <div class="page-head"><div><h1>Roles</h1><p class="muted lede">Define roles for the agency on top of the built-in ones. A role behaves like the role it is based on (the same files, the same actions) with only the screens, reports, uploads, downloads and pricing you tick. Every new role needs the Dubai business head's approval before anyone is put on it; then assign it on the Staff page.</p></div></div>
     <div class="grid two-col">
       <div>
         <div class="card"><h2>Built-in roles</h2>
@@ -3117,8 +3117,9 @@ async function viewRoles() {
             <tbody>${cat.builtin.map((b) => html`<tr><td><strong>${b.label}</strong></td><td class="small">${b.pages.map((k) => cat.pages[k].label).join(', ')}</td><td class="small">${b.reports.length ? `${b.reports.length} reports` : '—'}</td><td class="small">${b.uploads.length ? b.uploads.map((k) => cat.uploads[k]).join(', ') : '—'}</td></tr>`)}</tbody></table></div>
           <p class="muted small">Built-in roles cannot be changed; base a new role on one of them to narrow it.</p></div>
         <div class="card"><h2>Custom roles · ${cat.custom.length}</h2>
-          ${cat.custom.length ? cat.custom.map((r) => html`<details class="role-item" ${state.roleOpen === r.key ? raw('open') : ''}><summary><strong>${r.label}</strong> <span class="muted small">based on ${baseOf(r.base)?.label || r.base} · ${cat.usage[r.key] || 0} users</span>
+          ${cat.custom.length ? cat.custom.map((r) => html`<details class="role-item" ${state.roleOpen === r.key || (r.status === 'pending' && state.meta.can_approve_roles) ? raw('open') : ''}><summary><strong>${r.label}</strong> <span class="chip ${{ approved: 'good', pending: 'warn', rejected: 'bad' }[r.status]}">${{ approved: 'Approved', pending: 'Awaiting approval', rejected: 'Rejected' }[r.status]}</span> <span class="muted small">based on ${baseOf(r.base)?.label || r.base} · ${cat.usage[r.key] || 0} users · by ${r.created_by_name || '—'}${r.decided_by_name ? ` · ${r.status} by ${r.decided_by_name} ${fmtDate(r.decided_at)}` : ''}</span>${r.decision_note ? html`<div class="small"><em>${r.decision_note}</em></div>` : ''}
               <div class="small">${chips(r.pages, Object.fromEntries(Object.entries(cat.pages).map(([k, v]) => [k, v.label])))} ${r.reports == null ? html`<span class="chip good">all base reports</span>` : chips(r.reports, Object.fromEntries(Object.entries(cat.reports).map(([k, v]) => [k, v.name])))} ${r.downloads ? '' : html`<span class="chip warn">no downloads</span>`} ${r.payout ? '' : html`<span class="chip warn">no pricing</span>`}</div></summary>
+              ${state.meta.can_approve_roles && r.status !== 'approved' ? html`<form class="actions" data-role-decide="${r.key}" style="margin-top:10px"><input name="note" placeholder="Note (required to reject)" style="min-width:260px"><button class="btn-success" data-decision="approve">Approve</button><button type="button" class="btn" data-decision="reject">Reject</button></form>` : ''}
               ${roleForm(r)}</details>`) : html`<p class="muted">No custom roles yet. Create one on the right.</p>`}</div>
       </div>
       <div class="card"><h2>New role</h2>${roleForm(null)}</div>
@@ -3128,6 +3129,11 @@ async function viewRoles() {
     const list = (name) => [...f.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value);
     return { label: f.label.value, base: f.base.value, description: f.description.value, pages: list('pages'), reports: f.all_reports.checked ? null : list('reports'), uploads: list('uploads'), downloads: f.downloads.checked, payout: f.payout.checked };
   };
+  app.querySelectorAll('[data-role-decide]').forEach((f) => {
+    const decide = async (approve) => { try { await api(`/roles/${f.dataset.roleDecide}/${approve ? 'approve' : 'reject'}`, { method: 'POST', body: { note: f.note.value } }); toast(approve ? 'Role approved' : 'Role rejected'); state.roleOpen = f.dataset.roleDecide; await refreshCounters?.(); viewRoles(); } catch (err) { toast(err.message, true); } };
+    f.onsubmit = (e) => { e.preventDefault(); decide(true); };
+    f.querySelector('[data-decision=reject]').onclick = () => decide(false);
+  });
   app.querySelectorAll('[data-role-form]').forEach((f) => {
     f.all_reports.onchange = () => { f.querySelector('[data-reports]').hidden = f.all_reports.checked; };
     // A different base: redraw the form with that base's screens, reports and uploads.
@@ -3137,7 +3143,7 @@ async function viewRoles() {
       try {
         const key = f.dataset.roleForm;
         await api(key ? `/roles/${key}` : '/roles', { method: key ? 'PATCH' : 'POST', body: read(f) });
-        toast(key ? 'Role saved' : 'Role created'); state.roleOpen = key || null; viewRoles();
+        toast(key ? 'Role saved' : (state.meta.can_approve_roles ? 'Role created' : 'Role created and sent to the Dubai business head for approval')); state.roleOpen = key || null; viewRoles();
       } catch (err) { toast(err.message, true); }
     };
     const del = f.querySelector('[data-role-delete]');
@@ -3371,7 +3377,7 @@ async function viewUsers() {
         <h2>Add user</h2>
         ${contactFields({}, 'nu')}
         <div class="field-row"><label for="nu-role">Role</label><select id="nu-role" name="role" required>
-          ${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}
+          ${Object.entries(state.meta.assignable_roles || ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}
         </select></div>
         ${regionField({}, 'nu')}
         <fieldset class="product-detail" id="nu-profile">
@@ -3449,7 +3455,7 @@ async function viewUsers() {
     tr.dataset.profileEditor = '1';
     tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
       <strong>Edit ${u.name}</strong>
-      <div class="form-grid two">${contactFields(u, `e${u.id}`)}${regionField(u, `e${u.id}`)}${u.id !== state.user.id ? html`<div class="field-row"><label for="e${u.id}-role">Role</label><select id="e${u.id}-role" name="role">${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}" ${(u.role_key || u.role) === k ? raw('selected') : ''}>${l}</option>`)}</select><div class="muted small">Moving to or from a sales role clears or needs the sales profile.</div></div>` : ''}</div>
+      <div class="form-grid two">${contactFields(u, `e${u.id}`)}${regionField(u, `e${u.id}`)}${u.id !== state.user.id ? html`<div class="field-row"><label for="e${u.id}-role">Role</label><select id="e${u.id}-role" name="role">${Object.entries({ ...(state.meta.assignable_roles || ROLE_LABEL), ...(u.role_key && !(state.meta.assignable_roles || {})[u.role_key] ? { [u.role_key]: ROLE_LABEL[u.role_key] } : {}) }).map(([k, l]) => html`<option value="${k}" ${(u.role_key || u.role) === k ? raw('selected') : ''}>${l}</option>`)}</select><div class="muted small">Moving to or from a sales role clears or needs the sales profile.</div></div>` : ''}</div>
       ${u.role === 'sales' ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, `e${u.id}`)}</div><p class="muted small">Changing the team leader, sales manager or ASM moves this person's open files to the new team. Completed and rejected files stay with the old team.</p>` : ''}
       <div class="actions"><button class="btn-primary">Save changes</button><button type="button" data-cancel>Cancel</button></div>
     </form></td>`.s;

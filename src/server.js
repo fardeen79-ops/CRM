@@ -192,8 +192,8 @@ function routes(db, dispatch, bot) {
         case_statuses: cases.CASE_STATUS,
         regions: cases.REGIONS,
         roles: auth.ROLES,
-        role_labels: roles.roleLabels(), custom_roles: roles.customRoles().map(({ key, label, base, description }) => ({ key, label, base, description })),
-        perms: roles.permissionsOf(user), can_manage_roles: roles.canManageRoles(user),
+        role_labels: roles.roleLabels(), assignable_roles: roles.assignableLabels(), custom_roles: roles.customRoles().map(({ key, label, base, description, status }) => ({ key, label, base, description, status })),
+        perms: roles.permissionsOf(user), can_manage_roles: roles.canManageRoles(user), can_approve_roles: roles.canApproveRoles(user), roles_pending: roles.canApproveRoles(user) ? roles.customRoles().filter((r) => r.status === 'pending').length : 0,
         staff_core_products: STAFF_CORE_PRODUCTS,
         manager_roles: cases.MANAGER_ROLES,
         core_products: cases.CORE_PRODUCTS,
@@ -303,6 +303,8 @@ function routes(db, dispatch, bot) {
     ['POST', /^\/api\/roles$/, async ({ user, body, res }) => send(res, 201, { role: roles.createRole(db, user, body, { reportsForBase: reports.reportKeysForBase }) })],
     ['PATCH', /^\/api\/roles\/([a-z0-9_]+)$/, async ({ user, params, body }) => ({ role: roles.updateRole(db, user, params[0], body, { reportsForBase: reports.reportKeysForBase }) })],
     ['DELETE', /^\/api\/roles\/([a-z0-9_]+)$/, async ({ user, params }) => roles.deleteRole(db, user, params[0])],
+    ['POST', /^\/api\/roles\/([a-z0-9_]+)\/approve$/, async ({ user, params, body }) => ({ role: roles.decideRole(db, user, params[0], { approve: true, note: body.note }) })],
+    ['POST', /^\/api\/roles\/([a-z0-9_]+)\/reject$/, async ({ user, params, body }) => ({ role: roles.decideRole(db, user, params[0], { approve: false, note: body.note }) })],
 
     // Assets: the sourcing tabs issued to sales staff. IT keeps the register; MIS and business heads see it too.
     ['GET', /^\/api\/assets$/, async ({ user, query }) => {

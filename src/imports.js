@@ -22,7 +22,7 @@ function requireBulkRole(user, kind = null) {
   if (kind && !allowsUpload(user, kind)) throw new WorkflowError(403, `Your role cannot upload ${UPLOAD_KINDS[kind] || kind}`);
 }
 
-import { roleLabels, UPLOAD_KINDS, allowsUpload, resolveRole } from './roles.js';
+import { roleLabels, assignableLabels, UPLOAD_KINDS, allowsUpload, resolveRole } from './roles.js';
 const ROLE_LABELS = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader', asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager',
   mis: 'MIS', business_head: 'Business Head', governance: 'Governance',
@@ -484,7 +484,7 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
   const seen = new Set();
   return run(db, dryRun, () => {
     const roleOf = (r) => {
-      try { return choose(r.values.role, roleLabels(), 'Role'); } catch { return null; }
+      try { return choose(r.values.role, assignableLabels(), 'Role'); } catch { return null; }
     };
     // Managers first so sales rows can name a team leader or sales manager added in the same file.
     const ordered = [...records].sort((a, b) => (roleOf(a) === 'sales') - (roleOf(b) === 'sales'));
@@ -492,7 +492,7 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
     for (const record of ordered) {
       results.set(record, rowResult(record, () => savepoint(db, () => {
         const v = record.values;
-        const role = choose(v.role, roleLabels(), 'Role');
+        const role = choose(v.role, assignableLabels(), 'Role');
         resolveRole(role);
         const email = v.email.toLowerCase();
         if (seen.has(email)) throw new Error(`${email} appears more than once in this file`);
