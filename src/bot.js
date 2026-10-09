@@ -7,8 +7,8 @@ import {
   getCase, notify, processorsFor, productLabel, timing,
 } from './cases.js';
 import {
-  CALLING_WINDOW, CHECK_RESULTS, DEFAULT_PLAYBOOK, FIELDS, LANGUAGES, MATCH_TYPES, PLACEHOLDERS, RULE_CHOICES, SCRIPT_LABELS, STRICTNESS,
-  buildChecks, callResult, hearWithAI, normalizePlaybook, spoken, startCall,
+  CALLING_WINDOW, CHECK_RESULTS, CONVERSATION_MODES, DEFAULT_PLAYBOOK, FIELDS, LANGUAGES, MATCH_TYPES, PLACEHOLDERS, RULE_CHOICES, SCRIPT_LABELS, STRICTNESS,
+  buildChecks, callResult, normalizePlaybook, respond, spoken, startCall,
 } from './bot-engine.js';
 import { AI_MODEL, aiConfigured } from './bot-ai.js';
 
@@ -94,7 +94,7 @@ export function playbookView(db, user, { enabled }) {
     meta: {
       fields: Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.label])),
       default_match: Object.fromEntries(Object.entries(FIELDS).map(([k, v]) => [k, v.match])),
-      match_types: MATCH_TYPES, strictness: STRICTNESS, languages: LANGUAGES, rule_choices: RULE_CHOICES,
+      match_types: MATCH_TYPES, strictness: STRICTNESS, languages: LANGUAGES, rule_choices: RULE_CHOICES, conversation_modes: CONVERSATION_MODES,
       script_labels: SCRIPT_LABELS, placeholders: PLACEHOLDERS, calling_window: CALLING_WINDOW,
       // The AI needs Anthropic credentials on the CRM (for practice) and on the calling service.
       ai_available: aiConfigured(), ai_model: AI_MODEL,
@@ -115,7 +115,7 @@ export function savePlaybook(db, user, input) {
  * A practice call on the teaching page, replayed from the start with the answers typed so far.
  * Uses a made-up customer, so nothing from a real file is shown to the person teaching.
  */
-export async function practice(user, { playbook, sample = {}, answers = [] } = {}, { interpret = null } = {}) {
+export async function practice(user, { playbook, sample = {}, answers = [] } = {}, { interpret = null, phrase = null } = {}) {
   requireTeacher(user);
   const pb = normalizePlaybook(playbook);
   if (!Array.isArray(answers) || answers.length > 60) throw new WorkflowError(400, 'Too many answers for one practice call');
@@ -127,7 +127,7 @@ export async function practice(user, { playbook, sample = {}, answers = [] } = {
   values.full_name ||= [values.first_name, values.last_name].filter(Boolean).join(' ') || null;
   values.first_name ||= values.full_name?.split(' ')[0] || null;
   let state = startCall(pb, { values });
-  for (const a of answers) state = await hearWithAI(state, pb, String(a ?? '').slice(0, 500), interpret);
+  for (const a of answers) state = await respond(state, pb, String(a ?? '').slice(0, 500), { interpret, phrase });
   const result = state.done ? callResult(state) : null;
   return {
     turns: state.turns,

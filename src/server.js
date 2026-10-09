@@ -24,7 +24,7 @@ import * as reports from './reports.js';
 import * as chat from './chat.js';
 import { cycleOf, uaeDay } from './cycles.js';
 import { canTeachBot, makeCallBot, playbookView, practice, savePlaybook } from './bot.js';
-import { aiConfigured, makeInterpreter } from './bot-ai.js';
+import { aiConfigured, makeInterpreter, makePhraser } from './bot-ai.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -158,7 +158,7 @@ const USER_ADMINS = ['mis', 'business_head'];
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
 const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/;
 
-function routes(db, dispatch, bot, interpret) {
+function routes(db, dispatch, bot, interpret, phrase) {
   return [
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
       const result = auth.login(db, body.email, body.password);
@@ -317,7 +317,7 @@ function routes(db, dispatch, bot, interpret) {
     ['GET', /^\/api\/bot\/calls\/(\d+)\/recording$/, async ({ user, params, res }) => { await bot.streamRecording(user, Number(params[0]), res); }],
     ['GET', /^\/api\/bot\/playbook$/, async ({ user }) => playbookView(db, user, { enabled: bot.enabled })],
     ['PUT', /^\/api\/bot\/playbook$/, async ({ user, body }) => savePlaybook(db, user, body)],
-    ['POST', /^\/api\/bot\/practice$/, async ({ user, body }) => practice(user, body, { interpret })],
+    ['POST', /^\/api\/bot\/practice$/, async ({ user, body }) => practice(user, body, { interpret, phrase })],
 
     ['GET', /^\/api\/notifications$/, async ({ user }) => cases.listNotifications(db, user)],
 
@@ -509,7 +509,7 @@ function serveFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, interpret = aiConfigured() ? makeInterpreter() : null } = {}) {
+export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, interpret = aiConfigured() ? makeInterpreter() : null, phrase = aiConfigured() ? makePhraser() : null } = {}) {
   cases.config.itEmail = itEmail;
   loadCardProducts(db);
   holidays.loadHolidays(db);
@@ -519,7 +519,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;
-  const table = routes(db, dispatch, bot, interpret);
+  const table = routes(db, dispatch, bot, interpret, phrase);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

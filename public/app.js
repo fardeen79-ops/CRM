@@ -3991,10 +3991,13 @@ async function viewBot() {
           <div class="field-row"><label>Times to re-ask when it hears nothing it understands</label><select name="max_reprompts">${[0, 1, 2, 3].map((n) => html`<option ${n === draft.max_reprompts ? raw('selected') : ''}>${n}</option>`)}</select></div>
         </div>
         <div class="card"><h2>AI</h2>
-          <p class="muted small">With the AI on, Claude reads answers the bot's rules cannot settle: "who's calling?", "hang on, I'm driving", "the national oil company" for ADNOC, "twenty-five K". It only interprets. Everything the bot says still comes from the lines above, so it never reads a customer's details back to them. The answer and the value on file are sent to Anthropic for that reading.</p>
+          <p class="muted small">With the AI on, Claude reads answers the bot's rules cannot settle: "who's calling?", "hang on, I'm driving", "the national oil company" for ADNOC, "twenty-five K". Unless you let it word the conversation below, it only interprets and everything the bot says comes from the lines above, so it never reads a customer's details back to them. The answer and the value on file are sent to Anthropic for that reading.</p>
           ${m.ai_available ? html`<p class="small"><span class="chip good">Connected</span> ${m.ai_model}</p>` : html`<div class="callout warn"><strong>Not connected</strong>Set <code>ANTHROPIC_API_KEY</code> on the CRM (for practice) and on the calling service (for calls). Until then the bot uses its rules only.</div>`}
           <label class="check"><input type="checkbox" name="ai" ${draft.ai ? raw('checked') : ''}> Let the AI read answers the bot's rules cannot settle</label>
           <label class="check"><input type="checkbox" name="rule_ai_confirms_count" ${r.ai_confirms_count ? raw('checked') : ''}> Details the AI confirmed count towards completing a verification (otherwise a processor reviews them)</label>
+          <div class="field-row"><label>Conversation</label><select name="conversation">${opts(m.conversation_modes, draft.conversation)}</select></div>
+          <p class="muted small">When the AI words the lines, it keeps their meaning and the order of the checks but says them the way a person would: it acknowledges what the customer said and answers their questions from the facts below. It never sees the values on file, and a line that could give a detail away, says whether an answer was right, or drops the question is replaced by the taught line. The greeting, the recording notice and the lines that end a call early are always said as taught. Results are still decided by the checks above. The conversation so far is sent to Anthropic for each line.</p>
+          <div class="field-row"><label>What the bot may tell customers (facts the AI may use to answer questions)</label><textarea name="facts" rows="3" maxlength="1000">${draft.facts}</textarea></div>
         </div>
         <div class="card"><h2>What the bot may decide</h2>
           <div class="form-grid">
@@ -4029,7 +4032,7 @@ async function viewBot() {
   const words = (v) => v.split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
   const collect = () => {
     const f = formData(form);
-    const out = { bank_name: f.bank_name, language: f.language, voice: f.voice, max_reprompts: Number(f.max_reprompts), yes_words: words(f.yes_words), no_words: words(f.no_words), ai: form.ai.checked };
+    const out = { bank_name: f.bank_name, language: f.language, voice: f.voice, max_reprompts: Number(f.max_reprompts), yes_words: words(f.yes_words), no_words: words(f.no_words), ai: form.ai.checked, conversation: f.conversation, facts: f.facts };
     for (const k of Object.keys(m.script_labels)) out[k] = f[`line_${k}`];
     out.checks = [...form.querySelectorAll('.bot-check')].map((el) => ({
       key: el.dataset.key, enabled: el.querySelector('[name=enabled]').checked, label: el.querySelector('[name=label]').value,
@@ -4105,6 +4108,8 @@ async function viewBot() {
     if (!res) { chat.innerHTML = ''; return; }
     chat.innerHTML = html`<div class="chat">${res.turns.map((t, i) => html`<div class="bubble ${t.who}">
         <div>${t.text || html`<span class="muted">(says nothing)</span>`}</div>
+        ${t.who === 'bot' && t.by_ai ? html`<div class="bubble-note" title="${t.taught}">Worded by the AI · taught line: “${t.taught}”</div>` : ''}
+        ${t.who === 'bot' && t.ai_wording_refused ? html`<div class="bubble-note warn">The AI's wording was not safe to say, so the taught line was used</div>` : ''}
         ${t.who === 'customer' ? html`<div class="bubble-note ${t.understood === 'unclear' || t.understood === 'mismatch' ? 'warn' : ''}">${BOT_HEARD[t.understood] || ''}${t.by_ai || (t.ai && t.ai !== 'answer') ? ' · read by the AI' : ''}
           ${teachable(t) ? html` · teach it: <button type="button" class="btn-link" data-teach="yes" data-turn="${i}">means yes</button> / <button type="button" class="btn-link" data-teach="no" data-turn="${i}">means no</button>` : ''}</div>` : ''}
       </div>`)}</div>

@@ -7,8 +7,11 @@
 // understands, asks once more when an answer does not match, and records every check as confirmed,
 // mismatch or not_answered. Its rules are deterministic, so the same answers always get the same
 // judgment, and teaching it means changing its wording, its checks and the words it knows. When the
-// playbook switches the AI on, answers the rules cannot settle are read by Claude (bot-ai.js); the
-// AI only interprets, and everything the bot says still comes from the playbook.
+// playbook switches the AI on, answers the rules cannot settle are read by Claude (bot-ai.js). By
+// default the AI only interprets, and everything the bot says comes from the playbook. With the
+// conversation set to 'ai', Claude also words each line the bot says next (acknowledging what the
+// customer said, answering their questions from the taught facts) while the playbook's checks and
+// rules still decide every result; a line that fails the guards here is replaced by the taught one.
 
 export const CHECK_RESULTS = ['confirmed', 'mismatch', 'not_answered'];
 
@@ -44,6 +47,12 @@ const WORD_COVERAGE = { relaxed: 0.5, normal: 0.6, strict: 1 };
 // Amounts: how far the stated amount may be from the one on file.
 const AMOUNT_TOLERANCE = { relaxed: 0.2, normal: 0.1, strict: 0.02 };
 
+/** How the bot words what it says. */
+export const CONVERSATION_MODES = {
+  scripted: 'Say the taught lines word for word',
+  ai: 'Let the AI word each line (natural replies, answers questions from the facts below)',
+};
+
 export const LANGUAGES = { 'en-GB': 'English (UK)', 'en-US': 'English (US)', 'en-IN': 'English (India)', 'ar-AE': 'Arabic (UAE)' };
 
 /** What the CRM may do with a bot call's result, per situation. */
@@ -71,6 +80,8 @@ export const DEFAULT_PLAYBOOK = Object.freeze({
   closing: 'Thank you, {first_name}. That is everything we needed. Have a good day.',
   max_reprompts: 2,
   ai: false,
+  conversation: 'scripted',
+  facts: 'The call takes about a minute. The details are used only to process the application. The bot cannot change an application or give a decision; the customer can call the bank or speak to their sales contact for that.',
   checks: [
     { key: 'full_name', label: 'Full name', field: 'full_name', match: 'name', strictness: 'normal', enabled: true, question: 'Please confirm your full name.' },
     { key: 'product', label: 'Product applied for', field: 'product', match: 'text', strictness: 'relaxed', enabled: true, question: 'Which product did you apply for?' },
@@ -154,7 +165,13 @@ export function normalizePlaybook(input = {}, { strict = true } = {}) {
     voice: str(p.voice, 60, 'Voice', { required: false }),
     max_reprompts: int(p.max_reprompts, 0, 3, 'Times to re-ask'),
     ai: Boolean(p.ai),
+    conversation: pick(p.conversation, CONVERSATION_MODES, 'Conversation'),
   };
+  out.facts = checkPlaceholders(str(p.facts, 1000, 'What the bot may tell customers', { required: false }), 'What the bot may tell customers');
+  if (out.conversation === 'ai' && !out.ai) {
+    if (strict) throw new PlaybookError('Switch the AI on to let it word the conversation');
+    out.conversation = 'scripted';
+  }
   for (const line of SCRIPT_LINES) out[line] = checkPlaceholders(str(p[line], 500, SCRIPT_LABELS[line], { required: line !== 'recording_notice' }), SCRIPT_LABELS[line]);
 
   const checks = Array.isArray(p.checks) ? p.checks : [];
@@ -364,17 +381,19 @@ export function startCall(playbook, { values = {}, checks } = {}) {
     checks: (checks || buildChecks(playbook, values)).map((c) => ({ key: c.key, label: c.label, match: c.match, strictness: c.strictness, question: c.question, expected: c.expected, result: 'not_answered', heard: null })),
     values: v, turns: [], done: false, outcome: null, ended_by: null, say: null,
   };
-  return botSays(state, [playbook.recording_notice, fill(playbook.greeting, v)].filter(Boolean).join(' '));
+  return botSays(state, [playbook.recording_notice, fill(playbook.greeting, v)].filter(Boolean).join(' '), 'greeting');
 }
 
-function botSays(state, text) {
+// `action` says why the bot says the line, so the AI knows what its wording must do.
+function botSays(state, text, action) {
   state.say = text;
+  state.action = action;
   state.turns.push({ who: 'bot', text });
   return state;
 }
 function end(state, text, outcome, endedBy) {
   Object.assign(state, { done: true, outcome, ended_by: endedBy });
-  return botSays(state, text);
+  return botSays(state, text, endedBy === 'finished' ? 'closing' : 'end');
 }
 const current = (state) => state.checks[state.index];
 
@@ -383,14 +402,14 @@ function nextCheck(state, playbook, lead = '') {
   if (state.stage === 'check') state.index++;
   state.stage = 'check';
   if (state.index >= state.checks.length) return end(state, `${lead}${fill(playbook.closing, state.values)}`.trim(), 'connected', 'finished');
-  return botSays(state, `${lead}${current(state).question}`.trim());
+  return botSays(state, `${lead}${current(state).question}`.trim(), 'ask');
 }
 
 /** Re-asks the current prompt, or gives up after the playbook's number of re-asks. */
 function reprompt(state, playbook, repeat, giveUp) {
   if (state.tries >= playbook.max_reprompts) return giveUp();
   state.tries++;
-  return botSays(state, `${fill(playbook.didnt_catch, state.values)} ${repeat}`);
+  return botSays(state, `${fill(playbook.didnt_catch, state.values)} ${repeat}`, 'reprompt');
 }
 
 /** What the bot's own rules make of an answer: 'yes' / 'no' before the checks, 'confirmed' / 'mismatch' during them, or null. */
@@ -427,6 +446,102 @@ export async function hearWithAI(state, playbook, text, interpret) {
   return hear(state, playbook, text, ai);
 }
 
+// ---------- the AI wording the conversation ----------
+
+// Lines the AI may word. The greeting (with the recording notice) and the lines that end a call
+// early (someone else answered, call later) are always said as taught.
+const WORDED = ['intro', 'ask', 'reprompt', 'ask_again', 'answer', 'closing'];
+// What each line must do, for the AI.
+export const ACTIONS = {
+  intro: 'Thank them for confirming who they are, then say why you are calling and ask if now is a good time.',
+  ask: 'Acknowledge their last answer neutrally, then ask the next question.',
+  reprompt: 'You did not understand their answer. Say so briefly and ask the same question again.',
+  ask_again: 'Ask them to repeat their answer to the same question, as if you may have misheard. Do not suggest the answer was wrong.',
+  answer: 'They asked something or asked you to repeat. Answer briefly (who you are, or from the facts you may share), then ask the same question again.',
+  closing: 'Thank them and close the call politely. Ask nothing more.',
+};
+const MAX_WORDED = 350;
+// Words that would tell the customer how their answer compared with the file.
+const VERDICT_WORDS = /\b(correct|incorrect|wrong|match|matches|matched|mismatch|records?|on file|verified|confirmed|accurate|inaccurate)\b/;
+
+/** What the AI is told when it words a line. It sees the conversation, never the values on file. */
+export function speakContext(state, playbook) {
+  return {
+    language: playbook.language,
+    action: state.action,
+    instruction: ACTIONS[state.action],
+    taught_line: state.say,
+    who_we_are: fill(playbook.who_we_are, state.values),
+    facts: fill(playbook.facts || '', state.values),
+    // The conversation before this line, the customer's words marked as theirs.
+    conversation: state.turns.slice(-9, -1).map((t) => ({ who: t.who, text: t.text || '(silence)' })),
+  };
+}
+
+/**
+ * Whether the AI's wording may be said instead of the taught line. Refused when it could give away
+ * a detail on file (a file value, an amount, a word saying how an answer compared) that the taught
+ * line does not already say, when it is too long, or when it drops the question it must ask.
+ */
+export function wordingAllowed(state, playbook, text, ctx = speakContext(state, playbook)) {
+  const reply = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!reply || reply.length > MAX_WORDED || /[<>{}]/.test(reply)) return false;
+  const asks = state.action !== 'closing';
+  if (asks !== /[?؟]/.test(reply)) return false;
+  // The customer's first name was said in the greeting; the bank's name is not customer data.
+  const allowedText = [ctx.taught_line, ctx.who_we_are, ctx.facts, state.values.first_name, state.values.bank].join(' ');
+  const allowed = new Set(tokens(allowedText));
+  const said = tokens(reply);
+  const fresh = said.filter((w) => !allowed.has(w));
+  if (VERDICT_WORDS.test(fresh.join(' '))) return false;
+  // Amounts it could only know from the file (small numbers like "one more question" are fine).
+  const known = new Set(amountsIn(allowedText));
+  if (amountsIn(reply).some((n) => n >= 100 && !known.has(n))) return false;
+  // Words of any value on file that the taught line does not say.
+  const fileWords = new Set();
+  for (const c of state.checks) for (const e of [].concat(c.expected ?? [])) for (const w of tokens(e)) fileWords.add(w);
+  for (const [k, v] of Object.entries(state.values)) if (k !== 'bank') for (const w of tokens([].concat(v ?? []).join(' '))) fileWords.add(w);
+  return !fresh.some((w) => w.length > 2 && fileWords.has(w) && !FILLER.has(w) && !NAME_PARTICLES.has(w));
+}
+
+/**
+ * With the conversation set to 'ai', asks the AI to word the line the bot says next (`phrase` comes
+ * from bot-ai.js). The bot says the AI's wording when it passes the guards, else the taught line.
+ * The transcript keeps what was said; the taught line is kept on the turn as `taught`.
+ */
+export async function speakWithAI(state, playbook, phrase, { timeout } = {}) {
+  if (!phrase || !playbook.ai || playbook.conversation !== 'ai' || !WORDED.includes(state.action)) return state;
+  const ctx = speakContext(state, playbook);
+  const out = await Promise.resolve(phrase(ctx, { timeout })).catch(() => null);
+  const text = String(out?.say ?? '').replace(/\s+/g, ' ').trim();
+  if (!wordingAllowed(state, playbook, text, ctx)) {
+    if (text) state.turns.at(-1).ai_wording_refused = true;
+    return state;
+  }
+  const turn = state.turns.at(-1);
+  Object.assign(turn, { text, taught: turn.text, by_ai: true });
+  state.say = text;
+  return state;
+}
+
+// A caller is waiting: reading and wording a turn share this budget, and the taught line is said
+// when it runs out.
+const TURN_BUDGET_MS = 9000;
+const MIN_WORDING_MS = 1500;
+
+/**
+ * One turn of a live or practice call: hears the customer (asking the AI to read the answer when
+ * the rules need help), then lets the AI word the reply when the playbook says so.
+ */
+export async function respond(state, playbook, text, { interpret, phrase, budget = TURN_BUDGET_MS } = {}) {
+  if (state.done) return state;
+  const started = Date.now();
+  state = await hearWithAI(state, playbook, text, interpret);
+  const left = budget - (Date.now() - started);
+  if (left < MIN_WORDING_MS) return state;
+  return speakWithAI(state, playbook, phrase, { timeout: left });
+}
+
 // What the AI's reading means for a check: 'confirmed', 'mismatch' or null.
 function aiVerdict(check, ai, playbook) {
   if (!ai || ai.intent !== 'answer') return null;
@@ -452,11 +567,14 @@ export function hear(state, playbook, text, ai = null) {
   // own taught lines.
   switch (ai?.intent) {
     case 'asks_who':
+    case 'asks_question':
     case 'asks_repeat':
       turn.understood = ai.intent;
       if (state.tries >= playbook.max_reprompts + 1) break;
       state.tries++;
-      return botSays(state, `${ai.intent === 'asks_who' ? `${fill(playbook.who_we_are, state.values)} ` : ''}${prompt}`);
+      // Scripted, a question about the call gets the "who is calling" line; worded by the AI, it is
+      // answered from the taught facts.
+      return botSays(state, `${ai.intent === 'asks_repeat' ? '' : `${fill(playbook.who_we_are, state.values)} `}${prompt}`, 'answer');
     case 'call_later':
       turn.understood = 'call_later';
       return end(state, fill(playbook.call_later, state.values), 'call_back_later', 'not_a_good_time');
@@ -476,7 +594,7 @@ export function hear(state, playbook, text, ai = null) {
     turn.understood = yn || 'unclear';
     if (yn && !yesNo(said, playbook)) turn.by_ai = true;
     if (yn === 'yes') {
-      if (state.stage === 'identity') { state.stage = 'intro'; state.tries = 0; return botSays(state, fill(playbook.intro, state.values)); }
+      if (state.stage === 'identity') { state.stage = 'intro'; state.tries = 0; return botSays(state, fill(playbook.intro, state.values), 'intro'); }
       return nextCheck(state, playbook);
     }
     if (yn === 'no') {
@@ -503,7 +621,7 @@ export function hear(state, playbook, text, ai = null) {
   if (verdict === 'mismatch' && !state.asked_again) {
     // Speech recognition mishears: give the customer one more go before recording a mismatch.
     state.asked_again = true;
-    return botSays(state, `${fill(playbook.ask_again, state.values)} ${check.question}`);
+    return botSays(state, `${fill(playbook.ask_again, state.values)} ${check.question}`, 'ask_again');
   }
   check.result = verdict;
   if (fromAI) check.by = 'ai';
@@ -535,6 +653,8 @@ export function callResult(state) {
     if (confirmed.length) parts.push(`Confirmed: ${confirmed.join(', ')}.`);
     const byAI = state.checks.filter((c) => c.by === 'ai' && c.result !== 'not_answered').map((c) => c.label);
     if (byAI.length) parts.push(`Understood by the AI: ${byAI.join(', ')}.`);
+    const worded = state.turns.filter((t) => t.who === 'bot' && t.by_ai).length;
+    if (worded) parts.push(`The AI worded ${worded} of the bot's lines.`);
     if (mismatch.length) parts.push(`Did not match: ${mismatch.join(', ')}.`);
     if (missing.length) parts.push(`Not answered: ${missing.join(', ')}.`);
   }

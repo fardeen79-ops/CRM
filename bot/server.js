@@ -11,8 +11,8 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { callResult, hangUp, hearWithAI, normalizePlaybook, startCall } from '../src/bot-engine.js';
-import { aiConfigured, makeInterpreter } from '../src/bot-ai.js';
+import { callResult, hangUp, normalizePlaybook, respond, startCall } from '../src/bot-engine.js';
+import { aiConfigured, makeInterpreter, makePhraser } from '../src/bot-ai.js';
 
 const MAX_BODY = 256 * 1024;
 const SESSION_TTL = 2 * 3600e3;
@@ -77,6 +77,8 @@ export function createBotService({
   log = console,
   // Claude reads answers the rules cannot settle, when the playbook switches the AI on.
   interpret = aiConfigured() ? makeInterpreter({ log }) : null,
+  // ...and words what the bot says, when the playbook lets the AI lead the conversation.
+  phrase = aiConfigured() ? makePhraser({ log }) : null,
 } = {}) {
   const telephony = Boolean(accountSid && authToken && from && publicUrl);
   const base = String(publicUrl || '').replace(/\/$/, '');
@@ -193,7 +195,7 @@ export function createBotService({
     }
     if (kind === 'gather') {
       if (!s.state) return goodbye(s, '');
-      s.state = await hearWithAI(s.state, s.playbook, params.SpeechResult || '', interpret);
+      s.state = await respond(s.state, s.playbook, params.SpeechResult || '', { interpret, phrase });
       if (s.state.done) {
         finish(s, callResult(s.state));
         return goodbye(s, s.state.say);
