@@ -11,6 +11,7 @@
     "start": "node --disable-warning=ExperimentalWarning src/index.js",
     "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
-    "setup:ocr": "node scripts/setup-ocr.js"
+    "setup:ocr": "node scripts/setup-ocr.js",
+    "sandbox": "node --disable-warning=ExperimentalWarning scripts/sandbox.js"
   }
 }

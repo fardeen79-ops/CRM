@@ -459,7 +459,6 @@ function migrate(db) {
       sales_manager_id = (SELECT sales_manager_id FROM users WHERE id = cases.sales_staff_id),
       asm_id = (SELECT asm_id FROM users WHERE id = cases.sales_staff_id)
     WHERE team_leader_id IS NULL AND sales_staff_id IS NOT NULL`);
-  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_hrms ON users(hrms_code COLLATE NOCASE)');
   if (!db.prepare('PRAGMA table_info(card_products)').all().some((c) => c.name === 'min_salary')) db.exec('ALTER TABLE card_products ADD COLUMN min_salary REAL');
   // Cases created before the sourcing date existed were sourced on the day they were entered.
   db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
@@ -502,6 +501,8 @@ function migrate(db) {
   for (const [name, type] of Object.entries(ADDED_USER_COLUMNS)) {
     if (!userCols.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
   }
+  // The index must follow the column: databases from the first release have no hrms_code yet.
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_hrms ON users(hrms_code COLLATE NOCASE)');
   // Files entered before sales staff details existed belong to the sales person who created them.
   db.exec(`UPDATE cases SET sales_staff_id = created_by,
              sales_staff_name = (SELECT name FROM users WHERE users.id = cases.created_by)
