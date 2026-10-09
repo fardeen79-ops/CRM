@@ -153,7 +153,8 @@ test('a file marked Customer in DNCR carries a permission email to the customer,
   assert.match(seen.dncr_email.subject, /Credit Card \(Skywards Signature Credit Card\) application/);
   assert.match(seen.dncr_email.body, /^Dear Hind,/);
   assert.match(seen.dncr_email.body, /Do Not Call Register/);
-  assert.match(seen.dncr_email.body, /Yes, you may contact me about my Credit Card/);
+  assert.match(seen.dncr_email.body, /applied for an Emirates NBD Credit Card/);
+  assert.doesNotMatch(seen.dncr_email.body, /Derby/);
   assert.match(seen.dncr_email.body, /Cara \(D-2\)/);
   // The team leader gets the same draft; once the file is back in verification it goes away.
   assert.equal((await tl2('GET', `/cases/${c.id}`)).data.case.dncr_email.subject, seen.dncr_email.subject);
