@@ -895,6 +895,7 @@ table.pnl.tree td.gain { color: var(--s-done); }
   height: 64px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
   background: var(--foot-bg); border-top: 1px solid var(--foot-border); color: var(--foot-text); font-size: 13px; font-weight: 500;
 }
+.foot-dot { margin: 0 4px; }
 .foot-badge { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
 .stride-mark { display: block; flex: none; }
 .stride-tile { fill: var(--stride-tile); }

@@ -224,7 +224,7 @@ function strideMark() {
 /** The "Powered by STRIDE" bar at the foot of every screen (brand write-up, page 4): copyright left, badge right. */
 function siteFooter() {
   return html`<footer class="site-foot">
-    <span class="foot-copy">© ${new Date().getFullYear()} Derby Group of Companies</span>
+    <span class="foot-copy">© ${new Date().getFullYear()} STRIDE <span class="foot-dot">·</span> Created by Fardeen Ismail</span>
     <span class="foot-badge"><span class="foot-by">Powered by</span>${strideMark()}<span class="foot-word">STRID<b>E</b></span><span class="foot-div" aria-hidden="true"></span><span class="foot-tag">Sales in stride.</span></span>
   </footer>`;
 }
