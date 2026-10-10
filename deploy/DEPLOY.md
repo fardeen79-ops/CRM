@@ -141,7 +141,7 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 | `IT_EMAIL`, `IT_EMAIL_WEBHOOK_URL` | Emailing IT for approved call recording requests |
 | `TL_WEBHOOK_URL` | Teams/Slack alert when a case is marked verification pending |
 | `PROCESSING_WEBHOOK_URL` | Teams/Slack alert when a scheduled call-back is due |
-| `CALL_BOT_URL`, `CALL_BOT_SECRET`, `PUBLIC_URL` | Bot calls, through the calling service (`npm run bot`, see the README). The **Verification bot** teaching page works without it |
+| `CALL_BOT_URL`, `CALL_BOT_SECRET`, `PUBLIC_URL` | Bot calls, through the calling service: `npm run bot` (Twilio) or `npm run bot:sip` (your own SIP line, speech on the server, nothing leaves it; see the README). The **Verification bot** teaching page works without it |
 | `ANTHROPIC_API_KEY` | The verification bot's AI in practice calls (set it on the calling service too, for live calls) |
 
 ## 8. What to test first on the server

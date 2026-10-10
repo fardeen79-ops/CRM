@@ -12,7 +12,9 @@
     "seed:demo": "node --disable-warning=ExperimentalWarning scripts/seed-demo.js",
     "test": "node --disable-warning=ExperimentalWarning --import ./test/setup.mjs --test test/*.test.js",
     "setup:ocr": "node scripts/setup-ocr.js",
-    "bot": "node bot/server.js"
+    "bot": "node bot/server.js",
+    "bot:sip": "node bot/sip-server.js",
+    "bot:sip:check": "node bot/sip-check.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0"

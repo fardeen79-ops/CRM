@@ -593,6 +593,59 @@ CALL_BOT_URL=https://bot.example.com/calls CALL_BOT_SECRET=<same secret> PUBLIC_
 - Calls in progress are kept in memory: restarting the service drops them, and the CRM stops waiting after 30 minutes.
 - Before going live, check with the bank's compliance team: automated calls to customers, the caller number, call recording, and the customer details sent to Twilio for the call (name, number, and the values the bot compares answers with) all need approval. Practise with your own number as the customer first.
 
+#### Running the calling service on your own SIP line (nothing leaves your server)
+
+`bot/sip-server.js` is a second calling service that does the same job as the Twilio one without any telephony or speech provider: it dials over **your SIP trunk** from the server it runs on, and the bot's voice and the recognition of what the customer says are **programs installed on that server**. No one outside hears or stores the call, and recordings are WAV files in a folder on the server. The CRM does not know the difference: point `CALL_BOT_URL` at it and everything on the file (requests, approvals, results, transcripts, the recording player, the playbook) works as described above.
+
+```bash
+# On the server with the SIP line (reachable by the CRM; no public address needed):
+SIP_SERVER=sip.yourprovider.ae SIP_USERNAME=97140000000 SIP_PASSWORD=… \
+STT_MODEL=/opt/speech/ggml-small.bin TTS_MODEL=/opt/speech/en_GB-alba-medium.onnx \
+CALL_BOT_SECRET=<shared secret> npm run bot:sip         # port 4000
+
+# Before the first call: engines, registration, then a test call to your own phone
+node bot/sip-check.js --call 0501234567
+
+# The CRM:
+CALL_BOT_URL=http://bot-host:4000/calls CALL_BOT_SECRET=<same secret> PUBLIC_URL=https://crm.example.com npm start
+```
+
+**The speech programs.** Any program that turns a WAV file into text, and any that turns text into a WAV file, will do; the defaults are two well-known open-source ones that run on a CPU:
+
+| Engine | What to install | Setting |
+|---|---|---|
+| Recognition: [whisper.cpp](https://github.com/ggml-org/whisper.cpp) | Build it (`cmake -B build && cmake --build build`), put `whisper-cli` on the `PATH`, download a model (`ggml-small.bin` is a good start; `ggml-medium.bin` hears better and needs more CPU) | `STT_MODEL=/opt/speech/ggml-small.bin` |
+| Voice: [Piper](https://github.com/rhasspy/piper) | Download the release binary, put `piper` on the `PATH`, download a voice (`en_GB-alba-medium`, `en_US-lessac-medium`, `ar_JO-kareem-medium`…), both the `.onnx` and its `.onnx.json` | `TTS_MODEL=/opt/speech/en_GB-alba-medium.onnx` |
+
+Both models are single files; keep them on the server with the service. A voice per language: `TTS_MODEL_AR=/opt/speech/ar_JO-kareem-medium.onnx` is used when the playbook's language is Arabic (`STT_MODEL_AR` likewise; whisper's models are multilingual, so one is enough). To use other programs, give the whole command: `STT_COMMAND='my-recogniser --wav {file} --lang {lang}'` must print the text; `TTS_COMMAND='my-voice --out {file}'` is given the line on standard input (or use `{text}`) and must write a 16-bit WAV. Placeholders: `{file}`, `{lang}` (two letters), `{model}`, `{voice}` (the playbook's voice), `{hints}` (the words the answer may contain, passed to whisper as its prompt), `{text}`. Lines are synthesised once and reused, so the voice only works hard on the first call.
+
+| Variable | Purpose |
+|---|---|
+| `SIP_SERVER` | The provider's SIP server, `host` or `host:port` (UDP; port 5060 by default). Registrar and outbound proxy: every request goes there |
+| `SIP_USERNAME`, `SIP_PASSWORD` | The trunk's credentials (digest authentication). For a trunk that authenticates by IP address, leave the password empty and set `SIP_REGISTER=0` |
+| `SIP_DOMAIN` | The SIP domain for the addresses, when it differs from the server host |
+| `SIP_CALLER_ID` | The number the customer sees (default: the username). Sent in `From` and `P-Asserted-Identity` (`SIP_ASSERT_IDENTITY=0` leaves the latter out) |
+| `SIP_DISPLAY_NAME` | Name shown with the number, e.g. `Verification team` |
+| `SIP_REGISTER`, `SIP_EXPIRES` | Register with the provider before calling (default on, 300 s, refreshed) |
+| `SIP_LOCAL_IP`, `SIP_LOCAL_PORT` | The address the provider reaches this server at (default: the interface towards the server, port 5060). Behind NAT set `SIP_LOCAL_IP` and `SIP_MEDIA_IP` to the public address and forward the ports |
+| `RTP_PORT_RANGE` | UDP ports for the audio (default `10000-20000`); open them on the firewall towards the provider |
+| `BOT_RING_TIMEOUT_MS` | How long the phone rings before the call counts as not answered (default 45 s) |
+| `BOT_NO_SPEECH_MS`, `BOT_SILENCE_MS`, `BOT_MAX_ANSWER_MS` | Silence after a question before the bot re-asks (6 s); the pause that ends an answer (0.8 s); the longest answer (15 s) |
+| `BOT_BARGE_IN` | `1` lets the customer cut a line short by speaking over it (off by default: on a noisy line the bot would hear itself) |
+| `BOT_MACHINE_DETECTION` | Hang up when a voicemail greeting answers: speech longer than 3.5 s right after pick-up (default on; `0` to turn off) |
+| `BOT_MAX_CALLS` | Calls at the same time (default 4; each runs a recognition after every answer, so size it to the CPU) |
+| `BOT_RECORD`, `BOT_RECORDINGS_DIR`, `BOT_RECORDING_DAYS` | Recordings (default on) are WAV files in `data/recordings` (8 kHz mono, about 1 MB a minute); set a retention in days, or keep them until deleted |
+| `BOT_PUBLIC_URL` | The address the CRM reaches this service at, used only in the recording links (default: this host and port) |
+| `CALL_BOT_SECRET`, `BOT_COUNTRY_CODE`, `BOT_PORT` | As for the Twilio service |
+| `ANTHROPIC_API_KEY` | **Leave unset to keep the call on your server.** With it set and the AI switched on in the playbook, what the customer says is sent to Anthropic to be read, as described above |
+
+- The conversation, matching rules, re-asks, what the bot may decide and the results are exactly the Twilio service's: both run `src/bot-engine.js`. Speech recognition has no "hints" on this path; instead the expected words are given to whisper as its prompt, which has a similar effect.
+- `GET /health` reports whether the line is registered and the engines set up. Calls are placed only while the line is registered.
+- A voicemail is recognised by its greeting (long, uninterrupted speech right after pick-up); a person saying a quick "hello?" is not. If customers' long greetings get hung up on, turn the detection off or raise it in `bot/sip/call.js`.
+- Audio is G.711 (µ-law or A-law, whichever the provider picks), 20 ms packets, with symmetric RTP so trunks behind NAT work. There is no codec negotiation beyond that; a provider that offers only G.729 or Opus will have the call refused with that reason on the file.
+- What the SIP agent does not do: receive calls (an incoming INVITE is refused), TLS/SRTP, TCP transport, or SIP over IPv6. These can be added if the provider needs them.
+- Before going live, check with the bank's compliance team as for any automated call: the caller number, the recording notice and where the recordings are kept. On this path no customer detail leaves the server.
+
 #### Using another calling service
 
 Any voice-bot or IVR provider can stand in for `bot/server.js` if it speaks the same protocol. The CRM sends a `POST` to `CALL_BOT_URL`:
@@ -678,6 +731,7 @@ src/
 public/        single-page UI (vanilla JS, no build step); speech.js handles dictation and read-back
 scripts/       demo seed data
 bot/server.js  the calling bot service (Twilio): `npm run bot`
+bot/sip-server.js  the native calling bot service (your SIP line, speech on the server): `npm run bot:sip`; `bot/sip/` its SIP, RTP, audio and speech pieces; `bot/sip-check.js` the go-live check
 test/          end-to-end API tests (node:test)
 ```
 
