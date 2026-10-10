@@ -705,7 +705,7 @@ function zeroTable(title, rows, labelOf, tree = false) {
   const prod = (bp) => ['credit_card', 'personal_loan', 'auto_loan'].map((p) => bp[p] ? `${{ credit_card: 'Cards', personal_loan: 'Loans', auto_loan: 'Auto' }[p]} ${bp[p]}` : '').filter(Boolean).join(' · ') || '—';
   return html`<div class="zero-block"><strong>${title}</strong>
     <div class="table-wrap"><table class="zero-table">
-      <thead><tr><th>${tree ? 'Team' : 'Product'}</th><th>Staff</th><th>Zero ends or disbursals</th><th>%</th><th>Zero submissions</th><th>%</th>${tree ? html`<th>Zero ends by product</th>` : ''}</tr></thead>
+      <thead><tr><th>${tree ? 'Team' : 'Product'}</th><th>Staff</th><th><span class="th-long">Zero ends or disbursals</span><span class="th-short">Zero ends</span></th><th>%</th><th><span class="th-long">Zero submissions</span><span class="th-short">Zero subm.</span></th><th>%</th>${tree ? html`<th><span class="th-long">Zero ends by product</span><span class="th-short">By product</span></th>` : ''}</tr></thead>
       <tbody>${rows.map((x) => html`<tr class="${tree ? `lvl-${x.level}` : ''} ${x.zero_ends.count ? 'has-zero' : ''}">
         <td>${tree && x.level === 'sales_manager' ? html`<span class="muted">SM</span> ` : tree && x.level === 'team_leader' ? html`<span class="muted">TL</span> ` : ''}${labelOf(x)}</td>
         <td>${x.team}</td><td class="${x.zero_ends.count ? 'bad-num' : ''}">${x.zero_ends.count}</td><td class="${x.zero_ends.count ? 'bad-num' : ''}">${pct(x.zero_ends.pct)}</td>

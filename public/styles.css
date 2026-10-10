@@ -304,7 +304,8 @@ label.check input { width: auto; margin: 0; accent-color: var(--primary); }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .tabs button { font-weight: 500; padding: 6px 12px; border-radius: 999px; }
 .tabs button.active { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow-x: auto; max-width: 100%; }
+.grid > *, .card { min-width: 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; background: var(--surface-2); border-bottom-color: var(--border-strong); }
@@ -792,7 +793,8 @@ table.pnl.tree td.gain { color: var(--s-done); }
 
 /* Staff on zero */
 .kpi-pct { font-size: 16px; font-weight: 600; color: var(--muted); margin-left: 4px; }
-.zero-card { display: grid; gap: 14px; margin-bottom: 18px; }
+.zero-card { display: grid; gap: 14px; margin-bottom: 18px; min-width: 0; }
+.zero-block { min-width: 0; max-width: 100%; }
 .zero-block strong { display: block; margin-bottom: 6px; }
 .zero-names { display: flex; flex-wrap: wrap; gap: 6px; }
 .zero-names .chip { text-decoration: none; }
@@ -800,6 +802,19 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .zero-more summary { cursor: pointer; }
 
 .zero-table td, .zero-table th { white-space: nowrap; }
+.zero-table th { white-space: normal; min-width: 0; }
+.zero-table .th-short { display: none; }
+@media (max-width: 760px) { .zero-table .th-short { display: inline; } }
+@media (max-width: 760px) {
+  .zero-table { font-size: 13px; }
+  .zero-table th, .zero-table td { padding: 8px 5px; }
+  .zero-table th { font-size: 10px; letter-spacing: .04em; }
+  .zero-table td:first-child { white-space: normal; min-width: 90px; }
+  .card.zero-card { padding: 16px 14px; }
+  .zero-table .th-long { display: none; }
+  .zero-table tr.lvl-sales_manager td:first-child, .zero-table tr.lvl-team_leader td:first-child { padding-left: 5px; }
+  .zero-table td:first-child .muted { white-space: nowrap; }
+}
 .zero-table .bad-num { color: #b91c1c; font-weight: 600; }
 .zero-table tr.lvl-region td:first-child { font-weight: 700; }
 .zero-table tr.lvl-sales_manager td:first-child { padding-left: 22px; }
