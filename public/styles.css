@@ -881,11 +881,29 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .bot-recording audio, .row-audio { width: 100%; max-width: 420px; margin-top: 6px; }
 .row-audio { display: block; height: 32px; min-width: 240px; }
 
-/* Stride logo at the foot of every screen */
-.site-foot { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 18px 24px 26px; color: var(--muted); font-size: 12px; }
-.site-foot .foot-logo { height: 22px; width: auto; display: block; color: var(--text); opacity: .85; }
-.site-foot .foot-wordmark { font-weight: 700; font-size: 17px; letter-spacing: .02em; color: var(--text); opacity: .85; }
-.content > .site-foot { border-top: 1px solid var(--border); }
+/* "Powered by STRIDE" bar at the foot of every screen (brand write-up, page 4).
+   Light bar: white with a hairline top border, slate text, navy tile with the lead chevron in amber.
+   Dark bar: navy, light text, amber tile with navy chevrons. */
+:root {
+  --stride-navy: #10233F; --stride-amber: #E0962E; --stride-amber-dark: #F2B05A;
+  --foot-bg: #ffffff; --foot-border: #D6DAE2; --foot-text: #5A6473; --foot-word: var(--stride-navy); --foot-e: var(--stride-amber);
+  --stride-tile: var(--stride-navy); --stride-c1: #7A8595; --stride-c2: #B9C2D0; --stride-c3: var(--stride-amber);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --foot-bg: var(--stride-navy); --foot-border: var(--stride-navy); --foot-text: #B9C2D0; --foot-word: #ffffff; --foot-e: var(--stride-amber-dark); --stride-tile: var(--stride-amber-dark); --stride-c1: #B98A4A; --stride-c2: #6E5A45; --stride-c3: var(--stride-navy); } }
+:root[data-theme="dark"] { --foot-bg: var(--stride-navy); --foot-border: var(--stride-navy); --foot-text: #B9C2D0; --foot-word: #ffffff; --foot-e: var(--stride-amber-dark); --stride-tile: var(--stride-amber-dark); --stride-c1: #B98A4A; --stride-c2: #6E5A45; --stride-c3: var(--stride-navy); }
+.site-foot {
+  height: 64px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--foot-bg); border-top: 1px solid var(--foot-border); color: var(--foot-text); font-size: 13px; font-weight: 500;
+}
+.foot-badge { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
+.stride-mark { display: block; flex: none; }
+.stride-tile { fill: var(--stride-tile); }
+.stride-c1 { stroke: var(--stride-c1); } .stride-c2 { stroke: var(--stride-c2); } .stride-c3 { stroke: var(--stride-c3); }
+.foot-word { font-family: "Manrope", "Avenir Next", "Helvetica Neue", var(--font); font-weight: 800; font-size: 17px; letter-spacing: .06em; color: var(--foot-word); line-height: 1; }
+.foot-word b { font-weight: inherit; color: var(--foot-e); }
+.foot-div { width: 1px; height: 18px; background: currentColor; opacity: .5; }
+/* The sign-in page sits on the dark chrome: the dark bar, without its own background. */
 .login-wrap { align-content: center; grid-auto-rows: max-content; }
-.login-wrap .site-foot { padding-top: 24px; color: var(--chrome-text); }
-.login-wrap .foot-logo, .login-wrap .foot-wordmark { color: var(--chrome-strong); opacity: 1; }
+.login-wrap .site-foot { background: transparent; border-top: 0; justify-content: center; --foot-text: #B9C2D0; --foot-word: #ffffff; --foot-e: var(--stride-amber-dark); --stride-tile: var(--stride-amber-dark); --stride-c1: #B98A4A; --stride-c2: #6E5A45; --stride-c3: var(--stride-navy); }
+.login-wrap .foot-copy { display: none; }
+@media (max-width: 480px) { .foot-tag, .foot-div { display: none; } .site-foot { padding: 0 16px; } }

@@ -216,14 +216,17 @@ const formData = (form) => Object.fromEntries(new FormData(form).entries());
 const go = (hash) => { location.hash = hash; };
 
 // ---------- auth ----------
-/** The Stride logo at the bottom of every screen (public/img/stride-logo.svg; a wordmark when the file is missing). */
-function siteFooter() {
-  return html`<footer class="site-foot"><span class="foot-by">Powered by</span><img class="foot-logo" src="img/stride-logo.svg" alt="Stride" width="96" height="28"></footer>`;
+/** The STRIDE mark: three chevrons in a rounded tile (inline SVG, 120 × 120, colours from the theme). */
+function strideMark() {
+  const chevron = (x, cls) => raw(`<path class="${cls}" d="M${x} 30 L${x + 26} 60 L${x} 90" fill="none" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>`);
+  return html`<svg class="stride-mark" viewBox="0 0 120 120" width="28" height="28" aria-hidden="true"><rect class="stride-tile" width="120" height="120" rx="28"/>${chevron(22, 'stride-c1')}${chevron(46, 'stride-c2')}${chevron(70, 'stride-c3')}</svg>`;
 }
-function bindFooter() {
-  document.querySelectorAll('.foot-logo').forEach((img) => {
-    img.onerror = () => { const w = document.createElement('span'); w.className = 'foot-wordmark'; w.textContent = 'Stride'; img.replaceWith(w); };
-  });
+/** The "Powered by STRIDE" bar at the foot of every screen (brand write-up, page 4): copyright left, badge right. */
+function siteFooter() {
+  return html`<footer class="site-foot">
+    <span class="foot-copy">© ${new Date().getFullYear()} Derby Group of Companies</span>
+    <span class="foot-badge"><span class="foot-by">Powered by</span>${strideMark()}<span class="foot-word">STRID<b>E</b></span><span class="foot-div" aria-hidden="true"></span><span class="foot-tag">Sales in stride.</span></span>
+  </footer>`;
 }
 
 function renderLogin() {
@@ -240,7 +243,6 @@ function renderLogin() {
       </form>
       ${siteFooter()}
     </div>`.s;
-  bindFooter();
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = document.getElementById('login-error');
@@ -439,7 +441,6 @@ function shell(content) {
         ${siteFooter()}
       </div>
     </div>`.s;
-  bindFooter();
   const power = document.getElementById('power-btn');
   if (power) power.onclick = pressPowerButton;
   document.getElementById('logout').onclick = async () => {
