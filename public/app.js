@@ -216,6 +216,16 @@ const formData = (form) => Object.fromEntries(new FormData(form).entries());
 const go = (hash) => { location.hash = hash; };
 
 // ---------- auth ----------
+/** The Stride logo at the bottom of every screen (public/img/stride-logo.svg; a wordmark when the file is missing). */
+function siteFooter() {
+  return html`<footer class="site-foot"><span class="foot-by">Powered by</span><img class="foot-logo" src="img/stride-logo.svg" alt="Stride" width="96" height="28"></footer>`;
+}
+function bindFooter() {
+  document.querySelectorAll('.foot-logo').forEach((img) => {
+    img.onerror = () => { const w = document.createElement('span'); w.className = 'foot-wordmark'; w.textContent = 'Stride'; img.replaceWith(w); };
+  });
+}
+
 function renderLogin() {
   app.innerHTML = html`
     <div class="login-wrap">
@@ -228,7 +238,9 @@ function renderLogin() {
         <button class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
         <p class="error" id="login-error" hidden></p>
       </form>
+      ${siteFooter()}
     </div>`.s;
+  bindFooter();
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = document.getElementById('login-error');
@@ -424,8 +436,10 @@ function shell(content) {
         </header>
         <div id="notif-panel"></div>
         <main>${content}<div class="watermark" aria-hidden="true"></div></main>
+        ${siteFooter()}
       </div>
     </div>`.s;
+  bindFooter();
   const power = document.getElementById('power-btn');
   if (power) power.onclick = pressPowerButton;
   document.getElementById('logout').onclick = async () => {

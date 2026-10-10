@@ -880,3 +880,12 @@ table.pnl.tree td.gain { color: var(--s-done); }
 @media (max-width: 900px) { .bot-practice { position: static; } }
 .bot-recording audio, .row-audio { width: 100%; max-width: 420px; margin-top: 6px; }
 .row-audio { display: block; height: 32px; min-width: 240px; }
+
+/* Stride logo at the foot of every screen */
+.site-foot { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 18px 24px 26px; color: var(--muted); font-size: 12px; }
+.site-foot .foot-logo { height: 22px; width: auto; display: block; color: var(--text); opacity: .85; }
+.site-foot .foot-wordmark { font-weight: 700; font-size: 17px; letter-spacing: .02em; color: var(--text); opacity: .85; }
+.content > .site-foot { border-top: 1px solid var(--border); }
+.login-wrap { align-content: center; grid-auto-rows: max-content; }
+.login-wrap .site-foot { padding-top: 24px; color: var(--chrome-text); }
+.login-wrap .foot-logo, .login-wrap .foot-wordmark { color: var(--chrome-strong); opacity: 1; }
