@@ -4,3 +4,4 @@ data/
 *.db-*
 .env
 public/vendor/
+shots/
