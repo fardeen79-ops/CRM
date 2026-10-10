@@ -304,7 +304,17 @@ label.check input { width: auto; margin: 0; accent-color: var(--primary); }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .tabs button { font-weight: 500; padding: 6px 12px; border-radius: 999px; }
 .tabs button.active { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
-.table-wrap { overflow-x: auto; max-width: 100%; }
+.table-wrap { overflow: auto; max-width: 100%; max-height: min(72vh, 640px); overscroll-behavior: contain; }
+/* Column headings stay put while the rows scroll under them. */
+.table-wrap thead th { position: sticky; top: 0; z-index: 2; }
+.table-wrap thead th::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; border-bottom: 1px solid var(--border-strong); }
+/* On phones the first column (the names) also stays put while the numbers scroll sideways. */
+@media (max-width: 760px) {
+  .table-wrap th:first-child, .table-wrap td:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+  .table-wrap thead th:first-child { z-index: 3; background: var(--surface-2); }
+  .table-wrap tbody tr:hover td:first-child { background: var(--primary-soft); }
+  .table-wrap td:first-child::after { content: ""; position: absolute; top: 0; bottom: 0; right: 0; border-right: 1px solid var(--border); }
+}
 .grid > *, .card { min-width: 0; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
