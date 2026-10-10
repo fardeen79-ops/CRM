@@ -805,6 +805,11 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .zero-table th { white-space: normal; min-width: 0; }
 .zero-table .th-short { display: none; }
 @media (max-width: 760px) { .zero-table .th-short { display: inline; } }
+}
+.zero-table .bad-num { color: #b91c1c; font-weight: 600; }
+.zero-table tr.lvl-region td:first-child { font-weight: 700; }
+.zero-table tr.lvl-sales_manager td:first-child { padding-left: 22px; }
+.zero-table tr.lvl-team_leader td:first-child { padding-left: 44px; }
 @media (max-width: 760px) {
   .zero-table { font-size: 13px; }
   .zero-table th, .zero-table td { padding: 8px 5px; }
@@ -814,11 +819,6 @@ table.pnl.tree td.gain { color: var(--s-done); }
   .zero-table .th-long { display: none; }
   .zero-table tr.lvl-sales_manager td:first-child, .zero-table tr.lvl-team_leader td:first-child { padding-left: 5px; }
   .zero-table td:first-child .muted { white-space: nowrap; }
-}
-.zero-table .bad-num { color: #b91c1c; font-weight: 600; }
-.zero-table tr.lvl-region td:first-child { font-weight: 700; }
-.zero-table tr.lvl-sales_manager td:first-child { padding-left: 22px; }
-.zero-table tr.lvl-team_leader td:first-child { padding-left: 44px; }
 
 /* Boosters */
 .boosters { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-bottom: 18px; }
