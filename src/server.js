@@ -223,6 +223,17 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
       send(res, 200, { user: result.user }, { 'set-cookie': sessionCookie(result.token, result.maxAge) });
     }, { public: true }],
 
+    // Anyone changes their own password, with the current one; other sessions of theirs are signed out.
+    ['POST', /^\/api\/password$/, async ({ user, body, token }) => {
+      const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
+      if (!row || !auth.verifyPassword(String(body.current || ''), row.password_hash)) throw new HttpError(400, 'The current password is not right');
+      const next = String(body.password || '');
+      if (next.length < 8) throw new HttpError(400, 'The new password must be at least 8 characters');
+      if (next === String(body.current)) throw new HttpError(400, 'Choose a password different from the current one');
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(auth.hashPassword(next), user.id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(user.id, token);
+      return { ok: true };
+    }],
     ['POST', /^\/api\/logout$/, async ({ token, res }) => {
       auth.logout(db, token);
       send(res, 200, { ok: true }, { 'set-cookie': sessionCookie('', 0) });

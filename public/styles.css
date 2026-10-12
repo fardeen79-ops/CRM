@@ -133,7 +133,8 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .side-user .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .side-user .role-tag { color: var(--chrome-text); }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 12px; font-weight: 700; background: rgba(255, 255, 255, .14); color: var(--chrome-strong); }
-.side-user #logout { color: var(--chrome-text); font-size: 13px; white-space: nowrap; }
+.side-user #logout, .side-user .side-link { color: var(--chrome-text); font-size: 13px; white-space: nowrap; }
+.side-user .side-link:hover { color: var(--chrome-strong); text-decoration: none; }
 .side-user #logout:hover { color: var(--chrome-strong); }
 
 .topbar {

@@ -428,7 +428,7 @@ function shell(content) {
         <div class="side-user">
           <span class="avatar" aria-hidden="true">${initials}</span>
           <div class="who"><div class="name">${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role_key || state.user.role]}</div></div>
-          <button id="logout" class="btn-link" title="Sign out">Sign out</button>
+<a href="#/password" class="side-link" title="Change my password">Password</a> <button id="logout" class="btn-link" title="Sign out">Sign out</button>
         </div>
       </aside>
       <div class="scrim" id="scrim" hidden></div>
@@ -569,6 +569,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
+    if (path === '/password') return viewPassword();
     if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules|assets)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
@@ -4733,6 +4734,25 @@ async function viewAssets(params = new URLSearchParams()) {
   app.querySelectorAll('[data-asset-assign]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); run(() => api(`/assets/${f.dataset.assetAssign}/assign`, { method: 'POST', body: Object.fromEntries(new FormData(f).entries()) }).then(() => toast('Tab assigned')), f); }));
   app.querySelectorAll('[data-asset-status]').forEach((f) => { const row = f.querySelector('[data-returned-row]'); const sync = () => { row.hidden = f.querySelector('input[name=status]:checked')?.value !== 'returned_to_bank'; }; f.querySelectorAll('input[name=status]').forEach((i) => (i.onchange = sync)); sync(); });
   app.querySelectorAll('[data-asset-status]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); const body = Object.fromEntries(new FormData(f).entries()); if (!body.status) return toast('Choose a status', 'error'); run(() => api(`/assets/${f.dataset.assetStatus}/status`, { method: 'POST', body }).then(() => toast('Status updated')), f); }));
+}
+
+// Anyone changes their own password here, with the current one.
+function viewPassword() {
+  shell(html`
+    <div class="page-head"><div><h1>Change my password</h1><p class="muted lede">At least 8 characters. Your other signed-in devices are signed out once it changes.</p></div></div>
+    <form class="card" id="password-form" style="max-width:420px">
+      <div class="field-row"><label for="pw-current">Current password</label><input id="pw-current" name="current" type="password" autocomplete="current-password" required></div>
+      <div class="field-row"><label for="pw-new">New password</label><input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field-row"><label for="pw-again">New password again</label><input id="pw-again" name="again" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="actions"><button class="btn-primary">Change password</button><a class="btn" href="#/">Cancel</a></div>
+    </form>`);
+  const f = document.getElementById('password-form');
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const { current, password, again } = formData(f);
+    if (password !== again) return toast('The two new passwords do not match', 'error');
+    try { await api('/password', { method: 'POST', body: { current, password } }); toast('Password changed'); go('#/'); } catch (ex) { toast(ex.message, 'error'); }
+  };
 }
 
 async function viewUsers() {

@@ -205,3 +205,15 @@ test('a role that needs a hierarchy carries it: a team leader reports to a sales
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'tlnew@t.local').sales_manager_id, sm);
 });
+
+test('anyone changes their own password with the current one; other sessions of theirs end', async () => {
+  const first = await login('sm@t.local'); const second = await login('sm@t.local');
+  assert.equal((await first('POST', '/password', { current: 'wrong', password: 'newpassword1' })).status, 400);
+  assert.equal((await first('POST', '/password', { current: PASSWORD, password: 'short' })).status, 400);
+  assert.equal((await first('POST', '/password', { current: PASSWORD, password: 'newpassword1' })).status, 200);
+  assert.equal((await second('GET', '/me')).status, 401, 'the other session is signed out');
+  assert.equal((await first('GET', '/me')).status, 200, 'this one stays');
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sm@t.local', password: 'newpassword1' }) });
+  assert.equal(res.status, 200);
+  assert.equal((await first('POST', '/password', { current: 'newpassword1', password: PASSWORD })).status, 200);
+});
