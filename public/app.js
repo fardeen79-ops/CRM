@@ -70,6 +70,7 @@ const ACTION_LABEL = {
   set_complaint: 'Complaint number added',
   complaint_decision: 'Complaint decided',
   score_quality: 'Verification call scored',
+  rate_call: 'Call rated',
   set_card_status: 'Card activation saved',
   callback_due: 'Call-back due',
   disbursal: 'Disbursed amount recorded',
@@ -1849,41 +1850,60 @@ function botCallCard(b) {
 
 // Every call to or from the customer's numbers, looked up on the recording server when asked for.
 function customerCallsCard(c) {
-  return html`<div class="card" id="customer-calls" data-case="${c.id}">
+  const l = c.calls_lookup;
+  const status = l.status ? (state.meta.recording_statuses || {})[l.status] || label(l.status) : null;
+  return html`<div class="card" id="customer-calls" data-case="${c.id}" data-can-rate="${l.can_rate ? '1' : ''}">
     <h2>Calls to this customer</h2>
-    ${c.calls_lookup.enabled
-      ? html`<p class="muted small">Every call on ${c.calls_lookup.label} to or from the customer's numbers, plus the verification bot's calls. Looking up and listening are recorded in the access log.</p>
-        <div class="actions"><button type="button" class="btn" id="calls-lookup">Look up calls</button></div>
-        <div id="calls-result"></div>`
-      : html`<p class="muted small">No recording server is connected yet. Once IT sets RECORDING_SOURCE on the server, every call to or from the customer's numbers can be listed and played here.</p>
-        <div class="actions"><button type="button" class="btn" id="calls-lookup">Show the bot's calls</button></div>
-        <div id="calls-result"></div>`}
+    ${!l.unlocked
+      ? html`<p class="muted small">The calls are opened only once the approvals are in place: governance requests the call recording on this file with the reason, the business head approves it, and then the calls can be looked up, heard and rated.${status ? html` Now: <span class="chip">${status}</span>` : ''}</p>`
+      : l.enabled
+        ? html`<p class="muted small">Approved${status ? ` (${status.toLowerCase()})` : ''}. Every call on ${l.label} to or from the customer's numbers, plus the verification bot's calls. Looking up and listening are recorded in the access log${l.can_rate ? '; rate each call you hear from 0 to 10' : ''}.</p>
+          <div class="actions"><button type="button" class="btn" id="calls-lookup">Look up calls</button></div>
+          <div id="calls-result"></div>`
+        : html`<p class="muted small">Approved. No recording server is connected yet: once IT sets RECORDING_SOURCE on the server, every call to or from the customer's numbers can be listed and played here. The verification bot's calls show now.</p>
+          <div class="actions"><button type="button" class="btn" id="calls-lookup">Show the bot's calls</button></div>
+          <div id="calls-result"></div>`}
   </div>`;
 }
 const fmtSeconds = (s) => (s == null ? '—' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+const ratingCell = (k, canRate) => html`<div class="rating">
+  ${k.rating ? html`<span class="chip ${k.rating.score >= 7 ? 'good' : k.rating.score >= 4 ? 'fair' : 'bad'}">${k.rating.score}/10</span> <span class="muted small">${k.rating.rated_by_name} · ${ago(k.rating.rated_at)}</span>${k.rating.note ? html`<div class="small">${k.rating.note}</div>` : ''}` : html`<span class="muted small">Not rated</span>`}
+  ${canRate ? html`<form class="rate-form" data-rate="${k.id}" data-name="${k.name || ''}"><input name="score" type="number" min="0" max="10" step="0.1" value="${k.rating ? k.rating.score : ''}" aria-label="Score out of 10" required placeholder="0–10"><input name="note" value="${k.rating?.note || ''}" placeholder="Note (optional)" aria-label="Note"><button class="btn-primary">${k.rating ? 'Update' : 'Rate'}</button></form>` : ''}
+</div>`;
 function wireCustomerCalls(root) {
   const card = root.querySelector('#customer-calls'); if (!card) return;
   const btn = card.querySelector('#calls-lookup'); const out = card.querySelector('#calls-result');
+  if (!btn) return;
+  const first = btn.textContent;
+  const canRate = card.dataset.canRate === '1';
+  const render = (r) => {
+    out.innerHTML = r.calls.length ? html`<div class="table-wrap"><table class="calls-table">
+      <thead><tr><th>When</th><th>Direction</th><th>Length</th><th>Extension / agent</th><th>Source</th><th>Recording</th><th>Rating</th></tr></thead>
+      <tbody>${r.calls.map((k) => html`<tr>
+        <td>${k.started_at ? fmtDate(k.started_at) : '—'}</td>
+        <td>${k.direction ? label(k.direction) : '—'}</td>
+        <td>${fmtSeconds(k.duration_s)}</td>
+        <td>${k.agent || k.extension || '—'}</td>
+        <td>${k.source === 'bot' ? html`Verification bot${k.ref ? html` · <a href="#/cases/${k.case_id}">${k.ref}</a>` : ''}${k.name ? html` · ${k.name}` : ''}` : html`${r.label}${k.name ? html` · <span class="mono small">${k.name}</span>` : ''}`}</td>
+        <td>${k.play_url ? html`<audio class="row-audio" controls preload="none" src="${k.play_url}"></audio>` : html`<span class="muted">No recording</span>`}</td>
+        <td>${ratingCell(k, canRate)}</td>
+      </tr>`)}</tbody></table></div>
+      <p class="muted small">${r.calls.length} call${r.calls.length === 1 ? '' : 's'} for the customer's ${r.numbers === 2 ? 'two numbers' : 'number'}.</p>`.s
+      : html`<p class="muted small">No calls found for the customer's ${r.numbers === 2 ? 'numbers' : 'number'}${r.enabled ? ` on ${r.label}` : ''}.</p>`.s;
+    out.querySelectorAll('form[data-rate]').forEach((f) => (f.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        const { rating } = await api(`/cases/${card.dataset.case}/calls/${f.dataset.rate}/rating`, { method: 'POST', body: { ...formData(f), name: f.dataset.name } });
+        const k = r.calls.find((x) => String(x.id) === f.dataset.rate); if (k) k.rating = rating;
+        toast(`Call rated ${rating.score}/10`); render(r);
+      } catch (ex) { toast(ex.message, 'error'); }
+    }));
+  };
   btn.onclick = async () => {
     btn.disabled = true; btn.textContent = 'Looking up…';
-    try {
-      const r = await api(`/cases/${card.dataset.case}/calls`);
-      out.innerHTML = r.calls.length ? html`<div class="table-wrap"><table class="calls-table">
-        <thead><tr><th>When</th><th>Direction</th><th>Length</th><th>Extension / agent</th><th>Source</th><th>Recording</th></tr></thead>
-        <tbody>${r.calls.map((k) => html`<tr>
-          <td>${k.started_at ? fmtDate(k.started_at) : '—'}</td>
-          <td>${k.direction ? label(k.direction) : '—'}</td>
-          <td>${fmtSeconds(k.duration_s)}</td>
-          <td>${k.agent || k.extension || '—'}</td>
-          <td>${k.source === 'bot' ? html`Verification bot${k.ref ? html` · <a href="#/cases/${k.case_id}">${k.ref}</a>` : ''}${k.name ? html` · ${k.name}` : ''}` : html`${r.label}${k.name ? html` · <span class="mono small">${k.name}</span>` : ''}`}</td>
-          <td>${k.play_url ? html`<audio class="row-audio" controls preload="none" src="${k.play_url}"></audio>` : html`<span class="muted">No recording</span>`}</td>
-        </tr>`)}</tbody></table></div>
-        <p class="muted small">${r.calls.length} call${r.calls.length === 1 ? '' : 's'} for the customer's ${r.numbers === 2 ? 'two numbers' : 'number'}.</p>`.s
-        : html`<p class="muted small">No calls found for the customer's ${r.numbers === 2 ? 'numbers' : 'number'}${r.enabled ? ` on ${r.label}` : ''}.</p>`.s;
-    } catch (ex) { out.innerHTML = html`<p class="error">${ex.message}</p>`.s; }
+    try { render(await api(`/cases/${card.dataset.case}/calls`)); } catch (ex) { out.innerHTML = html`<p class="error">${ex.message}</p>`.s; }
     btn.disabled = false; btn.textContent = first;
   };
-  const first = btn.textContent;
 }
 
 async function viewCase(id) {

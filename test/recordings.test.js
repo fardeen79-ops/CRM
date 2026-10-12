@@ -36,6 +36,7 @@ before(async () => {
   add('SM One', 'sm@t.local', 'sales_manager', { region: 'DXB' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
   add('Sally', 'sally@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'credit_card', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm@t.local'], salary: 5000 });
+  add('Pam', 'proc@t.local', 'processing', { region: 'DXB' });
   add('Gina', 'gov@t.local', 'governance', { region: 'DXB' });
   add('Bilal', 'head@t.local', 'business_head', { region: 'DXB', hrms_code: 'EN3' });
   add('Mira', 'mis@t.local', 'mis', { region: 'DXB', hrms_code: 'EN2' });
@@ -98,8 +99,20 @@ test('a folder of recordings: the calls for the customer, newest first, with the
   assert.equal((await sally('GET', `/cases/${id}`)).data.case.calls_lookup, null, 'sales staff cannot look calls up');
   assert.equal((await sally('GET', `/cases/${id}/calls`)).status, 403);
   assert.equal((await mis('GET', `/cases/${id}/calls`)).status, 403, 'MIS neither');
-  assert.deepEqual((await gina('GET', `/cases/${id}`)).data.case.calls_lookup, { enabled: true, label: 'the PBX' });
+  // Locked until governance requests the recording and the business head approves it.
+  assert.deepEqual((await gina('GET', `/cases/${id}`)).data.case.calls_lookup, { enabled: true, label: 'the PBX', unlocked: false, status: null, can_rate: true });
+  let locked = await gina('GET', `/cases/${id}/calls`);
+  assert.equal(locked.status, 403); assert.match(locked.data.error, /requests the call recording and the business head approves/);
+  const head = await login('head@t.local'); const pam = await login('proc@t.local');
+  assert.equal((await pam('POST', `/cases/${id}/actions`, { action: 'claim' })).status, 200);
+  assert.equal((await pam('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Customer confirmed' })).status, 200);
+  assert.equal((await gina('POST', `/cases/${id}/actions`, { action: 'request_recording', note: 'Complaint about the rate explained' })).status, 200);
+  locked = await gina('GET', `/cases/${id}/calls`);
+  assert.equal(locked.status, 403); assert.match(locked.data.error, /business head has to approve/);
+  assert.equal((await head('POST', `/cases/${id}/actions`, { action: 'approve_recording', note: 'Go ahead' })).status, 200);
+  assert.deepEqual((await gina('GET', `/cases/${id}`)).data.case.calls_lookup, { enabled: true, label: 'the PBX', unlocked: true, status: 'approved', can_rate: true });
   const { data } = await gina('GET', `/cases/${id}/calls`);
+  assert.deepEqual([data.unlocked, data.can_rate], [true, true]);
   assert.deepEqual([data.enabled, data.label, data.numbers, data.calls.length], [true, 'the PBX', 1, 2], 'the other customer and the text file are left out');
   assert.deepEqual(data.calls.map((k) => [k.started_at, k.direction, k.duration_s, k.extension, k.name, k.playable]), [
     ['2026-10-06T10:15:00.000Z', 'outbound', 3, '201', '20261006-141500-out-0503334444-ext201.wav', true],
@@ -113,11 +126,26 @@ test('a folder of recordings: the calls for the customer, newest first, with the
   assert.deepEqual([audio.status, audio.type, audio.body.length], [200, 'audio/wav', wav(7).length]);
   assert.equal((await sally.raw(data.calls[1].play_url)).status, 403);
   assert.equal((await gina.raw('/api/recordings/' + 'a'.repeat(32) + `?case=${id}`)).status, 404, 'only a recording the CRM listed can be played');
+  // The first listen on the approved request marks the recording as received on the file.
+  const after = (await gina('GET', `/cases/${id}`)).data.case;
+  assert.equal(after.recording_status, 'received'); assert.match(after.recording_ref, /Heard on the recording server \(the PBX\)/);
+  assert.ok(after.events.some((e) => e.type === 'receive_recording'));
+  // Governance rates the call it heard; the business head cannot.
+  const bad = await gina('POST', `/cases/${id}/calls/${data.calls[1].id}/rating`, { score: 11 });
+  assert.equal(bad.status, 400);
+  const rated = await gina('POST', `/cases/${id}/calls/${data.calls[1].id}/rating`, { score: 7.5, note: 'Rate explained, tenure not', name: data.calls[1].name });
+  assert.equal(rated.status, 200, JSON.stringify(rated.data));
+  assert.deepEqual([rated.data.rating.score, rated.data.rating.note, rated.data.rating.rated_by_name], [7.5, 'Rate explained, tenure not', 'Gina']);
+  assert.equal((await head('POST', `/cases/${id}/calls/${data.calls[1].id}/rating`, { score: 5 })).status, 403);
+  const again = (await gina('GET', `/cases/${id}/calls`)).data;
+  assert.equal(again.calls[1].rating.score, 7.5); assert.equal(again.calls[0].rating, null);
+  assert.equal((await gina('POST', `/cases/${id}/calls/${data.calls[1].id}/rating`, { score: 8 })).status, 200, 'a rating can be revised');
+  assert.equal((await gina('GET', `/cases/${id}/calls`)).data.calls[1].rating.score, 8);
+  assert.ok((await gina('GET', `/cases/${id}`)).data.case.events.filter((e) => e.type === 'rate_call').length === 2);
   // The access log shows the lookup and the listen.
-  const head = await login('head@t.local');
   const acc = (await head('GET', '/reports/access?from=2026-01-01&to=2026-12-31')).data;
   const g = acc.rows.find((x) => x.user === 'Gina');
-  assert.equal(g.listens, 2);
+  assert.equal(g.listens, 2, 'the lookups within five minutes count once, plus the listen');
   assert.ok(acc.columns.some((c) => c.key === 'listens'));
 });
 
@@ -127,6 +155,11 @@ test('an HTTP recording API: the list is mapped and the audio fetched with the t
   const r = await sally('POST', '/cases', { region: 'DXB', phone: '050 333 4444', alt_phone: '+971 50 999 8888', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   const id = r.data.case.id;
+  const pam = await login('proc@t.local', pbxBase); const head = await login('head@t.local', pbxBase);
+  assert.equal((await pam('POST', `/cases/${id}/actions`, { action: 'claim' })).status, 200);
+  assert.equal((await pam('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Customer confirmed' })).status, 200);
+  assert.equal((await gina('POST', `/cases/${id}/actions`, { action: 'request_recording', note: 'QC sample' })).status, 200);
+  assert.equal((await head('POST', `/cases/${id}/actions`, { action: 'approve_recording', note: 'ok' })).status, 200);
   const { data } = await gina('GET', `/cases/${id}/calls`);
   assert.deepEqual([data.enabled, data.label, data.numbers], [true, 'the PBX API', 2]);
   assert.deepEqual(data.calls.map((k) => [k.name, k.started_at, k.duration_s, k.direction, k.extension, k.agent, k.playable]), [

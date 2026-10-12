@@ -159,12 +159,27 @@ const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http
 // Who adds and edits staff: MIS and business heads.
 const USER_ADMINS = ['mis', 'business_head'];
 
-/** The calls for a file's customer: the recording server's, then the CRM's own bot calls to the same numbers (any file). */
-async function customerCalls(db, user, recordings, caseId) {
+/** The recording server's calls are opened only once the business head has approved a recording request on the file. */
+const RECORDING_UNLOCKED = ['approved', 'received'];
+const callsUnlocked = (row) => RECORDING_UNLOCKED.includes(row.recording_status);
+/** What the file page says about looking the calls up: who may, whether the server is connected, and whether the approval is in place. */
+function callsLookupState(user, row, recordings) {
+  if (!cases.canListenToBotCalls(user)) return null;
+  return { enabled: recordings.enabled, label: recordings.label, unlocked: callsUnlocked(row), status: row.recording_status || null, can_rate: user.role === 'governance' };
+}
+/** The file, for someone who may hear its calls, once the approval is in place. */
+function unlockedCase(db, user, caseId, { lookup = true } = {}) {
   if (!cases.canListenToBotCalls(user)) throw new HttpError(403, 'Only governance, business heads and the verification team leader can look up calls');
-  const row = db.prepare('SELECT id, phone, alt_phone FROM cases WHERE id = ?').get(caseId);
+  const row = db.prepare('SELECT id, phone, alt_phone, customer_name, recording_status, recording_requested_by FROM cases WHERE id = ?').get(caseId);
   if (!row) throw new HttpError(404, 'Case not found');
   cases.getCase(db, user, caseId); // may they open the file?
+  if (lookup && !callsUnlocked(row)) throw new HttpError(403, row.recording_status === 'pending_approval' ? 'The business head has to approve the recording request before the calls can be looked up' : 'Governance requests the call recording and the business head approves it before the calls can be looked up');
+  return row;
+}
+
+/** The calls for a file's customer: the recording server's, then the CRM's own bot calls to the same numbers (any file). */
+async function customerCalls(db, user, recordings, caseId) {
+  const row = unlockedCase(db, user, caseId);
   cases.logAccess(db, user, caseId, 'calls:lookup');
   const numbers = [row.phone, row.alt_phone].filter(Boolean);
   const digits = numbers.map((n) => String(n).replace(/\D/g, '').slice(-9)).filter(Boolean);
@@ -175,7 +190,26 @@ async function customerCalls(db, user, recordings, caseId) {
   const bot = bots.map((b) => ({ id: `bot:${b.id}`, source: 'bot', case_id: b.case_id, ref: cases.caseRef(b.case_id), started_at: b.placed_at || b.finished_at || b.requested_at, duration_s: null, direction: 'outbound',
     extension: null, agent: `Verification bot (asked for by ${b.requested_by_name})`, name: b.outcome ? String(b.outcome).replace(/_/g, ' ') : b.status, playable: Boolean(b.has_recording), play_url: b.has_recording ? `/api/bot/calls/${b.id}/recording` : null }));
   const server = (await recordings.calls(numbers)).map((r) => ({ ...r, play_url: r.playable ? `/api/recordings/${r.id}?case=${caseId}` : null }));
-  return { enabled: recordings.enabled, label: recordings.label, numbers: numbers.length, calls: [...server, ...bot].sort((a, b) => String(b.started_at || '').localeCompare(String(a.started_at || ''))) };
+  // Governance's ratings, by call.
+  const ratings = new Map(db.prepare('SELECT r.call_key, r.score, r.note, r.rated_at, u.name AS rated_by_name FROM call_ratings r JOIN users u ON u.id = r.rated_by WHERE r.case_id = ?').all(caseId).map((r) => [r.call_key, r]));
+  const withRating = (k) => ({ ...k, rating: ratings.get(String(k.id)) || null });
+  return { enabled: recordings.enabled, label: recordings.label, unlocked: true, can_rate: user.role === 'governance', numbers: numbers.length, calls: [...server, ...bot].map(withRating).sort((a, b) => String(b.started_at || '').localeCompare(String(a.started_at || ''))) };
+}
+
+/** Governance rates a call it heard: 0 to 10, one decimal, with a note. */
+function rateCall(db, user, caseId, key, { score, note, name }) {
+  if (user.role !== 'governance') throw new HttpError(403, 'Only governance rates calls');
+  const row = unlockedCase(db, user, caseId);
+  const n = Number(score);
+  if (score === '' || score == null || !Number.isFinite(n) || n < 0 || n > cases.SCORE_MAX || Math.round(n * 10) !== n * 10) throw new HttpError(400, `Score must be from 0 to ${cases.SCORE_MAX}, with at most one decimal place`);
+  const k = String(key || '').slice(0, 80);
+  if (!/^(bot:\d+|[0-9a-f]{32})$/.test(k)) throw new HttpError(400, 'Which call?');
+  const ts = new Date().toISOString();
+  const text = note == null ? null : String(note).trim().slice(0, 2000) || null;
+  db.prepare('INSERT INTO call_ratings (case_id, call_key, call_name, score, note, rated_by, rated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(case_id, call_key) DO UPDATE SET call_name = excluded.call_name, score = excluded.score, note = excluded.note, rated_by = excluded.rated_by, rated_at = excluded.rated_at')
+    .run(caseId, k, name == null ? null : String(name).slice(0, 200), n, text, user.id, ts);
+  cases.addEvent(db, caseId, user.id, 'rate_call', { detail: `${n}/${cases.SCORE_MAX}${name ? ` · ${String(name).slice(0, 120)}` : ''}`, note: text });
+  return { rating: { call_key: k, score: n, note: text, rated_at: ts, rated_by_name: user.name } };
 }
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
 const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/;
@@ -298,16 +332,22 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
       const result = cases.getCase(db, user, Number(params[0]));
       cases.logAccess(db, user, Number(params[0]), 'view');
       // Whether this person may look up the customer's calls on the recording server (the lookup itself is a separate call).
-      result.calls_lookup = cases.canListenToBotCalls(user) ? { enabled: recordings.enabled, label: recordings.label } : null;
+      result.calls_lookup = callsLookupState(user, result, recordings);
       return { case: result };
     }],
     // Every call to or from the customer's numbers: on the recording server, plus the CRM's own bot calls.
     ['GET', /^\/api\/cases\/(\d+)\/calls$/, async ({ user, params }) => customerCalls(db, user, recordings, Number(params[0]))],
+    ['POST', /^\/api\/cases\/(\d+)\/calls\/([A-Za-z0-9:]+)\/rating$/, async ({ user, params, body }) => rateCall(db, user, Number(params[0]), params[1], body)],
     ['GET', /^\/api\/recordings\/([0-9a-f]{32})$/, async ({ user, params, query, res }) => {
-      if (!cases.canListenToBotCalls(user)) throw new HttpError(403, 'Only governance, business heads and the verification team leader can listen to calls');
       const caseId = Number(query.get('case'));
-      cases.getCase(db, user, caseId); // the listener must be able to open the file the lookup came from
+      const row = unlockedCase(db, user, caseId);
       cases.logAccess(db, user, caseId, 'listen:recording');
+      // The first listen on an approved request is the recording arriving: the file shows it as received.
+      if (row.recording_status === 'approved') {
+        const ts = new Date().toISOString();
+        db.prepare(`UPDATE cases SET recording_status = 'received', recording_ref = ?, recording_provided_by = ?, recording_provided_at = ?, updated_at = ? WHERE id = ?`).run(`Heard on the recording server${recordings.label ? ` (${recordings.label})` : ''}`, user.id, ts, ts, caseId);
+        cases.addEvent(db, caseId, user.id, 'receive_recording', { detail: `Played from ${recordings.label || 'the recording server'}` });
+      }
       await recordings.stream(params[0], res);
     }],
 

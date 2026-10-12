@@ -450,6 +450,19 @@ CREATE TABLE IF NOT EXISTS targets (
   PRIMARY KEY (user_id, cycle, product)
 );
 
+-- Governance's rating of a call heard through the CRM (a recording the recording server listed, or a bot call).
+CREATE TABLE IF NOT EXISTS call_ratings (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id   INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  call_key  TEXT NOT NULL,
+  call_name TEXT,
+  score     REAL NOT NULL,
+  note      TEXT,
+  rated_by  INTEGER NOT NULL REFERENCES users(id),
+  rated_at  TEXT NOT NULL,
+  UNIQUE (case_id, call_key)
+);
+
 -- Automated verification calls placed by the calling bot. The bot reports back to a callback URL
 -- that carries the call's one-time token. Only the outcome of each check is kept, never the values.
 CREATE TABLE IF NOT EXISTS bot_calls (

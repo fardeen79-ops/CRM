@@ -912,6 +912,12 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .calls-table td, .calls-table th { font-size: 13px; white-space: nowrap; }
 .calls-table td:last-child { min-width: 260px; }
 .calls-table tbody tr { cursor: default; }
+.calls-table td { white-space: normal; }
+.calls-table td:first-child { white-space: nowrap; }
+.rating { display: grid; gap: 6px; min-width: 220px; }
+.rate-form { display: grid; grid-template-columns: 72px 1fr auto; gap: 6px; align-items: center; }
+.rate-form input { padding: 5px 8px; font-size: 13px; }
+.rate-form button { padding: 5px 10px; font-size: 13px; }
 .row-audio { display: block; height: 32px; min-width: 240px; }
 
 /* "Powered by STRIDE" bar at the foot of every screen (brand write-up, page 4).
