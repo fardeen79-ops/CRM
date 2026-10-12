@@ -41,3 +41,7 @@ the pre-installed Chromium.) The screenshots themselves are not kept in the repo
 taken again from the demo at 1500×820, or the ids can be read back from the deck's asset store.
 
 The second deck, the product overview, is at https://claude.ai/artifact/Xb7XiJHSYA25TGiAwjJMCk.
+
+## deploy-guide/
+
+The IT deployment guide. `guide.html` is the source; `node tools/deploy-guide/render.cjs` prints it to `deploy/STRIDE-IT-Deployment-Guide.pdf` with Chromium (Playwright). Edit the HTML, re-render, commit both.

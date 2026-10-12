@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>STRIDE — IT Deployment Guide</title>
+<style>
+  @page { size: A4; margin: 22mm 18mm 22mm 18mm; }
+  :root { --ink: #14213D; --muted: #5A6473; --line: #D6DAE2; --soft: #F4F5F7; --amber: #B5651D; --navy: #10233F; }
+  html { font-size: 11pt; }
+  body { font-family: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif; color: #1a1a1a; line-height: 1.5; margin: 0; }
+  h1 { font-family: "Source Serif 4", Georgia, "Times New Roman", serif; font-weight: 600; font-size: 30pt; line-height: 1.15; margin: 0 0 10pt; color: var(--ink); }
+  h2 { font-family: "Source Serif 4", Georgia, "Times New Roman", serif; font-weight: 600; font-size: 19pt; margin: 26pt 0 8pt; color: var(--ink); page-break-after: avoid; }
+  h3 { font-size: 12pt; font-weight: 700; margin: 16pt 0 6pt; color: var(--ink); page-break-after: avoid; }
+  p { margin: 0 0 8pt; }
+  .meta { display: inline-flex; gap: 8pt; background: var(--soft); border-radius: 6pt; padding: 3pt 9pt; font-size: 9.5pt; color: var(--muted); margin-bottom: 14pt; }
+  .lede { font-size: 11.5pt; }
+  code { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 9.3pt; background: var(--soft); border-radius: 3pt; padding: 1pt 4pt; }
+  pre { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 9pt; line-height: 1.45; background: var(--soft); border-radius: 6pt; padding: 10pt 12pt; white-space: pre-wrap; word-break: break-word; margin: 6pt 0 10pt; page-break-inside: avoid; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 12pt; font-size: 10pt; page-break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 5pt 7pt; text-align: left; vertical-align: top; }
+  th { background: var(--soft); color: var(--muted); font-weight: 500; }
+  tr { page-break-inside: avoid; }
+  ol, ul { margin: 0 0 8pt; padding-left: 18pt; }
+  li { margin-bottom: 3pt; }
+  .check li { list-style: none; position: relative; padding-left: 16pt; }
+  .check li::before { content: ""; position: absolute; left: 0; top: 4pt; width: 9pt; height: 9pt; border: 1px solid #999; border-radius: 2pt; }
+  .note { border-left: 3pt solid var(--amber); background: #FBF4EA; padding: 7pt 10pt; border-radius: 0 6pt 6pt 0; margin: 8pt 0 12pt; }
+  .fig { margin: 8pt 0 4pt; }
+  .cap { font-size: 9pt; color: var(--muted); margin: 0 0 12pt; }
+  .brand { display: flex; align-items: center; gap: 10pt; margin: 0 0 10pt; }
+  .brand .word { font-family: Manrope, "Avenir Next", "Helvetica Neue", Arial, sans-serif; font-weight: 800; font-size: 22pt; letter-spacing: .06em; color: var(--navy); }
+  .brand .word b { color: #E0962E; font-weight: inherit; }
+  .brand .tag { color: var(--muted); font-size: 10pt; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <svg viewBox="0 0 120 120" width="36" height="36" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#10233F"/><path d="M22 30 L48 60 L22 90" fill="none" stroke="#7A8595" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><path d="M46 30 L72 60 L46 90" fill="none" stroke="#B9C2D0" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><path d="M70 30 L96 60 L70 90" fill="none" stroke="#E0962E" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span class="word">STRID<b>E</b></span><span class="tag">Sales in stride.</span>
+</div>
+<h1>IT Deployment Guide</h1>
+<div class="meta"><span>Version 2 · 12 October 2026</span><span>·</span><span>Derby Group · prepared by Fardeen Ismail</span></div>
+
+<h2>What IT is being asked to set up</h2>
+<p class="lede">STRIDE (the sourcing CRM) is one Node.js service with a single SQLite database file. It needs no database server and no message queue; its one package dependency ships in the archive. IT provides a Linux server inside the bank network, a DNS name with a TLS certificate and the HTTPS reverse proxy in front. Installation takes about an hour. The optional calling bot is a second small service on the same server, described in Step 7; it needs the company's SIP line details and two open-source speech programs.</p>
+
+<table>
+<tr><th style="width:22%">Item</th><th>Requirement</th></tr>
+<tr><td>Server</td><td>Linux VM or container, 2 vCPU, 2 GB RAM, 20 GB disk (the database grows about 1 MB per 1,000 files). With the calling bot: 4 vCPU and 4 GB RAM, as speech recognition runs on the CPU.</td></tr>
+<tr><td>Runtime</td><td>Node.js 22.13 or newer, or Docker Engine 24+ with the compose plugin</td></tr>
+<tr><td>Network</td><td>HTTPS from staff laptops and phones to the server; the server needs no outbound internet. The calling bot needs UDP to the SIP provider only.</td></tr>
+<tr><td>DNS and TLS</td><td>A name such as <code>crm-test.yourbank.ae</code> with a certificate the bank's browsers trust</td></tr>
+<tr><td>Source code</td><td>The <code>fardeen79-ops/crm</code> repository, branch <code>claude/sales-sourcing-crm-workflow-rdlw4h</code>, delivered as an archive, a Git mirror or a Docker image (Step 2)</td></tr>
+<tr><td>Storage</td><td>The database directory on backed-up, encrypted storage; the bot's recordings folder likewise</td></tr>
+</table>
+<p>HTTPS is mandatory, not optional. The sign-in cookie is marked Secure, and browsers only allow the camera (lead-sheet scanner) and microphone (voice typing) on HTTPS pages.</p>
+
+<h3>Who does what</h3>
+<table>
+<tr><th style="width:38%">Role</th><th>Responsibility</th></tr>
+<tr><td>IT infrastructure</td><td>Server, DNS, certificate, reverse proxy, firewall, backups, updates (Steps 1 to 6), the calling bot's line and speech programs (Step 7)</td></tr>
+<tr><td>Business owner (the person requesting this)</td><td>Names the first business head and the MIS user, provides the SIP line details, and signs off the acceptance test (Steps 5 and 9)</td></tr>
+<tr><td>MIS user</td><td>Bulk uploads of users, files, targets and card activation inside the app</td></tr>
+<tr><td>Information security and compliance</td><td>Review the security notes before real customer data is entered; approve the caller number and recording notice before bot calls go live</td></tr>
+</table>
+
+<h2>Architecture</h2>
+<svg class="fig" viewBox="0 0 760 300" width="100%" role="img" aria-label="Staff devices reach the HTTPS gateway; the gateway forwards to the STRIDE app, which reads one SQLite file; the optional calling bot sits beside the app and dials over the SIP line">
+<rect x="150" y="14" width="596" height="272" rx="12" fill="#F4F5F7" stroke="#D6DAE2"/>
+<text x="166" y="36" font-size="11" fill="#5A6473">App server inside the bank network</text>
+<rect x="8" y="80" width="118" height="64" rx="8" fill="#fff" stroke="#D6DAE2"/><text x="67" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#14213D">Staff devices</text><text x="67" y="122" text-anchor="middle" font-size="10" fill="#5A6473">laptops and phones</text><text x="67" y="135" text-anchor="middle" font-size="10" fill="#5A6473">browser only</text>
+<rect x="166" y="80" width="136" height="64" rx="8" fill="#fff" stroke="#D6DAE2"/><text x="234" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#14213D">HTTPS gateway</text><text x="234" y="122" text-anchor="middle" font-size="10" fill="#5A6473">bank gateway or nginx</text><text x="234" y="135" text-anchor="middle" font-size="10" fill="#5A6473">port 443, TLS certificate</text>
+<rect x="340" y="80" width="150" height="64" rx="8" fill="#EEF2FA" stroke="#10233F" stroke-width="2"/><text x="415" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#14213D">STRIDE app</text><text x="415" y="122" text-anchor="middle" font-size="10" fill="#5A6473">Node.js 22 service</text><text x="415" y="135" text-anchor="middle" font-size="10" fill="#5A6473">127.0.0.1:3000</text>
+<rect x="596" y="80" width="134" height="64" rx="8" fill="#fff" stroke="#D6DAE2"/><text x="663" y="105" text-anchor="middle" font-size="12" font-weight="700" fill="#14213D">SQLite file</text><text x="663" y="122" text-anchor="middle" font-size="10" fill="#5A6473">crm.db</text><text x="663" y="135" text-anchor="middle" font-size="10" fill="#5A6473">encrypted disk</text>
+<rect x="340" y="196" width="150" height="72" rx="8" fill="#fff" stroke="#1F7A8C" stroke-width="2" stroke-dasharray="5 4"/><text x="415" y="219" text-anchor="middle" font-size="12" font-weight="700" fill="#14213D">Calling bot (optional)</text><text x="415" y="236" text-anchor="middle" font-size="10" fill="#5A6473">bot/sip-server.js · :4000</text><text x="415" y="250" text-anchor="middle" font-size="10" fill="#5A6473">speech programs, recordings</text><text x="415" y="263" text-anchor="middle" font-size="10" fill="#5A6473">on this server</text>
+<rect x="596" y="200" width="134" height="64" rx="8" fill="#fff" stroke="#D6DAE2"/><text x="663" y="225" text-anchor="middle" font-size="12" font-weight="700" fill="#14213D">Nightly backup</text><text x="663" y="242" text-anchor="middle" font-size="10" fill="#5A6473">backup.sh, 30 days</text>
+<rect x="8" y="200" width="118" height="64" rx="8" fill="#fff" stroke="#D6DAE2"/><text x="67" y="225" text-anchor="middle" font-size="12" font-weight="700" fill="#14213D">SIP provider</text><text x="67" y="242" text-anchor="middle" font-size="10" fill="#5A6473">the company's line</text><text x="67" y="255" text-anchor="middle" font-size="10" fill="#5A6473">UDP 5060 + audio</text>
+<g stroke="#5A6473" stroke-width="1.5" fill="none"><path d="M126 112 H166"/><path d="M302 112 H340"/><path d="M490 112 H596"/><path d="M415 144 V196"/><path d="M663 144 V200"/><path d="M340 232 H126"/></g>
+<g font-size="9.5" fill="#5A6473"><text x="131" y="106">https</text><text x="309" y="106">http</text><text x="420" y="175">signed requests</text><text x="200" y="226">SIP + RTP, outbound only</text></g>
+</svg>
+<p class="cap">Deployment architecture: four components, the calling bot and backup optional.</p>
+<p>Staff browsers reach the gateway on port 443 only; the gateway forwards to the app on the loopback port, and the app reads and writes one database file. The app makes outbound connections only to alert webhooks, and only when IT configures them. The calling bot talks to the app over signed HTTP on the loopback port and to the SIP provider over UDP; the audio, the speech recognition and the recordings never leave the server.</p>
+
+<h2>Step 1: Prepare the server</h2>
+<p>One Ubuntu 22.04 or 24.04 LTS server (or RHEL 9) inside the bank network, reachable from staff devices on port 443 only.</p>
+<ol>
+<li>Create the server and give it the DNS name (for example <code>crm-test.yourbank.ae</code>). Confirm the name resolves from a staff laptop.</li>
+<li>Obtain the TLS certificate and private key for that name from the bank's CA. Place them at <code>/etc/ssl/certs/&lt;name&gt;.crt</code> and <code>/etc/ssl/private/&lt;name&gt;.key</code>.</li>
+<li>Firewall: allow inbound 443 (and 80 only for the redirect) from staff networks; allow 22 from the IT admin network. Block everything else inbound. No outbound internet is required. With the calling bot, allow outbound UDP 5060 and UDP 10000–20000 to the SIP provider's addresses only (Step 7).</li>
+<li>Install git and either Node.js 22 or Docker:
+<pre># Node.js route (Ubuntu)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs git sqlite3
+node --version        # must print v22.13.0 or newer
+
+# Docker route
+sudo apt-get install -y git docker.io docker-compose-v2
+sudo systemctl enable --now docker</pre></li>
+<li>Node.js route only: create the service account and folders.
+<pre>sudo useradd -r -s /usr/sbin/nologin crm
+sudo mkdir -p /opt/sourcing-crm /var/lib/sourcing-crm /var/backups/sourcing-crm</pre></li>
+<li>Make sure <code>/var/lib/sourcing-crm</code> (or the Docker volume) is on encrypted disk and is included in the server backup policy.</li>
+<li>Set the server clock to sync with NTP. Sales cycles, calling hours and call-back times are computed in UAE time from the server clock.</li>
+</ol>
+
+<h2>Step 2: Getting the code onto the server</h2>
+<p>The repository is on a personal GitHub account, which the bank server will usually not be allowed to reach. Transfer the code once as a file, then let the server work from a local copy. Pick one of three ways; in Step 3 replace the <code>git clone</code> and <code>git checkout</code> lines with the matching "on the server" commands below.</p>
+
+<h3>Option 1: Source archive (works for both routes, simplest)</h3>
+<p>On the personal machine, with Node.js 22 installed:</p>
+<pre>git clone https://github.com/fardeen79-ops/crm.git sourcing-crm
+cd sourcing-crm
+git checkout claude/sales-sourcing-crm-workflow-rdlw4h
+npm ci --omit=dev                      # the one package (needs internet, so do it here; it goes in the archive)
+npm run setup:ocr                      # lead-sheet scanner files (needs internet, so do it here)
+tar czf ../sourcing-crm.tar.gz --exclude=.git --exclude=data --exclude='*.db' --exclude=.env .
+sha256sum ../sourcing-crm.tar.gz       # note the checksum</pre>
+<p>Move <code>sourcing-crm.tar.gz</code> (about 25 MB) to the server by the bank's approved method: secure file transfer portal, SFTP from the admin network, or encrypted USB. Then on the server:</p>
+<pre>sha256sum /path/to/sourcing-crm.tar.gz   # must match the checksum noted above
+sudo mkdir -p /opt/sourcing-crm
+sudo tar xzf /path/to/sourcing-crm.tar.gz -C /opt/sourcing-crm</pre>
+<p>Skip <code>npm ci</code> and <code>npm run setup:ocr</code> in Step 3; the package and scanner files are already in the archive. Updates arrive as a new archive: stop the service, extract over <code>/opt/sourcing-crm</code>, start the service. The database is in <code>/var/lib/sourcing-crm</code>, not in the code folder, so it is untouched.</p>
+
+<h3>Option 2: Push to the bank's internal Git (best for ongoing updates)</h3>
+<p>If IT runs GitLab, Bitbucket or Azure DevOps, create an empty project there and ask for the person's account to have push rights. On the personal machine:</p>
+<pre>git clone --mirror https://github.com/fardeen79-ops/crm.git
+cd crm.git
+git push --mirror https://git.yourbank.ae/sales/sourcing-crm.git</pre>
+<p>The server then follows Step 3 exactly, with the internal URL in place of the GitHub one. Future updates are a <code>git push</code> from the personal machine and a <code>git pull</code> on the server. The package and the scanner files still need internet once (<code>npm ci --omit=dev</code> and <code>npm run setup:ocr</code>), so run those on the personal machine and commit <code>node_modules</code> and <code>public/vendor/tesseract</code> to the internal repository (both are git-ignored here; use <code>git add -f</code>), or transfer those folders with Option 1.</p>
+
+<h3>Option 3: Docker image file (Docker route only)</h3>
+<p>Build the image on the personal machine and move the finished image, so the server needs neither GitHub nor the Docker Hub base image.</p>
+<pre># personal machine
+git clone https://github.com/fardeen79-ops/crm.git sourcing-crm && cd sourcing-crm
+git checkout claude/sales-sourcing-crm-workflow-rdlw4h
+docker build -f deploy/Dockerfile -t sourcing-crm:2.0 .
+docker save sourcing-crm:2.0 | gzip > sourcing-crm-2.0.tar.gz   # about 80 MB</pre>
+<p>Transfer <code>sourcing-crm-2.0.tar.gz</code>, <code>deploy/docker-compose.yml</code> and <code>deploy/.env.example</code> to the server. On the server:</p>
+<pre>docker load < sourcing-crm-2.0.tar.gz
+mkdir -p /opt/sourcing-crm/deploy && cp docker-compose.yml .env.example /opt/sourcing-crm/deploy/</pre>
+<p>Edit <code>/opt/sourcing-crm/deploy/docker-compose.yml</code>: delete the <code>build:</code> block and its two lines under it, and add <code>image: sourcing-crm:2.0</code> in its place. Then run the <code>docker compose ... up -d</code> command from Step 3 without <code>--build</code>. Each update is a new image file with a new tag.</p>
+<p>Whichever option is used, the transferred file contains code only, no customer data. Keep the checksum with the change record so IT can show what was installed.</p>
+
+<h2>Step 3: Install and start the app</h2>
+<p>Pick one route. Docker is simpler; systemd is for servers where Docker is not approved. Both end with the app listening on <code>127.0.0.1:3000</code>, reachable only by the reverse proxy on the same host.</p>
+
+<h3>Route A: Docker</h3>
+<pre>git clone https://github.com/fardeen79-ops/crm.git /opt/sourcing-crm
+cd /opt/sourcing-crm
+git checkout claude/sales-sourcing-crm-workflow-rdlw4h
+cp deploy/.env.example deploy/.env
+nano deploy/.env                         # fill in: see Step 4
+chmod 600 deploy/.env
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+docker compose -f deploy/docker-compose.yml logs -f crm   # Ctrl-C when you see "listening"</pre>
+<p>The database lives in the Docker volume <code>crm-data</code> (<code>docker volume inspect deploy_crm-data</code> shows its path on disk). The image is built from the repository; the only download from a public registry is the <code>node:22-alpine</code> base image, which IT can mirror internally if required.</p>
+
+<h3>Route B: systemd (no Docker)</h3>
+<pre>sudo git clone https://github.com/fardeen79-ops/crm.git /opt/sourcing-crm
+cd /opt/sourcing-crm
+sudo git checkout claude/sales-sourcing-crm-workflow-rdlw4h
+sudo npm ci --omit=dev                   # the one package (the verification bot's AI client)
+sudo npm run setup:ocr                   # copies the lead-sheet scanner files so they are served locally
+sudo cp deploy/.env.example /etc/sourcing-crm.env
+sudo nano /etc/sourcing-crm.env          # fill in: see Step 4
+sudo chmod 600 /etc/sourcing-crm.env
+sudo chown -R crm:crm /opt/sourcing-crm /var/lib/sourcing-crm
+sudo cp deploy/sourcing-crm.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sourcing-crm
+sudo journalctl -u sourcing-crm -f       # Ctrl-C when you see "listening"</pre>
+<p>The unit file runs as the unprivileged <code>crm</code> user with <code>ProtectSystem=strict</code>, so the process can only write to <code>/var/lib/sourcing-crm</code>. Without <code>npm ci</code> the CRM still starts; only the verification bot's AI stays off.</p>
+<p><strong>Check it is up</strong> (either route):</p>
+<pre>curl -s http://127.0.0.1:3000/api/me | head -c 200</pre>
+<p>A JSON response means the app is running. The first start creates the database and the first business head account from <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code>.</p>
+
+<h2>Step 4: HTTPS and the reverse proxy</h2>
+<p>Terminate TLS on the bank's existing web gateway (F5, Citrix ADC, Apache, nginx) and forward to <code>http://&lt;server&gt;:3000</code>. If no gateway is available, install nginx on the same server and use the file <code>deploy/nginx.conf</code> from the repository.</p>
+<pre>sudo apt-get install -y nginx
+sudo cp /opt/sourcing-crm/deploy/nginx.conf /etc/nginx/sites-available/sourcing-crm
+sudo nano /etc/nginx/sites-available/sourcing-crm   # set server_name and the two certificate paths
+sudo ln -s /etc/nginx/sites-available/sourcing-crm /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx</pre>
+<p>Whatever proxy is used, it must:</p>
+<table>
+<tr><th style="width:22%">Setting</th><th style="width:40%">Value</th><th>Why</th></tr>
+<tr><td>Upstream</td><td><code>http://127.0.0.1:3000</code> (or the app server's IP on a gateway)</td><td>The app itself</td></tr>
+<tr><td>HTTP to HTTPS</td><td>Redirect port 80 to 443</td><td>Sign-in only works on HTTPS</td></tr>
+<tr><td>TLS versions</td><td>TLS 1.2 and 1.3 only</td><td>Bank standard</td></tr>
+<tr><td>Forwarded headers</td><td><code>Host</code>, <code>X-Forwarded-Proto: https</code>, <code>X-Forwarded-For</code></td><td>Correct links and audit log IP addresses</td></tr>
+<tr><td>Request body limit</td><td>8 MB</td><td>Bulk upload spreadsheets and lead-sheet photos</td></tr>
+<tr><td>Read timeout</td><td>60 seconds</td><td>Bulk uploads of a few thousand rows</td></tr>
+<tr><td>Response headers</td><td><code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: no-referrer</code>, <code>Strict-Transport-Security: max-age=31536000</code></td><td>Prevents framing and leaks</td></tr>
+</table>
+<p>If the app runs on a different host from the gateway, change the Docker port mapping or add a firewall rule so that only the gateway can reach port 3000. Then open <code>https://crm-test.yourbank.ae</code> in a browser; the sign-in page should load with a valid padlock and the "Powered by STRIDE" bar at the foot.</p>
+
+<h2>Step 5: Configuration reference</h2>
+<p>All settings are environment variables in <code>/etc/sourcing-crm.env</code> (systemd) or <code>deploy/.env</code> (Docker). The file holds a password, so keep it mode 600 and never commit it. Restart the service after any change.</p>
+<table>
+<tr><th style="width:26%">Variable</th><th style="width:11%">Required</th><th style="width:28%">Value</th><th>Notes</th></tr>
+<tr><td><code>PORT</code></td><td>No</td><td><code>3000</code></td><td>Port the app listens on behind the proxy</td></tr>
+<tr><td><code>DB_FILE</code></td><td>Yes</td><td><code>/var/lib/sourcing-crm/crm.db</code></td><td>SQLite database file. Docker sets <code>/data/crm.db</code> automatically</td></tr>
+<tr><td><code>COOKIE_SECURE</code></td><td>Yes</td><td><code>1</code></td><td>Marks the sign-in cookie Secure. Must be <code>1</code> behind HTTPS; sign-in fails otherwise</td></tr>
+<tr><td><code>ADMIN_NAME</code>, <code>ADMIN_EMAIL</code>, <code>ADMIN_PASSWORD</code></td><td>First start</td><td>The first business head</td><td>Used only when the database has no users. Change the password after first sign-in, then blank it in the file</td></tr>
+<tr><td><code>PUBLIC_URL</code></td><td>Recommended</td><td><code>https://crm-test.yourbank.ae</code></td><td>The address users see, used in alerts and in the links the calling bot answers to</td></tr>
+<tr><td><code>IT_EMAIL</code>, <code>IT_EMAIL_WEBHOOK_URL</code></td><td>Optional</td><td>IT mailbox; URL of an email relay that accepts <code>POST {to, subject, text}</code></td><td>Approved call-recording requests are emailed to IT. Without it they are only shown in the app</td></tr>
+<tr><td><code>TL_WEBHOOK_URL</code>, <code>PROCESSING_WEBHOOK_URL</code></td><td>Optional</td><td>Teams or Slack incoming webhooks</td><td>Alerts when a file is marked verification pending, and when a scheduled call-back is due</td></tr>
+<tr><td><code>CALL_BOT_URL</code>, <code>CALL_BOT_SECRET</code></td><td>Optional</td><td><code>http://127.0.0.1:4000/calls</code> and a long random secret</td><td>Turns on bot calls (Step 7). Blank hides the feature; the bot's teaching page still works</td></tr>
+<tr><td><code>ANTHROPIC_API_KEY</code></td><td>Optional</td><td>Leave blank</td><td>Lets the verification bot's AI read answers. Compliance must approve first: with it set, customer answers are sent to Anthropic. Blank keeps every call on the server</td></tr>
+</table>
+<p>With the optional variables blank the app makes no outbound connections at all.</p>
+
+<h2>Step 6: First sign-in and loading users</h2>
+<p>IT hands over after step 2 below; the business owner and MIS user do the rest inside the app.</p>
+<ol>
+<li><strong>IT:</strong> open <code>https://crm-test.yourbank.ae</code>, sign in as <code>ADMIN_EMAIL</code> with <code>ADMIN_PASSWORD</code>. On the Staff page, set a new password for this account.</li>
+<li><strong>IT:</strong> on the Staff page, create one user with role <strong>MIS</strong> (name, bank email, HRMS code). Pass the temporary password to that person securely, then blank <code>ADMIN_PASSWORD</code> in the environment file.</li>
+<li><strong>MIS:</strong> sign in, open <strong>Bulk upload → Users</strong>, download the template, fill it in and upload. Load sales managers and team leaders first, then sales staff with their core product, so that reporting lines resolve. The upload returns a file of sign-in details to distribute securely.</li>
+<li><strong>MIS:</strong> open <strong>Bulk upload → Targets</strong>, download the template, and load targets for the current cycle. Credit card targets are card counts, personal loan and auto loan targets are AED disbursal amounts. Cycles run from the 21st to the 20th and are named after the month they end in.</li>
+<li><strong>Business owner:</strong> have one person from each role (sales, processing, verification team leader, team leader, sales manager, MIS, business head, governance) sign in and confirm their dashboard loads. Users who forget passwords are reset by MIS or a business head on the Staff page.</li>
+</ol>
+<p>To load existing files from a spreadsheet, MIS uses <strong>Bulk upload → Cases</strong> with its template. Card activation status is loaded later from <strong>Bulk upload → Cards</strong>.</p>
+
+<h2 class="pb">Step 7: The calling bot on the company's SIP line (optional)</h2>
+<p>The verification bot phones customers to confirm the details on a file. It runs as a second service, <code>bot/sip-server.js</code>, next to the CRM. Everything about the call stays on this server: it dials over the company's own SIP line, the bot's voice and the recognition of what the customer says are programs installed here, and recordings are files in a folder here. No telephony or speech provider is involved. (A Twilio-based service, <code>bot/server.js</code>, exists as an alternative and is not covered here.)</p>
+
+<h3>7.1 What the business provides</h3>
+<table>
+<tr><th style="width:30%">Item</th><th>From</th></tr>
+<tr><td>SIP server address, username, password</td><td>The SIP provider (the company's line). Digest authentication; for a line that authenticates by IP address, the password is blank and registration is switched off</td></tr>
+<tr><td>Caller number</td><td>The number customers see, agreed with compliance</td></tr>
+<tr><td>Caller name</td><td>For example "Verification team"</td></tr>
+<tr><td>Allowed audio ports</td><td>Confirmation from the provider of its SIP and media addresses, for the firewall</td></tr>
+</table>
+
+<h3>7.2 Install the speech programs</h3>
+<p>Two open-source programs, both CPU-only. Keep them and their models under <code>/opt/speech</code>. Neither needs internet after installation.</p>
+<table>
+<tr><th style="width:22%">Program</th><th>Install</th><th style="width:28%">Model</th></tr>
+<tr><td>whisper.cpp (recognition)</td><td>Build from <code>github.com/ggml-org/whisper.cpp</code> (<code>cmake -B build && cmake --build build --config Release</code>) on a machine with internet, copy <code>whisper-cli</code> to <code>/usr/local/bin</code></td><td><code>ggml-small.bin</code> to start (about 470 MB); <code>ggml-medium.bin</code> hears better and needs more CPU. Multilingual, so one model covers English and Arabic</td></tr>
+<tr><td>Piper (voice)</td><td>Download the Linux release from <code>github.com/rhasspy/piper</code>, copy <code>piper</code> and its libraries to <code>/opt/speech/piper</code>, link <code>/usr/local/bin/piper</code></td><td>A voice per language: <code>en_GB-alba-medium.onnx</code> plus its <code>.onnx.json</code>; <code>ar_JO-kareem-medium</code> for Arabic</td></tr>
+</table>
+<p>Check each works on its own before touching the CRM:</p>
+<pre>echo "This is a test." | piper --model /opt/speech/en_GB-alba-medium.onnx --output_file /tmp/t.wav
+whisper-cli -m /opt/speech/ggml-small.bin -nt -np -f /tmp/t.wav     # should print: This is a test.</pre>
+
+<h3>7.3 Configure and start the service</h3>
+<pre>sudo mkdir -p /var/lib/sourcing-crm/recordings && sudo chown crm:crm /var/lib/sourcing-crm/recordings
+sudo cp /opt/sourcing-crm/deploy/.env.example /etc/sourcing-crm-bot.env
+sudo nano /etc/sourcing-crm-bot.env      # the SIP_*, STT_MODEL, TTS_MODEL, BOT_* and CALL_BOT_SECRET lines
+sudo chmod 600 /etc/sourcing-crm-bot.env
+sudo cp /opt/sourcing-crm/deploy/sourcing-crm-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now sourcing-crm-bot
+sudo journalctl -u sourcing-crm-bot -f   # shows the line registering and the engines found</pre>
+<table>
+<tr><th style="width:30%">Variable</th><th>Value</th></tr>
+<tr><td><code>SIP_SERVER</code>, <code>SIP_USERNAME</code>, <code>SIP_PASSWORD</code></td><td>From the provider. <code>SIP_DOMAIN</code> when the SIP domain differs from the server host; <code>SIP_REGISTER=0</code> for IP-authenticated lines</td></tr>
+<tr><td><code>SIP_CALLER_ID</code>, <code>SIP_DISPLAY_NAME</code></td><td>The number and name the customer sees</td></tr>
+<tr><td><code>SIP_LOCAL_IP</code>, <code>SIP_MEDIA_IP</code></td><td>Only behind NAT: the public address the provider must reach, with UDP 5060 and the audio ports forwarded to this server</td></tr>
+<tr><td><code>RTP_PORT_RANGE</code></td><td>UDP ports for the audio, default <code>10000-20000</code>; open them outbound to the provider</td></tr>
+<tr><td><code>STT_MODEL</code>, <code>TTS_MODEL</code>, <code>TTS_MODEL_AR</code></td><td>The model paths from 7.2</td></tr>
+<tr><td><code>BOT_RECORDINGS_DIR</code>, <code>BOT_RECORDING_DAYS</code></td><td>The recordings folder (about 1 MB per minute of call) and how many days to keep them; blank keeps them until deleted</td></tr>
+<tr><td><code>BOT_MAX_CALLS</code></td><td>Calls at the same time, default 4; each one runs a recognition after every answer, so size it to the CPU</td></tr>
+<tr><td><code>CALL_BOT_SECRET</code></td><td>The same long random secret as in the CRM's file. It signs requests both ways and is required to serve recordings</td></tr>
+<tr><td><code>ANTHROPIC_API_KEY</code></td><td>Leave blank to keep the call on the server</td></tr>
+</table>
+<p>Then set <code>CALL_BOT_URL=http://127.0.0.1:4000/calls</code> and the same <code>CALL_BOT_SECRET</code> in the CRM's environment file and restart the CRM. If the bot runs on another server, use that host's address and allow port 4000 between the two servers only.</p>
+
+<h3>7.4 Check before go-live</h3>
+<p>One command tests the engines, the registration with the provider and, with a number, places a test call that says one line and hangs up. Use the business owner's own phone:</p>
+<pre>cd /opt/sourcing-crm && sudo -u crm env $(cat /etc/sourcing-crm-bot.env | xargs) node bot/sip-check.js --call 0501234567</pre>
+<p>Every line should show a tick. If registration fails, re-check the credentials and the SIP domain; if the call answers but no audio comes back, the audio ports are blocked or <code>SIP_MEDIA_IP</code> is wrong. Add <code>SIP_TRACE=1</code> to see the exchange with the provider. <code>curl -s http://127.0.0.1:4000/health</code> reports the line and the engines at any time.</p>
+<div class="note"><strong>Compliance.</strong> Before the first customer call: the caller number, the recording notice the bot opens with, the calling hours (09:00 to 18:00 in the app) and where recordings are kept. No customer detail leaves the server on this path.</div>
+
+<h2>Step 8: Backups, restores, updates and logs</h2>
+<p><strong>Backups.</strong> The whole system state is the one database file, plus the bot's recordings folder when bot calls are used. The script <code>deploy/backup.sh</code> takes a consistent copy with SQLite's online backup, safe while the app is running, compresses it and deletes copies older than 30 days. Schedule it nightly and ship the copies off the server; add the recordings folder to the server backup policy.</p>
+<pre># systemd route: run from root's crontab (needs the sqlite3 package)
+sudo crontab -e
+0 2 * * * DB_FILE=/var/lib/sourcing-crm/crm.db BACKUP_DIR=/var/backups/sourcing-crm /opt/sourcing-crm/deploy/backup.sh
+
+# Docker route: copy the file out of the volume
+docker compose -f /opt/sourcing-crm/deploy/docker-compose.yml exec crm sh -c "cp /data/crm.db /data/crm-backup.db" && \
+  docker cp $(docker compose -f /opt/sourcing-crm/deploy/docker-compose.yml ps -q crm):/data/crm-backup.db /var/backups/sourcing-crm/crm-$(date +%F).db</pre>
+<p>The backup contains customer names, numbers and salaries. Treat the backup location with the same controls as the live database.</p>
+<p><strong>Restore.</strong> Stop the service, replace the database file with the uncompressed backup, fix ownership, start the service.</p>
+<pre>sudo systemctl stop sourcing-crm
+gunzip -c /var/backups/sourcing-crm/crm-20261012-0200.db.gz | sudo tee /var/lib/sourcing-crm/crm.db > /dev/null
+sudo chown crm:crm /var/lib/sourcing-crm/crm.db
+sudo systemctl start sourcing-crm</pre>
+<p><strong>Updates.</strong> Pull the branch (or extract the new archive), reinstall the package, restart. Database changes apply themselves on start; take a backup first.</p>
+<pre>cd /opt/sourcing-crm && sudo git pull && sudo npm ci --omit=dev
+sudo systemctl restart sourcing-crm        # and sourcing-crm-bot when it is in use
+# Docker route instead:
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build</pre>
+<p><strong>Logs and monitoring.</strong></p>
+<table>
+<tr><th style="width:24%">Need</th><th>Command</th></tr>
+<tr><td>Live log</td><td><code>journalctl -u sourcing-crm -f</code> or <code>docker compose -f deploy/docker-compose.yml logs -f crm</code>; the bot: <code>journalctl -u sourcing-crm-bot -f</code></td></tr>
+<tr><td>Is it up</td><td><code>curl -s http://127.0.0.1:3000/api/me</code> returns JSON; <code>curl -s http://127.0.0.1:4000/health</code> for the bot. Add both to the monitoring tool, and an HTTPS check on the public URL</td></tr>
+<tr><td>Disk</td><td>Alert when the database directory has less than 2 GB free</td></tr>
+<tr><td>Service restarts</td><td>The units restart the services automatically after a crash; alert on repeated restarts in <code>journalctl</code></td></tr>
+</table>
+<p>The app logs sign-ins, errors and webhook failures to standard output, which journald or Docker captures. Who viewed or revealed which customer details, and who listened to a bot call, is recorded inside the app under <strong>Access log</strong>, not in the server log.</p>
+
+<h2>Step 9: Acceptance test checklist</h2>
+<p>Run this on the real server with real devices before the pilot users are invited. Tick each item; the business owner signs off when all are ticked.</p>
+<h3>Infrastructure (IT)</h3>
+<ul class="check">
+<li><code>https://crm-test.yourbank.ae</code> loads on a staff laptop and on a staff phone with a valid padlock, with the "Powered by STRIDE" bar at the foot</li>
+<li><code>http://</code> redirects to <code>https://</code></li>
+<li>Port 3000 is not reachable from a staff laptop, only through the proxy</li>
+<li>Service restarts on its own after <code>sudo kill -9 &lt;pid&gt;</code> (or <code>docker kill</code>)</li>
+<li>Nightly backup produced a file in the backup folder, and a restore into a scratch copy opens with <code>sqlite3 ... "select count(*) from users"</code></li>
+<li>The server clock shows UAE time correctly (<code>timedatectl</code>)</li>
+<li>With the calling bot: <code>sip-check.js --call</code> rings the business owner's phone, says the test line and hangs up</li>
+</ul>
+<h3>Application (business owner and one user per role)</h3>
+<ul class="check">
+<li>First business head signed in and changed the password</li>
+<li>Users loaded by bulk upload; each role's dashboard opens</li>
+<li>Targets loaded for the current cycle; sales staff see their own, team leaders see their team's</li>
+<li>Photograph a lead sheet on My leads from a phone; the lead's details fill in, and Convert to case carries them into the form</li>
+<li>Voice typing fills a text field, and "Read it back to check" reads it (Chrome, Edge or Safari; not Firefox)</li>
+<li>One file through the full flow: sales creates, team leader or sales manager approves a flagged file, processing verifies by call, the file completes with a disbursed amount</li>
+<li>Verification "call back later" set two minutes ahead triggers the call-back alert and, if configured, the Teams or Slack message</li>
+<li>Changing the product, loan amount, interest rate or FPD after verification sends the file back for re-verification</li>
+<li>Phone and salary show masked; reveal works, re-hides after 3 minutes, and the reveal appears in the Access log for governance</li>
+<li>A screenshot of any page shows the user's name and time watermark</li>
+<li>Credit card completed files appear as inactive with ageing; bulk card activation upload marks them active with a date</li>
+<li>A personal loan completed with a rate shows on the sales person's, team leader's and business head's yield card against the 8.49% minimum</li>
+<li>Chat: a case discussion and a direct message deliver, and governance can read them</li>
+<li>Bulk upload of files from the template with the bank's own test spreadsheet</li>
+<li>With the calling bot: the verification team leader asks for a bot call on a test file, governance and the business head approve, the call reaches the test phone, and the result, transcript and recording appear on the file</li>
+</ul>
+
+<h2>Security notes and production go-live</h2>
+<p>The test environment is suitable for a pilot with a small group and test or consented customer data. The items below are required before the system becomes the system of record, and information security should review them now.</p>
+<h3>Already built in</h3>
+<ul>
+<li>Passwords hashed with scrypt; sessions in HttpOnly, Secure, SameSite cookies; all writes require JSON bodies, which blocks cross-site form posts</li>
+<li>Role-based access: each role sees only its own files, team or scope; a business-defined roles register for custom roles</li>
+<li>No Emirates ID or passport numbers are stored: the form has no such fields and earlier values were wiped on upgrade</li>
+<li>Phone numbers and salaries masked on screen; every reveal, file view, report run and bot-call listen logged with user, time and IP in the Access log, visible to governance and business heads</li>
+<li>Watermark of the viewer's name, code and time on every page</li>
+<li>The calling bot's requests and results are signed with a shared secret; recordings are served only to the CRM with a signed, time-limited request</li>
+<li>Processes run as an unprivileged user with a read-only filesystem apart from the data directory; one package dependency (Anthropic's SDK) to keep patched</li>
+</ul>
+<h3>Required before production go-live</h3>
+<table>
+<tr><th style="width:30%">Item</th><th style="width:34%">Why</th><th>Effort</th></tr>
+<tr><td>Single sign-on with the bank directory (SAML or OpenID Connect)</td><td>Joiners, leavers and password policy follow the bank's</td><td>Medium: an identity provider endpoint from IT, then an app change</td></tr>
+<tr><td>Login lockout and password rules</td><td>Brute-force protection</td><td>Small app change</td></tr>
+<tr><td>Session timeout of 15 to 30 minutes idle</td><td>Shared devices</td><td>Small app change</td></tr>
+<tr><td>Penetration test</td><td>Bank policy for any system holding customer data</td><td>Scheduled with the security team</td></tr>
+<tr><td>Log forwarding to the bank SIEM</td><td>Central audit</td><td>IT: forward journald and the Access log export</td></tr>
+<tr><td>Data retention policy</td><td>Files, chat messages, access logs and call recordings grow indefinitely</td><td>Decision from compliance, then <code>BOT_RECORDING_DAYS</code> and a scheduled purge</td></tr>
+<tr><td>Compliance sign-off on bot calls</td><td>Automated calls to customers, the caller number, the recording notice</td><td>Before the first live call; the AI stays off unless separately approved</td></tr>
+</table>
+<h3>Keep in mind during the pilot</h3>
+<ul>
+<li>Screenshots and phone photos of the screen cannot be blocked by a web application. The watermark and access log are deterrents and evidence, not prevention.</li>
+<li>Voice typing uses the browser's own speech engine. On Chrome and Edge that audio goes to Google or Microsoft; nothing is sent to the CRM server. If that is not acceptable, disable the microphone in the browser policy and voice typing will be hidden. The calling bot does not use the browser's engine: its recognition runs on the server.</li>
+</ul>
+
+<h2>Troubleshooting</h2>
+<table>
+<tr><th style="width:28%">Symptom</th><th style="width:32%">Cause</th><th>Fix</th></tr>
+<tr><td>Service exits at once; log says <code>node:sqlite</code> or <code>DatabaseSync</code> is not available</td><td>Node.js older than 22.13</td><td>Install Node.js 22.13 or newer and restart</td></tr>
+<tr><td>Sign-in page loads but signing in returns to the same page</td><td><code>COOKIE_SECURE=1</code> while the site is reached over plain HTTP, or the proxy does not pass <code>X-Forwarded-Proto</code></td><td>Use HTTPS end to end; check the proxy headers in Step 4</td></tr>
+<tr><td><code>SQLITE_READONLY</code> or <code>EACCES</code> in the log</td><td>Data directory not writable by the <code>crm</code> user, or not listed in <code>ReadWritePaths</code></td><td><code>chown -R crm:crm /var/lib/sourcing-crm</code>; keep the unit file's <code>ReadWritePaths</code></td></tr>
+<tr><td><code>EADDRINUSE: 3000</code></td><td>Another process on port 3000</td><td>Stop it, or set <code>PORT</code> and the proxy upstream to another port</td></tr>
+<tr><td>Bulk upload fails with <code>413</code></td><td>Proxy body limit too small</td><td>Set the proxy limit to 8 MB</td></tr>
+<tr><td>Lead-sheet scanner says it cannot load</td><td>Scanner files not installed (systemd route)</td><td>Run <code>npm run setup:ocr</code> in <code>/opt/sourcing-crm</code> and restart</td></tr>
+<tr><td>Camera or microphone buttons do nothing</td><td>Page not on HTTPS, or the browser blocked the device</td><td>Check the padlock; allow camera and microphone for the site in the browser</td></tr>
+<tr><td>Teams or Slack alert not received</td><td>Webhook URL wrong, or outbound HTTPS blocked from the server</td><td>Log shows <code>webhook failed</code>; test with <code>curl -X POST &lt;url&gt; -d '{"text":"test"}'</code> from the server</td></tr>
+<tr><td>"Call with bot" missing on files</td><td><code>CALL_BOT_URL</code> blank in the CRM's file</td><td>Set it and restart the CRM</td></tr>
+<tr><td>Bot call fails at once: "The SIP line is not registered"</td><td>Wrong credentials or SIP domain, or the provider unreachable on UDP 5060</td><td>Run <code>sip-check.js</code> with <code>SIP_TRACE=1</code>; check the firewall towards the provider</td></tr>
+<tr><td>Bot call connects but the customer hears nothing, or the bot hears nothing</td><td>Audio ports blocked, or <code>SIP_MEDIA_IP</code> wrong behind NAT</td><td>Open UDP 10000–20000 to the provider; set the public address in <code>SIP_LOCAL_IP</code> and <code>SIP_MEDIA_IP</code> and forward the ports</td></tr>
+<tr><td>Bot result says "The bot's voice could not be produced" or every answer is not understood</td><td>Piper or whisper-cli not on the PATH, or a model path wrong</td><td>Run the 7.2 commands as the <code>crm</code> user; check <code>STT_MODEL</code> and <code>TTS_MODEL</code></td></tr>
+<tr><td>Bot calls slow to answer a question</td><td>CPU too small for the recognition model, or too many calls at once</td><td>Use <code>ggml-small.bin</code>, lower <code>BOT_MAX_CALLS</code>, or add CPU</td></tr>
+<tr><td>Call-back alert late</td><td>Server clock wrong</td><td>Enable NTP; alerts are checked every 30 seconds in UAE time</td></tr>
+<tr><td>Admin password forgotten and no other business head</td><td>Only the first start creates the admin</td><td>Stop the service, move the database file aside, start once with a new <code>ADMIN_PASSWORD</code>, then restore the database and have the original admin reset others, or ask the developer for a reset script</td></tr>
+<tr><td>Database file growing fast</td><td>Chat messages and access log</td><td>Expected; about 1 MB per 1,000 files plus logs. Plan retention per the security notes</td></tr>
+</table>
+<p>For anything else, send the last 100 lines of <code>journalctl -u sourcing-crm</code> (or the Docker log) with the time of the error.</p>
+
+</body>
+</html>

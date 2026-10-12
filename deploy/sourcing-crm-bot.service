@@ -1,0 +1,27 @@
+# systemd unit for the native calling bot (verification calls over the company's own SIP line).
+# Copy to /etc/systemd/system/sourcing-crm-bot.service. Runs next to the CRM on the same or a
+# separate server; the CRM reaches it at CALL_BOT_URL (http://<host>:4000/calls).
+[Unit]
+Description=STRIDE calling bot (SIP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crm
+Group=crm
+WorkingDirectory=/opt/sourcing-crm
+EnvironmentFile=/etc/sourcing-crm-bot.env
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning bot/sip-server.js
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+# Recordings and the speech engines' temporary files
+ReadWritePaths=/var/lib/sourcing-crm
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

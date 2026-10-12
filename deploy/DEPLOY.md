@@ -1,13 +1,18 @@
-# Deploying the Sourcing CRM to a test server
+# Deploying STRIDE (the Sourcing CRM) to a test server
 
-The CRM is a single Node.js 22 service with a SQLite database file. It needs no other software.
+The full guide for IT, with the architecture, every setting, the calling bot on the company's SIP
+line, the acceptance checklist and troubleshooting, is `deploy/STRIDE-IT-Deployment-Guide.pdf`
+(source: `tools/deploy-guide/guide.html`, rendered with `node tools/deploy-guide/render.cjs`).
+This file is the short version.
+
+The CRM is a single Node.js 22 service with a SQLite database file and one package dependency.
 Put it behind the bank's HTTPS gateway (or nginx) and it is ready for a pilot.
 
 ## 1. Before you start
 
 - A Linux server or container inside the bank's network with **Node.js 22.13 or newer** (or Docker).
 - A **DNS name and TLS certificate** for it, e.g. `crm-test.yourbank.ae`. HTTPS is required: the sign-in
-  cookie is marked Secure, and browsers only allow the camera (Emirates ID scanner) and microphone
+  cookie is marked Secure, and browsers only allow the camera (lead-sheet scanner) and microphone
   (voice typing) over HTTPS.
 - Decide who the **first business head** is (`ADMIN_EMAIL` / `ADMIN_PASSWORD`). They (or an MIS user they add) add everyone else.
 - If real customer data will be entered, compliance should know it is on this server.
@@ -27,12 +32,12 @@ git clone https://github.com/fardeen79-ops/crm.git sourcing-crm
 cd sourcing-crm
 git checkout claude/sales-sourcing-crm-workflow-rdlw4h
 npm ci --omit=dev                      # packages (needs internet, so do it here; they go in the archive)
-npm run setup:ocr                      # scanner files (needs internet, so do it here)
+npm run setup:ocr                      # lead-sheet scanner files (needs internet, so do it here)
 tar czf ../sourcing-crm.tar.gz --exclude=.git --exclude=data --exclude='*.db' --exclude=.env .
 sha256sum ../sourcing-crm.tar.gz       # note the checksum
 ```
 
-Move `sourcing-crm.tar.gz` (about 15 MB) to the server by the bank's approved method (file transfer
+Move `sourcing-crm.tar.gz` (about 25 MB) to the server by the bank's approved method (file transfer
 portal, SFTP from the admin network, encrypted USB). On the server:
 
 ```bash
@@ -41,7 +46,7 @@ sudo mkdir -p /opt/sourcing-crm
 sudo tar xzf /path/to/sourcing-crm.tar.gz -C /opt/sourcing-crm
 ```
 
-Skip `npm run setup:ocr` on the server; the files are in the archive. Updates arrive as a new
+Skip `npm ci` and `npm run setup:ocr` on the server; the package and the files are in the archive. Updates arrive as a new
 archive: stop the service, extract over `/opt/sourcing-crm`, start the service. The database is in
 `/var/lib/sourcing-crm`, so it is untouched.
 
@@ -134,7 +139,28 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
   Without `npm ci` the CRM still starts, but the verification bot's AI stays off.
 - Logs: `journalctl -u sourcing-crm` or `docker compose logs crm`.
 
-## 7. Optional integrations
+## 7. The calling bot on the company's SIP line (optional)
+
+`bot/sip-server.js` phones customers to confirm the details on a file, over the company's own SIP
+line, with the voice and the recognition as programs on this server and recordings in a folder here;
+nothing leaves the server. Install whisper.cpp (`whisper-cli`) and Piper with one model each under
+`/opt/speech`, then:
+
+```bash
+sudo mkdir -p /var/lib/sourcing-crm/recordings && sudo chown crm:crm /var/lib/sourcing-crm/recordings
+sudo cp deploy/.env.example /etc/sourcing-crm-bot.env && sudo nano /etc/sourcing-crm-bot.env   # SIP_*, STT_MODEL, TTS_MODEL, CALL_BOT_SECRET
+sudo chmod 600 /etc/sourcing-crm-bot.env
+sudo cp deploy/sourcing-crm-bot.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now sourcing-crm-bot
+node bot/sip-check.js --call 0501234567    # engines, registration, one test call to your own phone
+```
+
+Set `CALL_BOT_URL=http://127.0.0.1:4000/calls` and the same `CALL_BOT_SECRET` in the CRM's file and
+restart it. Firewall: outbound UDP 5060 and 10000-20000 to the SIP provider only. Leave
+`ANTHROPIC_API_KEY` blank to keep every call on the server. Compliance signs off the caller number
+and the recording notice before the first live call. The README has every setting.
+
+## 8. Optional integrations
 
 | Setting | Turns on |
 |---|---|
@@ -144,16 +170,18 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 | `CALL_BOT_URL`, `CALL_BOT_SECRET`, `PUBLIC_URL` | Bot calls, through the calling service: `npm run bot` (Twilio) or `npm run bot:sip` (your own SIP line, speech on the server, nothing leaves it; see the README). The **Verification bot** teaching page works without it |
 | `ANTHROPIC_API_KEY` | The verification bot's AI in practice calls (set it on the calling service too, for live calls) |
 
-## 8. What to test first on the server
+## 9. What to test first on the server
 
-1. Scan a real Emirates ID from a phone (front and back) on the New case form.
+1. Photograph a lead sheet on My leads from a phone, then convert the lead into a file.
 2. One file through the whole flow: sales → processor verifies → team leader actions.
 3. A "call back later" set two minutes ahead, and the alert that follows.
 4. Reveal a number, then check the Access log as governance; screenshot a page to see the watermark.
 5. Voice typing and "Read it back to check" with a real microphone.
 6. Bulk uploads with your own spreadsheets, from the templates.
+7. With the calling bot: a bot call on a test file, approved by governance and the business head.
 
-## 9. Before go-live (not needed for the test environment)
+## 10. Before go-live (not needed for the test environment)
 
 Single sign-on with the bank's directory, login lockout and password policy, a shorter session
-timeout, field-level encryption of Emirates ID and passport numbers, and a penetration test.
+timeout, a penetration test, log forwarding, a retention policy, and compliance sign-off on bot calls.
+Emirates ID and passport numbers are no longer stored, so no field-level encryption is needed.
