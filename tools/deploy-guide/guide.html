@@ -14,7 +14,8 @@
   p { margin: 0 0 8pt; }
   .meta { display: inline-flex; gap: 8pt; background: var(--soft); border-radius: 6pt; padding: 3pt 9pt; font-size: 9.5pt; color: var(--muted); margin-bottom: 14pt; }
   .lede { font-size: 11.5pt; }
-  code { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 9.3pt; background: var(--soft); border-radius: 3pt; padding: 1pt 4pt; }
+  code { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 9.3pt; background: var(--soft); border-radius: 3pt; padding: 1pt 4pt; overflow-wrap: anywhere; }
+  td { overflow-wrap: anywhere; }
   pre { font-family: "IBM Plex Mono", Menlo, Consolas, monospace; font-size: 9pt; line-height: 1.45; background: var(--soft); border-radius: 6pt; padding: 10pt 12pt; white-space: pre-wrap; word-break: break-word; margin: 6pt 0 10pt; page-break-inside: avoid; }
   pre code { background: none; padding: 0; font-size: inherit; }
   table { border-collapse: collapse; width: 100%; margin: 6pt 0 12pt; font-size: 10pt; page-break-inside: auto; }
@@ -42,7 +43,7 @@
   <span class="word">STRID<b>E</b></span><span class="tag">Sales in stride.</span>
 </div>
 <h1>IT Deployment Guide</h1>
-<div class="meta"><span>Version 2 · 12 October 2026</span><span>·</span><span>Derby Group · prepared by Fardeen Ismail</span></div>
+<div class="meta"><span>Version 3 · 12 October 2026</span><span>·</span><span>Derby Group · prepared by Fardeen Ismail</span></div>
 
 <h2>What IT is being asked to set up</h2>
 <p class="lede">STRIDE (the sourcing CRM) is one Node.js service with a single SQLite database file. It needs no database server and no message queue; its one package dependency ships in the archive. IT provides a Linux server inside the bank network, a DNS name with a TLS certificate and the HTTPS reverse proxy in front. Installation takes about an hour. The optional calling bot is a second small service on the same server, described in Step 7; it needs the company's SIP line details and two open-source speech programs.</p>
@@ -55,15 +56,17 @@
 <tr><td>DNS and TLS</td><td>A name such as <code>crm-test.yourbank.ae</code> with a certificate the bank's browsers trust</td></tr>
 <tr><td>Source code</td><td>The <code>fardeen79-ops/crm</code> repository, branch <code>claude/sales-sourcing-crm-workflow-rdlw4h</code>, delivered as an archive, a Git mirror or a Docker image (Step 2)</td></tr>
 <tr><td>Storage</td><td>The database directory on backed-up, encrypted storage; the bot's recordings folder likewise</td></tr>
+<tr><td>Recording server</td><td>Optional: the PBX or call recorder behind the SIP line, reachable from the CRM server either as a read-only mount of its recordings folder or through its HTTP API (Step 7.5). Without it, the call lookup on files shows only the bot's own calls</td></tr>
 </table>
 <p>HTTPS is mandatory, not optional. The sign-in cookie is marked Secure, and browsers only allow the camera (lead-sheet scanner) and microphone (voice typing) on HTTPS pages.</p>
 
 <h3>Who does what</h3>
 <table>
 <tr><th style="width:38%">Role</th><th>Responsibility</th></tr>
-<tr><td>IT infrastructure</td><td>Server, DNS, certificate, reverse proxy, firewall, backups, updates (Steps 1 to 6), the calling bot's line and speech programs (Step 7)</td></tr>
+<tr><td>IT infrastructure</td><td>Server, DNS, certificate, reverse proxy, firewall, backups, updates (Steps 1 to 6), the calling bot's line and speech programs (Step 7), the recording server connection (Step 7.5)</td></tr>
 <tr><td>Business owner (the person requesting this)</td><td>Names the first business head and the MIS user, provides the SIP line details, and signs off the acceptance test (Steps 5 and 9)</td></tr>
 <tr><td>MIS user</td><td>Bulk uploads of users, files, targets and card activation inside the app</td></tr>
+<tr><td>Accounts</td><td>Runs the monthly incentive sheets and downloads the incentive payout file; sees nothing else</td></tr>
 <tr><td>Information security and compliance</td><td>Review the security notes before real customer data is entered; approve the caller number and recording notice before bot calls go live</td></tr>
 </table>
 
@@ -210,6 +213,10 @@ sudo nginx -t && sudo systemctl reload nginx</pre>
 <tr><td><code>IT_EMAIL</code>, <code>IT_EMAIL_WEBHOOK_URL</code></td><td>Optional</td><td>IT mailbox; URL of an email relay that accepts <code>POST {to, subject, text}</code></td><td>Approved call-recording requests are emailed to IT. Without it they are only shown in the app</td></tr>
 <tr><td><code>TL_WEBHOOK_URL</code>, <code>PROCESSING_WEBHOOK_URL</code></td><td>Optional</td><td>Teams or Slack incoming webhooks</td><td>Alerts when a file is marked verification pending, and when a scheduled call-back is due</td></tr>
 <tr><td><code>CALL_BOT_URL</code>, <code>CALL_BOT_SECRET</code></td><td>Optional</td><td><code>http://127.0.0.1:4000/calls</code> and a long random secret</td><td>Turns on bot calls (Step 7). Blank hides the feature; the bot's teaching page still works</td></tr>
+<tr><td><code>RECORDING_SOURCE</code></td><td>Optional</td><td><code>folder</code> or <code>http</code></td><td>Turns on the call lookup on files (Step 7.5). Blank: the lookup lists the bot's calls only</td></tr>
+<tr><td><code>RECORDING_DIR</code></td><td>With <code>folder</code></td><td><code>/mnt/recordings</code></td><td>The PBX's recordings folder, mounted read-only on the CRM server</td></tr>
+<tr><td><code>RECORDING_API_URL</code>, <code>RECORDING_API_TOKEN</code>, <code>RECORDING_API_MAP</code></td><td>With <code>http</code></td><td>The PBX's list URL with <code>{number}</code>, a bearer token, a JSON field map</td><td>The CRM calls the API itself and fetches the audio with the token; nothing about the server reaches the browser</td></tr>
+<tr><td><code>RECORDING_LABEL</code></td><td>Optional</td><td><code>the 3CX recorder</code></td><td>How the server is named on screen</td></tr>
 <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Optional</td><td>Leave blank</td><td>Lets the verification bot's AI read answers. Compliance must approve first: with it set, customer answers are sent to Anthropic. Blank keeps every call on the server</td></tr>
 </table>
 <p>With the optional variables blank the app makes no outbound connections at all.</p>
@@ -219,11 +226,11 @@ sudo nginx -t && sudo systemctl reload nginx</pre>
 <ol>
 <li><strong>IT:</strong> open <code>https://crm-test.yourbank.ae</code>, sign in as <code>ADMIN_EMAIL</code> with <code>ADMIN_PASSWORD</code>. On the Staff page, set a new password for this account.</li>
 <li><strong>IT:</strong> on the Staff page, create one user with role <strong>MIS</strong> (name, bank email, HRMS code). Pass the temporary password to that person securely, then blank <code>ADMIN_PASSWORD</code> in the environment file.</li>
-<li><strong>MIS:</strong> sign in, open <strong>Bulk upload → Users</strong>, download the template, fill it in and upload. Load sales managers and team leaders first, then sales staff with their core product, so that reporting lines resolve. The upload returns a file of sign-in details to distribute securely.</li>
+<li><strong>MIS:</strong> sign in, open <strong>Bulk upload → Users</strong> and upload <code>docs/go-live/staff-upload.csv</code> from the archive (432 rows: business heads, sales managers, team leaders, sales staff, processing and governance, with HRMS codes and salaries from the salary sheets; one row, Noman Najam, still needs his HRMS code filled in first). For a fresh list instead, download the template, fill it in and upload. Load sales managers and team leaders first, then sales staff with their core product, so that reporting lines resolve. The upload returns a file of sign-in details to distribute securely.</li>
 <li><strong>MIS:</strong> open <strong>Bulk upload → Targets</strong>, download the template, and load targets for the current cycle. Credit card targets are card counts, personal loan and auto loan targets are AED disbursal amounts. Cycles run from the 21st to the 20th and are named after the month they end in.</li>
-<li><strong>Business owner:</strong> have one person from each role (sales, processing, verification team leader, team leader, sales manager, MIS, business head, governance) sign in and confirm their dashboard loads. Users who forget passwords are reset by MIS or a business head on the Staff page.</li>
+<li><strong>Business owner:</strong> on the Staff page create the <strong>Accounts</strong> user (role Accounts) and the <strong>CEO</strong> profile if wanted (role CEO). Then have one person from each role (sales, processing, verification team leader, team leader, sales manager, MIS, business head, governance, accounts) sign in and confirm their dashboard loads. Users who forget passwords are reset by MIS or a business head on the Staff page.</li>
 </ol>
-<p>To load existing files from a spreadsheet, MIS uses <strong>Bulk upload → Cases</strong> with its template. Card activation status is loaded later from <strong>Bulk upload → Cards</strong>.</p>
+<p>Salaries: every profile carries a monthly salary (the upload file has them), counted in the profit and loss. A business head's salary is seen and set only by the CEO profile, the Accounts user or that business head. To load existing files from a spreadsheet, MIS uses <strong>Bulk upload → Cases</strong> with its template. Card activation status is loaded later from <strong>Bulk upload → Cards</strong>.</p>
 
 <h2 class="pb">Step 7: The calling bot on the company's SIP line (optional)</h2>
 <p>The verification bot phones customers to confirm the details on a file. It runs as a second service, <code>bot/sip-server.js</code>, next to the CRM. Everything about the call stays on this server: it dials over the company's own SIP line, the bot's voice and the recognition of what the customer says are programs installed here, and recordings are files in a folder here. No telephony or speech provider is involved. (A Twilio-based service, <code>bot/server.js</code>, exists as an alternative and is not covered here.)</p>
@@ -277,6 +284,15 @@ sudo journalctl -u sourcing-crm-bot -f   # shows the line registering and the en
 <p>Every line should show a tick. If registration fails, re-check the credentials and the SIP domain; if the call answers but no audio comes back, the audio ports are blocked or <code>SIP_MEDIA_IP</code> is wrong. Add <code>SIP_TRACE=1</code> to see the exchange with the provider. <code>curl -s http://127.0.0.1:4000/health</code> reports the line and the engines at any time.</p>
 <div class="note"><strong>Compliance.</strong> Before the first customer call: the caller number, the recording notice the bot opens with, the calling hours (09:00 to 18:00 in the app) and where recordings are kept. No customer detail leaves the server on this path.</div>
 
+<h3>7.5 Connecting the recording server (optional)</h3>
+<p>With this, governance can list every call to or from a customer's number on a file, play it inside the CRM and rate it, once the business head has approved the recording request on that file. The CRM reaches the recording server; browsers never do. Two ways, pick one:</p>
+<table>
+<tr><th style="width:22%">Route</th><th>What IT does</th></tr>
+<tr><td>Recordings folder</td><td>Mount the PBX's recordings share on the CRM server read-only (for example <code>/mnt/recordings</code> over SMB or NFS), readable by the <code>crm</code> user, and add it to <code>ReadOnlyPaths</code> in the service file. Set <code>RECORDING_SOURCE=folder</code> and <code>RECORDING_DIR=/mnt/recordings</code>. The CRM matches a recording to a number by the digits in the file name, reads the time and direction from the name (<code>20261012-093011-971501234567-in.wav</code> and most other PBX conventions) and the length from the WAV header. WAV, MP3, OGG, M4A, GSM and Opus files are played.</td></tr>
+<tr><td>Recording API</td><td>Create a read-only API token on the PBX. Set <code>RECORDING_SOURCE=http</code>, <code>RECORDING_API_URL</code> to the list call with <code>{number}</code> where the number goes (digits with country code; <code>{local}</code> gives the 0-form, <code>{e164}</code> the plus form), <code>RECORDING_API_TOKEN</code>, and if the answer's field names differ from the defaults, <code>RECORDING_API_MAP</code>, for example <code>{"list":"data","id":"id","started_at":"start_time","duration":"duration","direction":"direction","extension":"extension","agent":"agent","url":"recording_url"}</code>. Allow outbound HTTPS from the CRM server to the PBX only.</td></tr>
+</table>
+<p>Restart the CRM. Test as governance on a completed test file: request the recording, approve it as the business head, press <strong>Look up calls</strong> on the file; the test calls placed to that number appear with a player. Every lookup and listen is in the access log.</p>
+
 <h2>Step 8: Backups, restores, updates and logs</h2>
 <p><strong>Backups.</strong> The whole system state is the one database file, plus the bot's recordings folder when bot calls are used. The script <code>deploy/backup.sh</code> takes a consistent copy with SQLite's online backup, safe while the app is running, compresses it and deletes copies older than 30 days. Schedule it nightly and ship the copies off the server; add the recordings folder to the server backup policy.</p>
 <pre># systemd route: run from root's crontab (needs the sqlite3 package)
@@ -318,6 +334,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 <li>Nightly backup produced a file in the backup folder, and a restore into a scratch copy opens with <code>sqlite3 ... "select count(*) from users"</code></li>
 <li>The server clock shows UAE time correctly (<code>timedatectl</code>)</li>
 <li>With the calling bot: <code>sip-check.js --call</code> rings the business owner's phone, says the test line and hangs up</li>
+<li>With the recording server: <code>ls /mnt/recordings</code> as the <code>crm</code> user lists files (folder route), or <code>curl</code> with the token returns the call list for a test number (API route)</li>
 </ul>
 <h3>Application (business owner and one user per role)</h3>
 <ul class="check">
@@ -334,6 +351,9 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 <li>Credit card completed files appear as inactive with ageing; bulk card activation upload marks them active with a date</li>
 <li>A personal loan completed with a rate shows on the sales person's, team leader's and business head's yield card against the 8.49% minimum</li>
 <li>Chat: a case discussion and a direct message deliver, and governance can read them</li>
+<li>Calls to this customer: locked on a file until governance requests the recording and the business head approves; then the calls list, play inside the CRM, and governance's rating shows on the file's history</li>
+<li>Accounts user sees only Reports: the incentive sheets run for the cycle, grouped by region and hierarchy, and the Incentive payout file downloads with HRMS codes</li>
+<li>A downloaded case register has no phone column; a business head's salary reads Hidden to MIS on the Staff page</li>
 <li>Bulk upload of files from the template with the bank's own test spreadsheet</li>
 <li>With the calling bot: the verification team leader asks for a bot call on a test file, governance and the business head approve, the call reaches the test phone, and the result, transcript and recording appear on the file</li>
 </ul>
@@ -383,6 +403,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 <tr><td>Bot call connects but the customer hears nothing, or the bot hears nothing</td><td>Audio ports blocked, or <code>SIP_MEDIA_IP</code> wrong behind NAT</td><td>Open UDP 10000–20000 to the provider; set the public address in <code>SIP_LOCAL_IP</code> and <code>SIP_MEDIA_IP</code> and forward the ports</td></tr>
 <tr><td>Bot result says "The bot's voice could not be produced" or every answer is not understood</td><td>Piper or whisper-cli not on the PATH, or a model path wrong</td><td>Run the 7.2 commands as the <code>crm</code> user; check <code>STT_MODEL</code> and <code>TTS_MODEL</code></td></tr>
 <tr><td>Bot calls slow to answer a question</td><td>CPU too small for the recognition model, or too many calls at once</td><td>Use <code>ggml-small.bin</code>, lower <code>BOT_MAX_CALLS</code>, or add CPU</td></tr>
+<tr><td>"Look up calls" says the server could not be reached, or lists nothing</td><td>Share not mounted or not readable by <code>crm</code>; API URL, token or field map wrong; outbound HTTPS to the PBX blocked</td><td>Folder: <code>sudo -u crm ls $RECORDING_DIR</code>. API: <code>curl -H "Authorization: Bearer $TOKEN" "$URL"</code> with a number in place of <code>{number}</code>; the answer must carry the list named in the map</td></tr>
+<tr><td>Calls card says the approvals are not in place</td><td>By design</td><td>Governance requests the recording on the file (verification must be complete), the business head approves; the card then unlocks</td></tr>
 <tr><td>Call-back alert late</td><td>Server clock wrong</td><td>Enable NTP; alerts are checked every 30 seconds in UAE time</td></tr>
 <tr><td>Admin password forgotten and no other business head</td><td>Only the first start creates the admin</td><td>Stop the service, move the database file aside, start once with a new <code>ADMIN_PASSWORD</code>, then restore the database and have the original admin reset others, or ask the developer for a reset script</td></tr>
 <tr><td>Database file growing fast</td><td>Chat messages and access log</td><td>Expected; about 1 MB per 1,000 files plus logs. Plan retention per the security notes</td></tr>

@@ -17,6 +17,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/sourcing-crm
+# With a recording server's share mounted for the call lookup (RECORDING_SOURCE=folder), let the service read it:
+# ReadOnlyPaths=/mnt/recordings
 PrivateTmp=true
 
 [Install]
