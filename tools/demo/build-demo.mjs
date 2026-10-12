@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v63';
+const DB_KEY = 'sourcing-crm-demo-db-v64';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -179,6 +179,7 @@ function seed() {
   u('Zayd Sales', 'sales6@demo.local', 'sales', { sales_code: 'DXB-S-022', region: 'DXB', salary: 4500, core_product: 'credit_card', ...team });
   const pat = u('Pat Processing', 'processing@demo.local', 'processing', { region: 'DXB' });
   const vera = u('Vera Verification', 'vlead@demo.local', 'processing_lead', { region: 'DXB' });
+  u('Yusuf Executive', 'ceo@demo.local', 'ceo', { region: 'DXB' });
   const omar = u('Omar Processing', 'processing2@demo.local', 'processing', { region: 'AUH' });
   const mira = u('Mira MIS', 'mis@demo.local', 'mis', { region: 'DXB' });
   const bilal = u('Bilal Head', 'head@demo.local', 'business_head', { region: 'DXB' });
@@ -637,6 +638,7 @@ const DEMO_USERS = [
   ['7337', 'Fajan', 'Sales · real list'],
   ['mis@demo.local', 'Mira', 'MIS'],
   ['head@demo.local', 'Bilal', 'Business head'],
+  ['ceo@demo.local', 'Yusuf', 'CEO'],
   ['governance@demo.local', 'Gina', 'Governance'],
   ['it@demo.local', 'Irfan', 'IT'],
 ];

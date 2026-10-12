@@ -25,7 +25,7 @@ const incomeLabelsFor = (type) => type === 'self_employed'
   : { amount: 'Monthly salary (AED)', bank: 'Salary transferred to', choose: "Choose the customer's salary bank…", word: 'salary', need: 'monthly salary', earns: 'earns' };
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
-  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance', it: 'IT',
+  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance', it: 'IT', ceo: 'CEO',
 };
 // Assistant sales managers use the same screens as sales managers, over their own teams.
 const effRole = () => (state.user.role === 'asm' ? 'sales_manager' : state.user.role);
@@ -345,7 +345,8 @@ function navGroups() {
   const cardApprovals = ['#/card-approvals', 'Approvals', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
   if (r === 'it') return filterNav([['', [['#/assets', 'Tab register', 'tablet'], ['#/import/assets', 'Bulk upload', 'upload'], ['#/reports?report=assets&run=1', 'Inventory report', 'report'], ...(state.meta.can_manage_roles ? [['#/roles', 'Roles', 'users']] : [])]]]);
-  const work = [['#/', 'Dashboard', 'home']];
+  const isCeo = state.user.role_key === 'ceo';
+  const work = [['#/', isCeo ? 'CEO dashboard' : 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
   if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
   if (r === 'sales_manager') work.push(editRequests, cardApprovals);
@@ -370,13 +371,13 @@ function navGroups() {
   if (r === 'sales') perf.push(['#/my-tab', 'My tab', 'tablet']);
   if (['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r)) perf.push(['#/team', 'Team view', 'tree']);
   if (r === 'mis' || r === 'business_head') perf.push(['#/cards', 'Card activation', 'card']);
-  if (r === 'business_head') perf.push(['#/ceo', 'CEO dashboard', 'home']);
+  if (r === 'business_head' && !isCeo) perf.push(['#/ceo', 'CEO dashboard', 'home']);
   if (r === 'business_head') perf.push(['#/pnl', 'Profit & loss', 'report']);
   if (state.meta.reports?.length) perf.push(['#/reports', 'Reports', 'report']);
   if (perf.length) groups.push(['Performance', perf]);
 
   const admin = [];
-  if (r === 'mis' || r === 'business_head') admin.push(['#/import/cases', 'Bulk upload', 'upload']);
+  if ((r === 'mis' || r === 'business_head') && (state.meta.perms?.uploads || ['cases']).length) admin.push(['#/import/cases', 'Bulk upload', 'upload']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/users', 'Staff', 'users']);
   if (['governance', 'mis', 'business_head'].includes(r)) admin.push(['#/access-log', 'Access log', 'eye']);
   if (['mis', 'business_head'].includes(r)) admin.push(['#/assets', 'Tab register', 'tablet']);
@@ -498,7 +499,7 @@ async function route() {
   const params = new URLSearchParams(qs || '');
   try {
     let m;
-    if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : await viewDashboard();
+    if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : state.user.role_key === 'ceo' ? await viewCeo(params) : await viewDashboard();
     if (path === '/assets') return await viewAssets(params);
     if (path === '/roles') return await viewRoles();
     if (path === '/allocation') return await viewAllocation();

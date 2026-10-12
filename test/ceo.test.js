@@ -21,6 +21,7 @@ before(async () => {
   add('Zed', 'zed@t.local', 'sales', { region: 'AUH', sales_code: 'A-2', core_product: 'credit_card', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm@t.local'], salary: 4000 });
   add('Mira', 'mis@t.local', 'mis', { region: 'DXB', hrms_code: 'EN2' });
   add('Bilal', 'head@t.local', 'business_head', { region: 'DXB', hrms_code: 'EN3' });
+  add('Yusuf', 'ceo@t.local', 'ceo', { region: 'DXB', hrms_code: 'EN4' });
   server = createServer(db);
   await new Promise((r) => server.listen(0, r));
   base = `http://localhost:${server.address().port}`;
@@ -73,7 +74,7 @@ test('the business head gets the headline numbers; the regions sit side by side;
   assert.equal(d.zero.zero_ends.count, 1, 'Zed has no completed file');
   assert.equal(d.zero.zero_ends.pct, 33.3);
   assert.equal(d.trend.length, 6); assert.equal(d.trend.at(-1).completed, 2);
-  assert.deepEqual(d.people, { sales: 3, leaders: 3, processing: 0, other: 2 });
+  assert.deepEqual(d.people, { sales: 3, leaders: 3, processing: 0, other: 3 });
   const pl = d.production.find((p) => p.product === 'personal_loan');
   assert.deepEqual([pl.target, pl.achieved, pl.pct, pl.files], [400000, 300000, 75, 2]);
   assert.deepEqual(d.regions.map((x) => [x.region, x.files, x.yield_pct, x.staff, x.zero_ends_pct]), [['DXB', 1, 9, 1, 0], ['AUH', 1, 8, 2, 50]]);
@@ -83,4 +84,17 @@ test('the business head gets the headline numbers; the regions sit side by side;
   assert.deepEqual(auh.regions, []);
   assert.equal(auh.money.files.now, 1); assert.equal(auh.yield.yield_pct, 8); assert.equal(auh.pipeline.open, 1);
   assert.equal((await head('GET', '/ceo?cycle=bad')).status, 400);
+});
+
+test('the CEO profile is a business head role that carries the dashboard and no uploads', async () => {
+  const ceo = await login('ceo@t.local');
+  const me = (await ceo('GET', '/me')).data;
+  assert.equal(me.user.role, 'business_head'); assert.equal(me.user.role_key, 'ceo');
+  assert.equal(me.meta.perms.label, 'CEO');
+  assert.ok(me.meta.perms.pages.includes('ceo') && me.meta.perms.pages.includes('pnl'));
+  assert.deepEqual(me.meta.perms.uploads, []);
+  const cycle = me.meta.current_cycle;
+  const d = (await ceo('GET', `/ceo?cycle=${cycle}`)).data;
+  assert.equal(d.cycle, cycle);
+  assert.equal((await ceo('GET', `/pnl?cycle=${cycle}`)).status, 200);
 });

@@ -46,7 +46,9 @@ export const BUILTIN_KEYS = Object.keys(BUILTIN_ROLES);
 // processor who also allocates processors to sales team leaders; nobody can edit or delete it.
 export const SYSTEM_ROLES = {
   processing_lead: { key: 'processing_lead', label: 'Verification Team Leader', base: 'processing', description: 'Verifies files like any processor and allocates processors to sales team leaders', pages: ['cases', 'chat', 'allocation'], reports: null, uploads: [], downloads: true, payout: false, status: 'approved', system: true },
+  ceo: { key: 'ceo', label: 'CEO', base: 'business_head', description: 'Sees everything a business head sees and opens on the CEO dashboard', pages: HEAD, reports: null, uploads: [], downloads: true, payout: true, status: 'approved', system: true },
 };
+export const isCeo = (user) => user.role === 'business_head' && user.role_key === 'ceo';
 export const isProcessingLead = (user) => user.role === 'processing' && user.role_key === 'processing_lead';
 
 /** Who defines roles: IT, Dubai MIS and business heads. */
