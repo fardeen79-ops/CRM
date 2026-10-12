@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { resolveRole, withRole } from './roles.js';
-import { contactDetails, findUser, salesProfile, regionOf } from './users.js';
+import { contactDetails, findUser, salesProfile, regionOf, salaryOf } from './users.js';
 
 const SESSION_DAYS = 7;
 export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'accounts', 'governance', 'it'];
@@ -39,7 +39,10 @@ export function createUser(db, input, { requireMobile = false } = {}) {
   if (contact.hrms_code && db.prepare('SELECT 1 FROM users WHERE hrms_code = ? COLLATE NOCASE').get(contact.hrms_code)) {
     throw new Error(`HRMS code ${contact.hrms_code} is already used by another user`);
   }
-  const profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null, salary: null, core_product: null };
+  // Everyone's monthly salary feeds the profit and loss; sales staff also get their targets from it.
+  let profile;
+  try { profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null, salary: salaryOf(input.salary), core_product: null }; }
+  catch (err) { throw new Error(err.message); }
   const region = regionOf(input.region);
   const { lastInsertRowid } = db
     .prepare(`INSERT INTO users (name, email, role, role_key, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary, hrms_code, doj, dol, core_product)

@@ -44,7 +44,7 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader (or a sales manager or ASM who leads the team directly), or one added earlier in this file' },
   { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only, optional: an active sales manager, or one added earlier in this file. Blank when the team reports to the business head directly' },
   { key: 'asm_email', header: 'Assistant sales manager email', example: '', help: 'Sales staff only, optional. An active assistant sales manager' },
-  { key: 'salary', header: 'Monthly salary (AED)', example: '5000', help: 'Sales staff only. Sets their targets through the salary bands' },
+  { key: 'salary', header: 'Monthly salary (AED)', example: '5000', help: 'Any role: counted in the profit and loss. For sales staff it also sets their targets through the salary bands' },
   { key: 'core_product', header: 'Core product', example: 'Credit Cards', help: 'Sales staff only: Credit Cards, Personal Loans, Auto Loans or Multi product' },
   { key: 'password', header: 'Temporary password', example: '', help: 'Optional, 8+ characters. Left blank, one is generated and shown after the upload' },
 ];

@@ -49,8 +49,8 @@ test('profit and loss for the business head: revenue less profile salaries and i
   assert.equal((await mis('GET', `/pnl?cycle=${cycle}`)).status, 403);
   assert.equal((await gov('GET', `/reports/pnl?cycle=${cycle}`)).status, 404);
   const p = (await head('GET', `/pnl?cycle=${cycle}`)).data.pnl;
-  // Salaries come from the staff profiles: Dana's 5,000 (a profile salary is kept for sales staff; Pat's was not stored).
-  assert.deepEqual([p.revenue.total, p.revenue.by_product.auto_loan, p.salaries, p.people], [875, 875, 5000, 7]);
+  // Salaries come from the staff profiles: Dana's 5,000 and Pat's 4,000 (every role's salary is kept).
+  assert.deepEqual([p.revenue.total, p.revenue.by_product.auto_loan, p.salaries, p.people], [875, 875, 9000, 7]);
   const sales = p.rows.find((l) => l.role === 'sales');
   assert.deepEqual([sales.staff, sales.salary, sales.cost], [1, 5000, 5000 + sales.incentive]);
   assert.equal(p.costs, p.salaries + p.incentives);
@@ -80,10 +80,10 @@ test('the profit and loss follows region and hierarchy: region → sales manager
   assert.deepEqual([tl.revenue, tl.headcount, tl.salary, tl.net], [875, 2, 5000, dana.net], 'the team leader line rolls up Dana; the leader has no salary of their own');
   assert.deepEqual([sm.revenue, sm.headcount], [875, 3]);
   const oh = dxb.children.find((n) => n.kind === 'overheads');
-  // Pat, Mira, Bilal and Gina (no profile salaries) are the overheads; all follow the business's SEs, who are all in Dubai.
-  assert.deepEqual([oh.headcount, oh.salary, oh.revenue], [4, 0, 0]);
-  assert.deepEqual([dxb.revenue, dxb.costs, dxb.net], [875, 5000 + inc, 875 - 5000 - inc]);
-  assert.deepEqual([total.net, total.headcount], [875 - 5000 - inc, 7]);
+  // Pat (4,000), Mira, Bilal and Gina are the overheads; all follow the business's SEs, who are all in Dubai.
+  assert.deepEqual([oh.headcount, oh.salary, oh.revenue], [4, 4000, 0]);
+  assert.deepEqual([dxb.revenue, dxb.costs, dxb.net], [875, 9000 + inc, 875 - 9000 - inc]);
+  assert.deepEqual([total.net, total.headcount], [875 - 9000 - inc, 7]);
   // Gina has no region of her own, but overheads follow the SEs, so there is no "No region set" bucket.
   assert.equal(tree.find((n) => n.key === 'NONE'), undefined);
   assert.equal((await head('GET', `/pnl?cycle=${cycle}&region=DXB`)).data.tree.tree.length, 1);

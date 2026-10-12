@@ -2,10 +2,10 @@
 
 Built from the staff list supplied on 8 October 2026 (`New_HRMS_Code.xlsx`, sheet "Sales Staff", 360 rows). Both files load through **Bulk upload** as the business head or DXB MIS, in this order:
 
-1. **Staff** → `staff-upload.csv` (406 rows: 10 sales managers, 36 team leaders, 360 sales staff). **Fill the HRMS code column for the 46 leader rows first**: the code is mandatory for every role and the upload rejects a row without one (and then the sales rows that name that leader). The upload creates leaders first, then staff, and shows a temporary password for every new login. Everyone signs in with their HRMS code.
+1. **Staff** → `staff-upload.csv` (432 rows: 2 business heads, 10 sales managers, 36 team leaders, 360 sales staff, 20 processing, 4 governance). **Six rows still have no HRMS code** (see *Salary details* below): the code is mandatory for every role and the upload rejects a row without one (and then the sales rows that name that leader). The upload creates leaders first, then staff, and shows a temporary password for every new login. Everyone signs in with their HRMS code.
 2. **Salary targets** → `salary-targets.csv` (66 bands, with the credit card bonus level in the last column). Then press **Generate from salaries** on the Targets page for the cycle.
 
-Loading both into a scratch copy of the CRM (with placeholder codes in the leader rows) gave: 406 users created, 0 failed; 66 bands saved; targets generated for all 360 sales staff, every one equal to the sheet's target.
+Loading both into a scratch copy of the CRM (with placeholder codes in the six rows without one) gave: 432 users created, 0 failed; 66 bands saved; targets generated for all 360 sales staff, every one equal to the sheet's target.
 
 ## How the sheet was mapped
 
@@ -24,11 +24,27 @@ Loading both into a scratch copy of the CRM (with placeholder codes in the leade
 | Salary | Monthly salary | Drives the targets |
 | Point Target | Salary bands | Points for credit cards and auto loans (an auto loan's points are its disbursed amount at the bank's payout rate: 0.80% new and used, 0.25% algo), **AED to disburse for personal loans**. Reproduced exactly by the bands in `salary-targets.csv`, see below |
 
+## Salary details (12 October 2026)
+
+`Salary_Details.xlsx` (68 rows: business heads, SM, ASM, TL, processors, settlement officers, compliance, one biker) filled the leader rows' **HRMS codes and monthly salaries** and added the non-sales staff, so every salary is in the profit and loss:
+
+| Sheet department | CRM role | Notes |
+|---|---|---|
+| BUSINESS HEAD | Business head | Fardeen (DXB, 1012) and Noman Najam (AUH). **Noman's HRMS code is still to come**; his row is rejected until it is filled |
+| SM, ASM, TL | as already in the file | Matched by name to the 41 leaders the file had; HRMS code and salary filled. Roles were **not** changed (see below) |
+| PROCESSOR, SETTLEMENT OFFICER | Processing | 20 rows; settlement officers have no role of their own, so they load as processing |
+| COMPLIANCE | Governance | 4 rows |
+| BIKER | not loaded | Amir Nazir Shah (AED 3,500) has no CRM role, so his salary is not in the profit and loss |
+
+Still without an HRMS code or salary, because they are not on the salary sheet: **Jigar Bhavsar, Varun Gupta** (sales managers), **Mrudula Thirunilathil, Jibin Rajan, Laijomon Joseph** (team leaders). Their rows, and the sales staff under them, are rejected until the code is filled in.
+
+**Designations differ from the sales sheet.** The salary sheet calls these eight **ASM**: Tanveer Shirgar and Shaharyab Khan (sales managers in the file), Abdul Kader (sales manager, AUH), Sangaralingam, Ignatius Pramod Fernandes, Sajjad Hussain, Suneel Kumar Jain and Zeeshan Patel (team leaders in the file). The file keeps the roles the sales sheet implied, because the role decides which incentive scheme applies (a team leader's scheme or a manager's); change them on the Staff page once the business confirms who is paid as an ASM. Priyanka is a team leader on the salary sheet (AED 10,000) but manages teams in the sales sheet, so she stays a sales manager.
+
 ## Placeholders to replace
 
 - **Emails** are placeholders: `hrms<code>@derbygroup.local` for staff, `first.last@derbygroup.local` for leaders. Replace them on the Staff page when the real addresses are known. Staff sign in with the HRMS code, so the placeholder does not block anyone.
 - **Mobile and WhatsApp numbers** are blank. WhatsApp alerts are on hold, so nothing needs them yet.
-- **Leaders' HRMS codes** are blank in the file and must be filled in before the upload.
+- **HRMS codes** are now filled from the salary sheet; six rows remain blank (above).
 
 ## Salary bands
 
@@ -45,5 +61,5 @@ The sheet's target column (points for CC and AL, AED for PL) follows the salary 
 ## Still needed
 
 - Nothing further on incentives: a manager of a mixed team gets one card calculation and one loan calculation, auto loan leaders and managers have no incentive, there is no AUH-specific treatment, and one loan grid applies to every manager (all confirmed).
-- The ASM distinction, if any of the SM / ASM names are ASMs rather than sales managers.
+- The ASM distinction: the salary sheet names eight ASMs (above); confirm who is paid under the manager scheme before changing their role.
 - An **IT department account** (role IT) to keep the tab register, and the list of tabs issued (serial, tab number, accessories, network, SIM, Entra ID, registered mobile) to enter or upload.
