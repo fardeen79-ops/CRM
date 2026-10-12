@@ -127,7 +127,11 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 1. Sign in as the first business head (`ADMIN_EMAIL`). Change the password on the Staff page.
 2. Add an **MIS** user. Bulk upload and target setting are for MIS and business heads.
 3. As MIS: **Bulk upload → Users** (team leaders and sales managers first, then sales staff), then
-   **Bulk upload → Targets** for the current cycle. Share the downloaded sign-in details securely.
+   **Bulk upload → Salary targets** with `docs/go-live/salary-targets.csv` (the salary bands), then on the
+   **Targets** page press **Generate from salaries** for the current cycle. That gives every sales person
+   the target of their core product from their salary, and team leaders, ASMs and sales managers see
+   their teams' targets added up. This is exactly what the demo does. Hand-set targets go through
+   **Bulk upload → Targets** or **Set targets** instead. Share the downloaded sign-in details securely.
 4. Each role signs in and checks their dashboard.
 
 **Test environment shortcut: the demo users.** To try every role on the server without uploading
