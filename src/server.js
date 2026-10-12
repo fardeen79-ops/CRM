@@ -223,6 +223,15 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
       send(res, 200, { user: result.user }, { 'set-cookie': sessionCookie(result.token, result.maxAge) });
     }, { public: true }],
 
+    // One's own profile: the mobile and WhatsApp numbers can be changed here; everything else is the Staff page's.
+    ['PATCH', /^\/api\/me$/, async ({ user, body }) => {
+      const allowed = Object.fromEntries(Object.entries(body).filter(([k]) => ['mobile_number', 'whatsapp_number'].includes(k)));
+      if (!Object.keys(allowed).length) throw new HttpError(400, 'Only the mobile and WhatsApp numbers can be changed here; ask MIS for anything else');
+      let contact;
+      try { contact = contactDetails(allowed, { current: auth.getUser(db, user.id) }); } catch (err) { throw new HttpError(400, err.message); }
+      for (const [field, value] of Object.entries(contact)) db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, user.id);
+      return { user: findUser(db, user.id) };
+    }],
     // Anyone changes their own password, with the current one; other sessions of theirs are signed out.
     ['POST', /^\/api\/password$/, async ({ user, body, token }) => {
       const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);

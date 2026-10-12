@@ -217,3 +217,15 @@ test('anyone changes their own password with the current one; other sessions of 
   assert.equal(res.status, 200);
   assert.equal((await first('POST', '/password', { current: 'newpassword1', password: PASSWORD })).status, 200);
 });
+
+test('my profile: the numbers can be changed by the person themselves, nothing else', async () => {
+  const sm = await login('sm@t.local');
+  const me = (await sm('GET', '/me')).data.user;
+  assert.equal(me.email, 'sm@t.local');
+  const r = await sm('PATCH', '/me', { mobile_number: '0501112233', whatsapp_number: '+971501112233' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.deepEqual([r.data.user.mobile_number, r.data.user.whatsapp_number], ['0501112233', '+971501112233']);
+  assert.equal((await sm('PATCH', '/me', { role: 'business_head' })).status, 400, 'only the numbers');
+  assert.equal((await sm('PATCH', '/me', { mobile_number: '12345' })).status, 400, 'a UAE mobile number or blank');
+  assert.equal((await sm('GET', '/me')).data.user.role, 'sales_manager');
+});

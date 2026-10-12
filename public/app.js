@@ -427,8 +427,8 @@ function shell(content) {
         </nav>
         <div class="side-user">
           <span class="avatar" aria-hidden="true">${initials}</span>
-          <div class="who"><div class="name">${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role_key || state.user.role]}</div></div>
-<a href="#/password" class="side-link" title="Change my password">Password</a> <button id="logout" class="btn-link" title="Sign out">Sign out</button>
+          <a class="who" href="#/profile" title="My profile"><div class="name">${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role_key || state.user.role]}</div></a>
+<a href="#/profile" class="side-link" title="My profile and password">Profile</a> <button id="logout" class="btn-link" title="Sign out">Sign out</button>
         </div>
       </aside>
       <div class="scrim" id="scrim" hidden></div>
@@ -569,7 +569,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if (path === '/password') return viewPassword();
+    if (path === '/password' || path === '/profile') return await viewProfile();
     if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules|assets)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
@@ -4736,23 +4736,60 @@ async function viewAssets(params = new URLSearchParams()) {
   app.querySelectorAll('[data-asset-status]').forEach((f) => (f.onsubmit = (e) => { e.preventDefault(); const body = Object.fromEntries(new FormData(f).entries()); if (!body.status) return toast('Choose a status', 'error'); run(() => api(`/assets/${f.dataset.assetStatus}/status`, { method: 'POST', body }).then(() => toast('Status updated')), f); }));
 }
 
-// Anyone changes their own password here, with the current one.
-function viewPassword() {
+// My profile: the details on file (read-only but for the numbers), and the password.
+async function viewProfile() {
+  const { user: u } = await api('/me');
+  const meta = state.meta;
+  const row = (dt, v, mono = false) => html`<dt>${dt}</dt><dd class="${mono && v ? 'mono' : ''}">${v || '—'}</dd>`;
+  const initials = (u.name || '?').split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   shell(html`
-    <div class="page-head"><div><h1>Change my password</h1><p class="muted lede">At least 8 characters. Your other signed-in devices are signed out once it changes.</p></div></div>
-    <form class="card" id="password-form" style="max-width:420px">
-      <div class="field-row"><label for="pw-current">Current password</label><input id="pw-current" name="current" type="password" autocomplete="current-password" required></div>
-      <div class="field-row"><label for="pw-new">New password</label><input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="8" required></div>
-      <div class="field-row"><label for="pw-again">New password again</label><input id="pw-again" name="again" type="password" autocomplete="new-password" minlength="8" required></div>
-      <div class="actions"><button class="btn-primary">Change password</button><a class="btn" href="#/">Cancel</a></div>
-    </form>`);
+    <div class="page-head"><div><div class="eyebrow">My profile</div><h1>${u.name}</h1><p class="muted lede">${ROLE_LABEL[u.role_key || u.role] || u.role}${u.region ? ` · ${meta.regions?.[u.region] || u.region}` : ''}${u.hrms_code ? html` · HRMS <span class="mono">${u.hrms_code}</span>` : ''}</p></div></div>
+    <div class="grid two-col">
+      <div>
+        <div class="card"><h2>On file</h2>
+          <dl class="details">
+            ${row('Full name', u.name)}
+            ${row('Email', u.email)}
+            ${row('HRMS code', u.hrms_code, true)}
+            ${row('Role', ROLE_LABEL[u.role_key || u.role] || u.role)}
+            ${row('Region', u.region ? meta.regions?.[u.region] || u.region : null)}
+            ${u.role === 'sales' ? html`${row('Sales code', u.sales_code, true)}${row('Core product', meta.staff_core_products?.[u.core_product] || u.core_product)}${row('Team leader', u.team_leader_name)}${u.asm_name ? row('Assistant sales manager', u.asm_name) : ''}${row('Sales manager', u.sales_manager_name)}` : ''}
+            ${['team_leader', 'asm'].includes(u.role) ? html`${row('Reports to', u.sales_manager_name || 'Business head')}${u.asm_name ? row('Under ASM', u.asm_name) : ''}` : ''}
+            ${u.salary != null ? row('Monthly salary', `AED ${fmtAmount(u.salary)}`) : ''}
+            ${row('Date of joining', u.doj ? fmtDay(u.doj) : null)}
+            ${u.dol ? row('Date of leaving', fmtDay(u.dol)) : ''}
+          </dl>
+          <p class="muted small">Name, email, HRMS code, role, region and reporting line are kept by MIS on the Staff page. Ask them for a change.</p>
+        </div>
+        <form class="card" id="contact-form"><h2>My numbers</h2>
+          <div class="form-grid two">
+            <div class="field-row"><label for="pf-mobile">Local mobile</label><input id="pf-mobile" name="mobile_number" inputmode="tel" value="${u.mobile_number || ''}" placeholder="05x xxx xxxx"></div>
+            <div class="field-row"><label for="pf-wa">WhatsApp number</label><input id="pf-wa" name="whatsapp_number" inputmode="tel" value="${u.whatsapp_number || ''}" placeholder="+971 5x xxx xxxx"></div>
+          </div>
+          <div class="actions"><button class="btn-primary">Save numbers</button></div>
+        </form>
+      </div>
+      <form class="card" id="password-form"><h2>Reset my password</h2>
+        <p class="muted small">At least 8 characters. Your other signed-in devices are signed out once it changes.</p>
+        <div class="field-row"><label for="pw-current">Current password</label><input id="pw-current" name="current" type="password" autocomplete="current-password" required></div>
+        <div class="field-row"><label for="pw-new">New password</label><input id="pw-new" name="password" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="field-row"><label for="pw-again">New password again</label><input id="pw-again" name="again" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="actions"><button class="btn-primary">Reset password</button></div>
+      </form>
+    </div>`);
+  const cf = document.getElementById('contact-form');
+  cf.onsubmit = async (e) => {
+    e.preventDefault();
+    try { const { user } = await api('/me', { method: 'PATCH', body: formData(cf) }); state.user = { ...state.user, ...user }; toast('Numbers saved'); } catch (ex) { toast(ex.message, 'error'); }
+  };
   const f = document.getElementById('password-form');
   f.onsubmit = async (e) => {
     e.preventDefault();
     const { current, password, again } = formData(f);
     if (password !== again) return toast('The two new passwords do not match', 'error');
-    try { await api('/password', { method: 'POST', body: { current, password } }); toast('Password changed'); go('#/'); } catch (ex) { toast(ex.message, 'error'); }
+    try { await api('/password', { method: 'POST', body: { current, password } }); toast('Password changed'); f.reset(); } catch (ex) { toast(ex.message, 'error'); }
   };
+  void initials;
 }
 
 async function viewUsers() {

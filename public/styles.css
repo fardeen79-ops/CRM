@@ -129,7 +129,9 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
   display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 12px 10px 4px;
   border-top: 1px solid rgba(255, 255, 255, .12);
 }
-.side-user .who { flex: 1; min-width: 0; }
+.side-user .who { flex: 1; min-width: 0; color: inherit; }
+.side-user a.who:hover { text-decoration: none; }
+.side-user a.who:hover .name { text-decoration: underline; }
 .side-user .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .side-user .role-tag { color: var(--chrome-text); }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 12px; font-weight: 700; background: rgba(255, 255, 255, .14); color: var(--chrome-strong); }

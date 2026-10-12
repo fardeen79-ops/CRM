@@ -261,7 +261,9 @@ The recording server is set on the CRM server, never in the browser: the credent
 
 Without either, the card still shows the bot's calls and says the server is not connected.
 
-- **Passwords.** Everyone changes their own password from the **Password** link under their name in the sidebar (current password required, at least 8 characters; their other signed-in devices are signed out). MIS and business heads reset anyone's from the Staff page (**Reset password** on the row). The first business head's password is the `ADMIN_PASSWORD` in force at the very first start only; later changes to that setting do nothing once users exist.
+- **My profile.** Their name in the sidebar opens every user's own profile: the details on file (name, email, HRMS code, role, region, reporting line, salary, dates), their **mobile and WhatsApp numbers**, which they change themselves, and **Reset my password**. Everything else is kept by MIS on the Staff page.
+
+- **Passwords.** Everyone resets their own password from their profile (current password required, at least 8 characters; their other signed-in devices are signed out). MIS and business heads reset anyone's from the Staff page (**Reset password** on the row). The first business head's password is the `ADMIN_PASSWORD` in force at the very first start only; later changes to that setting do nothing once users exist.
 
 - **Hierarchy on the staff page.** The fields a role needs appear as soon as the role is chosen, on a new user and when an existing one's role is changed: a sales role asks for the sales profile (code, team leader, sales manager, ASM, salary, core product); a team leader for the sales manager they report to and, if any, the ASM above them; an ASM for their sales manager; every other role for the salary only. The reporting line of a leader can also be edited on its own.
 

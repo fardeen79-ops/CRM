@@ -460,6 +460,14 @@ function handle(method, pathname, query, body) {
   if ((m = pathname.match(/^\/api\/assets\/(\d+)$/)) && method === 'PATCH') { const r = updateAsset(db, user, Number(m[1]), body); persist(); return { asset: r }; }
   if ((m = pathname.match(/^\/api\/assets\/(\d+)\/assign$/)) && method === 'POST') { const r = assignAsset(db, user, Number(m[1]), body); persist(); return { asset: r }; }
   if ((m = pathname.match(/^\/api\/assets\/(\d+)\/status$/)) && method === 'POST') { const r = setAssetStatus(db, user, Number(m[1]), body); persist(); return { asset: r }; }
+  if (method === 'PATCH' && pathname === '/api/me') {
+    const allowed = Object.fromEntries(Object.entries(body).filter(([k]) => ['mobile_number', 'whatsapp_number'].includes(k)));
+    if (!Object.keys(allowed).length) throw new ApiError(400, 'Only the mobile and WhatsApp numbers can be changed here; ask MIS for anything else');
+    let c; try { c = contactDetails(allowed, { current: db.prepare('SELECT * FROM users WHERE id = ?').get(user.id) }); } catch (e) { throw new ApiError(400, e.message); }
+    for (const [f, v] of Object.entries(c)) db.prepare('UPDATE users SET ' + f + ' = ? WHERE id = ?').run(v, user.id);
+    persist();
+    return { user: publicUser(user.id) };
+  }
   if (method === 'POST' && pathname === '/api/password') {
     const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
     if (!row || row.password_hash !== 'demo:' + String(body.current || '')) throw new ApiError(400, 'The current password is not right');
