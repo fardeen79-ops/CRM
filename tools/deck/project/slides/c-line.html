@@ -1,0 +1,60 @@
+<section id="c-line" data-transition="fade" style="background:#F6F5F0;color:#14213D;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:36px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:4px;text-transform:uppercase;color:#B5651D">Verification · On our own line</p>
+<h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.1">The bot can call from our own SIP line, with nothing leaving our server</h2>
+</div>
+<div style="display:flex;gap:40px;align-items:start">
+<div style="flex:none;width:560px;display:flex;flex-direction:column;gap:20px">
+<div style="display:flex;flex-direction:column;gap:6px;border-left:6px solid #14213D;padding:4px 0 4px 20px">
+<h3 style="font-size:28px;font-weight:600">No telephony provider in the call</h3>
+<p style="font-size:24px;line-height:1.45;color:#3D4451">A second calling service dials over the company's own SIP line from a server we control. The customer sees our number; no cloud telephony company carries the call or sees the customer's details.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;border-left:6px solid #1F7A8C;padding:4px 0 4px 20px">
+<h3 style="font-size:28px;font-weight:600">Speech and recordings stay on the server</h3>
+<p style="font-size:24px;line-height:1.45;color:#3D4451">The bot's voice and the recognition of what the customer says are open-source programs installed on that server. Recordings are files in a folder there, played inside the CRM with a signed request. Nobody outside hears or stores a call.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;border-left:6px solid #B5651D;padding:4px 0 4px 20px">
+<h3 style="font-size:28px;font-weight:600">Same bot, same controls</h3>
+<p style="font-size:24px;line-height:1.45;color:#3D4451">The CRM cannot tell the two services apart: the same requests, two approvals, calling hours, taught lines, results and transcripts. The AI is off unless we switch it on, so by default the whole call stays in-house. A one-command check tests the line and places a test call before go-live.</p>
+</div>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:24px">
+<svg viewBox="0 0 1060 420" style="width:1060px;height:420px" role="img" aria-label="The CRM asks the calling bot on our server to call; the bot dials over our SIP line to the customer; voice, recognition and recordings stay inside the server boundary">
+<rect x="250" y="20" width="560" height="380" rx="20" fill="#FFFFFF" stroke="#14213D" stroke-width="3" stroke-dasharray="12 10"/>
+<text x="530" y="62" text-anchor="middle" font-size="22" font-weight="600" fill="#14213D" letter-spacing="3">OUR SERVER · NOTHING LEAVES IT</text>
+<rect x="20" y="150" width="180" height="120" rx="14" fill="#14213D"/>
+<text x="110" y="200" text-anchor="middle" font-size="30" font-weight="600" fill="#F6F5F0">CRM</text>
+<text x="110" y="236" text-anchor="middle" font-size="20" fill="#C9D3E3">asks for the call</text>
+<rect x="290" y="110" width="480" height="200" rx="14" fill="#F6F5F0" stroke="#1F7A8C" stroke-width="3"/>
+<text x="530" y="152" text-anchor="middle" font-size="28" font-weight="600" fill="#14213D">Calling bot</text>
+<text x="530" y="192" text-anchor="middle" font-size="22" fill="#3D4451">the taught conversation · the rules</text>
+<rect x="312" y="218" width="208" height="64" rx="10" fill="#FFFFFF" stroke="#DDD9CE" stroke-width="2"/>
+<text x="416" y="245" text-anchor="middle" font-size="20" font-weight="600" fill="#14213D">Voice · Recognition</text>
+<text x="416" y="270" text-anchor="middle" font-size="18" fill="#6A7179">programs on this server</text>
+<rect x="540" y="218" width="208" height="64" rx="10" fill="#FFFFFF" stroke="#DDD9CE" stroke-width="2"/>
+<text x="644" y="245" text-anchor="middle" font-size="20" font-weight="600" fill="#14213D">Recordings</text>
+<text x="644" y="270" text-anchor="middle" font-size="18" fill="#6A7179">files in a folder here</text>
+<text x="530" y="360" text-anchor="middle" font-size="20" fill="#B5651D" font-weight="600">AI off by default · switch on only with compliance approval</text>
+<rect x="860" y="150" width="180" height="120" rx="14" fill="#14213D"/>
+<text x="950" y="200" text-anchor="middle" font-size="30" font-weight="600" fill="#F6F5F0">Customer</text>
+<text x="950" y="236" text-anchor="middle" font-size="20" fill="#C9D3E3">over our SIP line</text>
+<line x1="200" y1="210" x2="286" y2="210" stroke="#14213D" stroke-width="4" marker-end="url(#ah)"/>
+<line x1="770" y1="210" x2="856" y2="210" stroke="#14213D" stroke-width="4" marker-end="url(#ah)"/>
+<defs><marker id="ah" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#14213D"/></marker></defs>
+</svg>
+<div style="background:#14213D;color:#C9D3E3;border-radius:12px;padding:22px 28px;font-family:'IBM Plex Mono', Consolas, monospace;font-size:20px;line-height:1.5">
+<div style="color:#E8A33D">$ node bot/sip-check.js --call 050 123 4567</div>
+<div>Speech engines</div>
+<div>&nbsp;&nbsp;✓ Voice: produced 4.1 s of audio in 310 ms</div>
+<div>&nbsp;&nbsp;✓ Recognition: heard "this is a test call from the verification bot…" in 1.2 s</div>
+<div>SIP line</div>
+<div>&nbsp;&nbsp;✓ Registered as our number with the provider</div>
+<div>Test call</div>
+<div>&nbsp;&nbsp;✓ Answered after 4.6 s · said the test line · audio came back · hung up</div>
+<div style="color:#F6F5F0">All checks passed.</div>
+</div>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;font-size:24px;color:#6A7179">STRIDE · 15</p>
+<aside>The point for the CEO: the verification bot does not need Twilio or any cloud voice service. With our own SIP line and two open-source speech programs on our server, no third party hears, stores or transcribes a customer call. The check output shown is illustrative of what IT runs before go-live. What IT needs: the SIP line details from the provider, the two speech programs installed, and the audio ports opened towards the provider. Compliance still signs off the caller number and the recording notice.</aside>
+</section>

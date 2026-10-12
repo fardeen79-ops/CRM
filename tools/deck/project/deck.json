@@ -5,10 +5,11 @@
     "at": "2026-10-08T10:00:00Z"
   },
   "lists": "css",
-  "title": "Sourcing CRM Controls",
+  "title": "STRIDE \u00b7 CEO briefing",
   "order": [
     "cover",
     "summary",
+    "c-brand",
     "journey",
     "c-leads",
     "c-followups",
@@ -20,6 +21,7 @@
     "c-dncr",
     "c-controls",
     "c-bot",
+    "c-line",
     "c-privacy",
     "c-audience",
     "c-assets",
