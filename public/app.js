@@ -87,7 +87,7 @@ const canPickRegion = () => Boolean(state.user) && REGION_ROLES.includes(state.u
 const loadRegion = () => { try { state.region = localStorage.getItem('crm-region') || ''; } catch { state.region = ''; } };
 const saveRegion = (r) => { state.region = r; try { r ? localStorage.setItem('crm-region', r) : localStorage.removeItem('crm-region'); } catch { /* storage blocked */ } };
 // Reads that follow the region view when one is chosen.
-const REGION_PATHS = /^\/(cases|stats|dashboard|pnl|targets|hierarchy|reports\/)/;
+const REGION_PATHS = /^\/(cases|stats|dashboard|pnl|ceo|targets|hierarchy|reports\/)/;
 
 // ---------- helpers ----------
 const esc = (v) =>
@@ -370,6 +370,7 @@ function navGroups() {
   if (r === 'sales') perf.push(['#/my-tab', 'My tab', 'tablet']);
   if (['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r)) perf.push(['#/team', 'Team view', 'tree']);
   if (r === 'mis' || r === 'business_head') perf.push(['#/cards', 'Card activation', 'card']);
+  if (r === 'business_head') perf.push(['#/ceo', 'CEO dashboard', 'home']);
   if (r === 'business_head') perf.push(['#/pnl', 'Profit & loss', 'report']);
   if (state.meta.reports?.length) perf.push(['#/reports', 'Reports', 'report']);
   if (perf.length) groups.push(['Performance', perf]);
@@ -506,6 +507,7 @@ async function route() {
     if (path === '/boosters') return await viewBoosters();
     if (path === '/holidays') return await viewHolidays();
     if (path === '/pnl') return await viewPnl(params);
+    if (path === '/ceo') return await viewCeo(params);
     if (path === '/my-tab') return await viewMyTab();
     if (!allowedPage(NAV_PAGE(`#${path}`))) throw new Error('Your role does not include this screen');
     if (path === '/cases/new') return viewCaseForm(undefined, params.get('lead'));
@@ -3810,6 +3812,69 @@ function pnlTreeRows(nodes, depth = 0) {
       <td class="num">${n.headcount || '—'}</td><td class="num">${n.files || '—'}</td><td class="num">${aed(n.revenue)}</td><td class="num">${n.salary_paid + n.salary_estimated ? `− ${aed(n.salary_paid + n.salary_estimated)}` : '—'}</td><td class="num">${n.incentives ? `− ${aed(n.incentives)}` : '—'}</td>
       <td class="num ${n.net < 0 ? 'loss' : 'gain'}">${n.net < 0 ? '− ' : ''}${aed(Math.abs(n.net))}</td><td class="num">${n.margin_pct == null ? '—' : `${n.margin_pct}%`}</td></tr>${pnlTreeRows(n.children, depth + 1)}`);
 }
+// ---------- CEO dashboard ----------
+async function viewCeo(params = new URLSearchParams()) {
+  if (state.user.role !== 'business_head') throw new Error('The CEO dashboard is for the business head');
+  const cycle = params.get('cycle') || state.meta.current_cycle;
+  const region = params.get('region') ?? state.region ?? '';
+  const q = new URLSearchParams({ cycle }); if (region) q.set('region', region);
+  const d = await api(`/ceo?${q}`);
+  const cycles = Array.from({ length: 12 }, (_, i) => shiftCycle(state.meta.current_cycle, -i));
+  const aed = (n) => `AED ${fmtAmount(n)}`;
+  const signed = (n) => `${n < 0 ? '− ' : ''}${aed(Math.abs(n))}`;
+  const delta = (c, money = true) => (c.before == null || (c.before === 0 && c.now === 0) ? html`<span class="muted">no previous cycle</span>`
+    : html`<span class="${c.delta > 0 ? 'ceo-up' : c.delta < 0 ? 'ceo-down' : 'muted'}">${c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '='} ${money ? aed(Math.abs(c.delta)) : fmtAmount(Math.abs(c.delta))}${c.pct != null ? ` (${Math.abs(c.pct)}%)` : ''}</span> vs ${d.previous.label}`);
+  const pctOf = (v) => (v == null ? '—' : `${v}%`);
+  const amount = (p) => (p.unit === 'aed' ? fmtAedShort(p.achieved) : `${fmtAmount(p.achieved)} ${p.unit}`);
+  const amountT = (p) => (p.unit === 'aed' ? fmtAedShort(p.target) : `${fmtAmount(p.target)} ${p.unit}`);
+  const bar = (p) => html`<div class="ceo-bar-row"><div class="ceo-bar-head"><strong>${p.label}</strong><span class="muted small">${amount(p)} of ${amountT(p)} · ${p.files} files</span><span class="ceo-bar-pct ${p.pct == null ? 'muted' : p.pct >= 100 ? 'good-num' : p.pct >= 70 ? '' : 'bad-num'}">${pctOf(p.pct)}</span></div>
+    <div class="ceo-bar"><div class="ceo-bar-fill ${p.pct >= 100 ? 'full' : p.pct >= 70 ? 'near' : 'low'}" style="width:${Math.min(100, p.pct || 0)}%"></div></div></div>`;
+  const yieldTile = d.yield ? html`<a class="kpi ${d.yield.yield_pct == null ? '' : d.yield.below_min ? 'kpi-alert' : 'kpi-good'}" href="#/reports?report=pl_yield&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}"><span class="kpi-label">Personal loan yield</span><span class="kpi-value">${d.yield.yield_pct == null ? '—' : `${d.yield.yield_pct.toFixed(2)}%`}</span><span class="kpi-sub">${d.yield.yield_pct == null ? 'no loan disbursed yet' : `${d.yield.vs_min >= 0 ? '+' : ''}${d.yield.vs_min.toFixed(2)} vs ${d.yield.min}% minimum · ${d.yield.below} of ${d.yield.members} team leaders below`}</span></a>` : '';
+  shell(html`
+    <div class="page-head"><div><h1>CEO dashboard</h1><p class="muted lede">${d.label} cycle${d.region ? ` · ${state.meta.regions[d.region]}` : ' · all regions'}${d.is_current && d.days_left != null ? ` · ${d.days_left} ${d.days_left === 1 ? 'day' : 'days'} left` : ''}. The bank's payout, what it cost, what the teams produced against target, and what to watch.</p></div>
+      <div class="actions"><a class="btn" href="#/pnl?cycle=${cycle}${region ? `&region=${region}` : ''}">Profit &amp; loss</a><a class="btn" href="#/reports">Reports</a></div></div>
+    <form class="toolbar" id="ceo-filters">
+      <select name="cycle" aria-label="Cycle">${cycles.map((c) => html`<option value="${c}" ${c === cycle ? raw('selected') : ''}>${cycleName(c)} (${cycleSpan(c)})</option>`)}</select>
+      <button class="btn">Show</button>
+    </form>
+    <h2 class="tiles-head">Money</h2>
+    <div class="kpis">
+      <a class="kpi" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Revenue from the bank</span><span class="kpi-value">${aed(d.money.revenue.now)}</span><span class="kpi-sub">${delta(d.money.revenue)}</span></a>
+      <a class="kpi" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Costs</span><span class="kpi-value">${aed(d.money.costs.now)}</span><span class="kpi-sub">salaries ${fmtAedShort(d.money.salaries)} · incentives ${fmtAedShort(d.money.incentives)}${d.money.without_upload ? ` · ${d.money.without_upload} salaries estimated` : ''}</span></a>
+      <a class="kpi ${d.money.net.now >= 0 ? 'kpi-good' : 'kpi-alert'}" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Net</span><span class="kpi-value">${signed(d.money.net.now)}</span><span class="kpi-sub">${d.money.margin_pct == null ? 'no revenue in the cycle' : `${d.money.margin_pct}% margin`} · ${delta(d.money.net)}</span></a>
+      <a class="kpi ${d.loss.payout_lost ? 'kpi-alert' : ''}" href="#/reports?report=card_downsell&run=1&cycle=${cycle}"><span class="kpi-label">Payout lost to wrong sourcing</span><span class="kpi-value">${aed(d.loss.payout_lost)}</span><span class="kpi-sub">${d.loss.files} ${d.loss.files === 1 ? 'card' : 'cards'} sold below eligibility · ${fmtAmount(d.loss.points_lost)} points lost</span></a>
+    </div>
+    <h2 class="tiles-head">Production</h2>
+    <div class="kpis">
+      <a class="kpi" href="#/cases?cycle=${cycle}&case_status=completed"><span class="kpi-label">Files completed</span><span class="kpi-value">${fmtAmount(d.money.files.now)}</span><span class="kpi-sub">${delta(d.money.files, false)}</span></a>
+      <a class="kpi" href="#/cases?cycle=${cycle}"><span class="kpi-label">Files sourced</span><span class="kpi-value">${fmtAmount(d.pipeline.sourced.now)}</span><span class="kpi-sub">${pctOf(d.pipeline.conversion_pct)} completed so far · ${delta(d.pipeline.sourced, false)}</span></a>
+      ${yieldTile}
+      <a class="kpi ${d.zero.zero_ends.pct > 30 ? 'kpi-alert' : ''}" href="#/dashboard"><span class="kpi-label">Staff on zero ends</span><span class="kpi-value">${pctOf(d.zero.zero_ends.pct)}</span><span class="kpi-sub">${d.zero.zero_ends.count} of ${d.zero.team} sales staff · ${pctOf(d.zero.zero_submissions.pct)} with no submission</span></a>
+    </div>
+    <div class="grid two-col dash-row">
+      <div class="card"><div class="card-head"><h2>Against target · ${d.label}</h2><a class="tiles-link" href="#/targets?cycle=${cycle}">Targets →</a></div>
+        ${d.production.length ? d.production.map(bar) : html`<p class="muted small">No targets set for this cycle.</p>`}
+        ${d.cards?.temp_end ? html`<p class="muted small">Cards: ${d.cards.temp_end} completed, ${d.cards.active || 0} active, ${d.cards.inactive || 0} inactive, ${d.cards.unmapped || 0} not yet mapped.</p>` : ''}
+      </div>
+      ${trendCard(d.trend, 'business_head')}
+    </div>
+    ${d.regions.length ? html`<div class="card"><div class="card-head"><h2>Regions side by side</h2></div>
+      <div class="table-wrap"><table class="ceo-regions">
+        <thead><tr><th>Region</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Costs</th><th class="num">Net</th><th class="num">Margin</th><th class="num">PL yield</th><th class="num">Sales staff</th><th class="num">Zero ends</th><th class="num">No submission</th><th>Target achievement</th></tr></thead>
+        <tbody>${d.regions.map((x) => html`<tr><td><strong>${x.label}</strong></td><td class="num">${x.files}</td><td class="num">${aed(x.revenue)}</td><td class="num">${aed(x.costs)}</td><td class="num ${x.net < 0 ? 'bad-num' : 'good-num'}">${signed(x.net)}</td><td class="num">${pctOf(x.margin_pct)}</td><td class="num ${x.yield_pct == null ? '' : x.yield_below_min ? 'bad-num' : 'good-num'}">${x.yield_pct == null ? '—' : `${x.yield_pct.toFixed(2)}%`}</td><td class="num">${x.staff}</td><td class="num ${x.zero_ends_pct > 30 ? 'bad-num' : ''}">${pctOf(x.zero_ends_pct)}</td><td class="num">${pctOf(x.zero_submissions_pct)}</td><td>${x.achievement.map((a) => html`<span class="chip ${a.pct >= 100 ? 'chip-good' : a.pct < 70 ? 'chip-bad' : ''}">${state.meta.products?.[a.product] || a.product} ${a.pct}%</span> `)}</td></tr>`)}</tbody>
+      </table></div></div>` : ''}
+    ${contributionCard(d.contribution, d.label)}
+    <h2 class="tiles-head">Pipeline and governance · today</h2>
+    <div class="kpis">
+      <a class="kpi" href="#/cases?status=awaiting_approval"><span class="kpi-label">Awaiting approval</span><span class="kpi-value">${d.pipeline.awaiting_approval}</span><span class="kpi-sub">flagged files waiting on a manager</span></a>
+      <a class="kpi" href="#/cases?status=in_verification"><span class="kpi-label">In verification</span><span class="kpi-value">${d.pipeline.in_verification}</span><span class="kpi-sub">${d.pipeline.verification_pending} verification pending · ${d.pipeline.returned} returned to sales</span></a>
+      <a class="kpi" href="#/cases"><span class="kpi-label">Open files</span><span class="kpi-value">${d.pipeline.open}</span><span class="kpi-sub">${d.pipeline.rejected} rejected this cycle · ${d.pipeline.dncr} on the Do Not Call Register</span></a>
+      <a class="kpi ${d.governance.valid_complaints ? 'kpi-alert' : ''}" href="#/reports?report=governance&run=1&cycle=${cycle}"><span class="kpi-label">Complaints</span><span class="kpi-value">${d.governance.complaints}</span><span class="kpi-sub">${d.governance.valid_complaints} found valid · ${d.governance.deviations} card deviations or promotions</span></a>
+    </div>
+    <p class="muted small">People in scope: ${d.people.sales} sales staff, ${d.people.leaders} team leaders and managers, ${d.people.processing} processing, ${d.people.other} others. Money follows the profit and loss: revenue at the bank's payout rates on files completed in the cycle; non-sales costs split across regions by SE count.</p>`);
+  document.getElementById('ceo-filters').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); location.hash = `#/ceo?cycle=${f.get('cycle')}${region ? `&region=${region}` : ''}`; };
+}
+
 async function viewPnl(params = new URLSearchParams()) {
   if (state.user.role !== 'business_head') throw new Error('The profit and loss is for the business head');
   const cycle = params.get('cycle') || state.meta.current_cycle;
@@ -3877,6 +3942,7 @@ const NAV_PAGE = (href) => {
   if (href.startsWith('#/allocation')) return 'allocation';
   if (href.startsWith('#/boosters')) return 'boosters';
   if (href.startsWith('#/pnl')) return 'pnl';
+  if (href.startsWith('#/ceo')) return 'ceo';
   return null;
 };
 const allowedPage = (page) => !page || !state.meta.perms?.custom || state.meta.perms.pages.includes(page);

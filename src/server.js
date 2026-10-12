@@ -16,6 +16,7 @@ import * as roles from './roles.js';
 import { dashboardFor, CALENDAR_GREEN_PCT, CALENDAR_ORANGE_PCT } from './dashboard.js';
 import { PL_MIN_YIELD } from './yield.js';
 import { profitAndLoss, payrollFor, profitAndLossTree } from './pnl.js';
+import { ceoDashboard } from './ceo.js';
 import * as leads from './leads.js';
 import { BANKS } from './banks.js';
 import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
@@ -415,6 +416,7 @@ function routes(db, dispatch, bot, interpret, phrase) {
     ['POST', /^\/api\/targets\/generate$/, async ({ user, body }) => performance.generateTargets(db, user, body.cycle)],
     ['POST', /^\/api\/import\/target_rules$/, async ({ user, body }) => imports.importTargetRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
     ['POST', /^\/api\/import\/payroll$/, async ({ user, body }) => imports.importPayroll(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
+    ['GET', /^\/api\/ceo$/, async ({ user, query }) => ceoDashboard(db, user, { cycle: query.get('cycle'), region: query.get('region') })],
     ['GET', /^\/api\/pnl$/, async ({ user, query }) => ({ pnl: profitAndLoss(db, user, { cycle: query.get('cycle'), region: query.get('region') }), tree: profitAndLossTree(db, user, { cycle: query.get('cycle'), region: query.get('region') }), payroll: payrollFor(db, query.get('cycle') || profitAndLoss(db, user, {}).cycle, query.get('region')).map(({ user_id, name, role, region, hrms_code, salary_paid, incentive_paid, notes, set_at }) => ({ user_id, name, role, region, hrms_code, salary_paid, incentive_paid, notes, set_at })) })],
     ['POST', /^\/api\/import\/assets$/, async ({ user, body }) => imports.importAssets(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
     ['POST', /^\/api\/import\/payout_rules$/, async ({ user, body }) => imports.importPayoutRules(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],

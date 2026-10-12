@@ -950,3 +950,25 @@ table.pnl.tree td.gain { color: var(--s-done); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .yield-good .yield-big, :root:not([data-theme="light"]) .yield-table .good-num { color: #5ccb7f; } :root:not([data-theme="light"]) .yield-bad .yield-big, :root:not([data-theme="light"]) .yield-table .bad-num { color: #f08c84; } }
 :root[data-theme="dark"] .yield-good .yield-big, :root[data-theme="dark"] .yield-table .good-num { color: #5ccb7f; }
 :root[data-theme="dark"] .yield-bad .yield-big, :root[data-theme="dark"] .yield-table .bad-num { color: #f08c84; }
+
+/* CEO dashboard */
+.ceo-up { color: #1f7a3d; font-weight: 600; }
+.ceo-down { color: #b91c1c; font-weight: 600; }
+.ceo-bar-row { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.ceo-bar-row:last-of-type { border-bottom: 0; }
+.ceo-bar-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ceo-bar-pct { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ceo-bar { height: 10px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+.ceo-bar-fill { height: 100%; border-radius: 5px; background: var(--chart-core); }
+.ceo-bar-fill.full { background: #3ba55d; }
+.ceo-bar-fill.low { background: #e8963a; }
+.ceo-regions th.num, .ceo-regions td.num { text-align: right; }
+.ceo-regions td:last-child { min-width: 300px; }
+.ceo-regions .chip { display: inline-block; white-space: nowrap; margin: 2px 4px 2px 0; }
+.ceo-regions .chip-good { background: #e3f5e9; color: #1f7a3d; }
+.ceo-regions .chip-bad { background: #fde7e5; color: #b91c1c; }
+.good-num { color: #1f7a3d; font-weight: 600; }
+.bad-num { color: #b91c1c; font-weight: 600; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ceo-up, :root:not([data-theme="light"]) .good-num { color: #5ccb7f; } :root:not([data-theme="light"]) .ceo-down, :root:not([data-theme="light"]) .bad-num { color: #f08c84; } }
+:root[data-theme="dark"] .ceo-up, :root[data-theme="dark"] .good-num { color: #5ccb7f; }
+:root[data-theme="dark"] .ceo-down, :root[data-theme="dark"] .bad-num { color: #f08c84; }

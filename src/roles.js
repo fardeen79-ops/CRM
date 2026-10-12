@@ -19,6 +19,7 @@ export const PAGES = {
   chat: { label: 'Messages', help: 'Case discussions and direct messages', paths: /^\/api\/(conversations|messages)(\/|$)/ },
   roles: { label: 'Roles', help: 'Defining roles (IT, Dubai MIS and business heads only)', paths: /^\/api\/roles(\/|$)/ },
   pnl: { label: 'Profit and loss', help: 'Revenue less salaries and incentives, per cycle (business heads only)', paths: /^\/api\/pnl(\/|$)/ },
+  ceo: { label: 'CEO dashboard', help: 'The headline numbers for a cycle on one screen: revenue and net, production against target, yield, loss, pipeline, staff on zero, regions (business heads only)', paths: /^\/api\/ceo(\/|$)/ },
   boosters: { label: 'Boosters', help: 'Product campaigns with dates and rewards (business heads and MIS create them; everyone they cover sees them)', paths: /^\/api\/boosters(\/|$)/ },
   allocation: { label: 'Processor allocation', help: 'Which processor verifies each sales team leader\'s files (the verification team leader)', paths: /^\/api\/allocations(\/|$)/ },
 };
@@ -27,7 +28,7 @@ export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', cards: 'Card activ
 
 /** The built-in roles: what each one sees, which a custom role based on it can only narrow. */
 const MANAGE = ['cases', 'targets', 'team', 'cards', 'reports', 'uploads', 'staff', 'access_log', 'assets', 'chat', 'roles', 'boosters'];
-const HEAD = [...MANAGE, 'pnl', 'allocation'];
+const HEAD = [...MANAGE, 'pnl', 'ceo', 'allocation'];
 export const BUILTIN_ROLES = {
   sales: { label: 'Sales', pages: ['cases', 'leads', 'targets', 'my_tab', 'chat'], uploads: [] },
   processing: { label: 'Processing', pages: ['cases', 'chat'], uploads: [] },
