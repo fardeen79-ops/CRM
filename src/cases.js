@@ -359,7 +359,8 @@ const TAT_SOURCED_SQL = 'COALESCE(c.sourcing_date, substr(c.created_at, 1, 10))'
 // TAT shows as verified (status completed) and leaves the processing queue; files that pass their TAT
 // while it is on follow. Switching it off puts each one back at the stage it was at. Only the
 // verification status moves: the case status, targets and payouts stay on what the bank completes.
-export const canUseTatSwitch = (user) => user?.role === 'business_head' && String(user.region || '').toUpperCase() === 'DXB';
+// The CEO profile is a business head too, but reads the business; it never holds or releases files.
+export const canUseTatSwitch = (user) => user?.role === 'business_head' && user.role_key !== 'ceo' && String(user.region || '').toUpperCase() === 'DXB';
 // Who can read the power button's log: it is kept out of every file's history, so this is its record.
 export const POWER_LOG_VIEWERS = ['governance', 'business_head'];
 export const tatSwitchOn = (db) => db.prepare('SELECT switched_on FROM tat_switch_log ORDER BY id DESC LIMIT 1').get()?.switched_on === 1;

@@ -100,4 +100,7 @@ test('the CEO profile is a business head role that carries the dashboard and no 
   assert.equal((await ceo('GET', `/reports/pnl?cycle=${cycle}`)).status, 200);
   assert.equal((await ceo('GET', '/cases')).status, 403, 'no files, targets or staff for the CEO profile');
   assert.equal((await ceo('GET', `/targets?cycle=${cycle}`)).status, 403);
+  // No power button: the CEO reads the business and never holds files as verified.
+  assert.equal(me.meta.can_use_tat_switch, false);
+  assert.equal((await ceo('PUT', '/tat-switch', { on: true })).status, 403);
 });
