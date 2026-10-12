@@ -153,11 +153,21 @@ Delete or disable the demo accounts on the Staff page before real staff are load
 
 ## 6. Backups and updates
 
+**Updates come from git.** Once `/opt/sourcing-crm` is a git checkout (it is if it was cloned in step 3b;
+if it was extracted from an archive, run `sudo bash /opt/sourcing-crm/deploy/switch-to-git.sh` once,
+with git installed and a GitHub token for the private repository), every update is:
+
+```bash
+sudo bash /opt/sourcing-crm/deploy/update.sh
+```
+
+It pulls the branch, refreshes packages only if `package.json` changed, restarts the service and prints
+its status. The database and the environment file are never touched. Changes are developed and tested
+in Claude Code first and pushed to the branch; the server only ever pulls.
+
 - `deploy/backup.sh` makes a consistent copy of the database; run it nightly from cron and keep the
   copies off the server. Restore = stop the service, replace the file, start the service.
-- To update: `git pull`, then `npm ci --omit=dev`, then `systemctl restart sourcing-crm` (or
-  `docker compose up -d --build`, which does both). Database changes apply themselves on start.
-  Without `npm ci` the CRM still starts, but the verification bot's AI stays off.
+- Docker route: `git pull`, then `docker compose up -d --build`. Database changes apply themselves on start.
 - Logs: `journalctl -u sourcing-crm` or `docker compose logs crm`.
 
 ## 7. The calling bot on the company's SIP line (optional)

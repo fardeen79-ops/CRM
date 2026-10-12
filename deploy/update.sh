@@ -4,7 +4,7 @@
 # Run as root:  sudo bash /opt/sourcing-crm/deploy/update.sh
 set -euo pipefail
 APP=${APP:-/opt/sourcing-crm}
-SERVICE=sourcing-crm
+SERVICE=${SERVICE:-sourcing-crm}
 cd "$APP"
 [ -d .git ] || { echo "$APP is not a git checkout: run deploy/switch-to-git.sh once first"; exit 1; }
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
