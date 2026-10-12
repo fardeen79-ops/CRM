@@ -401,7 +401,7 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 
 **User rows**
 - Choose the role by name (`Sales`, `Team Leader`…).
-- Sales staff name their team leader and sales manager by **email**. These can be existing users or ones added in the same file, because managers are added first.
+- Sales staff name their team leader and sales manager by **email**. These can be existing users or ones anywhere in the same file, because rows are added in hierarchy order (sales managers, ASMs, team leaders, then sales staff). On a team leader's or ASM's own row, the sales manager (and ASM) email is their reporting line; the team leader column is ignored on every non-sales row.
 - Leave *Temporary password* blank and one is generated. **Download sign-in details** right after the upload to get the generated passwords. They aren't shown again; a team leader can reset a password later.
 
 **Case rows**

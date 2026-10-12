@@ -126,7 +126,7 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 
 1. Sign in as the first business head (`ADMIN_EMAIL`). Change the password on the Staff page.
 2. Add an **MIS** user. Bulk upload and target setting are for MIS and business heads.
-3. As MIS: **Bulk upload → Users** (team leaders and sales managers first, then sales staff), then
+3. As MIS: **Bulk upload → Users** (rows in any order; leaders are added before the staff who name them), then
    **Bulk upload → Salary targets** with `docs/go-live/salary-targets.csv` (the salary bands), then on the
    **Targets** page press **Generate from salaries** for the current cycle. That gives every sales person
    the target of their core product from their salary, and team leaders, ASMs and sales managers see

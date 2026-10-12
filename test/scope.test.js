@@ -489,20 +489,28 @@ test('staff master shapes from the real list: a manager leading a team, a team w
   // Bulk upload: every role needs an HRMS code, nobody needs a mobile; a sales manager may lead a team directly; the sales manager column may be blank.
   const csv = [
     'Full name,HRMS code,Email,Role,Local mobile,WhatsApp number,Date of joining,Date of leaving,Region,Sales code,Team leader email,Sales manager email,Assistant sales manager email,Monthly salary (AED),Core product,Temporary password',
+    // Rows in any order: the team leader names a sales manager and an ASM listed below her, and the
+    // team leader column on her own row is ignored.
+    'Raji Lead,L7002,raji.lead@t.local,Team leader,,,,,DXB,,raji.lead@t.local,praveen.lead@t.local,amal.asm@t.local,,,',
+    'Amal Asm,L7003,amal.asm@t.local,Assistant sales manager,,,,,AUH,,,praveen.lead@t.local,,,,',
     'Praveen Lead,L7001,praveen.lead@t.local,Sales manager,,,,,AUH,,,,,,,',
-    'Raji Lead,L7002,raji.lead@t.local,Team leader,,,,,DXB,,,,,,,',
     'Direct Report,7001,hrms7001@t.local,Sales,,,2025-01-15,,AUH,P-1,praveen.lead@t.local,praveen.lead@t.local,,5000,Credit Cards,',
     'No Manager,7002,hrms7002@t.local,Sales,,,2025-02-15,,DXB,R-1,raji.lead@t.local,,,4500,Auto Loans,',
     'Multi Seller,7003,hrms7003@t.local,Sales,,,2025-03-15,,DXB,R-2,raji.lead@t.local,,,6000,Multi product,',
     'No Code,,nocode@t.local,Sales,,,2025-03-15,,DXB,R-3,raji.lead@t.local,,,6000,Credit Cards,',
   ].join('\n');
   const up = (await admin('POST', '/import/users', { csv })).data;
-  assert.equal(up.ok, 5, JSON.stringify(up.rows.filter((r) => !r.ok)));
+  assert.equal(up.ok, 6, JSON.stringify(up.rows.filter((r) => !r.ok)));
   assert.equal(up.failed, 1);
-  assert.match(up.rows[5].error, /HRMS code is required/);
+  assert.match(up.rows[6].error, /HRMS code is required/);
   const users = (await admin('GET', '/users')).data.users;
   const direct = users.find((u) => u.sales_code === 'P-1');
   const praveen = users.find((u) => u.email === 'praveen.lead@t.local');
+  const raji = users.find((u) => u.email === 'raji.lead@t.local');
+  const amal = users.find((u) => u.email === 'amal.asm@t.local');
+  assert.equal(raji.sales_manager_id, praveen.id);
+  assert.equal(raji.asm_id, amal.id);
+  assert.equal(amal.sales_manager_id, praveen.id);
   assert.equal(direct.team_leader_id, praveen.id);
   assert.equal(direct.sales_manager_id, praveen.id);
   assert.equal(users.find((u) => u.sales_code === 'R-1').sales_manager_id, null);
@@ -513,8 +521,8 @@ test('staff master shapes from the real list: a manager leading a team, a team w
     const cookie = res.headers.get('set-cookie').split(';')[0];
     return async (method, path, body) => { const r = await fetch(`${base}/api${path}`, { method, headers: { cookie, ...(body && { 'content-type': 'application/json' }) }, body: body && JSON.stringify(body) }); return { status: r.status, data: await r.json() }; };
   };
-  const praveenLogin = await as('praveen.lead@t.local', up.rows[0].temp_password);
-  const sold = (await (await as('7001', up.rows[2].temp_password))('POST', '/cases', { ...file('Direct customer'), region: 'AUH' })).data.case;
+  const praveenLogin = await as('praveen.lead@t.local', up.rows[2].temp_password);
+  const sold = (await (await as('7001', up.rows[3].temp_password))('POST', '/cases', { ...file('Direct customer'), region: 'AUH' })).data.case;
   assert.equal((await praveenLogin('GET', `/cases/${sold.id}`)).status, 200);
   // Targets follow the core product: one product per staff member, every product for multi-product staff.
   const bands = ['Product,Salary from (AED),Salary to (AED),Target', 'Credit Card,4000,4499,5850', 'Credit Card,4500,4999,6650', 'Credit Card,5000,5499,7450', 'Credit Card,6000,6499,9050',

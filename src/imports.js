@@ -11,7 +11,7 @@ import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } f
 import { isBankPage } from './card-pitch.js';
 import { BANKS } from './banks.js';
 import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
-import { TEAM_LEADER_ROLES, hrmsCodeOf } from './users.js';
+import { TEAM_LEADER_ROLES, LEADER_LINE_ROLES, hrmsCodeOf } from './users.js';
 import { ASSET_ADMINS, ASSET_STATUS, NETWORKS, createAsset, updateAsset, assignAsset, setAssetStatus, assetOf } from './assets.js';
 
 export const MAX_ROWS = 1000;
@@ -41,9 +41,9 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'dol', header: 'Date of leaving', example: '', help: 'Only for staff who have resigned. The account is disabled from that day' },
   { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: 'DXB or AUH. Processors then see only that region\'s files; sales staff\'s files default to it' },
   { key: 'sales_code', header: 'Sales code', example: 'DXB-S-021', help: 'Sales staff only. Must be unique' },
-  { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only. An active team leader (or a sales manager or ASM who leads the team directly), or one added earlier in this file' },
-  { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Sales staff only, optional: an active sales manager, or one added earlier in this file. Blank when the team reports to the business head directly' },
-  { key: 'asm_email', header: 'Assistant sales manager email', example: '', help: 'Sales staff only, optional. An active assistant sales manager' },
+  { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only; leave blank on every other row. An active team leader (or a sales manager or ASM who leads the team directly), or one in this file' },
+  { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Optional, for sales staff, team leaders and ASMs: the active sales manager they report to, or one in this file. Blank when the team reports to the business head directly' },
+  { key: 'asm_email', header: 'Assistant sales manager email', example: '', help: 'Optional, for sales staff and team leaders: the active assistant sales manager they report to, or one in this file' },
   { key: 'salary', header: 'Monthly salary (AED)', example: '5000', help: 'Any role: counted in the profit and loss. For sales staff it also sets their targets through the salary bands' },
   { key: 'core_product', header: 'Core product', example: 'Credit Cards', help: 'Sales staff only: Credit Cards, Personal Loans, Auto Loans or Multi product' },
   { key: 'password', header: 'Temporary password', example: '', help: 'Optional, 8+ characters. Left blank, one is generated and shown after the upload' },
@@ -493,8 +493,9 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
     const roleOf = (r) => {
       try { return choose(r.values.role, assignableLabels(), 'Role'); } catch { return null; }
     };
-    // Managers first so sales rows can name a team leader or sales manager added in the same file.
-    const ordered = [...records].sort((a, b) => (roleOf(a) === 'sales') - (roleOf(b) === 'sales'));
+    // Managers first, then ASMs, team leaders and sales staff, so a row can name a leader added in the same file.
+    const rank = { asm: 1, team_leader: 2, sales: 3 };
+    const ordered = [...records].sort((a, b) => (rank[roleOf(a)] || 0) - (rank[roleOf(b)] || 0));
     const results = new Map();
     for (const record of ordered) {
       results.set(record, rowResult(record, () => savepoint(db, () => {
@@ -517,6 +518,10 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
           input.team_leader_id = manager('team_leader_email', TEAM_LEADER_ROLES, 'Team leader');
           input.sales_manager_id = manager('sales_manager_email', ['sales_manager'], 'Sales manager', { optional: true });
           if (v.asm_email) input.asm_id = manager('asm_email', ['asm'], 'Assistant sales manager');
+        } else if (LEADER_LINE_ROLES.includes(role)) {
+          // A team leader's or ASM's own reporting line; the team leader column means nothing on their row.
+          input.sales_manager_id = manager('sales_manager_email', ['sales_manager'], 'Sales manager', { optional: true });
+          if (role === 'team_leader' && v.asm_email) input.asm_id = manager('asm_email', ['asm'], 'Assistant sales manager');
         }
         if (!hrmsCodeOf(v.hrms_code)) throw new Error('HRMS code is required');
         const created = createUser(db, input);
