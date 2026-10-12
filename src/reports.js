@@ -128,6 +128,14 @@ const STAFF_SQL = `SELECT u.id, u.name, u.sales_code, tl.name AS team_leader_nam
   FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id`;
 const staffById = (db) => new Map(db.prepare(STAFF_SQL).all().map((s) => [s.id, s]));
 
+/** The register's payout columns: what the file earns, what the bank has paid so far, and where a card stands. */
+const PAYOUT_STATUS_LABEL = { paid: 'Paid', awaiting: 'Awaiting activation', not_paid: 'Not paid', none: '' };
+function payoutCols(user, raw) {
+  if (!canSeePayout(user)) return {};
+  const p = payoutFor(raw);
+  return { payout_aed: p.total, payout_paid_aed: p.earned, payout_status: p.card ? PAYOUT_STATUS_LABEL[p.card.status] : raw.case_status === 'completed' && p.total ? 'Paid' : '' };
+}
+
 // Payout columns are for the business head and DXB MIS only; nobody else sees what a file earns.
 function withoutPayout(result, user) {
   if (canSeePayout(user)) return result;
@@ -192,7 +200,7 @@ function sourcing(db, user, { period, region }) {
     // One row per sales person per team they filed under, so a team change keeps old files with the old team.
     const id = `${c.sales_staff_id ?? c.created_by}|${c.team_leader_id ?? 0}|${c.sales_manager_id ?? 0}`;
     const s = staff.get(c.sales_staff_id ?? c.created_by) || { name: c.sales_staff_name || 'Unknown' };
-    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, revenue_aed: 0, temp_ends: 0, cards_active: 0, loans: 0, deviations: 0, promotions: 0, below_eligibility: 0 });
+    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, revenue_aed: 0, revenue_pending_aed: 0, temp_ends: 0, cards_active: 0, loans: 0, deviations: 0, promotions: 0, below_eligibility: 0 });
     const r = by.get(id);
     r.sourced++;
     if ([STATUS.PENDING, STATUS.IN_VERIFICATION].includes(c.status)) r.awaiting++;
@@ -204,7 +212,9 @@ function sourcing(db, user, { period, region }) {
     r[c.case_status] = (r[c.case_status] || 0) + 1;
     if (c.case_status === 'completed') {
       r.disbursed_aed += (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0);
-      r.revenue_aed += payoutFor(c).total;
+      const pay = payoutFor(c);
+      r.revenue_aed += pay.earned;
+      if (pay.card?.status === 'awaiting') r.revenue_pending_aed += pay.total - pay.earned;
       if (includesCard(c)) { r.temp_ends++; if (c.card_status === 'active') r.cards_active++; }
     }
     if (caseProducts(c).some((p) => p === 'personal_loan' || p === 'auto_loan')) r.loans++;
@@ -216,9 +226,9 @@ function sourcing(db, user, { period, region }) {
   return withoutPayout({
     columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('asm', 'ASM', 'text'),
       col('sourced', 'Sourced'), col('approval', 'Awaiting TL/SM approval'), col('awaiting', 'Awaiting verification'), col('verified', 'Verified'), col('verification_pending', 'Verification pending'), col('verification_rejected', 'Verification rejected'), col('returned', 'Returned to sales'),
-      col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('revenue_aed', 'Payout (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active'), col('deviations', 'Product deviations'), col('promotions', 'New promotions'), col('below_eligibility', 'Cards below eligibility')],
+      col('applicant_review', 'Applicant review'), col('completed', 'Completed'), col('rejected', 'Rejected'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('revenue_aed', 'Payout paid (AED)', 'aed'), col('revenue_pending_aed', 'Awaiting card activation (AED)', 'aed'), col('temp_ends', 'Temp ends'), col('cards_active', 'Cards active'), col('deviations', 'Product deviations'), col('promotions', 'New promotions'), col('below_eligibility', 'Cards below eligibility')],
     rows: out,
-    totals: Object.fromEntries(['deviations', 'promotions', 'below_eligibility', 'sourced', 'approval', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'revenue_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
+    totals: Object.fromEntries(['deviations', 'promotions', 'below_eligibility', 'sourced', 'approval', 'awaiting', 'verified', 'verification_pending', 'verification_rejected', 'returned', 'applicant_review', 'completed', 'rejected', 'disbursed_aed', 'revenue_aed', 'revenue_pending_aed', 'temp_ends', 'cards_active'].map((k) => [k, sum(out, k)])),
   }, user);
 }
 
@@ -456,7 +466,7 @@ function register(db, user, { period, region }) {
   const out = rows.slice(0, REGISTER_LIMIT).map((raw) => {
     const c = present(user, raw); // hides and masks personal details exactly as on screen
     return {
-      ref: caseRef(c.id), payout_aed: canSeePayout(user) ? payoutFor(raw).total : undefined, sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '',
+      ref: caseRef(c.id), ...payoutCols(user, raw), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '',
       product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
       card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? c.al_interest_rate ?? null, tenure: c.pl_tenure ?? c.al_tenure ?? null, fpd: c.fpd || '',
       auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
@@ -472,7 +482,7 @@ function register(db, user, { period, region }) {
     columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'), col('city', 'City', 'text'), col('salary_bank', 'Salary bank', 'text'), col('product', 'Product', 'text'), col('core_product', 'Core product', 'text'),
       col('card_fee_type', 'Card sourced type', 'text'), col('card_reason', 'Card sold as', 'text'), col('eligible_category', 'Eligible for higher', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest / ROI %', 'rate'), col('tenure', 'Tenure (months)'), col('fpd', 'FPD', 'date'), col('auto_loan_type', 'Auto loan type', 'text'), col('car', 'Car', 'text'), col('dealer', 'Dealer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
       col('verification', 'Verification', 'text'), col('verification_reason', 'Reason', 'text'), col('processor', 'Processor', 'text'), col('verified_at', 'Verified at', 'datetime'), col('case_status', 'Case status', 'text'), col('case_status_at', 'Case status at', 'datetime'), col('disbursed_aed', 'Disbursed (AED)', 'aed'),
-      col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text'), ...(canSeePayout(user) ? [col('payout_aed', 'Payout (AED)', 'aed')] : [])],
+      col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text'), ...(canSeePayout(user) ? [col('payout_aed', 'Payout (AED)', 'aed'), col('payout_paid_aed', 'Payout paid (AED)', 'aed'), col('payout_status', 'Payout status', 'text')] : [])],
     rows: out,
     totals: { ref: `${out.length} files`, disbursed_aed: sum(out, 'disbursed_aed') },
     truncated,

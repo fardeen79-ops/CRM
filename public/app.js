@@ -975,7 +975,8 @@ async function viewDashboard() {
       ${trendCard(d.trend, r)}
     </div>
     ${s.revenue ? html`<h2 class="tiles-head">Payout from the bank · ${cycleName(s.revenue.cycle)} cycle</h2>${tileGrid([
-      ['Earned', `AED ${fmtAmount(s.revenue.completed_aed)}`, '#/reports?report=sourcing&run=1', false, `${s.revenue.completed_files} ${s.revenue.completed_files === 1 ? 'file' : 'files'} completed this cycle`],
+      ['Paid this cycle', `AED ${fmtAmount(s.revenue.completed_aed)}`, '#/reports?report=sourcing&run=1', false, `${s.revenue.completed_files} ${s.revenue.completed_files === 1 ? 'file' : 'files'}: loans disbursed and cards activated within 90 days`],
+      ['Cards awaiting activation', `AED ${fmtAmount(s.revenue.awaiting_aed || 0)}`, '#/cards', false, `${s.revenue.awaiting_files || 0} completed ${s.revenue.awaiting_files === 1 ? 'card' : 'cards'} inside the 90-day window; paid once activated`],
       ['In the pipeline', `AED ${fmtAmount(s.revenue.pipeline_aed)}`, '#/cases', false, `${s.revenue.pipeline_files} open ${s.revenue.pipeline_files === 1 ? 'file' : 'files'}, if all complete`],
     ])}` : ''}
     ${d.contribution ? contributionCard(d.contribution, d.label) : ''}
@@ -2254,7 +2255,7 @@ async function viewCase(id) {
           <dl class="details">
             ${row('Sourcing type', state.meta.sourcing_types[c.sourcing_type || 'regular'])}
             ${row('Core product', state.meta.core_products[c.core_product])}
-            ${c.payout ? html`<dt>Agency payout</dt><dd><strong>AED ${fmtAmount(c.payout.total)}</strong>${c.payout.parts.length ? html`<div class="muted small">${c.payout.parts.map((p) => `${p.basis}${p.rate != null ? ` · ${p.rate}% of AED ${fmtAmount(p.amount)}` : ''}: AED ${fmtAmount(p.payout)}`).join(' · ')}</div>` : html`<div class="muted small">No payable product on this file yet</div>`}</dd>` : ''}
+            ${c.payout ? html`<dt>Agency payout</dt><dd><strong>AED ${fmtAmount(c.payout.total)}</strong>${c.payout.parts.length && c.payout.earned !== c.payout.total ? html` <span class="muted">· paid so far AED ${fmtAmount(c.payout.earned)}</span>` : ''}${c.payout.parts.length ? html`<div class="muted small">${c.payout.parts.map((p) => `${p.basis}${p.rate != null ? ` · ${p.rate}% of AED ${fmtAmount(p.amount)}` : ''}: AED ${fmtAmount(p.payout)}`).join(' · ')}</div>` : html`<div class="muted small">No payable product on this file yet</div>`}${c.payout.card && c.payout.card.status !== 'none' ? html`<div class="small"><span class="chip ${c.payout.card.status === 'paid' ? 'good' : c.payout.card.status === 'awaiting' ? 'fair' : 'bad'}">${{ paid: 'Card paid', awaiting: 'Card awaiting activation', not_paid: 'Card not paid' }[c.payout.card.status]}</span> <span class="muted">${c.payout.card.when}. The bank pays a card only once it is activated, within 90 days of the temp end.</span></div>` : ''}</dd>` : ''}
             <dt>Product</dt><dd>${c.product === 'bundle'
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
@@ -3961,7 +3962,7 @@ async function viewPnl(params = new URLSearchParams()) {
       <button class="btn">Show</button>
     </form>
     <div class="kpis">
-      <div class="kpi"><span class="kpi-label">Revenue</span><span class="kpi-value">${aed(p.revenue.total)}</span><span class="kpi-sub">${p.revenue.files} files completed · cards ${fmtAedShort(p.revenue.by_product.credit_card)} · loans ${fmtAedShort(p.revenue.by_product.personal_loan)} · auto ${fmtAedShort(p.revenue.by_product.auto_loan)}</span></div>
+      <div class="kpi"><span class="kpi-label">Revenue</span><span class="kpi-value">${aed(p.revenue.total)}</span><span class="kpi-sub">${p.revenue.files} files paid · cards ${fmtAedShort(p.revenue.by_product.credit_card)} · loans ${fmtAedShort(p.revenue.by_product.personal_loan)} · auto ${fmtAedShort(p.revenue.by_product.auto_loan)}</span></div>
       <div class="kpi"><span class="kpi-label">Salaries</span><span class="kpi-value">${aed(p.salaries)}</span><span class="kpi-sub">${p.people} active people, from the staff profiles</span></div>
       <div class="kpi"><span class="kpi-label">Incentives</span><span class="kpi-value">${aed(p.incentives)}</span><span class="kpi-sub">as the schemes work them out for the cycle</span></div>
       <div class="kpi ${p.net >= 0 ? 'kpi-good' : 'kpi-alert'}"><span class="kpi-label">Net</span><span class="kpi-value">${p.net < 0 ? '− ' : ''}${aed(Math.abs(p.net))}</span><span class="kpi-sub">${p.margin_pct == null ? 'no revenue in the cycle' : `${p.margin_pct}% of revenue`}</span></div>

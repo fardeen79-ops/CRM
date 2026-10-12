@@ -4,7 +4,7 @@
 // percentage of the amount disbursed, lower when the loan being bought out is from Emirates Islamic.
 // Auto loans pay a percentage of the amount, by new or used car. MIS or a business head can replace
 // any rate from the Bulk upload page (Payout payoutRates); until then these built-in rates apply.
-import { caseProducts, includesCard } from './cases.js';
+import { caseProducts, includesCard, CARD_RANGE_DAYS, CARD_SQL } from './cases.js';
 import { cardProducts } from './credit-cards.js';
 
 /** Built-in rates. Keys are what the upload uses; amounts in AED, percentages as plain numbers (3 = 3%). */
@@ -105,5 +105,61 @@ export function payoutFor(row) {
       }
     }
   }
-  return { total: roundAed(parts.reduce((n, p) => n + p.payout, 0)), parts };
+  // The bank pays a card only once it is activated, and only within the activation window after
+  // the temp end; a loan pays on disbursal (the file completing). `earned` is what is paid so far.
+  const card = cardActivation(row);
+  for (const part of parts) {
+    if (part.product === 'credit_card') { part.paid = card.status === 'paid'; part.status = card.status; part.when = card.when; }
+    else part.paid = row.case_status === 'completed';
+  }
+  return { total: roundAed(parts.reduce((n, p) => n + p.payout, 0)), earned: roundAed(parts.filter((p) => p.paid).reduce((n, p) => n + p.payout, 0)), parts, card: parts.some((p) => p.product === 'credit_card') ? card : null };
+}
+
+const uaeDate = (ts) => (ts ? new Date(Date.parse(ts) + 4 * 3600e3).toISOString().slice(0, 10) : null);
+const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
+/**
+ * Where a file's card stands with the bank: `paid` (activated within the window after the temp
+ * end), `awaiting` (completed, not yet activated, still inside the window), `not_paid` (out of the
+ * activation window, or activated after it), or `none` (no card, or not completed yet).
+ */
+export function cardActivation(row) {
+  if (!includesCard(row) || !row.credit_card || row.case_status !== 'completed') return { status: 'none', when: null, days: null, paid_on: null };
+  const tempEnd = uaeDate(row.case_status_at);
+  const activated = row.card_status === 'active' ? row.card_activation_date || null : null;
+  if (activated) {
+    const days = tempEnd ? daysBetween(tempEnd, activated) : 0;
+    return days <= CARD_RANGE_DAYS ? { status: 'paid', when: `activated on day ${Math.max(days, 0)} of ${CARD_RANGE_DAYS}`, days, paid_on: activated }
+      : { status: 'not_paid', when: `activated on day ${days}, after the ${CARD_RANGE_DAYS}-day window`, days, paid_on: null };
+  }
+  if (row.card_status === 'out_of_range') return { status: 'not_paid', when: `not activated within ${CARD_RANGE_DAYS} days of the temp end`, days: null, paid_on: null };
+  const days = tempEnd ? daysBetween(tempEnd, uaeDate(new Date().toISOString())) : 0;
+  return { status: 'awaiting', when: `awaiting activation, day ${Math.max(days, 0)} of ${CARD_RANGE_DAYS}`, days, paid_on: null };
+}
+
+/**
+ * What the bank pays for a period: loan parts of files completed in it, plus card parts of cards
+ * activated in it within the window. One entry per file paid, with the parts paid in the period.
+ * `where` and `params` narrow the files (region, team scope); they are appended to each query.
+ */
+export function revenueIn(db, start, end, { where = '', params = [] } = {}) {
+  const extra = where ? ` AND ${where}` : '';
+  const byFile = new Map();
+  const add = (row, parts) => {
+    if (!parts.length) return;
+    const e = byFile.get(row.id) || { row, parts: [], total: 0 };
+    e.parts.push(...parts); e.total = roundAed(e.total + parts.reduce((n, p) => n + p.payout, 0));
+    byFile.set(row.id, e);
+  };
+  const done = db.prepare(`SELECT c.* FROM cases c WHERE c.case_status = 'completed' AND date(c.case_status_at, '+4 hours') BETWEEN ? AND ?${extra}`).all(start, end, ...params);
+  for (const row of done) add(row, payoutFor(row).parts.filter((p) => p.product !== 'credit_card'));
+  const activated = db.prepare(`SELECT c.* FROM cases c WHERE c.case_status = 'completed' AND c.card_status = 'active' AND c.card_activation_date BETWEEN ? AND ? AND ${CARD_SQL}${extra}`).all(start, end, ...params);
+  for (const row of activated) add(row, payoutFor(row).parts.filter((p) => p.product === 'credit_card' && p.paid));
+  return [...byFile.values()];
+}
+/** Cards completed but not yet activated, still inside the window: payout the bank will make once they activate. */
+export function awaitingCards(db, { where = '', params = [] } = {}) {
+  const extra = where ? ` AND ${where}` : '';
+  return db.prepare(`SELECT c.* FROM cases c WHERE c.case_status = 'completed' AND c.card_status = 'inactive' AND ${CARD_SQL}${extra}`).all(...params)
+    .map((row) => ({ row, parts: payoutFor(row).parts.filter((p) => p.product === 'credit_card') })).filter((e) => e.parts.length)
+    .map((e) => ({ ...e, total: roundAed(e.parts.reduce((n, p) => n + p.payout, 0)) }));
 }

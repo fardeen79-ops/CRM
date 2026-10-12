@@ -5,7 +5,7 @@ import { findUser } from './users.js';
 import { cycleRange, isCycle, uaeDay, cycleOf } from './cycles.js';
 import { unreadCount as chatUnread } from './chat.js';
 import { isHoliday } from './holidays.js';
-import { payoutFor, canSeePayout } from './payouts.js';
+import { payoutFor, canSeePayout, revenueIn, awaitingCards } from './payouts.js';
 
 export class WorkflowError extends Error {
   constructor(status, message) {
@@ -1866,14 +1866,18 @@ export function stats(db, user, { region } = {}) {
       .all(...(TEAM_FIELDS[user.role] ? [user.id] : []));
   }
   if (canSeePayout(user)) {
-    // Revenue: what completed files earned this cycle, and what the open pipeline would earn.
+    // Revenue: what the bank pays this cycle (loans disbursed, cards activated within the window),
+    // what the completed cards still awaiting activation would add, and what the open pipeline would earn.
     const cycle = cycleOf(uaeDay());
     const { start, end } = cycleRange(cycle);
     const and = scope ? `${scope} AND ` : 'WHERE ';
-    const done = db.prepare(`SELECT c.* FROM cases c ${and}${COMPLETED_IN_SQL}`).all(...params, start, end);
+    const narrow = scope ? { where: scope.replace(/^WHERE\s+/i, ''), params } : {};
+    const paid = revenueIn(db, start, end, narrow);
+    const awaiting = awaitingCards(db, narrow);
     const open = db.prepare(`SELECT c.* FROM cases c ${and}c.case_status NOT IN ('completed', 'rejected')`).all(...params);
-    const total = (rows) => Math.round(rows.reduce((n, r) => n + payoutFor(r).total, 0));
-    result.revenue = { cycle, completed_aed: total(done), completed_files: done.length, pipeline_aed: total(open), pipeline_files: open.length };
+    const sum = (list) => Math.round(list.reduce((n, e) => n + e.total, 0));
+    result.revenue = { cycle, completed_aed: sum(paid), completed_files: paid.length, awaiting_aed: sum(awaiting), awaiting_files: awaiting.length,
+      pipeline_aed: Math.round(open.reduce((n, r) => n + payoutFor(r).total, 0)), pipeline_files: open.length };
   }
   return result;
 }

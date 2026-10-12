@@ -3,7 +3,7 @@
 // business head and the CEO see it; nobody else.
 import { REGIONS, COMPLETED_IN_SQL, WorkflowError } from './cases.js';
 import { cycleRange, cycleLabel, cycleOf, uaeDay, isCycle } from './cycles.js';
-import { payoutFor } from './payouts.js';
+import { revenueIn } from './payouts.js';
 import { isCeo } from './roles.js';
 import { incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, plTlIncentiveRows, ccSmIncentiveRows, plSmIncentiveRows } from './incentives.js';
 
@@ -33,13 +33,13 @@ export function profitAndLoss(db, user, { cycle, region } = {}) {
   const r = String(region || '').toUpperCase();
   if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
   const { start, end } = cycleRange(cycle);
-  // Revenue: the bank's payout on files completed in the cycle, by product.
-  const done = db.prepare(`SELECT c.* FROM cases c WHERE ${COMPLETED_IN_SQL}${region ? ' AND c.region = ?' : ''}`).all(...(region ? [start, end, r] : [start, end]));
-  const revenue = { total: 0, files: done.length, by_product: { credit_card: 0, personal_loan: 0, auto_loan: 0, accounts: 0 } };
-  for (const c of done) {
-    const p = payoutFor(c);
-    revenue.total += p.total;
-    for (const part of p.parts || []) if (revenue.by_product[part.product] != null) revenue.by_product[part.product] += part.payout || 0;
+  // Revenue: the bank's payout in the cycle, by product: loans on the files disbursed (completed) in
+  // it, cards on the cards activated in it within the window after the temp end.
+  const paid = revenueIn(db, start, end, region ? { where: 'c.region = ?', params: [r] } : {});
+  const revenue = { total: 0, files: paid.length, by_product: { credit_card: 0, personal_loan: 0, auto_loan: 0, accounts: 0 } };
+  for (const e of paid) {
+    revenue.total += e.total;
+    for (const part of e.parts) if (revenue.by_product[part.product] != null) revenue.by_product[part.product] += part.payout || 0;
   }
   revenue.total = round(revenue.total);
   for (const k of Object.keys(revenue.by_product)) revenue.by_product[k] = round(revenue.by_product[k]);
@@ -163,10 +163,8 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
       else if (p.role === 'team_leader') costOf(p, leaderNode(managerNode(reg, leaderManager(p)), p), share);
     }
   }
-  // Revenue: each completed file goes to the staff member who sourced it, under the team on the file.
-  const done = db.prepare(`SELECT c.* FROM cases c WHERE ${COMPLETED_IN_SQL}${region ? ' AND c.region = ?' : ''}`).all(...(region ? [start, end, r] : [start, end]));
-  for (const c of done) {
-    const amount = payoutFor(c).total;
+  // Revenue: each payout in the cycle goes to the staff member who sourced the file, under the team on the file.
+  for (const { row: c, total: amount } of revenueIn(db, start, end, region ? { where: 'c.region = ?', params: [r] } : {})) {
     const staffId = c.sales_staff_id || c.created_by;
     const p = byId.get(staffId);
     const tl = byId.get(c.team_leader_id ?? p?.team_leader_id) || null; const sm = byId.get(c.sales_manager_id ?? p?.sales_manager_id) || (tl && byId.get(tl.sales_manager_id)) || null;
