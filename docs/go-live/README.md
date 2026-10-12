@@ -2,10 +2,10 @@
 
 Built from the staff list supplied on 8 October 2026 (`New_HRMS_Code.xlsx`, sheet "Sales Staff", 360 rows). Both files load through **Bulk upload** as the business head or DXB MIS, in this order:
 
-1. **Staff** → `staff-upload.csv` (433 rows: 2 business heads, 10 sales managers, 36 team leaders, 360 sales staff, 17 processing, 4 governance, 4 staff with no access). **One row (Noman Najam) still has no HRMS code** (see *Salary details* below): the code is mandatory for every role and the upload rejects a row without one (and then the sales rows that name that leader). The upload creates leaders first, then staff, and shows a temporary password for every new login. Everyone signs in with their HRMS code.
+1. **Staff** → `staff-upload.csv` (433 rows: 2 business heads, 10 sales managers, 36 team leaders, 360 sales staff, 17 processing, 4 governance, 4 staff with no access). every row has its HRMS code: the code is mandatory for every role and the upload rejects a row without one (and then the sales rows that name that leader). The upload creates leaders first, then staff, and shows a temporary password for every new login. Everyone signs in with their HRMS code.
 2. **Salary targets** → `salary-targets.csv` (66 bands, with the credit card bonus level in the last column). Then press **Generate from salaries** on the Targets page for the cycle.
 
-Loading both into a scratch copy of the CRM (with a placeholder code for Noman) gave: 433 users created, 0 failed; 66 bands saved; targets generated for all 360 sales staff, every one equal to the sheet's target.
+Loading both into a scratch copy of the CRM gave: 433 users created, 0 failed; 66 bands saved; targets generated for all 360 sales staff, every one equal to the sheet's target.
 
 ## How the sheet was mapped
 
@@ -30,13 +30,13 @@ Loading both into a scratch copy of the CRM (with a placeholder code for Noman) 
 
 | Sheet department | CRM role | Notes |
 |---|---|---|
-| BUSINESS HEAD | Business head | Fardeen (DXB, 1012) and Noman Najam (AUH). **Noman's HRMS code is still to come**; his row is rejected until it is filled |
+| BUSINESS HEAD | Business head | Fardeen (DXB, 1012) and Noman Najam (AUH, 1015) |
 | SM, ASM, TL | as already in the file | Matched by name to the 41 leaders the file had; HRMS code and salary filled. Roles were **not** changed (see below) |
 | PROCESSOR | Processing | 17 rows |
 | SETTLEMENT OFFICER, BIKER | Staff (no access) | 4 rows: on the books for the profit and loss (salary, region, headcount) but the account cannot sign in |
 | COMPLIANCE | Governance | 4 rows |
 
-The five leaders missing from the first sheet (Jigar Bhavsar, Varun Gupta, Mrudula Thirunilathil, Jibin Rajan, Laijomon Joseph) came in a second sheet (`Salary_Details - missing.xlsx`) and are filled in. **Only Noman Najam's HRMS code is still blank**; his row is the one the upload rejects.
+The five leaders missing from the first sheet (Jigar Bhavsar, Varun Gupta, Mrudula Thirunilathil, Jibin Rajan, Laijomon Joseph) came in a second sheet (`Salary_Details - missing.xlsx`) and are filled in. Noman Najam's code (1015) came last, so **every row now has an HRMS code** and the whole file loads.
 
 **Designations differ from the sales sheet.** The salary sheets call these nine **ASM**: Tanveer Shirgar, Shaharyab Khan and Varun Gupta (sales managers in the file), Abdul Kader (sales manager, AUH), Sangaralingam, Ignatius Pramod Fernandes, Sajjad Hussain, Suneel Kumar Jain and Zeeshan Patel (team leaders in the file). The file keeps the roles the sales sheet implied, because the role decides which incentive scheme applies (a team leader's scheme or a manager's); change them on the Staff page once the business confirms who is paid as an ASM. Priyanka is a team leader on the salary sheet (AED 10,000) but manages teams in the sales sheet, so she stays a sales manager.
 
@@ -44,7 +44,7 @@ The five leaders missing from the first sheet (Jigar Bhavsar, Varun Gupta, Mrudu
 
 - **Emails** are placeholders: `hrms<code>@derbygroup.local` for staff, `first.last@derbygroup.local` for leaders. Replace them on the Staff page when the real addresses are known. Staff sign in with the HRMS code, so the placeholder does not block anyone.
 - **Mobile and WhatsApp numbers** are blank. WhatsApp alerts are on hold, so nothing needs them yet.
-- **HRMS codes** are now filled from the salary sheets; only Noman Najam's is blank (above).
+- **HRMS codes** are filled for every row.
 
 ## Salary bands
 
