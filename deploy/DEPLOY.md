@@ -130,6 +130,23 @@ paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
    **Bulk upload → Targets** for the current cycle. Share the downloaded sign-in details securely.
 4. Each role signs in and checks their dashboard.
 
+**Test environment shortcut: the demo users.** To try every role on the server without uploading
+real staff, load the same sample accounts the demo uses into the live database:
+
+```bash
+# systemd route (uses the same DB_FILE as the service, e.g. /var/lib/sourcing-crm/crm.db)
+cd /opt/sourcing-crm
+sudo -u crm env $(sudo cat /etc/sourcing-crm.env | grep -v '^#' | xargs) npm run seed:demo
+
+# Docker route
+docker compose exec crm npm run seed:demo
+```
+
+It adds ten `@demo.local` accounts (team leader, sales manager, two sales staff, processing,
+verification lead, CEO, accounts, governance, business head), all with password `password123`,
+plus four sample files. Existing users and files are untouched and the script is safe to re-run.
+Delete or disable the demo accounts on the Staff page before real staff are loaded.
+
 ## 6. Backups and updates
 
 - `deploy/backup.sh` makes a consistent copy of the database; run it nightly from cron and keep the

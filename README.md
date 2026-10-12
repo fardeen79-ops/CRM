@@ -20,7 +20,7 @@ On first run it creates a team leader account, `admin@crm.local` / `changeme123`
 To try it with sample data:
 
 ```bash
-npm run seed:demo         # leader@, manager@, sales@, sales2@, processing@, vlead@ (verification TL), governance@, head@ (business head) demo.local — password "password123"
+npm run seed:demo         # leader@, manager@, sales@, sales2@, processing@, vlead@ (verification TL), ceo@, accounts@, governance@, head@ (business head) demo.local — password "password123"; safe to re-run (existing users are kept)
 npm start
 ```
 

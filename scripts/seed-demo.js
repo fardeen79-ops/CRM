@@ -19,8 +19,8 @@ const sales2 = ensureUser('Riya Sales', 'sales2@demo.local', 'sales', { sales_co
 const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing', { mobile_number: '0521110005' });
 // The people who push a bot call through: the verification team leader asks, governance and a business head approve.
 const vlead = ensureUser('Vera Verification', 'vlead@demo.local', 'processing_lead', { mobile_number: '0521110006' });
-ensureUser('Yusuf Executive', 'ceo@demo.local', 'ceo', { mobile_number: '0521110007' });
-ensureUser('Asha Accounts', 'accounts@demo.local', 'accounts', { mobile_number: '0521110009' });
+const ceo = ensureUser('Yusuf Executive', 'ceo@demo.local', 'ceo', { mobile_number: '0521110007' });
+const accounts = ensureUser('Asha Accounts', 'accounts@demo.local', 'accounts', { mobile_number: '0521110009' });
 const gov = ensureUser('Gina Governance', 'governance@demo.local', 'governance', { mobile_number: '0521110007' });
 const head = ensureUser('Bina Head', 'head@demo.local', 'business_head', { mobile_number: '0521110008', region: 'DXB' });
 
@@ -38,9 +38,10 @@ if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
   ];
   const ids = samples.map(([u, data]) => {
     const c = createCase(db, u, data);
-    // Seeded on a Sunday or after 6 pm, a file waits for its team leader's approval: approve it.
+    // A sales file waits with its team leader (and, on a Sunday or after 6 pm, needs timing/card approval):
+    // approve and validate it so the sample lands in the verification queue.
     if (c.status === STATUS.APPROVAL) {
-      for (const action of ['approve_timing', 'approve_card']) {
+      for (const action of ['approve_timing', 'approve_card', 'validate']) {
         try { applyAction(db, leader, c.id, { action }); } catch { /* not needed for this file */ }
       }
     }
@@ -54,4 +55,4 @@ if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
 }
 
 console.log(`Demo users (password "${PASSWORD}"):`);
-for (const u of [leader, manager, sales1, sales2, proc, vlead, gov, head]) console.log(`  ${u.role.padEnd(12)} ${u.email}`);
+for (const u of [leader, manager, sales1, sales2, proc, vlead, ceo, accounts, gov, head]) console.log(`  ${u.role.padEnd(12)} ${u.email}`);
