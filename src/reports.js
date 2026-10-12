@@ -9,6 +9,7 @@ import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
 import { inventoryRows, ASSET_VIEWERS, assetSummary, ASSET_STATUS } from './assets.js';
 import { allowsReport } from './roles.js';
+import { plYieldRows, PL_MIN_YIELD, YIELD_LEVELS } from './yield.js';
 import { profitAndLoss, PNL_VIEWERS, profitAndLossRows } from './pnl.js';
 import { countedLoan, PL_CROSS_SELL, incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, TL_INCENTIVE_RULES, plTlIncentiveRows, PL_TL_RULES, PL_TL_BANDS, plTlBandLabel, ccSmIncentiveRows, plSmIncentiveRows, CC_SM_SLABS, PL_SM_BANDS, SM_RULES, INCENTIVE_RULES, INCENTIVE_CONDITIONS, PL_INCENTIVE_BANDS, plBandLabel, AL_INCENTIVE_RULES } from './incentives.js';
 
@@ -19,6 +20,7 @@ const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
 export const REPORTS = {
   sourcing: { name: 'Sourcing by sales staff', roles: [...ALL, ...MANAGERS], period: 'files sourced in the period', description: 'Files sourced per sales person and where each of those files stands now: verification, case status, amounts disbursed.' },
   personal_loans: { name: 'Personal loans', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: 'Every personal loan on a file completed in the period: sales person and team, loan type, amount, disbursed and counted amounts, Emirates Islamic buy-outs, top-ups, FPD and tenure, and whether it was a cross-sell by non-loan staff.' },
+  pl_yield: { name: 'Personal loan yield', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: `The average interest rate on the personal loans disbursed in the period, weighted by amount, for each sales person, team leader, sales manager and ASM, each region and overall, with the yield per loan type and the gap to the ${PL_MIN_YIELD}% minimum.` },
   auto_loans: { name: 'Auto loans', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: 'Every auto loan on a file completed in the period: sales person and team, new or used, payout class, car, amount, disbursed amount and points, and whether it was a cross-sell by non-auto-loan staff.' },
   pipeline: { name: 'Pipeline by region and product', roles: [...ALL, 'governance'], period: 'files sourced in the period', description: 'Where every file sourced in the period stands now, by region and core product.' },
   stage_times: { name: 'Time by stage', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'How long files sourced in the period spent at each stage, from approval and verification to the bank, and on how many files each stage was the slowest. Files still open count up to now.' },
@@ -116,6 +118,21 @@ function personal_loans(db, user, { period, region }) {
     rows,
     note: 'Counted amounts follow the incentive rules: an Emirates Islamic buy-out at half, a top-up at its share of the incremental amount.',
     totals: { ref: `${rows.length} loans`, loan_amount: sum(rows, 'loan_amount'), disbursed: sum(rows, 'disbursed'), counted: sum(rows, 'counted'), top_up_incremental: sum(rows, 'top_up_incremental'), sold_as: `${rows.filter((r) => r.sold_as === 'Cross-sell').length} cross-sold`, eib: `${rows.filter((r) => r.eib).length} EIB` },
+  };
+}
+
+function pl_yield(db, user, { period, region }) {
+  const rows = plYieldRows(db, user, { from: period.from, to: period.to, region }).map((r) => ({
+    level: YIELD_LEVELS[r.level], region: r.region, manager: r.manager || '', team_leader: r.team_leader || '', name: r.name, sales_code: r.sales_code || '',
+    files: r.files, disbursed: r.disbursed, yield_pct: r.yield_pct, fresh_pct: r.fresh_pct, top_up_pct: r.top_up_pct, buy_out_pct: r.buy_out_pct, buy_out_share_pct: r.buy_out_share_pct,
+    vs_min: r.vs_min, status: r.yield_pct == null ? '' : r.below_min ? 'Below minimum' : 'Above minimum', unrated: r.unrated || null,
+  }));
+  return {
+    columns: [col('level', 'Level', 'text'), col('region', 'Region', 'text'), col('manager', 'Sales manager / ASM', 'text'), col('team_leader', 'Team leader', 'text'), col('name', 'Name', 'text'), col('sales_code', 'Code', 'text'),
+      col('files', 'Loans'), col('disbursed', 'Disbursed (AED)', 'aed'), col('yield_pct', 'Yield %', 'pct'), col('fresh_pct', 'Fresh %', 'pct'), col('top_up_pct', 'Top-up %', 'pct'), col('buy_out_pct', 'Buy-out %', 'pct'), col('buy_out_share_pct', 'Buy-out share %', 'pct'),
+      col('vs_min', `vs ${PL_MIN_YIELD}% min (points)`, 'pct'), col('status', 'Status', 'text'), col('unrated', 'Loans without a rate')],
+    rows,
+    note: `Yield is the amount-weighted average of the interest rate on each file, over loans disbursed in the period. The minimum to maintain is ${PL_MIN_YIELD}%. A loan with no rate on file counts in the amounts but not in the yield.`,
   };
 }
 
@@ -618,7 +635,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, personal_loans, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {

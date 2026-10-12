@@ -676,6 +676,31 @@ function boosterCard(list, r) {
 }
 
 // Staff with nothing to show this cycle: zero ends or disbursals, and zero submissions, with the names.
+// Personal loan yield: the amount-weighted average rate on loans disbursed this cycle, against the minimum.
+function yieldCard(y, r) {
+  const pct = (v) => (v == null ? '—' : `${Number(v).toFixed(2)}%`);
+  const gap = (v) => (v == null ? '' : `${v >= 0 ? '+' : ''}${Number(v).toFixed(2)}`);
+  const tone = y.yield_pct == null ? 'none' : y.below_min ? 'bad' : 'good';
+  const who = r === 'sales' ? 'Your' : r === 'team_leader' ? 'Team' : ['sales_manager', 'asm'].includes(r) ? 'Your teams\'' : 'Overall';
+  const report = `#/reports?report=pl_yield&cycle=${y.cycle}&run=1`;
+  return html`<div class="card yield-card">
+    <div class="card-head"><h2>${who} personal loan yield · ${cycleName(y.cycle)} cycle</h2>${state.meta.reports?.some((x) => x.key === 'pl_yield') ? html`<a class="tiles-link" href="${report}">Full report →</a>` : ''}</div>
+    <div class="yield-main yield-${tone}">
+      <div class="yield-big">${pct(y.yield_pct)}</div>
+      <div class="yield-side">
+        <div><strong>Minimum ${pct(y.min)}</strong>${y.yield_pct == null ? html` <span class="muted">· no personal loan disbursed yet this cycle</span>` : html` · <span class="yield-gap">${gap(y.vs_min)} points ${y.below_min ? 'below' : 'above'}</span>`}</div>
+        <div class="muted small">${y.files} ${y.files === 1 ? 'loan' : 'loans'} · AED ${fmtAmount(y.disbursed)} disbursed${y.unrated ? ` · ${y.unrated} without a rate on file` : ''}</div>
+        ${y.files ? html`<div class="muted small">Fresh ${pct(y.fresh_pct)} · Top-up ${pct(y.top_up_pct)} · Buy-out ${pct(y.buy_out_pct)}${y.buy_out_share_pct != null ? ` (${y.buy_out_share_pct}% of the amount)` : ''}</div>` : ''}
+      </div>
+    </div>
+    ${y.members?.length ? html`<div class="table-wrap"><table class="yield-table">
+      <thead><tr><th>${y.member_label}</th>${canPickRegion() ? html`<th>Region</th>` : ''}<th class="num">Loans</th><th class="num">Disbursed</th><th class="num">Yield</th><th class="num">vs min</th></tr></thead>
+      <tbody>${y.members.map((m) => html`<tr class="${m.below_min ? 'yield-row-bad' : ''}"><td>${m.name}</td>${canPickRegion() ? html`<td>${m.region}</td>` : ''}<td class="num">${m.files}</td><td class="num">${fmtAmount(m.disbursed)}</td><td class="num ${m.below_min ? 'bad-num' : 'good-num'}">${pct(m.yield_pct)}</td><td class="num ${m.below_min ? 'bad-num' : ''}">${gap(m.vs_min)}</td></tr>`)}</tbody>
+    </table></div>
+    <p class="muted small">${y.below ? `${y.below} of ${y.members.length} below the ${pct(y.min)} minimum.` : `Everyone is at or above the ${pct(y.min)} minimum.`} Yield is the average rate weighted by the amount disbursed.</p>` : ''}
+  </div>`;
+}
+
 function zeroCard(z, r) {
   if (!z) return '';
   const pct = (v) => (v == null ? '—' : `${v}%`);
@@ -959,6 +984,7 @@ async function viewDashboard() {
     <h2 class="tiles-head">${r === 'processing' ? 'Your queue' : 'Needs your attention'}</h2>
     ${attention.length ? tileGrid(attention) : html`<p class="muted small dash-quiet">Nothing is waiting on you right now.</p>`}
     ${fu && (fu.overdue.length || fu.due_today.length || fu.due_tomorrow.length) ? followUpCard(fu, r) : ''}
+    ${d.pl_yield ? yieldCard(d.pl_yield, r) : ''}
     ${d.boosters?.length ? boosterCard(d.boosters, r) : ''}
     ${d.zero ? zeroCard(d.zero, r) : ''}
     ${d.calendar ? calendarCard(d.calendar, r) : ''}

@@ -933,3 +933,20 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .login-wrap .site-foot { background: transparent; border-top: 0; justify-content: center; --foot-text: #B9C2D0; --foot-word: #ffffff; --foot-e: var(--stride-amber-dark); --stride-tile: var(--stride-amber-dark); --stride-c1: #B98A4A; --stride-c2: #6E5A45; --stride-c3: var(--stride-navy); }
 .login-wrap .foot-copy { display: none; }
 @media (max-width: 480px) { .foot-tag, .foot-div { display: none; } .site-foot { padding: 0 16px; } }
+
+/* Personal loan yield */
+.yield-card { display: grid; gap: 14px; margin-bottom: 18px; }
+.yield-main { display: flex; align-items: center; gap: 20px; padding: 14px 16px; border-radius: 10px; border-left: 6px solid var(--border-strong); background: var(--surface-2); }
+.yield-main.yield-good { border-left-color: #3ba55d; }
+.yield-main.yield-bad { border-left-color: #c2362f; }
+.yield-big { font-size: 40px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.yield-good .yield-big { color: #1f7a3d; }
+.yield-bad .yield-big { color: #b91c1c; }
+.yield-side { display: grid; gap: 3px; min-width: 0; }
+.yield-table th.num, .yield-table td.num { text-align: right; }
+.yield-table .bad-num { color: #b91c1c; font-weight: 600; }
+.yield-table .good-num { color: #1f7a3d; font-weight: 600; }
+@media (max-width: 760px) { .yield-main { flex-direction: column; align-items: flex-start; gap: 8px; } .yield-big { font-size: 34px; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .yield-good .yield-big, :root:not([data-theme="light"]) .yield-table .good-num { color: #5ccb7f; } :root:not([data-theme="light"]) .yield-bad .yield-big, :root:not([data-theme="light"]) .yield-table .bad-num { color: #f08c84; } }
+:root[data-theme="dark"] .yield-good .yield-big, :root[data-theme="dark"] .yield-table .good-num { color: #5ccb7f; }
+:root[data-theme="dark"] .yield-bad .yield-big, :root[data-theme="dark"] .yield-table .bad-num { color: #f08c84; }
