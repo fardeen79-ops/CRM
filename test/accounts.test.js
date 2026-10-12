@@ -70,6 +70,8 @@ test('accounts sees the incentive reports and the payout file for a cycle, and n
 
   const rep = (await acc('GET', `/reports/incentives?cycle=${cycle}`)).data;
   assert.equal(rep.rows.find((r) => r.staff === 'Sally').incentive_aed, mine.incentive_aed, 'the same calculation the business head sees');
+  assert.equal(rep.rows.find((r) => r.staff === 'Sally').hrms_code, 'EN6', 'the sheet carries the HRMS code');
+  assert.ok(rep.columns.some((c) => c.key === 'hrms_code'));
   const pay = (await acc('GET', `/reports/incentive_payout?cycle=${cycle}`)).data;
   // Sally's own incentive, her team leader's and her sales manager's on the team's cards: one line each, every scheme added up.
   const tl = (await acc('GET', `/reports/tl_incentives?cycle=${cycle}`)).data.rows.find((r) => r.leader === 'TL Dubai');

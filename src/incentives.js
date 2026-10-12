@@ -190,12 +190,12 @@ export function alIncentiveFor(db, staffId, cycle) {
 export function alIncentiveRows(db, cycle, region = null) {
   const r = String(region || '').toUpperCase();
   if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
-  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.hrms_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager
     FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id
     WHERE u.role = 'sales' AND u.active = 1 AND (u.core_product = 'auto_loan' OR (u.core_product = 'multi_product' AND EXISTS (SELECT 1 FROM targets t WHERE t.user_id = u.id AND t.cycle = ? AND t.product = 'auto_loan')))${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(cycle, ...(region ? [r] : []));
   return staff.map((s) => {
     const i = alIncentiveFor(db, s.id, cycle);
-    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, multiplier: `AED ${i.multiplier.toFixed(2)}`, full_payout_met: i.full_payout_met ? 'Yes' : 'No' };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', hrms_code: s.hrms_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, multiplier: `AED ${i.multiplier.toFixed(2)}`, full_payout_met: i.full_payout_met ? 'Yes' : 'No' };
   }).sort((a, b) => (b.incentive_aed ?? -1) - (a.incentive_aed ?? -1) || a.staff.localeCompare(b.staff));
 }
 
@@ -526,12 +526,12 @@ export function multiProductIncentives(db, staffId, cycle) {
 export function plIncentiveRows(db, cycle, region = null) {
   const r = String(region || '').toUpperCase();
   if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
-  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.hrms_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager
     FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id
     WHERE u.role = 'sales' AND u.active = 1 AND (u.core_product = 'personal_loan' OR (u.core_product = 'multi_product' AND EXISTS (SELECT 1 FROM targets t WHERE t.user_id = u.id AND t.cycle = ? AND t.product = 'personal_loan')))${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(cycle, ...(region ? [r] : []));
   return staff.map((s) => {
     const i = plIncentiveFor(db, s.id, cycle, { coreOnly: s.core_product === 'multi_product' });
-    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, cards: undefined, mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, cards_qualified: i.cards_qualified ? 'Yes' : 'No', rate: `${i.rate_pct.toFixed(2)}%` };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', hrms_code: s.hrms_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, cards: undefined, mass_cards: i.cards.Mass, premium_cards: i.cards.Premium, super_premium_cards: i.cards['Super Premium'], noon_cards: i.cards.noon, cards_qualified: i.cards_qualified ? 'Yes' : 'No', rate: `${i.rate_pct.toFixed(2)}%` };
   }).sort((a, b) => b.incentive_aed - a.incentive_aed || a.staff.localeCompare(b.staff));
 }
 
@@ -539,11 +539,11 @@ export function plIncentiveRows(db, cycle, region = null) {
 export function incentiveRows(db, cycle, region = null) {
   const r = String(region || '').toUpperCase();
   if (region && !REGIONS[r]) throw new WorkflowError(400, 'Region must be DXB or AUH');
-  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.hrms_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager
     FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id
     WHERE u.role = 'sales' AND u.active = 1 AND (u.core_product = 'credit_card' OR (u.core_product = 'multi_product' AND EXISTS (SELECT 1 FROM targets t WHERE t.user_id = u.id AND t.cycle = ? AND t.product = 'credit_card')))${region ? ' AND u.region = ?' : ''} ORDER BY u.name`).all(cycle, ...(region ? [r] : []));
   return staff.map((s) => {
     const i = incentiveFor(db, s.id, cycle, { coreOnly: s.core_product === 'multi_product' });
-    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
+    return { user_id: s.id, staff: s.name, sales_code: s.sales_code || '', hrms_code: s.hrms_code || '', team_leader: s.team_leader || '', sales_manager: s.sales_manager || '', region: s.region || '', ...i, potential: undefined, criterion: i.criterion_label, rate: `AED ${i.rate.toFixed(2)}` };
   }).sort((a, b) => (b.incentive_aed ?? -1) - (a.incentive_aed ?? -1) || a.staff.localeCompare(b.staff));
 }

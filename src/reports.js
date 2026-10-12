@@ -502,7 +502,7 @@ function incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = incentiveRows(db, period.cycle, region);
   return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('target', 'Card target (points)', 'points'), col('cards_sold', 'Cards sold'), col('premium_cards', 'Premium or above'), col('mix_pct', 'Premium mix', 'pct'), col('card_points', 'Card points', 'points'),
       col('pl_disbursed', 'PL disbursed (AED)', 'aed'), col('pl_counted', 'PL counted (AED)', 'aed'), col('pl_points', 'PL points', 'points'), col('total_points', 'Total points', 'points'), col('excess_points', 'Excess points', 'points'),
       col('criterion', 'Criterion met', 'text'), col('rate', 'Rate per point', 'text'), col('points_aed', 'On points (AED)', 'aed'), col('bonus_points', 'Bonus at (points)', 'points'), col('bonus_aed', 'Bonus (AED)', 'aed'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
@@ -516,7 +516,7 @@ function pl_incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = plIncentiveRows(db, period.cycle, region);
   return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('target', 'PL target (AED)', 'aed'), col('loans', 'Loans disbursed'), col('eib_loans', 'Emirates Islamic buy-outs'), col('top_ups', 'Top-ups'), col('pl_disbursed', 'Disbursed (AED)', 'aed'), col('pl_counted', 'Production counted (AED)', 'aed'),
       col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('core_aed', 'Production incentive (AED)', 'aed'),
       col('mass_cards', 'Mass cards'), col('premium_cards', 'Premium cards'), col('super_premium_cards', 'Super Premium cards'), col('noon_cards', 'noon cards'), col('cards_threshold', 'Card threshold (AED)', 'aed'), col('cards_qualified', 'At threshold', 'text'), col('cards_incentive_aed', 'Card cross-sell (AED)', 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
@@ -531,7 +531,7 @@ function al_incentives(db, user, { period, region }) {
   const rows = alIncentiveRows(db, period.cycle, region);
   const r = AL_INCENTIVE_RULES;
   return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('target', 'AL target (points)', 'points'), col('loans', 'Loans disbursed'), col('new_loans', 'New car'), col('used_loans', 'Used car'), col('algo_loans', 'Algo'), col('low_loans', 'Low payout'),
       col('disbursed', 'Disbursed (AED)', 'aed'), col('full_payout_aed', 'New + used (AED)', 'aed'), col('points', 'Production points', 'points'), col('achievement_pct', 'Of target', 'pct'), col('excess_points', 'Excess points', 'points'),
       col('full_payout_met', `AED ${r.full_payout_aed.toLocaleString('en-US')} met`, 'text'), col('multiplier', 'Per point', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
