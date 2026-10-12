@@ -29,7 +29,16 @@ export const INCENTIVE_RULES = {
   topup_share: 70, // % of a top-up's incremental amount that counts, from the cycle below; 100% before it
   topup_share_from_cycle: '2026-10',
   next_cycle_minimum_pct: 60, // paid only if the staff member achieves at least this much of target in the next cycle
+  bonus_aed: 1000, // added once the cycle's points reach the salary band's bonus level
 };
+
+/** The points at which a credit card sales person earns the bonus: from the salary band on the rules, by their profile salary. */
+export function ccBonusLevel(db, staffId) {
+  const u = db.prepare('SELECT salary FROM users WHERE id = ?').get(staffId);
+  if (!u || u.salary == null) return null;
+  const rule = db.prepare("SELECT bonus FROM target_rules WHERE product = 'credit_card' AND bonus IS NOT NULL AND ? BETWEEN salary_from AND salary_to").get(u.salary);
+  return rule ? rule.bonus : null;
+}
 /** Conditions every incentive is subject to, shown wherever an incentive amount is shown. */
 export const INCENTIVE_CONDITIONS = [
   `All incentives are subject to achieving a minimum of ${INCENTIVE_RULES.next_cycle_minimum_pct}% of target in the next sales cycle.`,
@@ -205,7 +214,7 @@ export function countedLoan(c, cycle) {
 }
 
 /** The credit card scheme over a set of files. */
-function ccFigures(rows, target, cycle, coreOnly) {
+function ccFigures(rows, target, cycle, coreOnly, bonus = null) {
   let cards_sold = 0; let premium_cards = 0; let card_points = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
   for (const c of rows) {
     if (includesCard(c) && c.credit_card) {
@@ -230,10 +239,14 @@ function ccFigures(rows, target, cycle, coreOnly) {
   const criterion = mix_met ? 'mix' : cross_sell_met ? 'cross_sell' : 'none';
   const rate = mix_met || cross_sell_met ? INCENTIVE_RULES.rate_high : INCENTIVE_RULES.rate_low;
   const excess_points = target == null ? null : Math.max(0, round2(total_points - target));
-  const incentive_aed = excess_points == null ? null : round2(excess_points * rate);
+  const points_aed = excess_points == null ? null : round2(excess_points * rate);
+  // The bonus: a flat amount once the points reach the salary band's bonus level.
+  const bonus_met = bonus != null && target != null && total_points >= bonus;
+  const bonus_aed = bonus_met ? INCENTIVE_RULES.bonus_aed : 0;
+  const incentive_aed = points_aed == null ? null : round2(points_aed + bonus_aed);
   return {
     cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, pl_excluded: coreOnly, eib_loans, top_ups, topup_share: topupShare(cycle), pl_points, total_points,
-    excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, incentive_aed, files: rows.length,
+    excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, points_aed, bonus_points: bonus, bonus_met, bonus_aed, incentive_aed, files: rows.length,
   };
 }
 
@@ -242,15 +255,19 @@ export function incentiveFor(db, staffId, cycle, { coreOnly = false } = {}) {
   const { start, end } = cycleRange(cycle);
   const rows = db.prepare(`SELECT c.* FROM cases c WHERE ${STAFF_FILES_SQL}`).all(staffId, start, end);
   const target = db.prepare("SELECT target FROM targets WHERE user_id = ? AND cycle = ? AND product = 'credit_card'").get(staffId, cycle)?.target ?? null;
-  const now = ccFigures(rows, target, cycle, coreOnly);
+  const bonus = ccBonusLevel(db, staffId);
+  const now = ccFigures(rows, target, cycle, coreOnly, bonus);
   const open = pipelineRows(db, staffId);
-  const projected = ccFigures([...rows, ...open], target, cycle, coreOnly);
+  const projected = ccFigures([...rows, ...open], target, cycle, coreOnly, bonus);
   const potential = {
     open_files: open.length, open_cards: projected.cards_sold - now.cards_sold, open_pl_counted: round2(projected.pl_counted - now.pl_counted),
     total_points: projected.total_points, excess_points: projected.excess_points, rate: projected.rate, criterion: projected.criterion, criterion_label: projected.criterion_label,
     incentive_aed: projected.incentive_aed, extra_aed: projected.incentive_aed == null ? null : round2(projected.incentive_aed - (now.incentive_aed ?? 0)),
     // Points still needed to pass the target: from today, and after the open files complete.
     needed_now: target == null ? null : round2(Math.max(0, target - now.total_points)), needed_after: target == null ? null : round2(Math.max(0, target - projected.total_points)),
+    // The bonus: where it stands today and after the open files.
+    bonus_points: bonus, bonus_aed: INCENTIVE_RULES.bonus_aed, bonus_met_now: now.bonus_met, bonus_met_after: projected.bonus_met,
+    bonus_needed_now: bonus == null ? null : round2(Math.max(0, bonus - now.total_points)), bonus_needed_after: bonus == null ? null : round2(Math.max(0, bonus - projected.total_points)),
   };
   return { ...now, ...complaintExclusion(db, staffId, start, end), potential };
 }

@@ -115,6 +115,7 @@ export const TARGET_RULE_IMPORT_COLUMNS = [
   { key: 'salary_from', header: 'Salary from (AED)', required: true, example: '5000', help: 'Lowest monthly salary in the band, inclusive' },
   { key: 'salary_to', header: 'Salary to (AED)', required: true, example: '7999', help: 'Highest monthly salary in the band, inclusive' },
   { key: 'target', header: 'Target', required: true, example: '600000', help: 'Credit card and auto loan: points. Personal loan: AED to disburse. Accounts: number of accounts' },
+  { key: 'bonus', header: 'Bonus at (points)', example: '', help: 'Credit cards only: the points at which the AED 1,000 bonus is earned, above the target. Blank: no bonus for the band' },
 ];
 
 
@@ -408,7 +409,10 @@ export function importTargetRules(db, user, csv, { dryRun = false } = {}) {
       const to = money(v.salary_to, 'Salary to');
       if (to < from) throw new Error('Salary to is below salary from');
       const target = money(v.target, 'Target');
-      return { product, from, to, target, line: record.line, label: `${TARGET_PRODUCTS[product]} · AED ${from.toLocaleString('en-US')}–${to.toLocaleString('en-US')}`, email: `${TARGET_UNITS[product] === 'aed' ? 'AED ' : ''}${target.toLocaleString('en-US')}${TARGET_UNITS[product] === 'points' ? ' points' : TARGET_UNITS[product] === 'count' ? ' accounts' : ''}` };
+      const bonus = v.bonus === '' || v.bonus == null ? null : money(v.bonus, 'Bonus at');
+      if (bonus != null && product !== 'credit_card') throw new Error('Bonus at applies to credit card bands only');
+      if (bonus != null && bonus <= target) throw new Error('Bonus at must be above the target');
+      return { product, from, to, target, bonus, line: record.line, label: `${TARGET_PRODUCTS[product]} · AED ${from.toLocaleString('en-US')}–${to.toLocaleString('en-US')}`, email: `${TARGET_UNITS[product] === 'aed' ? 'AED ' : ''}${target.toLocaleString('en-US')}${TARGET_UNITS[product] === 'points' ? ' points' : TARGET_UNITS[product] === 'count' ? ' accounts' : ''}` };
     }));
     for (const product of new Set(parsed.filter((r) => r.ok).map((r) => r.product))) {
       try {
@@ -419,7 +423,7 @@ export function importTargetRules(db, user, csv, { dryRun = false } = {}) {
       if (parsed.some((r) => r.ok && r.product === product)) db.prepare('DELETE FROM target_rules WHERE product = ?').run(product);
     }
     for (const r of parsed.filter((r) => r.ok)) {
-      db.prepare('INSERT INTO target_rules (product, salary_from, salary_to, target, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?)').run(r.product, r.from, r.to, r.target, user.id, ts);
+      db.prepare('INSERT INTO target_rules (product, salary_from, salary_to, target, bonus, set_by, set_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(r.product, r.from, r.to, r.target, r.bonus, user.id, ts);
     }
     return parsed;
   });

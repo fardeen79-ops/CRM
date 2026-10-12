@@ -3,7 +3,7 @@
 Built from the staff list supplied on 8 October 2026 (`New_HRMS_Code.xlsx`, sheet "Sales Staff", 360 rows). Both files load through **Bulk upload** as the business head or DXB MIS, in this order:
 
 1. **Staff** → `staff-upload.csv` (406 rows: 10 sales managers, 36 team leaders, 360 sales staff). **Fill the HRMS code column for the 46 leader rows first**: the code is mandatory for every role and the upload rejects a row without one (and then the sales rows that name that leader). The upload creates leaders first, then staff, and shows a temporary password for every new login. Everyone signs in with their HRMS code.
-2. **Salary targets** → `salary-targets.csv` (66 bands). Then press **Generate from salaries** on the Targets page for the cycle.
+2. **Salary targets** → `salary-targets.csv` (66 bands, with the credit card bonus level in the last column). Then press **Generate from salaries** on the Targets page for the cycle.
 
 Loading both into a scratch copy of the CRM (with placeholder codes in the leader rows) gave: 406 users created, 0 failed; 66 bands saved; targets generated for all 360 sales staff, every one equal to the sheet's target.
 

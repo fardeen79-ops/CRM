@@ -634,6 +634,7 @@ function potentialBlock(p, { unit, scheme }) {
       : html` ${nothingOpen ? 'You are past the target: every' : 'Every'} further ${unit === 'aed' ? 'dirham' : 'point'} ${nothingOpen ? '' : 'beyond that '}is paid.`}
     ${scheme === 'pl' && p.cards_needed_after > 0 && p.open_cards + (p.cards_sold || 0) ? html` <span class="muted">Cards cross-sold pay once production reaches the threshold: ${u(p.cards_needed_after)} to go.</span>` : ''}
     ${pushLine(p, { unit, scheme, needed })}
+    ${scheme === 'cc' && p.bonus_points != null && !p.bonus_met_now ? (p.bonus_met_after ? html` <strong>The AED ${fmtAmount(p.bonus_aed)} bonus comes with those files.</strong>` : html` <span class="muted">The AED ${fmtAmount(p.bonus_aed)} bonus at ${u(p.bonus_points)}: ${u(p.bonus_needed_after)} to go${nothingOpen ? '' : ' after those files'}.</span>`) : ''}
   </div>`;
 }
 
@@ -2691,9 +2692,10 @@ function incentiveCard({ incentive: i, rules, conditions = [] }) {
     <div class="kpis">
       <div class="kpi"><span class="kpi-label">Points this cycle</span><span class="kpi-value">${fmtAmount(i.total_points)}</span><span class="kpi-sub">${fmtAmount(i.card_points)} from cards · ${fmtAmount(i.pl_points)} from personal loans</span></div>
       <div class="kpi"><span class="kpi-label">Excess over target</span><span class="kpi-value">${i.excess_points == null ? '—' : fmtAmount(i.excess_points)}</span><span class="kpi-sub">${i.target == null ? 'no card target set for this cycle' : `target ${fmtAmount(i.target)} points`}</span></div>
-      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">${i.incentive_aed == null ? '—' : `AED ${fmtAmount(i.incentive_aed)}`}</span><span class="kpi-sub">${i.excess_points ? `${fmtAmount(i.excess_points)} × AED ${i.rate.toFixed(2)}` : 'earned once points pass the target'}</span></div>
+      <div class="kpi ${i.incentive_aed ? 'kpi-good' : ''}"><span class="kpi-label">Incentive so far</span><span class="kpi-value">${i.incentive_aed == null ? '—' : `AED ${fmtAmount(i.incentive_aed)}`}</span><span class="kpi-sub">${i.excess_points ? `${fmtAmount(i.excess_points)} × AED ${i.rate.toFixed(2)}` : 'earned once points pass the target'}${i.bonus_aed ? ` + AED ${fmtAmount(i.bonus_aed)} bonus` : ''}</span></div>
     </div>
     <ul class="checklist">
+      ${i.bonus_points != null ? html`<li>${i.bonus_met ? '✓' : '○'} Bonus: AED ${fmtAmount(rules.bonus_aed)} at ${fmtAmount(i.bonus_points)} points${i.bonus_met ? ' · earned' : ` (${fmtAmount(Math.max(0, i.bonus_points - i.total_points))} points to go)`}</li>` : ''}
       <li>${i.criterion === 'mix' ? '✓' : '○'} Premium mix: ${i.premium_cards} of ${i.cards_sold} cards Premium or above (${i.mix_pct}% · needs ${rules.mix_share}%)</li>
       <li>${i.pl_excluded ? html`○ Cross-sell: personal loans are paid under your loan scheme, so they add no points or criterion here.` : html`${i.criterion === 'cross_sell' || i.pl_counted >= rules.cross_sell_aed ? '✓' : '○'} Cross-sell: AED ${fmtAmount(i.pl_counted)} of personal loans counted (needs AED ${fmtAmount(rules.cross_sell_aed)}${i.eib_loans ? `; Emirates Islamic buy-outs count at ${rules.eib_buyout_share}%` : ''})</li>`}</li>
     </ul>

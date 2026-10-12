@@ -500,10 +500,10 @@ function incentives(db, user, { period, region }) {
     columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('target', 'Card target (points)', 'points'), col('cards_sold', 'Cards sold'), col('premium_cards', 'Premium or above'), col('mix_pct', 'Premium mix', 'pct'), col('card_points', 'Card points', 'points'),
       col('pl_disbursed', 'PL disbursed (AED)', 'aed'), col('pl_counted', 'PL counted (AED)', 'aed'), col('pl_points', 'PL points', 'points'), col('total_points', 'Total points', 'points'), col('excess_points', 'Excess points', 'points'),
-      col('criterion', 'Criterion met', 'text'), col('rate', 'Rate per point', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
+      col('criterion', 'Criterion met', 'text'), col('rate', 'Rate per point', 'text'), col('points_aed', 'On points (AED)', 'aed'), col('bonus_points', 'Bonus at (points)', 'points'), col('bonus_aed', 'Bonus (AED)', 'aed'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
     rows,
     note: INCENTIVE_CONDITIONS.join(' '),
-    totals: { staff: `${rows.length} staff`, cards_sold: sum(rows, 'cards_sold'), premium_cards: sum(rows, 'premium_cards'), card_points: sum(rows, 'card_points'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), pl_points: sum(rows, 'pl_points'), total_points: sum(rows, 'total_points'), excess_points: sum(rows, 'excess_points'), incentive_aed: sum(rows, 'incentive_aed'), criterion: `${rows.filter((r) => r.rate === `AED ${INCENTIVE_RULES.rate_high.toFixed(2)}`).length} at the higher rate` },
+    totals: { staff: `${rows.length} staff`, cards_sold: sum(rows, 'cards_sold'), premium_cards: sum(rows, 'premium_cards'), card_points: sum(rows, 'card_points'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), pl_points: sum(rows, 'pl_points'), total_points: sum(rows, 'total_points'), bonus_aed: sum(rows, 'bonus_aed'), points_aed: sum(rows, 'points_aed'), excess_points: sum(rows, 'excess_points'), incentive_aed: sum(rows, 'incentive_aed'), criterion: `${rows.filter((r) => r.rate === `AED ${INCENTIVE_RULES.rate_high.toFixed(2)}`).length} at the higher rate` },
   };
 }
 
