@@ -19,7 +19,7 @@ import { profitAndLoss, profitAndLossTree } from './pnl.js';
 import { ceoDashboard } from './ceo.js';
 import * as leads from './leads.js';
 import { BANKS } from './banks.js';
-import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, STAFF_CORE_PRODUCTS } from './users.js';
+import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, salaryOf, canSeeSalary, withSalaryFor, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
 import * as reports from './reports.js';
@@ -332,7 +332,8 @@ function routes(db, dispatch, bot, interpret, phrase) {
       requireRole(user, ...USER_ADMINS, 'it');
       // IT sees who the staff are, to issue tabs, without salaries or contact details.
       if (user.role === 'it') return { users: listUsers(db).map(({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name }) => ({ id, name, hrms_code, sales_code, role, region, active, team_leader_name, sales_manager_name })) };
-      return { users: listUsers(db) };
+      // A business head's salary is for the CEO, accounts and that business head only.
+      return { users: listUsers(db).map((u) => withSalaryFor(user, u)) };
     }],
 
     // Boosters: product campaigns with dates, run by business heads and MIS.
@@ -465,7 +466,14 @@ function routes(db, dispatch, bot, interpret, phrase) {
           throw new HttpError(400, err.message);
         }
       }
-      if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'salary', 'core_product'].some((f) => f in body)) {
+      // Anyone's monthly salary feeds the profit and loss; a business head's is set only by those who may see it.
+      if ('salary' in body && !canSeeSalary(user, target)) throw new HttpError(403, "A business head's salary is seen and set only by the CEO, accounts, or that business head");
+      if ('salary' in body && target.role !== 'sales') {
+        let salary;
+        try { salary = salaryOf(body.salary); } catch (err) { throw new HttpError(400, err.message); }
+        db.prepare('UPDATE users SET salary = ? WHERE id = ?').run(salary, id);
+      }
+      if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'core_product'].some((f) => f in body) || (target.role === 'sales' && 'salary' in body)) {
         if (target.role !== 'sales') throw new HttpError(400, 'Only sales staff have a sales code, team leader and sales manager');
         let profile;
         try {

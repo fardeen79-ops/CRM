@@ -4,6 +4,7 @@
 import { REGIONS, COMPLETED_IN_SQL, WorkflowError } from './cases.js';
 import { cycleRange, cycleLabel, cycleOf, uaeDay, isCycle } from './cycles.js';
 import { payoutFor } from './payouts.js';
+import { isCeo } from './roles.js';
 import { incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, plTlIncentiveRows, ccSmIncentiveRows, plSmIncentiveRows } from './incentives.js';
 
 export const PNL_VIEWERS = ['business_head'];
@@ -11,6 +12,7 @@ export const PNL_ROLES = { sales: 'Sales staff', team_leader: 'Team leaders', as
 const round = (n) => Math.round((n || 0) * 100) / 100;
 
 const LEADER_ROLES = ['team_leader', 'sales_manager', 'asm'];
+const SUPPORT_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it'];
 const regionKey = (code) => (REGIONS[String(code || '').toUpperCase()] ? String(code).toUpperCase() : 'NONE');
 
 /**
@@ -84,6 +86,13 @@ export function profitAndLoss(db, user, { cycle, region } = {}) {
     const s = nameRole.get(k); if (!s) continue;
     const line = lines[s.role]; if (!line) continue;
     line.incentive += amount * s.weight;
+  }
+  // Business heads' salaries are for the CEO (and the heads themselves): any other viewer sees them
+  // folded into one support line with processing, MIS, governance and IT, so no head's pay can be read off.
+  if (!isCeo(user)) {
+    const support = { role: 'support', label: 'Support (business heads, processing, MIS, governance, IT)', staff: 0, salary: 0, incentive: 0 };
+    for (const role of SUPPORT_ROLES) { const l = lines[role]; support.staff += l.staff; support.salary += l.salary; support.incentive += l.incentive; delete lines[role]; }
+    lines.support = support;
   }
   const rows = Object.values(lines).filter((l) => l.staff || l.salary || l.incentive).map((l) => ({ ...l, staff: round(l.staff), salary: round(l.salary), incentive: round(l.incentive), cost: round(l.salary + l.incentive) }));
   const salaries = round(rows.reduce((n, l) => n + l.salary, 0));

@@ -25,6 +25,7 @@ before(async () => {
   add('Pat', 'proc@t.local', 'processing', { region: 'AUH', salary: 4500 });
   add('Gina', 'gov@t.local', 'governance', { salary: 7500 });
   add('Bilal', 'head@t.local', 'business_head', { region: 'DXB', hrms_code: 'EN3' });
+  add('Yusuf', 'ceo@t.local', 'ceo', { region: 'DXB', hrms_code: 'EN4' });
   // Salaries and reporting lines for non-sales people are set on the Staff page; set them directly here.
   const set = db.prepare('UPDATE users SET salary = ?, sales_manager_id = ? WHERE id = ?');
   set.run(30000, null, ids['sm@t.local']); set.run(12000, ids['sm@t.local'], ids['tl@t.local']); set.run(9000, ids['sm@t.local'], ids['tl2@t.local']);
@@ -64,13 +65,19 @@ test('shares follow the SEs: a leader by their own team, overheads by the busine
 });
 
 test('the statement and the hierarchy carry each person at their share per region', async () => {
-  const head = await login('head@t.local');
+  const bilal = await login('head@t.local'); const head = await login('ceo@t.local');
   const cycle = (await head('GET', '/me')).data.meta.current_cycle;
   const all = (await head('GET', `/pnl?cycle=${cycle}`)).data;
   const roles = Object.fromEntries(all.pnl.rows.map((l) => [l.role, l]));
   // Nothing is lost or doubled: every salary counts once across the business.
   assert.equal(all.pnl.salaries, 30000 + 12000 + 9000 + 5000 + 5000 + 6000 + 4500 + 7500);
   assert.equal(roles.team_leader.staff, 2);
+  assert.equal(roles.processing.salary, 4500, 'the CEO sees every line by role');
+  // A business head who is not the CEO sees the support roles (business heads included) as one line.
+  const folded = (await bilal('GET', `/pnl?cycle=${cycle}`)).data.pnl;
+  assert.ok(!folded.rows.some((l) => ['business_head', 'processing', 'governance'].includes(l.role)));
+  assert.equal(folded.rows.find((l) => l.role === 'support').salary, 4500 + 7500);
+  assert.equal(folded.salaries, all.pnl.salaries);
   const dxb = (await head('GET', `/pnl?cycle=${cycle}&region=DXB`)).data.pnl;
   const auh = (await head('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.pnl;
   const by = (p, role) => p.rows.find((l) => l.role === role);
@@ -98,7 +105,7 @@ test('the statement and the hierarchy carry each person at their share per regio
   assert.equal(dxbT.children.find((n) => n.kind === 'overheads').salary, 3000 + 5000);
   assert.equal(auhT.children.find((n) => n.kind === 'overheads').salary, 1500 + 2500);
   assert.equal(total.salary, all.pnl.salaries);
-  assert.equal(total.headcount, 9);
+  assert.equal(total.headcount, 10, 'the CEO account counts as a business head');
   const one = (await head('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.tree;
   assert.equal(one.tree.length, 1);
   assert.equal(one.total.salary, auh.salaries);

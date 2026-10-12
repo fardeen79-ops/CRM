@@ -33,6 +33,11 @@ export function regionOf(value) {
 
 export const BOT_EMAIL = 'verification-bot@system.local';
 
+/** A business head's salary is seen (and set) only by the CEO, accounts, or that business head; everyone else's by MIS and business heads as before. */
+export const canSeeSalary = (viewer, target) => target.role !== 'business_head' || viewer.id === target.id || viewer.role === 'accounts' || (viewer.role === 'business_head' && viewer.role_key === 'ceo');
+/** The user row with the salary blanked and marked hidden where the viewer may not see it. */
+export const withSalaryFor = (viewer, u) => (canSeeSalary(viewer, u) ? u : { ...u, salary: null, salary_hidden: true });
+
 export function findUser(db, id) {
   return db.prepare(`SELECT ${USER_COLUMNS} FROM ${USER_FROM} WHERE u.id = ?`).get(id) || null;
 }

@@ -25,7 +25,7 @@ const incomeLabelsFor = (type) => type === 'self_employed'
   : { amount: 'Monthly salary (AED)', bank: 'Salary transferred to', choose: "Choose the customer's salary bank…", word: 'salary', need: 'monthly salary', earns: 'earns' };
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
-  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', governance: 'Governance', it: 'IT', ceo: 'CEO',
+  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', accounts: 'Accounts', governance: 'Governance', it: 'IT', ceo: 'CEO',
 };
 // Assistant sales managers use the same screens as sales managers, over their own teams.
 const effRole = () => (state.user.role === 'asm' ? 'sales_manager' : state.user.role);
@@ -345,6 +345,7 @@ function navGroups() {
   const cardApprovals = ['#/card-approvals', 'Approvals', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
   if (r === 'it') return filterNav([['', [['#/assets', 'Tab register', 'tablet'], ['#/import/assets', 'Bulk upload', 'upload'], ['#/reports?report=assets&run=1', 'Inventory report', 'report'], ...(state.meta.can_manage_roles ? [['#/roles', 'Roles', 'users']] : [])]]]);
+  if (r === 'accounts') return filterNav([['', [['#/reports', 'Reports', 'report'], ['#/reports?report=incentive_payout&run=1', 'Incentive payout file', 'report']]]]);
   const isCeo = state.user.role_key === 'ceo';
   const work = [['#/', isCeo ? 'CEO dashboard' : 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
@@ -499,7 +500,7 @@ async function route() {
   const params = new URLSearchParams(qs || '');
   try {
     let m;
-    if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : state.user.role_key === 'ceo' ? await viewCeo(params) : await viewDashboard();
+    if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : state.user.role === 'accounts' ? await viewReports(params) : state.user.role_key === 'ceo' ? await viewCeo(params) : await viewDashboard();
     if (path === '/assets') return await viewAssets(params);
     if (path === '/roles') return await viewRoles();
     if (path === '/allocation') return await viewAllocation();
@@ -3521,7 +3522,7 @@ async function viewReports(params) {
     ${rep.note ? html`<p class="callout warn report-note"><strong>Conditions.</strong> ${rep.note}</p>` : ''}</div>`;
 
   shell(html`
-    <div class="page-head"><div><h1>Reports</h1><p class="muted lede">Pick a report and a period, run it on screen, then download it as a spreadsheet. Reports cover ${{ team_leader: 'your team', sales_manager: 'your teams' }[effRole()] || (state.region ? `the ${state.region} region` : 'all regions')}; personal details stay masked.</p></div></div>
+    <div class="page-head"><div><h1>Reports</h1><p class="muted lede">Pick a report and a period, run it on screen, then download it as a spreadsheet. Customer phone numbers never go into a download. Reports cover ${{ team_leader: 'your team', sales_manager: 'your teams' }[effRole()] || (state.region ? `the ${state.region} region` : 'all regions')}; personal details stay masked.</p></div></div>
     <div class="grid report-grid">
       <form class="card report-form" id="report-form">
         <div class="field-row"><label for="rp-report">Report</label>
@@ -4632,6 +4633,12 @@ async function viewUsers() {
     <div class="field-row"><label for="${prefix}-salary">Monthly salary (AED)</label>
       <input id="${prefix}-salary" name="salary" inputmode="numeric" value="${u.salary != null ? u.salary.toLocaleString('en-US') : ''}" placeholder="e.g. 5,000">
       <div class="muted small">Sets this person's targets through the salary bands. Seen by MIS and business heads only.</div></div>`;
+  // Everyone else's salary feeds the profit and loss. A business head's is shown and set only by the CEO, accounts, or that business head.
+  const salaryField = (u, prefix) => (u.salary_hidden
+    ? html`<div class="field-row"><label>Monthly salary (AED)</label><div class="lock">Hidden</div><div class="muted small">A business head's salary is seen only by the CEO, accounts, or that business head.</div></div>`
+    : html`<div class="field-row"><label for="${prefix}-salary">Monthly salary (AED)</label>
+      <input id="${prefix}-salary" name="salary" inputmode="numeric" value="${u.salary != null ? u.salary.toLocaleString('en-US') : ''}" placeholder="e.g. 12,000">
+      <div class="muted small">Counted in the profit and loss, split across the regions by sales executive count.${u.role === 'business_head' ? " Seen only by the CEO, accounts, or this business head." : ''}</div></div>`);
 
   // Email, local mobile and WhatsApp for any user.
   const contactFields = (u = {}, prefix = 'n') => html`
@@ -4779,6 +4786,7 @@ async function viewUsers() {
     tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
       <strong>Edit ${u.name}</strong>
       <div class="form-grid two">${contactFields(u, `e${u.id}`)}${regionField(u, `e${u.id}`)}${u.id !== state.user.id ? html`<div class="field-row"><label for="e${u.id}-role">Role</label><select id="e${u.id}-role" name="role">${Object.entries({ ...(state.meta.assignable_roles || ROLE_LABEL), ...(u.role_key && !(state.meta.assignable_roles || {})[u.role_key] ? { [u.role_key]: ROLE_LABEL[u.role_key] } : {}) }).map(([k, l]) => html`<option value="${k}" ${(u.role_key || u.role) === k ? raw('selected') : ''}>${l}</option>`)}</select><div class="muted small">Moving to or from a sales role clears or needs the sales profile.</div></div>` : ''}</div>
+      ${u.role !== 'sales' ? html`<div class="form-grid two">${salaryField(u, `e${u.id}`)}</div>` : ''}
       ${u.role === 'sales' ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, `e${u.id}`)}</div><p class="muted small">Changing the team leader, sales manager or ASM moves this person's open files to the new team. Completed and rejected files stay with the old team.</p>` : ''}
       <div class="actions"><button class="btn-primary">Save changes</button><button type="button" data-cancel>Cancel</button></div>
     </form></td>`.s;

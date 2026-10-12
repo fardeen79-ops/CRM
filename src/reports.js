@@ -17,6 +17,10 @@ const ALL = ['mis', 'business_head'];
 const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
 
 /** The reports, who may run them, and how the period applies. */
+// The incentive calculations: business heads, Dubai MIS and accounts, who pay them.
+const INCENTIVE_VIEWERS = ['business_head', 'mis', 'accounts'];
+const canSeeIncentives = (user) => user.role === 'accounts' || canSeePayout(user);
+
 export const REPORTS = {
   sourcing: { name: 'Sourcing by sales staff', roles: [...ALL, ...MANAGERS], period: 'files sourced in the period', description: 'Files sourced per sales person and where each of those files stands now: verification, case status, amounts disbursed.' },
   personal_loans: { name: 'Personal loans', roles: [...ALL, ...MANAGERS], period: 'loans on files completed in the period', description: 'Every personal loan on a file completed in the period: sales person and team, loan type, amount, disbursed and counted amounts, Emirates Islamic buy-outs, top-ups, FPD and tenure, and whether it was a cross-sell by non-loan staff.' },
@@ -31,13 +35,14 @@ export const REPORTS = {
   access: { name: 'Access and reveals', roles: ['governance', 'business_head'], period: 'activity in the period', description: 'Who opened files, which personal details they revealed and which reports they ran.' },
   card_exceptions: { name: 'Card deviations and promotions', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards sold to customers below the card\'s salary requirement: the reason recorded (product deviation or new promotion), who decided, and files still awaiting approval.' },
   card_downsell: { name: 'Cards sold below eligibility', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'Credit cards where the customer\'s salary qualified for a higher card category than the one sold, with the points earned, the points the best eligible card would have earned, and the points lost.' },
-  incentives: { name: 'Credit card incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each credit card sales person earns on points beyond target: AED 1.25 per excess point with at least 33% Premium or Super Premium cards or AED 50,000 of personal loans cross-sold, else AED 0.70. Personal loans count AED 100 per point; an Emirates Islamic buy-out counts at half, a top-up at 70% of its incremental amount from the October 2026 cycle (100% before). Runs for a sales cycle only. All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank\'s data cut finalisation.' },
-  pl_incentives: { name: 'Personal loan incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each personal loan sales person earns on the cycle\'s disbursed production: 0.40% from AED 600K, 0.55% from 750K, 0.75% from 1M, 0.90% from 1.25M, 1.10% from 1.5M and 1.20% from 2M, on the whole production; nothing below AED 600K. An Emirates Islamic buy-out counts at half, a top-up at 70% of its incremental amount from the October 2026 cycle (100% before). Runs for a sales cycle only. All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank\'s data cut finalisation.' },
-  al_incentives: { name: 'Auto loan incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each core auto loan sales person earns on points beyond target (core product Auto Loans only): a loan\'s points are its disbursed amount at the scheme\'s rate (new and used 0.80%, algo 0.25%, low-payout non-algo nil), paid AED 1.10 a point once new and used disbursal reaches AED 250,000 in the cycle, else AED 0.60.' },
-  tl_incentives: { name: 'Credit card team leader incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each team leader of core credit card staff earns: the team\'s card points beyond 75% of its combined card targets, at AED 0.30 a point when the team\'s personal loan cross-sell reaches AED 50,000 or its Premium and Super Premium mix exceeds 20% (else AED 0.20), plus 0.15% of the gross personal loan cross-sell as a separate line.' },
-  pl_tl_incentives: { name: 'Personal loan team leader incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each team leader of core personal loan staff earns: a percentage of the team\'s whole counted production by its achievement of the combined targets (0.05% from 80%, 0.15% from 100%, 0.20% from 125%, 0.25% from 150%, nil below 80%), plus AED 20, 50 or 100 per Mass, Premium or Super Premium card the team cross-sells (noon nil) once the team is at 80%.' },
-  sm_incentives: { name: 'Credit card sales manager incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM of core credit card staff earns: a flat amount per card the team sold, by the team\'s achievement of its combined card targets (AED 15 from 70%, 20 from 80%, 30 from 100%, 35 from 110%, 40 from 125%, 45 from 140%, 50 from 150%; nil below 70%).' },
-  pl_sm_incentives: { name: 'Personal loan sales manager incentives', roles: ['business_head', 'mis'], only: canSeePayout, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM with core personal loan staff earns: a percentage of the team\'s whole loan production (core staff plus loans cross-sold by the rest of the team) by its achievement of the core staff\'s combined targets (0.02% from 80%, 0.0625% from 100%, 0.075% from 125%, 0.10% from 150%; nil below 80%). The same grid applies to every manager with loan staff (confirmed).' },
+  incentives: { name: 'Credit card incentives', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'What each credit card sales person earns on points beyond target: AED 1.25 per excess point with at least 33% Premium or Super Premium cards or AED 50,000 of personal loans cross-sold, else AED 0.70. Personal loans count AED 100 per point; an Emirates Islamic buy-out counts at half, a top-up at 70% of its incremental amount from the October 2026 cycle (100% before). Runs for a sales cycle only. All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank\'s data cut finalisation.' },
+  pl_incentives: { name: 'Personal loan incentives', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'What each personal loan sales person earns on the cycle\'s disbursed production: 0.40% from AED 600K, 0.55% from 750K, 0.75% from 1M, 0.90% from 1.25M, 1.10% from 1.5M and 1.20% from 2M, on the whole production; nothing below AED 600K. An Emirates Islamic buy-out counts at half, a top-up at 70% of its incremental amount from the October 2026 cycle (100% before). Runs for a sales cycle only. All incentives are subject to achieving a minimum of 60% of target in the next sales cycle, and to the bank\'s data cut finalisation.' },
+  al_incentives: { name: 'Auto loan incentives', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'What each core auto loan sales person earns on points beyond target (core product Auto Loans only): a loan\'s points are its disbursed amount at the scheme\'s rate (new and used 0.80%, algo 0.25%, low-payout non-algo nil), paid AED 1.10 a point once new and used disbursal reaches AED 250,000 in the cycle, else AED 0.60.' },
+  tl_incentives: { name: 'Credit card team leader incentives', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'What each team leader of core credit card staff earns: the team\'s card points beyond 75% of its combined card targets, at AED 0.30 a point when the team\'s personal loan cross-sell reaches AED 50,000 or its Premium and Super Premium mix exceeds 20% (else AED 0.20), plus 0.15% of the gross personal loan cross-sell as a separate line.' },
+  pl_tl_incentives: { name: 'Personal loan team leader incentives', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'What each team leader of core personal loan staff earns: a percentage of the team\'s whole counted production by its achievement of the combined targets (0.05% from 80%, 0.15% from 100%, 0.20% from 125%, 0.25% from 150%, nil below 80%), plus AED 20, 50 or 100 per Mass, Premium or Super Premium card the team cross-sells (noon nil) once the team is at 80%.' },
+  sm_incentives: { name: 'Credit card sales manager incentives', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM of core credit card staff earns: a flat amount per card the team sold, by the team\'s achievement of its combined card targets (AED 15 from 70%, 20 from 80%, 30 from 100%, 35 from 110%, 40 from 125%, 45 from 140%, 50 from 150%; nil below 70%).' },
+  pl_sm_incentives: { name: 'Personal loan sales manager incentives', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'What each sales manager or ASM with core personal loan staff earns: a percentage of the team\'s whole loan production (core staff plus loans cross-sold by the rest of the team) by its achievement of the core staff\'s combined targets (0.02% from 80%, 0.0625% from 100%, 0.075% from 125%, 0.10% from 150%; nil below 80%). The same grid applies to every manager with loan staff (confirmed).' },
+  incentive_payout: { name: 'Incentive payout file', roles: INCENTIVE_VIEWERS, only: canSeeIncentives, period: 'files completed in the sales cycle', description: 'One line per person with an incentive to pay for the cycle, every scheme added up: HRMS code, name, role, region and the amount, ready for payroll. Runs for a sales cycle only. Pay after the 60% next-cycle condition and the bank\'s data cut are confirmed.' },
   assets: { name: 'Tab inventory', roles: ASSET_VIEWERS, period: 'the register as it stands now', description: 'Every sourcing tab issued by the bank: number, serial, who holds it, accessories, network, SIM, Microsoft Entra ID and registered mobile, with its status (in use, with IT, handed over on exit).' },
   pnl: { name: 'Profit and loss', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'Revenue (the bank\'s payout on files completed in the cycle) less the salaries actually paid and the incentives earned, by role: sales staff, team leaders, ASMs, sales managers, business heads, processing, MIS. Salaries come from the Salaries paid upload; anyone without one is estimated from their profile salary.' },
   pnl_hierarchy: { name: 'Profit and loss by region and team', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'The profit and loss broken down by region, sales manager, team leader and sales staff: each level\'s revenue (files completed by its staff), salaries and incentives (its people, leaders included at their level), net and margin. Overheads (business heads, processing, MIS, governance, IT) sit at region level.' },
@@ -592,6 +597,42 @@ function pl_sm_incentives(db, user, { period, region }) {
   };
 }
 
+/** The payout file: every person with an incentive for the cycle, all schemes added up, keyed by HRMS code for payroll. */
+function incentive_payout(db, user, { period, region }) {
+  if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
+  const cycle = period.cycle;
+  const people = new Map();
+  const add = (user_id, scheme, amount) => {
+    if (!(Number(amount) > 0)) return;
+    if (!people.has(user_id)) {
+      const u = db.prepare('SELECT u.id, u.name, u.hrms_code, u.sales_code, u.role, u.role_key, u.region FROM users u WHERE u.id = ?').get(user_id);
+      people.set(user_id, { user_id, hrms_code: u?.hrms_code || '', name: u?.name || '', role: u?.role || '', sales_code: u?.sales_code || '', region: u?.region || '', card_aed: 0, loan_aed: 0, auto_aed: 0, leader_aed: 0, manager_aed: 0, total_aed: 0, schemes: [] });
+    }
+    const p = people.get(user_id);
+    p[scheme] = Math.round((p[scheme] + Number(amount)) * 100) / 100;
+    p.total_aed = Math.round((p.total_aed + Number(amount)) * 100) / 100;
+  };
+  const label = { card_aed: 'Credit card', loan_aed: 'Personal loan', auto_aed: 'Auto loan', leader_aed: 'Team leader', manager_aed: 'Sales manager' };
+  const put = (rows, scheme, name) => { for (const x of rows) { add(x.user_id, scheme, x.incentive_aed); if (Number(x.incentive_aed) > 0) people.get(x.user_id).schemes.push(name); } };
+  put(incentiveRows(db, cycle, region), 'card_aed', 'Credit card');
+  put(plIncentiveRows(db, cycle, region), 'loan_aed', 'Personal loan');
+  put(alIncentiveRows(db, cycle, region), 'auto_aed', 'Auto loan');
+  put(tlIncentiveRows(db, cycle, region), 'leader_aed', 'Credit card team leader');
+  put(plTlIncentiveRows(db, cycle, region), 'leader_aed', 'Personal loan team leader');
+  put(ccSmIncentiveRows(db, cycle, region), 'manager_aed', 'Credit card sales manager');
+  put(plSmIncentiveRows(db, cycle, region), 'manager_aed', 'Personal loan sales manager');
+  const rows = [...people.values()].map((p) => ({ ...p, cycle, schemes: p.schemes.join('; ') })).sort((a, b) => b.total_aed - a.total_aed || a.name.localeCompare(b.name));
+  const missing = rows.filter((r) => !r.hrms_code).length;
+  return {
+    columns: [col('hrms_code', 'HRMS code', 'text'), col('name', 'Name', 'text'), col('role', 'Role', 'role'), col('sales_code', 'Sales code', 'text'), col('region', 'Region', 'text'), col('cycle', 'Cycle', 'text'),
+      col('card_aed', `${label.card_aed} (AED)`, 'aed'), col('loan_aed', `${label.loan_aed} (AED)`, 'aed'), col('auto_aed', `${label.auto_aed} (AED)`, 'aed'), col('leader_aed', `${label.leader_aed} (AED)`, 'aed'), col('manager_aed', `${label.manager_aed} (AED)`, 'aed'),
+      col('total_aed', 'Total to pay (AED)', 'aed'), col('schemes', 'Schemes', 'text')],
+    rows,
+    note: `${INCENTIVE_CONDITIONS.join(' ')} One line per person; a leader who also sells appears once with every scheme added up.${missing ? ` ${missing} ${missing === 1 ? 'person has' : 'people have'} no HRMS code on their profile: add it on the Staff page before paying.` : ''}`,
+    totals: { hrms_code: `${rows.length} people`, card_aed: sum(rows, 'card_aed'), loan_aed: sum(rows, 'loan_aed'), auto_aed: sum(rows, 'auto_aed'), leader_aed: sum(rows, 'leader_aed'), manager_aed: sum(rows, 'manager_aed'), total_aed: sum(rows, 'total_aed') },
+  };
+}
+
 function assets(db, user, { region }) {
   const rows = inventoryRows(db, region);
   const s = assetSummary(db);
@@ -635,7 +676,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { pnl, pnl_hierarchy, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
@@ -660,7 +701,12 @@ export function recentRuns(db, limit = 50) {
 }
 
 /** CSV for Excel: a BOM, quoted cells, totals as the last row. */
+/** Customer phone numbers never leave the system in a file: these columns are dropped from every download. */
+const NO_DOWNLOAD_KEYS = ['phone', 'alt_phone', 'customer_phone', 'whatsapp'];
+export const downloadColumns = (columns) => columns.filter((c) => !NO_DOWNLOAD_KEYS.includes(c.key) && !/customer.*(phone|mobile|whatsapp)|(phone|mobile|whatsapp).*customer|^phone$/i.test(c.label));
+
 export function toCsv(report) {
+  report = { ...report, columns: downloadColumns(report.columns) };
   const q = (v) => {
     const s = v == null ? '' : String(v);
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

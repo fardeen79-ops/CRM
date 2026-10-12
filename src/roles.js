@@ -37,6 +37,7 @@ export const BUILTIN_ROLES = {
   sales_manager: { label: 'Sales Manager', pages: ['cases', 'leads', 'targets', 'team', 'reports', 'chat'], uploads: [] },
   mis: { label: 'MIS', pages: MANAGE, uploads: Object.keys(UPLOAD_KINDS) },
   business_head: { label: 'Business Head', pages: HEAD, uploads: Object.keys(UPLOAD_KINDS) },
+  accounts: { label: 'Accounts', pages: ['reports'], uploads: [] },
   governance: { label: 'Governance', pages: ['cases', 'team', 'reports', 'access_log', 'chat'], uploads: [] },
   it: { label: 'IT', pages: ['assets', 'uploads', 'reports', 'roles'], uploads: ['assets'] },
 };
@@ -106,10 +107,12 @@ export const allowsPage = (user, page) => permissionsOf(user).pages.includes(pag
 export const allowsReport = (user, key) => { const p = permissionsOf(user); return !p.pages.includes('reports') ? false : p.reports == null || p.reports.includes(key); };
 export const allowsUpload = (user, kind) => { const p = permissionsOf(user); return p.pages.includes('uploads') && p.uploads.includes(kind); };
 export const allowsDownload = (user) => permissionsOf(user).downloads;
-/** The API path a custom role may not call, or null. Built-in roles keep their own checks. */
+/** Built-in roles held to their page list on the API too (the others keep their own checks). */
+const STRICT_ROLES = ['accounts'];
+/** The API path a custom role (or a strict built-in one) may not call, or null. */
 export function blockedPage(user, pathname) {
   const p = permissionsOf(user);
-  if (!p.custom) return null;
+  if (!p.custom && !STRICT_ROLES.includes(user.role)) return null;
   // A sales person's own tab is part of My tab, not the register.
   if (/^\/api\/assets\/(mine|\d+)$/.test(pathname) && p.pages.includes('my_tab')) return null;
   for (const [page, def] of Object.entries(PAGES)) if (def.paths && def.paths.test(pathname) && !p.pages.includes(page)) return page;

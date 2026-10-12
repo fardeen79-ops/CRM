@@ -93,6 +93,7 @@ The page counts open leads, follow-ups due, converted, not interested and not el
 | **Sales manager** | Sees all cases, adds cases, edits case details, works the **Sales Manager** edit-request queue and sets case status |
 | **MIS** | Sees all cases and sets case status |
 | **Business head** | Sees all cases, team stats, sets case status, and approves or declines call recording requests |
+| **Accounts** | Sees only the Reports page: the seven incentive calculations for a sales cycle and the **Incentive payout file** (one line per person, every scheme added up, keyed by HRMS code) to pay from |
 | **Governance** | Marks files for quality check, adds complaint numbers, scores verification calls (0–10) and requests call recordings after verification |
 
 ### Re-verification after changes
@@ -246,6 +247,13 @@ API: `POST /api/import/assets`, `GET/POST /api/assets`, `GET /api/assets/mine`, 
 ### Go-live staff list
 
 `docs/go-live/` holds the upload files built from the agency's staff list (`staff-upload.csv`, `salary-targets.csv`) and a README on how the sheet was mapped and which placeholders to replace. Rules that came from that list: a sales person's **team leader may be a sales manager or ASM who leads the team directly**; the **sales manager is optional** (a team can report to the business head); **targets follow the core product** (a credit card seller gets only the card target, multi-product staff get every product with a band); and in the staff upload the **HRMS code is required for every role, leaders included**, while the **mobile number is optional**.
+
+### Who sees salaries, and what leaves the system
+
+- Every profile can carry a **monthly salary** (sales staff on the sales profile, everyone else on the staff edit form); it feeds the profit and loss, split across the regions by sales executive count.
+- A **business head's salary is seen and set only by the CEO profile, the accounts role, or that business head**. Everyone else (MIS, other business heads) sees *Hidden* on the staff page and gets a 403 on trying to set it. On the profit and loss, a business head who is not the CEO sees the business heads folded into one *Support* line with processing, MIS, governance and IT, so no head's pay can be read off; the CEO sees the line by role.
+- **Customer phone numbers never go into a download**: every report CSV drops the phone columns (the case register shows them masked on screen only). Staff mobiles on the tab inventory are not customer data and stay.
+- The **Incentive payout file** report (business heads, Dubai MIS, accounts) lists each person with an incentive for the cycle, every scheme added up, with HRMS code, role, region and the amount to pay; it flags anyone without an HRMS code.
 
 ### Credit card incentives
 

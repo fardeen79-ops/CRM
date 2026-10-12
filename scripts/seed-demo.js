@@ -20,6 +20,7 @@ const proc = ensureUser('Pat Processing', 'processing@demo.local', 'processing',
 // The people who push a bot call through: the verification team leader asks, governance and a business head approve.
 const vlead = ensureUser('Vera Verification', 'vlead@demo.local', 'processing_lead', { mobile_number: '0521110006' });
 ensureUser('Yusuf Executive', 'ceo@demo.local', 'ceo', { mobile_number: '0521110007' });
+ensureUser('Asha Accounts', 'accounts@demo.local', 'accounts', { mobile_number: '0521110009' });
 const gov = ensureUser('Gina Governance', 'governance@demo.local', 'governance', { mobile_number: '0521110007' });
 const head = ensureUser('Bina Head', 'head@demo.local', 'business_head', { mobile_number: '0521110008', region: 'DXB' });
 

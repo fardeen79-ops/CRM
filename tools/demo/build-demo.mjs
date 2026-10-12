@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v67';
+const DB_KEY = 'sourcing-crm-demo-db-v68';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -184,6 +184,7 @@ function seed() {
   const mira = u('Mira MIS', 'mis@demo.local', 'mis', { region: 'DXB' });
   const bilal = u('Bilal Head', 'head@demo.local', 'business_head', { region: 'DXB' });
   const gina = u('Gina Governance', 'governance@demo.local', 'governance');
+  u('Asha Accounts', 'accounts@demo.local', 'accounts');
   const irfan = u('Irfan IT', 'it@demo.local', 'it');
   // Every card has a sourced type and every personal loan an FPD; sample files get a spread of them.
   // Sample files are entered on a weekday morning, whatever the real clock says; live entries use the real clock.
@@ -499,7 +500,7 @@ function handle(method, pathname, query, body) {
   }
   if (pathname === '/api/users') {
     role(user, 'mis', 'business_head', 'it');
-    if (method === 'GET') return { users: user.role === 'it' ? listUsers(db).map(({ id, name, hrms_code, sales_code, role: r, region, active, team_leader_name, sales_manager_name }) => ({ id, name, hrms_code, sales_code, role: r, region, active, team_leader_name, sales_manager_name })) : listUsers(db) };
+    if (method === 'GET') return { users: user.role === 'it' ? listUsers(db).map(({ id, name, hrms_code, sales_code, role: r, region, active, team_leader_name, sales_manager_name }) => ({ id, name, hrms_code, sales_code, role: r, region, active, team_leader_name, sales_manager_name })) : listUsers(db).map((u) => withSalaryFor(user, u)) };
     role(user, 'mis', 'business_head');
     if (method === 'POST') return [201, { user: createUser(db, body, { requireMobile: true }) }];
   }
@@ -540,7 +541,13 @@ function handle(method, pathname, query, body) {
     if ('region' in body) {
       try { db.prepare('UPDATE users SET region = ? WHERE id = ?').run(regionOf(body.region), id); } catch (e) { throw new ApiError(400, e.message); }
     }
-    if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'salary', 'core_product'].some((f) => f in body)) {
+    if ('salary' in body && !canSeeSalary(user, target)) throw new ApiError(403, "A business head's salary is seen and set only by the CEO, accounts, or that business head");
+    if ('salary' in body && target.role !== 'sales') {
+      let salary;
+      try { salary = salaryOf(body.salary); } catch (e) { throw new ApiError(400, e.message); }
+      db.prepare('UPDATE users SET salary = ? WHERE id = ?').run(salary, id);
+    }
+    if (['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'core_product'].some((f) => f in body) || (target.role === 'sales' && 'salary' in body)) {
       if (target.role !== 'sales') throw new ApiError(400, 'Only sales staff have a sales code, team leader and sales manager');
       let p;
       try { p = salesProfile(db, body, target); } catch (e) { throw new ApiError(400, e.message); }
@@ -638,6 +645,7 @@ const DEMO_USERS = [
   ['mis@demo.local', 'Mira', 'MIS'],
   ['head@demo.local', 'Bilal', 'Business head'],
   ['ceo@demo.local', 'Yusuf', 'CEO'],
+  ['accounts@demo.local', 'Asha', 'Accounts'],
   ['governance@demo.local', 'Gina', 'Governance'],
   ['it@demo.local', 'Irfan', 'IT'],
 ];
