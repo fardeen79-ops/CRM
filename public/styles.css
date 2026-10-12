@@ -126,9 +126,11 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .nav a.active .ico { opacity: 1; color: var(--chrome-accent); }
 .nav .count { background: var(--danger); color: #fff; border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; line-height: 18px; font-variant-numeric: tabular-nums; }
 .side-user {
-  display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 12px 10px 4px;
+  display: grid; grid-template-columns: 32px 1fr; align-items: center; column-gap: 10px; row-gap: 6px; margin-top: 16px; padding: 12px 10px 6px;
   border-top: 1px solid rgba(255, 255, 255, .12);
 }
+.side-user .side-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding-left: 42px; }
+.side-user .side-sep { color: var(--chrome-text); opacity: .6; }
 .side-user .who { flex: 1; min-width: 0; color: inherit; }
 .side-user a.who:hover { text-decoration: none; }
 .side-user a.who:hover .name { text-decoration: underline; }

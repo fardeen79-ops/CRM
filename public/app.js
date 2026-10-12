@@ -428,7 +428,7 @@ function shell(content) {
         <div class="side-user">
           <span class="avatar" aria-hidden="true">${initials}</span>
           <a class="who" href="#/profile" title="My profile"><div class="name">${state.user.name}</div><div class="role-tag">${ROLE_LABEL[state.user.role_key || state.user.role]}</div></a>
-<a href="#/profile" class="side-link" title="My profile and password">Profile</a> <button id="logout" class="btn-link" title="Sign out">Sign out</button>
+<div class="side-actions"><a href="#/profile" class="side-link" title="My profile and password">My profile</a><span class="side-sep" aria-hidden="true">·</span><button id="logout" class="btn-link" title="Sign out">Sign out</button></div>
         </div>
       </aside>
       <div class="scrim" id="scrim" hidden></div>
