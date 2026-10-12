@@ -71,4 +71,12 @@ test('the bonus level comes with the salary band and pays AED 1,000 once the poi
   const row = rep.rows.find((r) => r.staff === 'Sally');
   assert.deepEqual([row.bonus_points, row.bonus_aed, row.incentive_aed], [bonus, 1000, mine.incentive_aed]);
   assert.ok(rep.columns.some((c) => c.key === 'bonus_aed'));
+  // The dashboard says who is earning: Sally is, by region, sales manager and team leader; the CEO page carries the same.
+  const e = (await mis('GET', '/dashboard')).data.earners;
+  assert.deepEqual([e.team, e.earning, e.not_earning, e.pct, e.incentive_aed], [1, 1, 0, 100, mine.incentive_aed]);
+  assert.deepEqual(e.groups.map((g) => [g.level, g.label, g.earning, g.not_earning]), [['region', 'DXB', 1, 0], ['sales_manager', 'SM One', 1, 0], ['team_leader', 'TL Dubai', 1, 0]]);
+  assert.deepEqual(e.earning_staff.map((s) => s.name), ['Sally']);
+  const tl = await login('tl@t.local');
+  const mineTeam = (await tl('GET', '/dashboard')).data.earners;
+  assert.deepEqual([mineTeam.team, mineTeam.earning, mineTeam.groups.length], [1, 1, 0], 'a team leader sees the names, no sub-groups');
 });

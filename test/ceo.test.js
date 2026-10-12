@@ -75,6 +75,9 @@ test('the business head gets the headline numbers; the regions sit side by side;
   assert.equal(d.zero.zero_ends.pct, 33.3);
   assert.equal(d.trend.length, 6); assert.equal(d.trend.at(-1).completed, 2);
   assert.deepEqual(d.people, { sales: 3, leaders: 3, processing: 0, other: 3 });
+  // Nobody earns an incentive yet (loans below the first band, no card target): the split says so, with every level.
+  assert.deepEqual([d.earners.team, d.earners.earning, d.earners.not_earning, d.earners.pct], [3, 0, 3, 0]);
+  assert.deepEqual(d.earners.groups.map((g) => [g.level, g.label, g.team]), [['region', 'AUH', 2], ['sales_manager', 'SM One', 2], ['team_leader', 'TL Abu Dhabi', 2], ['region', 'DXB', 1], ['sales_manager', 'SM One', 1], ['team_leader', 'TL Dubai', 1]]);
   const pl = d.production.find((p) => p.product === 'personal_loan');
   assert.deepEqual([pl.target, pl.achieved, pl.pct, pl.files], [400000, 300000, 75, 2]);
   assert.deepEqual(d.regions.map((x) => [x.region, x.files, x.yield_pct, x.staff, x.zero_ends_pct]), [['DXB', 1, 9, 1, 0], ['AUH', 1, 8, 2, 50]]);

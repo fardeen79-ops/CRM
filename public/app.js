@@ -729,6 +729,35 @@ function zeroCard(z, r) {
     </div>` : html`<p class="muted small dash-quiet">No active sales staff in your scope yet.</p>`}`;
 }
 
+// Who is earning an incentive this cycle and who is not, by region, sales manager, ASM and team leader.
+function earnersCard(e, r) {
+  if (!e) return '';
+  const pct = (v) => (v == null ? '—' : `${v}%`);
+  const LIMIT = 40;
+  const chip = (s, good) => html`<a class="chip ${good ? 'good' : 'bad'}" href="#/cases?staff=${s.id}&cycle=${e.cycle}" title="${s.sales_code || ''}${s.team_leader ? ` · ${s.team_leader}` : ''}${good ? ` · AED ${fmtAmount(s.incentive_aed)} so far` : ' · nothing earned yet'}">${s.name}${good ? html` <span class="muted">AED ${fmtAedShort(s.incentive_aed)}</span>` : ''}</a>`;
+  const who = (list, good) => (list.length
+    ? html`<div class="chips zero-names">${list.slice(0, LIMIT).map((s) => chip(s, good))}</div>${list.length > LIMIT ? html`<details class="small zero-more"><summary class="muted">${list.length - LIMIT} more</summary><div class="chips zero-names">${list.slice(LIMIT).map((s) => chip(s, good))}</div></details>` : ''}`
+    : html`<div class="muted small">${good ? 'Nobody yet.' : 'Nobody: everyone is earning.'}</div>`);
+  const lvl = { region: '', sales_manager: 'SM', asm: 'ASM', team_leader: 'TL' };
+  return html`<h2 class="tiles-head">Earning an incentive · ${cycleName(e.cycle)} cycle</h2>
+    <div class="kpis">
+      <div class="kpi"><span class="kpi-label">Earning</span><span class="kpi-value">${e.earning} <span class="kpi-pct">${pct(e.pct)}</span></span><span class="kpi-sub">of ${e.team} active sales staff · AED ${fmtAmount(e.incentive_aed)} so far</span></div>
+      <div class="kpi ${e.not_earning ? 'kpi-alert' : ''}"><span class="kpi-label">Not earning</span><span class="kpi-value">${e.not_earning} <span class="kpi-pct">${pct(e.team ? Math.round(((e.team - e.earning) / e.team) * 1000) / 10 : null)}</span></span><span class="kpi-sub">nothing under any scheme yet this cycle</span></div>
+    </div>
+    ${e.team ? html`<div class="card zero-card">
+      ${e.groups?.length ? html`<div class="zero-block"><strong>${r === 'business_head' || r === 'mis' ? 'By region, sales manager, ASM and team leader' : r === 'sales_manager' ? 'By ASM and team leader' : 'By team leader'}</strong>
+        <div class="table-wrap"><table class="zero-table earners-table">
+          <thead><tr><th>Team</th><th>Staff</th><th>Earning</th><th>%</th><th>Not earning</th><th>Incentive so far</th></tr></thead>
+          <tbody>${e.groups.map((x) => html`<tr class="lvl-${x.level} ${x.not_earning ? 'has-zero' : ''}">
+            <td>${lvl[x.level] ? html`<span class="muted">${lvl[x.level]}</span> ` : ''}${x.label}</td>
+            <td>${x.team}</td><td class="${x.earning ? 'good-num' : ''}">${x.earning}</td><td>${pct(x.pct)}</td><td class="${x.not_earning ? 'bad-num' : ''}">${x.not_earning}</td><td>AED ${fmtAmount(x.incentive_aed)}</td>
+          </tr>`)}</tbody>
+        </table></div></div>` : ''}
+      <div class="zero-block"><strong>Earning</strong>${who(e.earning_staff, true)}</div>
+      <div class="zero-block"><strong>Not earning yet</strong>${who(e.not_earning_staff, false)}</div>
+    </div>` : html`<p class="muted small dash-quiet">No active sales staff in your scope yet.</p>`}`;
+}
+
 // A breakdown table of the zero measures: one row per product, or per node of the hierarchy.
 function zeroTable(title, rows, labelOf, tree = false) {
   if (!rows?.length) return '';
@@ -994,6 +1023,7 @@ async function viewDashboard() {
     ${d.pl_yield ? yieldCard(d.pl_yield, r) : ''}
     ${d.boosters?.length ? boosterCard(d.boosters, r) : ''}
     ${d.zero ? zeroCard(d.zero, r) : ''}
+    ${d.earners ? earnersCard(d.earners, r) : ''}
     ${d.calendar ? calendarCard(d.calendar, r) : ''}
     ${main}
     <h2 class="tiles-head">${r === 'sales' ? 'My files' : r === 'processing' ? 'Files' : 'Files in your scope'} <a class="tiles-link" href="#/cases">All cases →</a></h2>
@@ -3911,6 +3941,7 @@ async function viewCeo(params = new URLSearchParams()) {
       <a class="kpi" href="#/cases?cycle=${cycle}&case_status=completed"><span class="kpi-label">Files completed</span><span class="kpi-value">${fmtAmount(d.money.files.now)}</span><span class="kpi-sub">${delta(d.money.files, false)}</span></a>
       <a class="kpi" href="#/cases?cycle=${cycle}"><span class="kpi-label">Files sourced</span><span class="kpi-value">${fmtAmount(d.pipeline.sourced.now)}</span><span class="kpi-sub">${pctOf(d.pipeline.conversion_pct)} completed so far · ${delta(d.pipeline.sourced, false)}</span></a>
       ${yieldTile}
+      ${d.earners ? html`<a class="kpi ${d.earners.pct != null && d.earners.pct < 50 ? 'kpi-alert' : ''}" href="#/dashboard"><span class="kpi-label">Earning an incentive</span><span class="kpi-value">${pctOf(d.earners.pct)}</span><span class="kpi-sub">${d.earners.earning} of ${d.earners.team} sales staff · ${d.earners.not_earning} not earning</span></a>` : ''}
       <a class="kpi ${d.zero.zero_ends.pct > 30 ? 'kpi-alert' : ''}" href="#/dashboard"><span class="kpi-label">Staff on zero ends</span><span class="kpi-value">${pctOf(d.zero.zero_ends.pct)}</span><span class="kpi-sub">${d.zero.zero_ends.count} of ${d.zero.team} sales staff · ${pctOf(d.zero.zero_submissions.pct)} with no submission</span></a>
     </div>
     <div class="grid two-col dash-row">
@@ -3924,6 +3955,11 @@ async function viewCeo(params = new URLSearchParams()) {
       <div class="table-wrap"><table class="ceo-regions">
         <thead><tr><th>Region</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Costs</th><th class="num">Net</th><th class="num">Margin</th><th class="num">PL yield</th><th class="num">Sales staff</th><th class="num">Zero ends</th><th class="num">No submission</th><th>Target achievement</th></tr></thead>
         <tbody>${d.regions.map((x) => html`<tr><td><strong>${x.label}</strong></td><td class="num">${x.files}</td><td class="num">${aed(x.revenue)}</td><td class="num">${aed(x.costs)}</td><td class="num ${x.net < 0 ? 'bad-num' : 'good-num'}">${signed(x.net)}</td><td class="num">${pctOf(x.margin_pct)}</td><td class="num ${x.yield_pct == null ? '' : x.yield_below_min ? 'bad-num' : 'good-num'}">${x.yield_pct == null ? '—' : `${x.yield_pct.toFixed(2)}%`}</td><td class="num">${x.staff}</td><td class="num ${x.zero_ends_pct > 30 ? 'bad-num' : ''}">${pctOf(x.zero_ends_pct)}</td><td class="num">${pctOf(x.zero_submissions_pct)}</td><td>${x.achievement.map((a) => html`<span class="chip ${a.pct >= 100 ? 'chip-good' : a.pct < 70 ? 'chip-bad' : ''}">${state.meta.products?.[a.product] || a.product} ${a.pct}%</span> `)}</td></tr>`)}</tbody>
+      </table></div></div>` : ''}
+    ${d.earners?.groups?.length ? html`<div class="card"><div class="card-head"><h2>Earning an incentive · by region, sales manager, ASM and team leader</h2></div>
+      <div class="table-wrap"><table class="zero-table earners-table">
+        <thead><tr><th>Team</th><th>Staff</th><th>Earning</th><th>%</th><th>Not earning</th><th>Incentive so far</th></tr></thead>
+        <tbody>${d.earners.groups.map((x) => html`<tr class="lvl-${x.level} ${x.not_earning ? 'has-zero' : ''}"><td>${{ sales_manager: 'SM ', asm: 'ASM ', team_leader: 'TL ' }[x.level] ? html`<span class="muted">${{ sales_manager: 'SM', asm: 'ASM', team_leader: 'TL' }[x.level]}</span> ` : ''}${x.label}</td><td>${x.team}</td><td class="${x.earning ? 'good-num' : ''}">${x.earning}</td><td>${x.pct == null ? '—' : `${x.pct}%`}</td><td class="${x.not_earning ? 'bad-num' : ''}">${x.not_earning}</td><td>AED ${fmtAmount(x.incentive_aed)}</td></tr>`)}</tbody>
       </table></div></div>` : ''}
     ${contributionCard(d.contribution, d.label)}
     <h2 class="tiles-head">Pipeline and governance · today</h2>

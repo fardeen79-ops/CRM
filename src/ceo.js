@@ -8,7 +8,7 @@ import { cycleRange, cycleLabel, cycleOf, uaeDay, isCycle, shiftCycle } from './
 import { profitAndLoss, PNL_VIEWERS } from './pnl.js';
 import { targetReport, TARGET_PRODUCTS, TARGET_UNITS } from './performance.js';
 import { plYieldFor, PL_MIN_YIELD } from './yield.js';
-import { contributionFor, zeroStaff, TREND_CYCLES } from './dashboard.js';
+import { contributionFor, zeroStaff, incentiveEarners, TREND_CYCLES } from './dashboard.js';
 import { runReport } from './reports.js';
 
 const ceoRound = (n) => Math.round((n || 0) * 100) / 100;
@@ -78,6 +78,8 @@ export function ceoDashboard(db, user, { cycle, region } = {}) {
   // People: staff on zero, core team against cross-sell, headcount.
   const zero = zeroStaff(db, user, cycle, { region: reg });
   const contribution = contributionFor(db, scope, params, start, end);
+  const e = incentiveEarners(db, user, cycle, { region: reg });
+  const earners = { team: e.team, earning: e.earning, not_earning: e.not_earning, pct: e.pct, incentive_aed: e.incentive_aed, groups: e.groups };
   const headcount = db.prepare(`SELECT role, COUNT(*) AS n FROM users WHERE active = 1 ${reg ? 'AND region = ?' : ''} GROUP BY role`).all(...params);
   const people = { sales: 0, leaders: 0, processing: 0, other: 0 };
   for (const h of headcount) { if (h.role === 'sales') people.sales += h.n; else if (['team_leader', 'asm', 'sales_manager'].includes(h.role)) people.leaders += h.n; else if (h.role === 'processing') people.processing += h.n; else people.other += h.n; }
@@ -106,6 +108,6 @@ export function ceoDashboard(db, user, { cycle, region } = {}) {
   return {
     cycle, label: cycleLabel(cycle), start, end, previous: { cycle: prev, label: cycleLabel(prev) }, region: reg, is_current: cycle === cycleOf(uaeDay()), days_left: t.days_left,
     money, production, cards, yield: yieldInfo, loss, pipeline, trend, zero: { team: zero.team, zero_ends: { count: zero.zero_ends.count, pct: zero.zero_ends.pct }, zero_submissions: { count: zero.zero_submissions.count, pct: zero.zero_submissions.pct }, by_product: zero.by_product.map((b) => ({ product: b.product, label: b.label, team: b.team, zero_ends_pct: b.zero_ends.pct, zero_submissions_pct: b.zero_submissions.pct })) },
-    contribution, people, governance, regions,
+    contribution, earners, people, governance, regions,
   };
 }

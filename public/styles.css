@@ -821,6 +821,10 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .zero-table .th-short { display: none; }
 @media (max-width: 760px) { .zero-table .th-short { display: inline; } }
 .zero-table .bad-num { color: #b91c1c; font-weight: 600; }
+.zero-table .good-num { color: var(--s-done); font-weight: 600; }
+.zero-table tr.lvl-asm td:first-child { padding-left: 28px; }
+.zero-table tr.lvl-team_leader td:first-child { padding-left: 44px; }
+.zero-table tr.lvl-sales_manager td:first-child { padding-left: 16px; }
 .zero-table tr.lvl-region td:first-child { font-weight: 700; }
 .zero-table tr.lvl-sales_manager td:first-child { padding-left: 22px; }
 .zero-table tr.lvl-team_leader td:first-child { padding-left: 44px; }

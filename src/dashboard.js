@@ -3,7 +3,7 @@
 // viewer's case scope, so a sales person sees their files, a leader their team's, MIS everything.
 import { caseScope, caseProducts, REGIONS, STATUS, COMPLETED_IN_SQL, TEAM_FIELDS } from './cases.js';
 import { cycleOf, cycleRange, cycleLabel, shiftCycle, uaeDay } from './cycles.js';
-import { myIncentive } from './incentives.js';
+import { myIncentive, incentiveRows, plIncentiveRows, alIncentiveRows } from './incentives.js';
 import { TEAM_LEADER_ROLES, STAFF_CORE_PRODUCTS } from './users.js';
 import { followUps } from './leads.js';
 import { boostersFor } from './boosters.js';
@@ -141,6 +141,57 @@ export function zeroStaff(db, user, cycle, { region } = {}) {
   return { cycle, team: staff.length, zero_ends: pick(staff.filter((s) => !s.completed)), zero_submissions: pick(staff.filter((s) => !s.sourced)), by_product, groups };
 }
 
+/**
+ * Who is earning an incentive this cycle and who is not, over the sales staff in the viewer's scope,
+ * with the split by region, sales manager, ASM and team leader. A person earns when the schemes
+ * work out more than zero for them so far (cards, loans or auto loans).
+ */
+export function incentiveEarners(db, user, cycle, { region } = {}) {
+  const field = TEAM_FIELDS[user.role];
+  const r = String(region || '').toUpperCase();
+  const where = field ? `u.${field} = ?` : REGIONS[r] ? 'u.region = ?' : '1 = 1';
+  const args = field ? [user.id] : REGIONS[r] ? [r] : [];
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager, asm.name AS asm
+    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id
+    WHERE u.role = 'sales' AND u.active = 1 AND ${where} ORDER BY u.name`).all(...args);
+  const earned = new Map();
+  for (const rows of [incentiveRows(db, cycle, null), plIncentiveRows(db, cycle, null), alIncentiveRows(db, cycle, null)]) {
+    for (const x of rows) earned.set(x.user_id, Math.round(((earned.get(x.user_id) || 0) + (Number(x.incentive_aed) || 0)) * 100) / 100);
+  }
+  for (const s of staff) s.incentive_aed = earned.get(s.id) || 0;
+  const slice = (list) => {
+    const yes = list.filter((s) => s.incentive_aed > 0);
+    return { team: list.length, earning: yes.length, not_earning: list.length - yes.length, pct: list.length ? Math.round((yes.length / list.length) * 1000) / 10 : null, incentive_aed: Math.round(yes.reduce((n, s) => n + s.incentive_aed, 0) * 100) / 100 };
+  };
+  const uniq = (list, f) => [...new Set(list.map(f))].sort((a, b) => String(a ?? '').localeCompare(String(b ?? '')));
+  const groups = [];
+  const add = (level, label, list, key) => groups.push({ level, label, key, ...slice(list) });
+  const teamLeaders = (list, prefix) => { for (const tl of uniq(list, (s) => s.team_leader)) add('team_leader', tl || 'No team leader', list.filter((s) => s.team_leader === tl), `${prefix}:tl:${tl}`); };
+  const asmsThen = (list, prefix) => {
+    const asms = uniq(list, (s) => s.asm);
+    if (asms.length === 1 && asms[0] == null) return teamLeaders(list, prefix);
+    for (const a of asms) {
+      const inAsm = list.filter((s) => s.asm === a);
+      if (a != null) add('asm', a, inAsm, `${prefix}:asm:${a}`);
+      teamLeaders(inAsm, `${prefix}:asm:${a}`);
+    }
+  };
+  if (user.role === 'team_leader') { /* one team: the names are the breakdown */ }
+  else if (user.role === 'asm') teamLeaders(staff, 'mine');
+  else if (user.role === 'sales_manager') asmsThen(staff, 'mine');
+  else for (const reg of uniq(staff, (s) => s.region)) {
+    const inRegion = staff.filter((s) => s.region === reg);
+    add('region', reg || 'No region set', inRegion, `r:${reg}`);
+    for (const sm of uniq(inRegion, (s) => s.sales_manager)) {
+      const inSm = inRegion.filter((s) => s.sales_manager === sm);
+      add('sales_manager', sm || 'No sales manager', inSm, `r:${reg}:sm:${sm}`);
+      asmsThen(inSm, `r:${reg}:sm:${sm}`);
+    }
+  }
+  const names = (list) => list.map(({ id, name, sales_code, team_leader, incentive_aed, core_product }) => ({ id, name, sales_code, team_leader, incentive_aed, core_product }));
+  return { cycle, ...slice(staff), groups, earning_staff: names(staff.filter((s) => s.incentive_aed > 0)).sort((a, b) => b.incentive_aed - a.incentive_aed), not_earning_staff: names(staff.filter((s) => !(s.incentive_aed > 0))) };
+}
+
 export function crossSellFor(db, scope, params, start, end) {
   const rows = db.prepare(`SELECT c.product, c.bundle_products, c.credit_card, c.pl_disbursed_amount, c.al_disbursed_amount, u.core_product
     FROM cases c JOIN users u ON u.id = COALESCE(c.sales_staff_id, c.created_by)
@@ -210,5 +261,6 @@ export function dashboardFor(db, user, { region } = {}) {
   const calendar = CALENDAR_ROLES.includes(user.role) ? submissionCalendar(db, user, scope, params, cycle) : null;
   const zero = [...TEAM_LEADER_ROLES, 'business_head', 'mis'].includes(user.role) ? zeroStaff(db, user, cycle, { region }) : null;
   const pl_yield = plYieldFor(db, user, cycle, { region });
-  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, calendar, zero, pl_yield, boosters: boostersFor(db, user), follow_ups: followUps(db, user) };
+  const earners = [...TEAM_LEADER_ROLES, 'business_head', 'mis'].includes(user.role) ? incentiveEarners(db, user, cycle, { region }) : null;
+  return { cycle, label: cycleLabel(cycle), start, end, day: dayNo, days, days_left: Math.max(0, days - dayNo), files, trend, incentive, cross_sell, contribution, calendar, zero, earners, pl_yield, boosters: boostersFor(db, user), follow_ups: followUps(db, user) };
 }
