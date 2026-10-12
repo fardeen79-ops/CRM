@@ -5,7 +5,7 @@
     "at": "2026-10-08T10:00:00Z"
   },
   "lists": "css",
-  "title": "STRIDE \u00b7 CEO briefing",
+  "title": "STRIDE · CEO briefing",
   "order": [
     "cover",
     "summary",
@@ -22,6 +22,7 @@
     "c-controls",
     "c-bot",
     "c-line",
+    "c-calls",
     "c-privacy",
     "c-audience",
     "c-assets",
