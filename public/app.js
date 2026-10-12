@@ -3403,6 +3403,10 @@ function viewBulkUpload(kind) {
 const KPI_COLS = [['sourced', 'Sourced'], ['awaiting', 'Awaiting verification'], ['verification_pending', 'Verification pending'], ['verified', 'Verified'], ['completed', 'Completed'], ['disbursed_aed', 'Disbursed (AED)']];
 const regionLabel = () => (state.region ? ` · ${state.region}` : '');
 
+/** A personal loan core person, or a team made up only of them: cards are a cross-sell, counted rather than scored. */
+const plCoreNode = (n) => (n.level === 'staff' ? n.core_product === 'personal_loan' : Boolean(n.children?.length) && n.children.every(plCoreNode));
+const cardCell = (n, k) => (plCoreNode(n) ? html`<span class="meter-text compact"><strong>${k.cards.temp_end}</strong> <span class="muted small">card${k.cards.temp_end === 1 ? '' : 's'} cross-sold</span></span>` : meter(k.achieved.credit_card || 0, k.target.credit_card ?? null, { compact: true, unit: 'points' }));
+
 /** The tree as table rows: each level indented, groups expandable, staff rows linking to their cases. */
 function teamRows(nodes, rep, depth = 0, parent = '') {
   return nodes.map((n, i) => {
@@ -3414,7 +3418,7 @@ function teamRows(nodes, rep, depth = 0, parent = '') {
         <div><strong>${n.name}</strong>${n.previous_team ? html` <span class="chip" title="Files sourced under this team before the sales person moved">Previous team</span>` : ''}<div class="muted small">${rep.level_labels[n.level]}${n.sales_code ? html` · <span class="mono">${n.sales_code}</span>` : ''}${n.level === 'staff' && n.region && rep.levels[0] !== 'region' ? ` · ${n.region}` : ''}${n.active === 0 ? ' · disabled' : ''}</div></div></div></td>
       <td>${k.staff}</td>
       ${KPI_COLS.map(([key]) => html`<td>${key === 'disbursed_aed' ? (k[key] ? fmtAedShort(k[key]) : '—') : k[key]}</td>`)}
-      <td>${meter(k.achieved.credit_card || 0, k.target.credit_card ?? null, { compact: true, unit: 'points' })}</td>
+      <td>${cardCell(n, k)}</td>
       <td>${meter(k.achieved.personal_loan || 0, k.target.personal_loan ?? null, { compact: true, unit: 'aed' })}</td>
       <td>${meter(k.achieved.auto_loan || 0, k.target.auto_loan ?? null, { compact: true, unit: 'points' })}</td>
       <td class="small">${k.cards.active}/${k.cards.temp_end}${k.cards.temp_end ? html` <span class="muted">(${activationRate(k.cards)}%)</span>` : ''}</td>
@@ -3425,7 +3429,7 @@ function teamRows(nodes, rep, depth = 0, parent = '') {
 
 function teamTable(rep) {
   return html`<div class="table-wrap"><table class="team-table">
-    <thead><tr><th>${rep.level_labels[rep.levels[0]]}</th><th>Staff</th>${KPI_COLS.map(([, l]) => html`<th>${l}</th>`)}<th>Card points vs target</th><th>Personal loan vs target (AED)</th><th>Auto loan points vs target</th><th>Cards active</th></tr></thead>
+    <thead><tr><th>${rep.level_labels[rep.levels[0]]}</th><th>Staff</th>${KPI_COLS.map(([, l]) => html`<th>${l}</th>`)}<th>Card points vs target <span class="muted">(cards sold for loan staff)</span></th><th>Personal loan vs target (AED)</th><th>Auto loan points vs target</th><th>Cards active</th></tr></thead>
     <tbody>${teamRows(rep.nodes, rep)}</tbody>
     ${rep.nodes.length > 1 ? html`<tfoot><tr><td><strong>Total</strong></td><td>${rep.total.staff}</td>${KPI_COLS.map(([key]) => html`<td>${key === 'disbursed_aed' ? (rep.total[key] ? fmtAedShort(rep.total[key]) : '—') : rep.total[key]}</td>`)}
       <td>${meter(rep.total.achieved.credit_card || 0, rep.total.target.credit_card ?? null, { compact: true, unit: 'points' })}</td><td>${meter(rep.total.achieved.personal_loan || 0, rep.total.target.personal_loan ?? null, { compact: true, unit: 'aed' })}</td><td>${meter(rep.total.achieved.auto_loan || 0, rep.total.target.auto_loan ?? null, { compact: true, unit: 'points' })}</td><td class="small">${rep.total.cards.active}/${rep.total.cards.temp_end}</td></tr></tfoot>` : ''}
@@ -3516,7 +3520,7 @@ async function viewReports(params) {
   }
   const table = rep && html`<div class="table-wrap"><table class="report-table">
     <thead><tr>${rep.columns.map((c) => html`<th class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${c.label}</th>`)}</tr></thead>
-    <tbody>${rep.rows.map((row) => html`<tr>${rep.columns.map((c) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${fmtCell(row[c.key], c.unit)}</td>`)}</tr>`)}</tbody>
+    <tbody>${rep.rows.map((row) => html`<tr class="${row._group ? `subtotal subtotal-${row._group}` : ''}">${rep.columns.map((c) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${fmtCell(row[c.key], c.unit)}</td>`)}</tr>`)}</tbody>
     ${rep.totals && rep.rows.length ? html`<tfoot><tr>${rep.columns.map((c, i) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${i === 0 && rep.totals[c.key] === undefined ? 'Total' : rep.totals[c.key] === undefined ? '' : fmtCell(rep.totals[c.key], c.unit)}</td>`)}</tr></tfoot>` : ''}
   </table>
     ${rep.note ? html`<p class="callout warn report-note"><strong>Conditions.</strong> ${rep.note}</p>` : ''}</div>`;

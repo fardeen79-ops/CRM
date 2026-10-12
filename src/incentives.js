@@ -213,14 +213,23 @@ export function countedLoan(c, cycle) {
   return { kind: 'other', disbursed: c.pl_disbursed_amount, counted: c.pl_disbursed_amount };
 }
 
+/** Cards by type: Mass, Premium, Super Premium, noon, or a card with no category on the product list. */
+export const emptyCardCounts = () => ({ Mass: 0, Premium: 0, 'Super Premium': 0, noon: 0, other: 0 });
+export const countCard = (cards, category) => { cards[category in cards ? category : /noon/i.test(String(category || '')) ? 'noon' : 'other']++; return cards; };
+export const addCardCounts = (into, from) => { for (const k of Object.keys(into)) into[k] += from[k] || 0; return into; };
+/** The type counts as report columns. */
+export const cardColumns = (cards) => ({ mass_cards: cards.Mass, premium_only_cards: cards.Premium, super_premium_cards: cards['Super Premium'], noon_cards: cards.noon, other_cards: cards.other });
+
 /** The credit card scheme over a set of files. */
 function ccFigures(rows, target, cycle, coreOnly, bonus = null) {
   let cards_sold = 0; let premium_cards = 0; let card_points = 0; let pl_disbursed = 0; let pl_counted = 0; let eib_loans = 0; let top_ups = 0;
+  const cards = emptyCardCounts();
   for (const c of rows) {
     if (includesCard(c) && c.credit_card) {
       cards_sold++;
       card_points += achievedBy('credit_card', c);
       if (PREMIUM_CATEGORIES.includes(c.card_category)) premium_cards++;
+      countCard(cards, c.card_category);
     }
     const loan = countedLoan(c, cycle);
     if (loan) {
@@ -245,7 +254,7 @@ function ccFigures(rows, target, cycle, coreOnly, bonus = null) {
   const bonus_aed = bonus_met ? INCENTIVE_RULES.bonus_aed : 0;
   const incentive_aed = points_aed == null ? null : round2(points_aed + bonus_aed);
   return {
-    cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, pl_excluded: coreOnly, eib_loans, top_ups, topup_share: topupShare(cycle), pl_points, total_points,
+    cycle, target, cards_sold, premium_cards, mix_pct, card_points, pl_disbursed, pl_counted, pl_excluded: coreOnly, ...cardColumns(cards), eib_loans, top_ups, topup_share: topupShare(cycle), pl_points, total_points,
     excess_points, criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, points_aed, bonus_points: bonus, bonus_met, bonus_aed, incentive_aed, files: rows.length,
   };
 }
@@ -294,10 +303,12 @@ const ccTeamOf = (db, leaderId) => db.prepare("SELECT id, name, sales_code FROM 
 export function tlIncentiveFor(db, leaderId, cycle) {
   const team = ccTeamOf(db, leaderId);
   let combined_target = 0; let staff_without_target = 0; let cards_sold = 0; let premium_cards = 0; let points = 0; let cross_sell_aed = 0; let files = 0;
+  const cards = emptyCardCounts();
   const staff = team.map((s) => {
     const i = incentiveFor(db, s.id, cycle);
     if (i.target == null) staff_without_target++; else combined_target += i.target;
     cards_sold += i.cards_sold; premium_cards += i.premium_cards; points += i.card_points; cross_sell_aed += i.pl_disbursed; files += i.files;
+    addCardCounts(cards, { Mass: i.mass_cards, Premium: i.premium_only_cards, 'Super Premium': i.super_premium_cards, noon: i.noon_cards, other: i.other_cards });
     return { id: s.id, name: s.name, sales_code: s.sales_code, target: i.target, card_points: i.card_points, cards_sold: i.cards_sold, premium_cards: i.premium_cards, pl_disbursed: i.pl_disbursed };
   });
   const r = TL_INCENTIVE_RULES;
@@ -311,7 +322,7 @@ export function tlIncentiveFor(db, leaderId, cycle) {
   const core_aed = round2(excess_points * rate);
   const cross_sell_incentive_aed = round2((cross_sell_aed * r.cross_sell_pct) / 100);
   return {
-    cycle, team_size: team.length, staff_without_target, combined_target, threshold, cards_sold, premium_cards, mix_pct, points, excess_points,
+    cycle, team_size: team.length, staff_without_target, combined_target, threshold, cards_sold, premium_cards, mix_pct, ...cardColumns(cards), points, excess_points,
     criterion, criterion_label: INCENTIVE_CRITERIA[criterion], rate, core_aed, cross_sell_aed, cross_sell_incentive_aed, incentive_aed: round2(core_aed + cross_sell_incentive_aed), files, staff,
   };
 }
@@ -426,22 +437,24 @@ export function ccSmIncentiveFor(db, managerId, role, cycle) {
   const team = everyone.filter((s) => s.core_product === 'credit_card');
   const { start, end } = cycleRange(cycle);
   let combined_target = 0; let staff_without_target = 0; let cards_sold = 0; let points = 0; let files = 0; let cross_sell_cards = 0;
+  const cards = emptyCardCounts();
   for (const s of team) {
     const i = incentiveFor(db, s.id, cycle);
     if (i.target == null) staff_without_target++; else combined_target += i.target;
     cards_sold += i.cards_sold; points += i.card_points; files += i.files;
+    addCardCounts(cards, { Mass: i.mass_cards, Premium: i.premium_only_cards, 'Super Premium': i.super_premium_cards, noon: i.noon_cards, other: i.other_cards });
   }
   // Cards cross-sold by the rest of the team (loan and other staff) count in the card numbers.
   for (const s of everyone.filter((s) => s.core_product !== 'credit_card')) {
     for (const c of db.prepare(`SELECT c.* FROM cases c WHERE c.credit_card IS NOT NULL AND ${STAFF_FILES_SQL}`).all(s.id, start, end)) {
       if (!includesCard(c)) continue;
-      cross_sell_cards++; cards_sold++; points += achievedBy('credit_card', c);
+      cross_sell_cards++; cards_sold++; points += achievedBy('credit_card', c); countCard(cards, c.card_category);
     }
   }
   const achievement_pct = combined_target ? Math.round((points / combined_target) * 1000) / 10 : null;
   const slab = achievement_pct == null ? null : CC_SM_SLABS.find((b) => achievement_pct >= b.from && achievement_pct <= b.to) || null;
   const aed_per_card = slab ? slab.aed : 0;
-  return { cycle, team_size: team.length, staff_without_target, combined_target, points, achievement_pct, slab: slab ? plTlBandLabel(slab) : `Below ${SM_RULES.cc_qualify_pct}%`, cards_sold, cross_sell_cards, aed_per_card, incentive_aed: round2(cards_sold * aed_per_card), files };
+  return { cycle, team_size: team.length, staff_without_target, combined_target, ...cardColumns(cards), points, achievement_pct, slab: slab ? plTlBandLabel(slab) : `Below ${SM_RULES.cc_qualify_pct}%`, cards_sold, cross_sell_cards, aed_per_card, incentive_aed: round2(cards_sold * aed_per_card), files };
 }
 
 /** A sales manager's or ASM's personal loan incentive for a cycle: a percentage of the team's whole loan production, cross-sell included, by achievement of the core loan staff's targets. */

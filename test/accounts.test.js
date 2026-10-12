@@ -137,3 +137,33 @@ test("a business head's salary is seen only by the CEO, accounts, or that busine
   const repRows = (await bina('GET', `/reports/pnl?cycle=${cycle}`)).data.rows;
   assert.ok(!repRows.some((l) => /^Business heads$/.test(l.label || l.line || '')), JSON.stringify(repRows[0]));
 });
+
+test('the incentive sheets are split by region and hierarchy, with card types counted before the points', async () => {
+  const mis = await login('mis@t.local');
+  const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
+  const rep = (await mis('GET', `/reports/incentives?cycle=${cycle}`)).data;
+  const keys = rep.columns.map((c) => c.key);
+  // Card types sit between the cards sold and the points.
+  assert.ok(keys.indexOf('mass_cards') > keys.indexOf('cards_sold') && keys.indexOf('super_premium_cards') < keys.indexOf('card_points'));
+  const sally = rep.rows.find((r) => r.staff === 'Sally');
+  assert.deepEqual([sally.cards_sold, sally.mass_cards + sally.premium_only_cards + sally.super_premium_cards + sally.noon_cards + sally.other_cards], [3, 3]);
+  assert.equal(sally.premium_only_cards + sally.super_premium_cards, sally.premium_cards, 'the premium-or-above count is the two premium types');
+  // One person, so one team leader, one sales manager and one region subtotal, in that order after her row.
+  assert.deepEqual(rep.rows.map((r) => r._group || 'row'), ['row', 'team_leader', 'sales_manager', 'region']);
+  const tl = rep.rows[1]; const reg = rep.rows[3];
+  assert.match(tl.staff, /^Team leader total · TL Dubai \(1\)/);
+  assert.match(reg.staff, /^Region total · DXB \(1\)/);
+  assert.deepEqual([tl.cards_sold, tl.incentive_aed, reg.incentive_aed, tl.criterion, tl.mix_pct], [3, sally.incentive_aed, sally.incentive_aed, undefined, undefined]);
+  assert.equal(rep.totals.staff, '1 staff', 'the grand total counts people, not subtotal lines');
+  assert.equal(rep.totals.mass_cards + rep.totals.premium_only_cards + rep.totals.super_premium_cards + rep.totals.noon_cards + rep.totals.other_cards, 3);
+  // The team leader and manager sheets carry the same type counts and their own subtotals.
+  const tls = (await mis('GET', `/reports/tl_incentives?cycle=${cycle}`)).data;
+  assert.deepEqual(tls.rows.map((r) => r._group || 'row'), ['row', 'sales_manager', 'region']);
+  assert.equal(tls.rows[0].mass_cards + tls.rows[0].premium_only_cards + tls.rows[0].super_premium_cards + tls.rows[0].noon_cards + tls.rows[0].other_cards, 3);
+  const sms = (await mis('GET', `/reports/sm_incentives?cycle=${cycle}`)).data;
+  assert.deepEqual(sms.rows.map((r) => r._group || 'row'), ['row', 'region']);
+  assert.ok(sms.columns.map((c) => c.key).indexOf('super_premium_cards') < sms.columns.map((c) => c.key).indexOf('points'));
+  // The CSV carries the subtotal lines too.
+  const csv = await mis.text(`/reports/incentives?cycle=${cycle}&format=csv`);
+  assert.match(csv.text, /\r\nTeam leader total · TL Dubai \(1\),/);
+});

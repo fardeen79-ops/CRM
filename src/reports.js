@@ -87,6 +87,38 @@ function caseWhere(user, region, clauses = [], params = []) {
 }
 
 const col = (key, label, unit = 'count') => ({ key, label, unit });
+const CARD_TYPE_KEYS = ['mass_cards', 'premium_only_cards', 'super_premium_cards', 'noon_cards', 'other_cards'];
+const cardTotals = (rows) => Object.fromEntries(CARD_TYPE_KEYS.map((k) => [k, sum(rows, k)]));
+
+/**
+ * An incentive sheet split by region and hierarchy: rows ordered region → sales manager → team
+ * leader → person, with a subtotal line after each team leader, sales manager and region. A
+ * subtotal row carries `_group` (its level) and the group's name in the first column; the numeric
+ * columns are summed, text columns left blank. `levels` lists the grouping keys, outermost first.
+ */
+function groupedSheet(rows, levels, nameKey, columns) {
+  const numeric = columns.filter((c) => !['text', 'role', 'date', 'datetime', 'pct'].includes(c.unit)).map((c) => c.key);
+  const value = (r, k) => String(r[k] || '');
+  const sorted = [...rows].sort((a, b) => { for (const k of levels) { const d = value(a, k).localeCompare(value(b, k)); if (d) return d; } return a[nameKey].localeCompare(b[nameKey]); });
+  const labels = { region: 'Region', sales_manager: 'Sales manager', team_leader: 'Team leader' };
+  const subtotal = (level, name, members) => {
+    const t = { _group: level, [nameKey]: `${labels[level] || level} total · ${name || 'None'} (${members.length})` };
+    for (const k of numeric) t[k] = members.some((m) => Number.isFinite(Number(m[k])) && m[k] !== null && m[k] !== '') ? Math.round(members.reduce((n, m) => n + (Number(m[k]) || 0), 0) * 100) / 100 : null;
+    for (const k of levels.slice(0, levels.indexOf(level) + 1)) t[k] = members[0][k];
+    return t;
+  };
+  const out = [];
+  const walk = (members, depth) => {
+    if (depth >= levels.length) { out.push(...members); return; }
+    const key = levels[depth];
+    const groups = new Map();
+    for (const m of members) { const v = value(m, key); if (!groups.has(v)) groups.set(v, []); groups.get(v).push(m); }
+    for (const [name, list] of groups) { walk(list, depth + 1); out.push(subtotal(key, name, list)); }
+  };
+  walk(sorted, 0);
+  return out;
+}
+const STAFF_LEVELS = ['region', 'sales_manager', 'team_leader'];
 const sum = (rows, k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
 const hours = (a, b) => (a && b ? (Date.parse(b) - Date.parse(a)) / 36e5 : null);
 const avg = (list) => (list.length ? Math.round((list.reduce((a, b) => a + b, 0) / list.length) * 10) / 10 : null);
@@ -501,26 +533,28 @@ function card_downsell(db, user, { period, region }) {
 function incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = incentiveRows(db, period.cycle, region);
-  return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
-      col('target', 'Card target (points)', 'points'), col('cards_sold', 'Cards sold'), col('premium_cards', 'Premium or above'), col('mix_pct', 'Premium mix', 'pct'), col('card_points', 'Card points', 'points'),
+  const columns = [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+      col('target', 'Card target (points)', 'points'), col('cards_sold', 'Cards sold'), col('mass_cards', 'Mass'), col('premium_only_cards', 'Premium'), col('super_premium_cards', 'Super Premium'), col('noon_cards', 'noon'), col('other_cards', 'No category'), col('premium_cards', 'Premium or above'), col('mix_pct', 'Premium mix', 'pct'), col('card_points', 'Card points', 'points'),
       col('pl_disbursed', 'PL disbursed (AED)', 'aed'), col('pl_counted', 'PL counted (AED)', 'aed'), col('pl_points', 'PL points', 'points'), col('total_points', 'Total points', 'points'), col('excess_points', 'Excess points', 'points'),
-      col('criterion', 'Criterion met', 'text'), col('rate', 'Rate per point', 'text'), col('points_aed', 'On points (AED)', 'aed'), col('bonus_points', 'Bonus at (points)', 'points'), col('bonus_aed', 'Bonus (AED)', 'aed'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
-    rows,
+      col('criterion', 'Criterion met', 'text'), col('rate', 'Rate per point', 'text'), col('points_aed', 'On points (AED)', 'aed'), col('bonus_points', 'Bonus at (points)', 'points'), col('bonus_aed', 'Bonus (AED)', 'aed'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')];
+  return {
+    columns,
+    rows: groupedSheet(rows, STAFF_LEVELS, 'staff', columns),
     note: INCENTIVE_CONDITIONS.join(' '),
-    totals: { staff: `${rows.length} staff`, cards_sold: sum(rows, 'cards_sold'), premium_cards: sum(rows, 'premium_cards'), card_points: sum(rows, 'card_points'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), pl_points: sum(rows, 'pl_points'), total_points: sum(rows, 'total_points'), bonus_aed: sum(rows, 'bonus_aed'), points_aed: sum(rows, 'points_aed'), excess_points: sum(rows, 'excess_points'), incentive_aed: sum(rows, 'incentive_aed'), criterion: `${rows.filter((r) => r.rate === `AED ${INCENTIVE_RULES.rate_high.toFixed(2)}`).length} at the higher rate` },
+    totals: { staff: `${rows.length} staff`, cards_sold: sum(rows, 'cards_sold'), ...cardTotals(rows), premium_cards: sum(rows, 'premium_cards'), card_points: sum(rows, 'card_points'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), pl_points: sum(rows, 'pl_points'), total_points: sum(rows, 'total_points'), bonus_aed: sum(rows, 'bonus_aed'), points_aed: sum(rows, 'points_aed'), excess_points: sum(rows, 'excess_points'), incentive_aed: sum(rows, 'incentive_aed'), criterion: `${rows.filter((r) => r.rate === `AED ${INCENTIVE_RULES.rate_high.toFixed(2)}`).length} at the higher rate` },
   };
 }
 
 function pl_incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = plIncentiveRows(db, period.cycle, region);
-  return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+  const columns = [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('target', 'PL target (AED)', 'aed'), col('loans', 'Loans disbursed'), col('eib_loans', 'Emirates Islamic buy-outs'), col('top_ups', 'Top-ups'), col('pl_disbursed', 'Disbursed (AED)', 'aed'), col('pl_counted', 'Production counted (AED)', 'aed'),
       col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('core_aed', 'Production incentive (AED)', 'aed'),
-      col('mass_cards', 'Mass cards'), col('premium_cards', 'Premium cards'), col('super_premium_cards', 'Super Premium cards'), col('noon_cards', 'noon cards'), col('cards_threshold', 'Card threshold (AED)', 'aed'), col('cards_qualified', 'At threshold', 'text'), col('cards_incentive_aed', 'Card cross-sell (AED)', 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
-    rows,
+      col('mass_cards', 'Mass cards'), col('premium_cards', 'Premium cards'), col('super_premium_cards', 'Super Premium cards'), col('noon_cards', 'noon cards'), col('cards_threshold', 'Card threshold (AED)', 'aed'), col('cards_qualified', 'At threshold', 'text'), col('cards_incentive_aed', 'Card cross-sell (AED)', 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')];
+  return {
+    columns,
+    rows: groupedSheet(rows, STAFF_LEVELS, 'staff', columns),
     note: `${INCENTIVE_CONDITIONS.join(' ')} Bands: ${PL_INCENTIVE_BANDS.map((b) => `${plBandLabel(b)} ${b.rate.toFixed(2)}%`).join(' · ')}. Cards cross-sold: Mass AED ${PL_CROSS_SELL.card_aed.Mass}, Premium AED ${PL_CROSS_SELL.card_aed.Premium}, Super Premium AED ${PL_CROSS_SELL.card_aed['Super Premium']}, noon nil, paid once production reaches the target less AED ${PL_CROSS_SELL.threshold_below_target_aed.toLocaleString('en-US')}.`,
     totals: { staff: `${rows.length} staff`, loans: sum(rows, 'loans'), eib_loans: sum(rows, 'eib_loans'), top_ups: sum(rows, 'top_ups'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), core_aed: sum(rows, 'core_aed'), mass_cards: sum(rows, 'mass_cards'), premium_cards: sum(rows, 'premium_cards'), super_premium_cards: sum(rows, 'super_premium_cards'), noon_cards: sum(rows, 'noon_cards'), cards_incentive_aed: sum(rows, 'cards_incentive_aed'), incentive_aed: sum(rows, 'incentive_aed'), band: `${rows.filter((r) => r.rate_pct > 0).length} earning` },
   };
@@ -530,12 +564,13 @@ function al_incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = alIncentiveRows(db, period.cycle, region);
   const r = AL_INCENTIVE_RULES;
-  return {
-    columns: [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+  const columns = [col('staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('hrms_code', 'HRMS code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('target', 'AL target (points)', 'points'), col('loans', 'Loans disbursed'), col('new_loans', 'New car'), col('used_loans', 'Used car'), col('algo_loans', 'Algo'), col('low_loans', 'Low payout'),
       col('disbursed', 'Disbursed (AED)', 'aed'), col('full_payout_aed', 'New + used (AED)', 'aed'), col('points', 'Production points', 'points'), col('achievement_pct', 'Of target', 'pct'), col('excess_points', 'Excess points', 'points'),
-      col('full_payout_met', `AED ${r.full_payout_aed.toLocaleString('en-US')} met`, 'text'), col('multiplier', 'Per point', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')],
-    rows,
+      col('full_payout_met', `AED ${r.full_payout_aed.toLocaleString('en-US')} met`, 'text'), col('multiplier', 'Per point', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed'), col('excluded_files', 'Removed for complaints'), col('remark', 'Remark', 'text')];
+  return {
+    columns,
+    rows: groupedSheet(rows, STAFF_LEVELS, 'staff', columns),
     note: `${INCENTIVE_CONDITIONS.join(' ')} Points: new and used car loans ${r.rates_pct.new.toFixed(2)}% of the disbursed amount, algo loans ${r.rates_pct.algo.toFixed(2)}%, low-payout non-algo loans nil. Excess points pay AED ${r.multiplier_high.toFixed(2)} when new and used disbursal reaches AED ${r.full_payout_aed.toLocaleString('en-US')}, else AED ${r.multiplier_low.toFixed(2)}.`,
     totals: { staff: `${rows.length} staff`, loans: sum(rows, 'loans'), new_loans: sum(rows, 'new_loans'), used_loans: sum(rows, 'used_loans'), algo_loans: sum(rows, 'algo_loans'), low_loans: sum(rows, 'low_loans'), disbursed: sum(rows, 'disbursed'), full_payout_aed: sum(rows, 'full_payout_aed'), points: sum(rows, 'points'), excess_points: sum(rows, 'excess_points'), incentive_aed: sum(rows, 'incentive_aed'), full_payout_met: `${rows.filter((x) => x.full_payout_met === 'Yes').length} at AED ${r.multiplier_high.toFixed(2)}` },
   };
@@ -545,15 +580,16 @@ function tl_incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = tlIncentiveRows(db, period.cycle, region);
   const r = TL_INCENTIVE_RULES;
-  return {
-    columns: [col('leader', 'Team leader', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+  const columns = [col('leader', 'Team leader', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('team_size', 'Core card staff'), col('staff_without_target', 'Without a target'), col('combined_target', 'Combined targets (points)', 'points'), col('threshold', `Threshold (${r.threshold_share}%)`, 'points'),
-      col('cards_sold', 'Cards sold'), col('premium_cards', 'Premium or above'), col('mix_pct', 'Premium mix', 'pct'), col('points', 'Team card points', 'points'), col('excess_points', 'Excess points', 'points'),
+      col('cards_sold', 'Cards sold'), col('mass_cards', 'Mass'), col('premium_only_cards', 'Premium'), col('super_premium_cards', 'Super Premium'), col('noon_cards', 'noon'), col('other_cards', 'No category'), col('premium_cards', 'Premium or above'), col('mix_pct', 'Premium mix', 'pct'), col('points', 'Team card points', 'points'), col('excess_points', 'Excess points', 'points'),
       col('criterion', 'Criterion met', 'text'), col('rate', 'Rate per point', 'text'), col('core_aed', 'Core incentive (AED)', 'aed'),
-      col('cross_sell_aed', 'PL cross-sell, gross (AED)', 'aed'), col('cross_sell_incentive_aed', `PL cross-sell at ${r.cross_sell_pct.toFixed(2)}% (AED)`, 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed')],
-    rows,
+      col('cross_sell_aed', 'PL cross-sell, gross (AED)', 'aed'), col('cross_sell_incentive_aed', `PL cross-sell at ${r.cross_sell_pct.toFixed(2)}% (AED)`, 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed')];
+  return {
+    columns,
+    rows: groupedSheet(rows, ['region', 'sales_manager'], 'leader', columns),
     note: `${INCENTIVE_CONDITIONS.join(' ')} Team threshold: ${r.threshold_share}% of the team's combined card targets. Team points are card points only; personal loans cross-sold by the team earn ${r.cross_sell_pct.toFixed(2)}% of the gross amount disbursed separately. Rate: AED ${r.rate_high.toFixed(2)} when the team's cross-sell reaches AED ${r.cross_sell_aed.toLocaleString('en-US')} or its Premium and Super Premium mix exceeds ${r.mix_share}%, else AED ${r.rate_low.toFixed(2)}.`,
-    totals: { leader: `${rows.length} leaders`, team_size: sum(rows, 'team_size'), staff_without_target: sum(rows, 'staff_without_target'), combined_target: sum(rows, 'combined_target'), threshold: sum(rows, 'threshold'), cards_sold: sum(rows, 'cards_sold'), premium_cards: sum(rows, 'premium_cards'), points: sum(rows, 'points'), excess_points: sum(rows, 'excess_points'), core_aed: sum(rows, 'core_aed'), cross_sell_aed: sum(rows, 'cross_sell_aed'), cross_sell_incentive_aed: sum(rows, 'cross_sell_incentive_aed'), incentive_aed: sum(rows, 'incentive_aed'), criterion: `${rows.filter((x) => x.rate === `AED ${r.rate_high.toFixed(2)}`).length} on the higher rate` },
+    totals: { leader: `${rows.length} leaders`, team_size: sum(rows, 'team_size'), staff_without_target: sum(rows, 'staff_without_target'), combined_target: sum(rows, 'combined_target'), threshold: sum(rows, 'threshold'), cards_sold: sum(rows, 'cards_sold'), ...cardTotals(rows), premium_cards: sum(rows, 'premium_cards'), points: sum(rows, 'points'), excess_points: sum(rows, 'excess_points'), core_aed: sum(rows, 'core_aed'), cross_sell_aed: sum(rows, 'cross_sell_aed'), cross_sell_incentive_aed: sum(rows, 'cross_sell_incentive_aed'), incentive_aed: sum(rows, 'incentive_aed'), criterion: `${rows.filter((x) => x.rate === `AED ${r.rate_high.toFixed(2)}`).length} on the higher rate` },
   };
 }
 
@@ -561,12 +597,13 @@ function pl_tl_incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = plTlIncentiveRows(db, period.cycle, region);
   const r = PL_TL_RULES;
-  return {
-    columns: [col('leader', 'Team leader', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
+  const columns = [col('leader', 'Team leader', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('sales_manager', 'Sales manager', 'text'), col('region', 'Region', 'text'),
       col('team_size', 'Core loan staff'), col('staff_without_target', 'Without a target'), col('combined_target', 'Combined targets (AED)', 'aed'), col('loans', 'Loans disbursed'), col('pl_disbursed', 'Disbursed (AED)', 'aed'), col('pl_counted', 'Production counted (AED)', 'aed'),
       col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('core_aed', 'Core incentive (AED)', 'aed'),
-      col('mass_cards', 'Mass cards'), col('premium_cards', 'Premium cards'), col('super_premium_cards', 'Super Premium cards'), col('noon_cards', 'noon cards'), col('qualified', `At ${r.qualify_pct}%`, 'text'), col('cards_incentive_aed', 'Card cross-sell (AED)', 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed')],
-    rows,
+      col('mass_cards', 'Mass cards'), col('premium_cards', 'Premium cards'), col('super_premium_cards', 'Super Premium cards'), col('noon_cards', 'noon cards'), col('qualified', `At ${r.qualify_pct}%`, 'text'), col('cards_incentive_aed', 'Card cross-sell (AED)', 'aed'), col('incentive_aed', 'Total incentive (AED)', 'aed')];
+  return {
+    columns,
+    rows: groupedSheet(rows, ['region', 'sales_manager'], 'leader', columns),
     note: `${INCENTIVE_CONDITIONS.join(' ')} Bands on the team's whole counted production: ${PL_TL_BANDS.map((b) => `${plTlBandLabel(b)} ${b.rate.toFixed(2)}%`).join(' · ')}; nil below ${r.qualify_pct}%. Cards cross-sold by the team: Mass AED ${r.card_aed.Mass}, Premium AED ${r.card_aed.Premium}, Super Premium AED ${r.card_aed['Super Premium']}, noon nil, paid only when the team is at ${r.qualify_pct}% of target.`,
     totals: { leader: `${rows.length} leaders`, team_size: sum(rows, 'team_size'), staff_without_target: sum(rows, 'staff_without_target'), combined_target: sum(rows, 'combined_target'), loans: sum(rows, 'loans'), pl_disbursed: sum(rows, 'pl_disbursed'), pl_counted: sum(rows, 'pl_counted'), core_aed: sum(rows, 'core_aed'), mass_cards: sum(rows, 'mass_cards'), premium_cards: sum(rows, 'premium_cards'), super_premium_cards: sum(rows, 'super_premium_cards'), noon_cards: sum(rows, 'noon_cards'), cards_incentive_aed: sum(rows, 'cards_incentive_aed'), incentive_aed: sum(rows, 'incentive_aed'), band: `${rows.filter((x) => x.rate_pct > 0).length} earning` },
   };
@@ -575,23 +612,25 @@ function pl_tl_incentives(db, user, { period, region }) {
 function sm_incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = ccSmIncentiveRows(db, period.cycle, region);
+  const columns = [col('manager', 'Manager', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('region', 'Region', 'text'), col('team_size', 'Core card staff'), col('staff_without_target', 'Without a target'),
+      col('combined_target', 'Combined targets (points)', 'points'), col('cards_sold', 'Cards sold'), col('cross_sell_cards', 'Of which cross-sold'), col('mass_cards', 'Mass'), col('premium_only_cards', 'Premium'), col('super_premium_cards', 'Super Premium'), col('noon_cards', 'noon'), col('other_cards', 'No category'), col('points', 'Team card points', 'points'), col('achievement_pct', 'Of target', 'pct'), col('slab', 'Slab', 'text'), col('aed_per_card', 'Per card (AED)', 'aed'), col('incentive_aed', 'Incentive (AED)', 'aed')];
   return {
-    columns: [col('manager', 'Manager', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('region', 'Region', 'text'), col('team_size', 'Core card staff'), col('staff_without_target', 'Without a target'),
-      col('combined_target', 'Combined targets (points)', 'points'), col('points', 'Team card points', 'points'), col('achievement_pct', 'Of target', 'pct'), col('slab', 'Slab', 'text'), col('cards_sold', 'Cards sold'), col('cross_sell_cards', 'Of which cross-sold'), col('aed_per_card', 'Per card (AED)', 'aed'), col('incentive_aed', 'Incentive (AED)', 'aed')],
-    rows,
+    columns,
+    rows: groupedSheet(rows, ['region'], 'manager', columns),
     note: `${INCENTIVE_CONDITIONS.join(' ')} Per card by the team's achievement: ${CC_SM_SLABS.map((b) => `${plTlBandLabel(b)} AED ${b.aed}`).join(' · ')}; nil below ${SM_RULES.cc_qualify_pct}%. Cards cross-sold by the rest of the manager's team are added to the card numbers.`,
-    totals: { manager: `${rows.length} managers`, team_size: sum(rows, 'team_size'), staff_without_target: sum(rows, 'staff_without_target'), combined_target: sum(rows, 'combined_target'), points: sum(rows, 'points'), cards_sold: sum(rows, 'cards_sold'), cross_sell_cards: sum(rows, 'cross_sell_cards'), incentive_aed: sum(rows, 'incentive_aed'), slab: `${rows.filter((x) => x.aed_per_card > 0).length} earning` },
+    totals: { manager: `${rows.length} managers`, team_size: sum(rows, 'team_size'), staff_without_target: sum(rows, 'staff_without_target'), combined_target: sum(rows, 'combined_target'), points: sum(rows, 'points'), cards_sold: sum(rows, 'cards_sold'), cross_sell_cards: sum(rows, 'cross_sell_cards'), ...cardTotals(rows), incentive_aed: sum(rows, 'incentive_aed'), slab: `${rows.filter((x) => x.aed_per_card > 0).length} earning` },
   };
 }
 
 function pl_sm_incentives(db, user, { period, region }) {
   if (!period.cycle) throw new WorkflowError(400, 'Incentives are worked out per sales cycle: choose a cycle, not dates');
   const rows = plSmIncentiveRows(db, period.cycle, region);
-  return {
-    columns: [col('manager', 'Manager', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('region', 'Region', 'text'), col('team_size', 'Staff'), col('core_staff', 'Core loan staff'), col('staff_without_target', 'Without a target'),
+  const columns = [col('manager', 'Manager', 'text'), col('hrms_code', 'HRMS code', 'text'), col('role', 'Role', 'role'), col('region', 'Region', 'text'), col('team_size', 'Staff'), col('core_staff', 'Core loan staff'), col('staff_without_target', 'Without a target'),
       col('combined_target', 'Combined targets (AED)', 'aed'), col('loans', 'Loans disbursed'), col('pl_disbursed', 'Disbursed (AED)', 'aed'), col('core_counted', 'Core production (AED)', 'aed'), col('cross_sell_counted', 'Cross-sell (AED)', 'aed'), col('pl_counted', 'Production counted (AED)', 'aed'),
-      col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed')],
-    rows,
+      col('achievement_pct', 'Of target', 'pct'), col('band', 'Band', 'text'), col('rate', 'Rate', 'text'), col('incentive_aed', 'Incentive (AED)', 'aed')];
+  return {
+    columns,
+    rows: groupedSheet(rows, ['region'], 'manager', columns),
     note: `${INCENTIVE_CONDITIONS.join(' ')} Bands on the whole production: ${PL_SM_BANDS.map((b) => `${plTlBandLabel(b)} ${b.rate.toFixed(4)}%`).join(' · ')}; nil below ${SM_RULES.pl_qualify_pct}%. Production counts top-ups and Emirates Islamic buy-outs as for the staff. The same grid applies to every manager with loan staff (confirmed).`,
     totals: { manager: `${rows.length} managers`, team_size: sum(rows, 'team_size'), core_staff: sum(rows, 'core_staff'), staff_without_target: sum(rows, 'staff_without_target'), combined_target: sum(rows, 'combined_target'), loans: sum(rows, 'loans'), pl_disbursed: sum(rows, 'pl_disbursed'), core_counted: sum(rows, 'core_counted'), cross_sell_counted: sum(rows, 'cross_sell_counted'), pl_counted: sum(rows, 'pl_counted'), incentive_aed: sum(rows, 'incentive_aed'), band: `${rows.filter((x) => x.rate_pct > 0).length} earning` },
   };

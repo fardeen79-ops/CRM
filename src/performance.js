@@ -45,7 +45,7 @@ const VIEWERS = ['sales', 'team_leader', 'sales_manager', 'asm', 'mis', 'busines
 /** Sales staff whose numbers this user may see, optionally only those in one region. */
 function staffInScope(db, user, region = null) {
   if (!VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Targets are for sales staff, team leaders, sales managers, MIS and business heads');
-  const base = `SELECT u.id, u.name, u.sales_code, u.active, u.region, u.salary, u.team_leader_id, u.sales_manager_id, u.asm_id,
+  const base = `SELECT u.id, u.name, u.sales_code, u.active, u.region, u.salary, u.core_product, u.team_leader_id, u.sales_manager_id, u.asm_id,
       tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name
     FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id
     WHERE u.role = 'sales'${region ? ` AND u.region = '${region}'` : ''}`;
@@ -207,7 +207,7 @@ export function hierarchy(db, user, { cycle, region } = {}) {
     const key = `${s.id}|${s.team_leader_id ?? 0}|${s.sales_manager_id ?? 0}|${s.asm_id ?? 0}`;
     used.add(key);
     const k = agg.get(key) || emptyKpis();
-    leaves.push({ level: 'staff', id: s.id, name: s.name, sales_code: s.sales_code, active: s.active, asm: s.asm_name, region: s.region, team_leader_id: s.team_leader_id, sales_manager_id: s.sales_manager_id,
+    leaves.push({ level: 'staff', id: s.id, name: s.name, sales_code: s.sales_code, core_product: s.core_product, active: s.active, asm: s.asm_name, region: s.region, team_leader_id: s.team_leader_id, sales_manager_id: s.sales_manager_id,
       kpis: { ...k, staff: 1, target: { ...s.target }, achieved: { ...k.achieved }, cards: { ...k.cards }, ids: undefined, name: undefined } });
   }
   const people = new Map(db.prepare('SELECT id, name, region FROM users').all().map((u) => [u.id, u]));
