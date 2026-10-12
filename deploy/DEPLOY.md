@@ -169,6 +169,7 @@ and the recording notice before the first live call. The README has every settin
 | `PROCESSING_WEBHOOK_URL` | Teams/Slack alert when a scheduled call-back is due |
 | `CALL_BOT_URL`, `CALL_BOT_SECRET`, `PUBLIC_URL` | Bot calls, through the calling service: `npm run bot` (Twilio) or `npm run bot:sip` (your own SIP line, speech on the server, nothing leaves it; see the README). The **Verification bot** teaching page works without it |
 | `ANTHROPIC_API_KEY` | The verification bot's AI in practice calls (set it on the calling service too, for live calls) |
+| `RECORDING_SOURCE`, `RECORDING_DIR` or `RECORDING_API_URL`, `RECORDING_API_TOKEN`, `RECORDING_API_MAP` | Calls to this customer on every file: the recording server's calls for the customer's numbers, played through the CRM. `folder` points at the PBX's recordings share mounted on the server (read-only is enough); `http` at the PBX's recording API. The README has the field map |
 
 ## 9. What to test first on the server
 

@@ -27,6 +27,7 @@ import * as chat from './chat.js';
 import { cycleOf, uaeDay } from './cycles.js';
 import { canTeachBot, makeCallBot, playbookView, practice, savePlaybook } from './bot.js';
 import { aiConfigured, makeInterpreter, makePhraser } from './bot-ai.js';
+import { makeRecordingLookup } from './recordings.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
@@ -157,10 +158,29 @@ const originOf = (req) => `${process.env.COOKIE_SECURE === '1' ? 'https' : 'http
 
 // Who adds and edits staff: MIS and business heads.
 const USER_ADMINS = ['mis', 'business_head'];
+
+/** The calls for a file's customer: the recording server's, then the CRM's own bot calls to the same numbers (any file). */
+async function customerCalls(db, user, recordings, caseId) {
+  if (!cases.canListenToBotCalls(user)) throw new HttpError(403, 'Only governance, business heads and the verification team leader can look up calls');
+  const row = db.prepare('SELECT id, phone, alt_phone FROM cases WHERE id = ?').get(caseId);
+  if (!row) throw new HttpError(404, 'Case not found');
+  cases.getCase(db, user, caseId); // may they open the file?
+  cases.logAccess(db, user, caseId, 'calls:lookup');
+  const numbers = [row.phone, row.alt_phone].filter(Boolean);
+  const digits = numbers.map((n) => String(n).replace(/\D/g, '').slice(-9)).filter(Boolean);
+  const bots = digits.length ? db.prepare(`SELECT b.id, b.case_id, b.finished_at, b.placed_at, b.requested_at, b.outcome, b.status, b.recording_url IS NOT NULL AS has_recording, u.name AS requested_by_name
+      FROM bot_calls b JOIN cases c ON c.id = b.case_id JOIN users u ON u.id = b.requested_by
+      WHERE b.status IN ('completed', 'failed') AND (${digits.map(() => "replace(replace(replace(c.phone, ' ', ''), '-', ''), '+', '') LIKE ?").join(' OR ')}${digits.map(() => " OR replace(replace(replace(COALESCE(c.alt_phone, ''), ' ', ''), '-', ''), '+', '') LIKE ?").join('')})
+      ORDER BY b.id DESC`).all(...digits.map((d) => `%${d}`), ...digits.map((d) => `%${d}`)) : [];
+  const bot = bots.map((b) => ({ id: `bot:${b.id}`, source: 'bot', case_id: b.case_id, ref: cases.caseRef(b.case_id), started_at: b.placed_at || b.finished_at || b.requested_at, duration_s: null, direction: 'outbound',
+    extension: null, agent: `Verification bot (asked for by ${b.requested_by_name})`, name: b.outcome ? String(b.outcome).replace(/_/g, ' ') : b.status, playable: Boolean(b.has_recording), play_url: b.has_recording ? `/api/bot/calls/${b.id}/recording` : null }));
+  const server = (await recordings.calls(numbers)).map((r) => ({ ...r, play_url: r.playable ? `/api/recordings/${r.id}?case=${caseId}` : null }));
+  return { enabled: recordings.enabled, label: recordings.label, numbers: numbers.length, calls: [...server, ...bot].sort((a, b) => String(b.started_at || '').localeCompare(String(a.started_at || ''))) };
+}
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
 const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/;
 
-function routes(db, dispatch, bot, interpret, phrase) {
+function routes(db, dispatch, bot, interpret, phrase, recordings) {
   return [
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
       const result = auth.login(db, body.email, body.password);
@@ -277,7 +297,18 @@ function routes(db, dispatch, bot, interpret, phrase) {
     ['GET', /^\/api\/cases\/(\d+)$/, async ({ user, params }) => {
       const result = cases.getCase(db, user, Number(params[0]));
       cases.logAccess(db, user, Number(params[0]), 'view');
+      // Whether this person may look up the customer's calls on the recording server (the lookup itself is a separate call).
+      result.calls_lookup = cases.canListenToBotCalls(user) ? { enabled: recordings.enabled, label: recordings.label } : null;
       return { case: result };
+    }],
+    // Every call to or from the customer's numbers: on the recording server, plus the CRM's own bot calls.
+    ['GET', /^\/api\/cases\/(\d+)\/calls$/, async ({ user, params }) => customerCalls(db, user, recordings, Number(params[0]))],
+    ['GET', /^\/api\/recordings\/([0-9a-f]{32})$/, async ({ user, params, query, res }) => {
+      if (!cases.canListenToBotCalls(user)) throw new HttpError(403, 'Only governance, business heads and the verification team leader can listen to calls');
+      const caseId = Number(query.get('case'));
+      cases.getCase(db, user, caseId); // the listener must be able to open the file the lookup came from
+      cases.logAccess(db, user, caseId, 'listen:recording');
+      await recordings.stream(params[0], res);
     }],
 
     // Full value of a masked personal detail (?fields=phone,eid_number); every reveal is logged.
@@ -519,7 +550,7 @@ function serveFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, interpret = aiConfigured() ? makeInterpreter() : null, phrase = aiConfigured() ? makePhraser() : null } = {}) {
+export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, recordings = makeRecordingLookup(), interpret = aiConfigured() ? makeInterpreter() : null, phrase = aiConfigured() ? makePhraser() : null } = {}) {
   cases.config.itEmail = itEmail;
   loadCardProducts(db);
   holidays.loadHolidays(db);
@@ -529,7 +560,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;
-  const table = routes(db, dispatch, bot, interpret, phrase);
+  const table = routes(db, dispatch, bot, interpret, phrase, recordings);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

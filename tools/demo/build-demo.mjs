@@ -484,8 +484,20 @@ function handle(method, pathname, query, body) {
   }
   if (method === 'POST' && (m = pathname.match(/^\/api\/messages\/(\d+)\/edit$/))) return { message: editMessage(db, user, Number(m[1]), body.body) };
   if (method === 'GET' && pathname === '/api/access-log') return listAccessLog(db, user, Object.fromEntries(query));
+  if (method === 'GET' && (m = pathname.match(/^\/api\/cases\/(\d+)\/calls$/))) {
+    if (!canListenToBotCalls(user)) throw new ApiError(403, 'Only governance, business heads and the verification team leader can look up calls');
+    const row = db.prepare('SELECT id, phone, alt_phone FROM cases WHERE id = ?').get(Number(m[1]));
+    if (!row) throw new ApiError(404, 'Case not found');
+    getCase(db, user, row.id); logAccess(db, user, row.id, 'calls:lookup');
+    const digits = [row.phone, row.alt_phone].filter(Boolean).map((n) => String(n).replace(/\D/g, '').slice(-9));
+    const bots = db.prepare('SELECT b.id, b.case_id, b.finished_at, b.placed_at, b.requested_at, b.outcome, b.status, b.recording_url IS NOT NULL AS has_recording, u.name AS requested_by_name, c.phone, c.alt_phone ' +
+      "FROM bot_calls b JOIN cases c ON c.id = b.case_id JOIN users u ON u.id = b.requested_by WHERE b.status IN ('completed', 'failed') ORDER BY b.id DESC").all()
+      .filter((b) => digits.some((d) => [b.phone, b.alt_phone].some((n) => String(n || '').replace(/\D/g, '').endsWith(d))));
+    return { enabled: false, label: '', numbers: digits.length, calls: bots.map((b) => ({ id: 'bot:' + b.id, source: 'bot', case_id: b.case_id, ref: caseRef(b.case_id), started_at: b.placed_at || b.finished_at || b.requested_at, duration_s: null, direction: 'outbound', extension: null,
+      agent: 'Verification bot (asked for by ' + b.requested_by_name + ')', name: b.outcome ? String(b.outcome).replace(/_/g, ' ') : b.status, playable: Boolean(b.has_recording), play_url: b.has_recording ? '/api/bot/calls/' + b.id + '/recording' : null })) };
+  }
   if ((m = pathname.match(/^\/api\/cases\/(\d+)$/))) {
-    if (method === 'GET') { const c = getCase(db, user, Number(m[1])); logAccess(db, user, Number(m[1]), 'view'); persist(); return { case: c }; }
+    if (method === 'GET') { const c = getCase(db, user, Number(m[1])); logAccess(db, user, Number(m[1]), 'view'); c.calls_lookup = canListenToBotCalls(user) ? { enabled: false, label: '' } : null; persist(); return { case: c }; }
     if (method === 'PUT') return { case: updateCase(db, user, Number(m[1]), body) };
   }
   if (method === 'POST' && (m = pathname.match(/^\/api\/cases\/(\d+)\/actions$/))) {

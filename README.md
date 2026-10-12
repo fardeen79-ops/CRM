@@ -248,6 +248,17 @@ API: `POST /api/import/assets`, `GET/POST /api/assets`, `GET /api/assets/mine`, 
 
 `docs/go-live/` holds the upload files built from the agency's staff list (`staff-upload.csv`, `salary-targets.csv`) and a README on how the sheet was mapped and which placeholders to replace. Rules that came from that list: a sales person's **team leader may be a sales manager or ASM who leads the team directly**; the **sales manager is optional** (a team can report to the business head); **targets follow the core product** (a credit card seller gets only the card target, multi-product staff get every product with a band); and in the staff upload the **HRMS code is required for every role, leaders included**, while the **mobile number is optional**.
 
+### Calls to this customer
+
+Every file page carries a **Calls to this customer** card for governance, business heads and the verification team leader. **Look up calls** asks the recording server for every call to or from the customer's number and alternative number, newest first, with the time, direction, length, extension or agent and a player, and adds the CRM's own verification bot calls to the same numbers from any file. The lookup and each listen go to the access log (the *Calls looked up or played* column of the Access and reveals report).
+
+The recording server is set on the CRM server, never in the browser: the credentials and the audio stay server-side, the browser only gets a CRM link that carries no part of the number, and only a recording the CRM itself listed can be played. Two kinds of server work:
+
+- **A folder or share** (`RECORDING_SOURCE=folder`, `RECORDING_DIR=/mnt/recordings`): recordings as the PBX or call recorder writes them (WAV, MP3, OGG, M4A, GSM, Opus). A file belongs to a number when its name carries the number's last nine digits, in any form. The time comes from the name (`20261012-093011`, `2026-10-12_09-30-11` or a Unix time, in UAE time) or else the file's time; the direction from *in/out*, *inbound/outbound*, *incoming/outgoing* in the name; the extension from any other 3–5 digit group; the length from the WAV header.
+- **An HTTP API** (`RECORDING_SOURCE=http`, `RECORDING_API_URL`, `RECORDING_API_TOKEN`, `RECORDING_API_MAP`): the CRM calls the list URL with the number and reads the fields the map names; the audio behind each recording link is fetched with the same token. Most PBX and recorder APIs (3CX, Yeastar, FreePBX, Asterisk recorders) fit this shape; for one that does not, `src/recordings.js` is where an adapter goes.
+
+Without either, the card still shows the bot's calls and says the server is not connected.
+
 ### Who sees salaries, and what leaves the system
 
 - Every profile can carry a **monthly salary** (sales staff on the sales profile, everyone else on the staff edit form); it feeds the profit and loss, split across the regions by sales executive count.
@@ -718,6 +729,12 @@ See [`deploy/DEPLOY.md`](deploy/DEPLOY.md): Docker (`deploy/Dockerfile`, `deploy
 | `ANTHROPIC_API_KEY` | – | Lets the verification bot's AI read answers in practice calls (`BOT_AI_MODEL`, `BOT_AI_TIMEOUT_MS` optional) |
 | `CALL_BOT_SECRET` | – | Shared secret for signing bot requests and results (recommended) |
 | `PUBLIC_URL` | – | The CRM's address as the bot reaches it, for callback URLs |
+| `RECORDING_SOURCE` | – | `folder` or `http`: turns on the call lookup on the recording server (see *Calls to this customer*) |
+| `RECORDING_DIR` | – | With `folder`: the directory or mounted share the PBX writes recordings to |
+| `RECORDING_API_URL` | – | With `http`: the recording server's list call, with `{number}` (digits with country code), `{local}` (with the leading 0) or `{e164}` |
+| `RECORDING_API_TOKEN` | – | Bearer token for that API, sent for the list and the audio |
+| `RECORDING_API_MAP` | – | JSON naming the fields in the API's answer: `{"list":"data","id":"id","started_at":"start_time","duration":"duration","direction":"direction","extension":"extension","agent":"agent","url":"recording_url"}` (the defaults) |
+| `RECORDING_LABEL` | – | How the server is named on screen (default: "the recordings folder" or the API's host) |
 | `COOKIE_SECURE` | – | Set to `1` when serving over HTTPS |
 
 ## Project layout

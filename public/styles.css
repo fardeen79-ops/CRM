@@ -909,6 +909,9 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .bot-outcome h3 { margin-top: 0; }
 @media (max-width: 900px) { .bot-practice { position: static; } }
 .bot-recording audio, .row-audio { width: 100%; max-width: 420px; margin-top: 6px; }
+.calls-table td, .calls-table th { font-size: 13px; white-space: nowrap; }
+.calls-table td:last-child { min-width: 260px; }
+.calls-table tbody tr { cursor: default; }
 .row-audio { display: block; height: 32px; min-width: 240px; }
 
 /* "Powered by STRIDE" bar at the foot of every screen (brand write-up, page 4).

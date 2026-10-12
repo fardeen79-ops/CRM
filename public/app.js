@@ -1847,6 +1847,45 @@ function botCallCard(b) {
   </div>`;
 }
 
+// Every call to or from the customer's numbers, looked up on the recording server when asked for.
+function customerCallsCard(c) {
+  return html`<div class="card" id="customer-calls" data-case="${c.id}">
+    <h2>Calls to this customer</h2>
+    ${c.calls_lookup.enabled
+      ? html`<p class="muted small">Every call on ${c.calls_lookup.label} to or from the customer's numbers, plus the verification bot's calls. Looking up and listening are recorded in the access log.</p>
+        <div class="actions"><button type="button" class="btn" id="calls-lookup">Look up calls</button></div>
+        <div id="calls-result"></div>`
+      : html`<p class="muted small">No recording server is connected yet. Once IT sets RECORDING_SOURCE on the server, every call to or from the customer's numbers can be listed and played here.</p>
+        <div class="actions"><button type="button" class="btn" id="calls-lookup">Show the bot's calls</button></div>
+        <div id="calls-result"></div>`}
+  </div>`;
+}
+const fmtSeconds = (s) => (s == null ? '—' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
+function wireCustomerCalls(root) {
+  const card = root.querySelector('#customer-calls'); if (!card) return;
+  const btn = card.querySelector('#calls-lookup'); const out = card.querySelector('#calls-result');
+  btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = 'Looking up…';
+    try {
+      const r = await api(`/cases/${card.dataset.case}/calls`);
+      out.innerHTML = r.calls.length ? html`<div class="table-wrap"><table class="calls-table">
+        <thead><tr><th>When</th><th>Direction</th><th>Length</th><th>Extension / agent</th><th>Source</th><th>Recording</th></tr></thead>
+        <tbody>${r.calls.map((k) => html`<tr>
+          <td>${k.started_at ? fmtDate(k.started_at) : '—'}</td>
+          <td>${k.direction ? label(k.direction) : '—'}</td>
+          <td>${fmtSeconds(k.duration_s)}</td>
+          <td>${k.agent || k.extension || '—'}</td>
+          <td>${k.source === 'bot' ? html`Verification bot${k.ref ? html` · <a href="#/cases/${k.case_id}">${k.ref}</a>` : ''}${k.name ? html` · ${k.name}` : ''}` : html`${r.label}${k.name ? html` · <span class="mono small">${k.name}</span>` : ''}`}</td>
+          <td>${k.play_url ? html`<audio class="row-audio" controls preload="none" src="${k.play_url}"></audio>` : html`<span class="muted">No recording</span>`}</td>
+        </tr>`)}</tbody></table></div>
+        <p class="muted small">${r.calls.length} call${r.calls.length === 1 ? '' : 's'} for the customer's ${r.numbers === 2 ? 'two numbers' : 'number'}.</p>`.s
+        : html`<p class="muted small">No calls found for the customer's ${r.numbers === 2 ? 'numbers' : 'number'}${r.enabled ? ` on ${r.label}` : ''}.</p>`.s;
+    } catch (ex) { out.innerHTML = html`<p class="error">${ex.message}</p>`.s; }
+    btn.disabled = false; btn.textContent = first;
+  };
+  const first = btn.textContent;
+}
+
 async function viewCase(id) {
   const { case: c } = await api(`/cases/${id}`);
   // A detail row; ID-style values use a monospace face so digits are easy to read back on a call.
@@ -2268,6 +2307,7 @@ async function viewCase(id) {
           </div>` : ''}
         </div>` : ''}
         ${c.bot_call ? botCallCard(c.bot_call) : ''}
+        ${c.calls_lookup ? customerCallsCard(c) : ''}
         <div class="card" id="discussion">
           <h2>Discussion</h2>
           <p class="muted small">Talk about this file with everyone who can see it. Type @ and a colleague's name to alert them. Keep customers' ID and phone numbers out of messages; they are on the file.</p>
@@ -2344,6 +2384,7 @@ async function viewCase(id) {
     } catch (ex) { toast(ex.message, true); }
   };
   app.querySelectorAll('[data-reveal]').forEach((b) => (b.onclick = () => reveal([b.dataset.reveal])));
+  wireCustomerCalls(app);
   document.getElementById('reveal-all')?.addEventListener('click', () => reveal(state.meta.masked_fields));
   const onHide = () => { if (document.visibilityState === 'hidden') rehideAll(); };
   document.addEventListener('visibilitychange', onHide);

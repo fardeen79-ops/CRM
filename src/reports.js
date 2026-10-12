@@ -418,7 +418,7 @@ function access(db, user, { period, region }) {
   const runs = db.prepare("SELECT user_id, COUNT(*) AS n FROM report_runs WHERE date(at, '+4 hours') BETWEEN ? AND ? GROUP BY user_id").all(period.from, period.to);
   const by = new Map();
   const row = (id, name, role) => {
-    if (!by.has(id)) by.set(id, { user: name, role, views: 0, reveals: 0, reveals_phone: 0, reveals_salary: 0, cases: new Set(), reports_run: 0 });
+    if (!by.has(id)) by.set(id, { user: name, role, views: 0, reveals: 0, reveals_phone: 0, reveals_salary: 0, listens: 0, cases: new Set(), reports_run: 0 });
     return by.get(id);
   };
   for (const a of log) {
@@ -431,15 +431,16 @@ function access(db, user, { period, region }) {
       if (f === 'phone' || f === 'alt_phone') r.reveals_phone++;
       if (f === 'salary') r.reveals_salary++;
     }
+    if (a.what.startsWith('listen:') || a.what === 'calls:lookup') r.listens++;
   }
   for (const ru of runs) {
     const u = db.prepare('SELECT name, role FROM users WHERE id = ?').get(ru.user_id);
     if (u) row(ru.user_id, u.name, u.role).reports_run = ru.n;
   }
   const out = [...by.values()].map((r) => ({ ...r, cases: r.cases.size })).sort((a, b) => b.reveals - a.reveals || b.views - a.views || a.user.localeCompare(b.user));
-  const keys = ['views', 'cases', 'reveals', 'reveals_phone', 'reveals_salary', 'reports_run'];
+  const keys = ['views', 'cases', 'reveals', 'reveals_phone', 'reveals_salary', 'listens', 'reports_run'];
   return {
-    columns: [col('user', 'User', 'text'), col('role', 'Role', 'role'), col('views', 'Files opened'), col('cases', 'Distinct files'), col('reveals', 'Reveals'), col('reveals_phone', 'Phone numbers'), col('reveals_salary', 'Salaries'), col('reports_run', 'Reports run')],
+    columns: [col('user', 'User', 'text'), col('role', 'Role', 'role'), col('views', 'Files opened'), col('cases', 'Distinct files'), col('reveals', 'Reveals'), col('reveals_phone', 'Phone numbers'), col('reveals_salary', 'Salaries'), col('listens', 'Calls looked up or played'), col('reports_run', 'Reports run')],
     rows: out,
     totals: Object.fromEntries(keys.map((k) => [k, sum(out, k)])),
   };
