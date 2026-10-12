@@ -22,6 +22,7 @@ before(async () => {
   add('Bina', 'head2@t.local', 'business_head', { region: 'AUH', hrms_code: 'EN7' });
   add('Yusuf', 'ceo@t.local', 'ceo', { region: 'DXB', hrms_code: 'EN4' });
   add('Asha', 'accounts@t.local', 'accounts', { region: 'DXB', hrms_code: 'EN8' });
+  add('Amir', 'biker@t.local', 'staff', { region: 'DXB', hrms_code: 'EN9', salary: 3500 });
   db.prepare('UPDATE users SET salary = ? WHERE id = ?').run(45000, ids['head@t.local']);
   server = createServer(db);
   await new Promise((r) => server.listen(0, r));
@@ -133,7 +134,7 @@ test("a business head's salary is seen only by the CEO, accounts, or that busine
   assert.equal(ceoRows.find((l) => l.role === 'business_head').salary, 46000);
   const binaRows = (await bina('GET', `/pnl?cycle=${cycle}`)).data.pnl.rows;
   assert.ok(!binaRows.some((l) => l.role === 'business_head'));
-  assert.equal(binaRows.find((l) => l.role === 'support').salary, 46000, 'folded with processing, MIS, governance and IT');
+  assert.equal(binaRows.find((l) => l.role === 'support').salary, 46000 + 3500, 'folded with processing, MIS, governance, IT and other staff (the biker)');
   const repRows = (await bina('GET', `/reports/pnl?cycle=${cycle}`)).data.rows;
   assert.ok(!repRows.some((l) => /^Business heads$/.test(l.label || l.line || '')), JSON.stringify(repRows[0]));
 });
@@ -166,4 +167,41 @@ test('the incentive sheets are split by region and hierarchy, with card types co
   // The CSV carries the subtotal lines too.
   const csv = await mis.text(`/reports/incentives?cycle=${cycle}&format=csv`);
   assert.match(csv.text, /\r\nTeam leader total · TL Dubai \(1\),/);
+});
+
+test('staff with no access are on the books for the profit and loss but cannot sign in', async () => {
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'biker@t.local', password: PASSWORD }) });
+  assert.equal(res.status, 403);
+  assert.match((await res.json()).error, /no CRM access/);
+  const ceo = await login('ceo@t.local');
+  const cycle = (await ceo('GET', '/me')).data.meta.current_cycle;
+  const rows = (await ceo('GET', `/pnl?cycle=${cycle}`)).data.pnl.rows;
+  assert.equal(rows.find((l) => l.role === 'staff').salary, 3500, 'the biker counts in the profit and loss');
+  assert.equal((await ceo('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.pnl.rows.find((l) => l.role === 'staff'), undefined, 'in his own region only');
+  const mis = await login('mis@t.local');
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'biker@t.local').role, 'staff');
+});
+
+test('a role that needs a hierarchy carries it: a team leader reports to a sales manager, set on the staff page or with the role change', async () => {
+  const mis = await login('mis@t.local');
+  const tl = ids['tl@t.local']; const sm = ids['sm@t.local'];
+  // The team leader's reporting line, edited on its own.
+  assert.equal((await mis('PATCH', `/users/${tl}`, { sales_manager_id: sm })).status, 200);
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.id === tl).sales_manager_id, sm);
+  assert.equal((await mis('PATCH', `/users/${tl}`, { sales_manager_id: tl })).status, 400, 'not to themselves');
+  assert.equal((await mis('PATCH', `/users/${tl}`, { sales_manager_id: ids['mis@t.local'] })).status, 400, 'only an active sales manager');
+  assert.equal((await mis('PATCH', `/users/${tl}`, { sales_manager_id: '' })).status, 200);
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.id === tl).sales_manager_id, null);
+  // Changing the biker to a team leader asks for, and keeps, the line in the same save.
+  const biker = ids['biker@t.local'];
+  assert.equal((await mis('PATCH', `/users/${biker}`, { role: 'team_leader', sales_manager_id: sm })).status, 200);
+  const b = (await mis('GET', '/users')).data.users.find((u) => u.id === biker);
+  assert.deepEqual([b.role, b.sales_manager_id], ['team_leader', sm]);
+  // Back to a role with no hierarchy: the line is cleared.
+  assert.equal((await mis('PATCH', `/users/${biker}`, { role: 'staff' })).status, 200);
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.id === biker).sales_manager_id, null);
+  // A new team leader can be created with their manager.
+  const r = await mis('POST', '/users', { name: 'TL New', email: 'tlnew@t.local', role: 'team_leader', password: PASSWORD, region: 'DXB', hrms_code: 'EN20', mobile_number: '0501234567', sales_manager_id: sm });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'tlnew@t.local').sales_manager_id, sm);
 });

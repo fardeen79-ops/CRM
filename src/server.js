@@ -19,7 +19,7 @@ import { profitAndLoss, profitAndLossTree } from './pnl.js';
 import { ceoDashboard } from './ceo.js';
 import * as leads from './leads.js';
 import { BANKS } from './banks.js';
-import { contactDetails, findUser, listUsers, salesProfile, regionOf, sweepLeavers, salaryOf, canSeeSalary, withSalaryFor, STAFF_CORE_PRODUCTS } from './users.js';
+import { contactDetails, findUser, listUsers, salesProfile, leaderProfile, LEADER_LINE_ROLES, regionOf, sweepLeavers, salaryOf, canSeeSalary, withSalaryFor, STAFF_CORE_PRODUCTS } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
 import * as reports from './reports.js';
@@ -219,6 +219,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
       const result = auth.login(db, body.email, body.password);
       if (!result) throw new HttpError(401, 'Invalid email or password');
+      if (result.no_access) throw new HttpError(403, 'This account is on the staff list for the profit and loss only; it has no CRM access');
       send(res, 200, { user: result.user }, { 'set-cookie': sessionCookie(result.token, result.maxAge) });
     }, { public: true }],
 
@@ -422,7 +423,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
     ['DELETE', /^\/api\/boosters\/(\d+)$/, async ({ user, params }) => boosters.deleteBooster(db, user, params[0])],
 
     // Processor allocation: which processor verifies each sales team leader's files.
-    ['GET', /^\/api\/allocations$/, async ({ user }) => allocations.listAllocations(db, user)],
+    ['GET', /^\/api\/allocations$/, async ({ user, query }) => allocations.listAllocations(db, user, { region: query.get('region') })],
     ['PUT', /^\/api\/allocations\/(\d+)$/, async ({ user, params, body }) => ({ allocation: allocations.setAllocation(db, user, params[0], { product: body.product, processor_id: body.processor_id }) })],
 
     // Roles: custom roles defined on top of the built-in ones, by IT, Dubai MIS and business heads.
@@ -527,8 +528,26 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
           try { profile = salesProfile(db, body); } catch (err) { throw new HttpError(400, `A sales role needs a sales profile: ${err.message}`); }
           db.prepare('UPDATE users SET sales_code = ?, team_leader_id = ?, sales_manager_id = ?, asm_id = ?, salary = ?, core_product = ? WHERE id = ?').run(profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, profile.salary, profile.core_product, id);
         }
+        // A leader's reporting line comes with the role; any other role has none.
+        if (LEADER_LINE_ROLES.includes(r.base)) {
+          let line;
+          try { line = leaderProfile(db, r.base, body, r.base === target.role ? target : null); } catch (err) { throw new HttpError(400, err.message); }
+          db.prepare('UPDATE users SET sales_manager_id = ?, asm_id = ?, team_leader_id = NULL WHERE id = ?').run(line.sales_manager_id, line.asm_id, id);
+        } else if (r.base !== 'sales' && LEADER_LINE_ROLES.includes(target.role)) {
+          db.prepare('UPDATE users SET sales_manager_id = NULL, asm_id = NULL WHERE id = ?').run(id);
+        }
         db.prepare('UPDATE users SET role = ?, role_key = ? WHERE id = ?').run(r.base, r.key, id);
         if (r.base !== target.role) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+        // The profile fields came with the role change and are done with.
+        if (r.base !== target.role) body = Object.fromEntries(Object.entries(body).filter(([k]) => !['sales_code', 'team_leader_id', 'sales_manager_id', 'asm_id', 'salary', 'core_product'].includes(k)));
+        else if (LEADER_LINE_ROLES.includes(r.base)) body = Object.fromEntries(Object.entries(body).filter(([k]) => !['sales_manager_id', 'asm_id'].includes(k)));
+      }
+      // A team leader's or ASM's reporting line, edited on its own.
+      if (!('role' in body) && LEADER_LINE_ROLES.includes(target.role) && ['sales_manager_id', 'asm_id'].some((f) => f in body)) {
+        let line;
+        try { line = leaderProfile(db, target.role, body, target); } catch (err) { throw new HttpError(400, err.message); }
+        db.prepare('UPDATE users SET sales_manager_id = ?, asm_id = ? WHERE id = ?').run(line.sales_manager_id, line.asm_id, id);
+        body = Object.fromEntries(Object.entries(body).filter(([k]) => !['sales_manager_id', 'asm_id'].includes(k)));
       }
       if ('region' in body) {
         try {

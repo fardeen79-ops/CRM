@@ -15,12 +15,14 @@ before(async () => {
   add('SM One', 'sm1@t.local', 'sales_manager', { region: 'DXB' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
   add('TL Two', 'tl2@t.local', 'team_leader', { region: 'DXB' });
+  add('TL Abu Dhabi', 'tl3@t.local', 'team_leader', { region: 'AUH' });
   add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'personal_loan', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Cara', 'cara@t.local', 'sales', { region: 'DXB', sales_code: 'D-2', core_product: 'credit_card', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Lina', 'lina@t.local', 'sales', { region: 'DXB', sales_code: 'D-3', core_product: 'personal_loan', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Mira', 'mis@t.local', 'mis', { region: 'DXB', hrms_code: 'EN2' });
   add('Pat', 'pat@t.local', 'processing', { region: 'DXB' });
   add('Omar', 'omar@t.local', 'processing', { region: 'DXB' });
+  add('Aziz', 'aziz@t.local', 'processing', { region: 'AUH' });
   add('Vera', 'vlead@t.local', 'processing_lead', { region: 'DXB' });
   add('Bilal', 'head@t.local', 'business_head', { region: 'DXB', hrms_code: 'EN3' });
   add('Gina', 'gov@t.local', 'governance');
@@ -103,4 +105,17 @@ test('the verification team leader allocates processors to sales team leaders; t
   assert.equal((await omar('GET', `/cases/${c.id}`)).status, 200);
   // The built-in role cannot be edited or deleted.
   assert.equal((await head('DELETE', '/roles/processing_lead')).status, 400);
+});
+
+test('the allocation list can be narrowed to one region: its team leaders, and its processors plus those with no region', async () => {
+  const lead = await login('vlead@t.local');
+  const all = (await lead('GET', '/allocations')).data;
+  assert.deepEqual([all.region, all.team_leaders.length, all.processors.length], [null, 3, 4]);
+  const dxb = (await lead('GET', '/allocations?region=DXB')).data;
+  assert.equal(dxb.region, 'DXB');
+  assert.deepEqual(dxb.team_leaders.map((t) => t.name).sort(), ['TL Dubai', 'TL Two']);
+  assert.deepEqual(dxb.processors.map((p) => p.name).sort(), ['Omar', 'Pat', 'Vera']);
+  const auh = (await lead('GET', '/allocations?region=auh')).data;
+  assert.deepEqual([auh.team_leaders.map((t) => t.name), auh.processors.map((p) => p.name)], [['TL Abu Dhabi'], ['Aziz']]);
+  assert.equal((await lead('GET', '/allocations?region=XYZ')).status, 400);
 });

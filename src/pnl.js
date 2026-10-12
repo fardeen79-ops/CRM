@@ -8,11 +8,11 @@ import { isCeo } from './roles.js';
 import { incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, plTlIncentiveRows, ccSmIncentiveRows, plSmIncentiveRows } from './incentives.js';
 
 export const PNL_VIEWERS = ['business_head'];
-export const PNL_ROLES = { sales: 'Sales staff', team_leader: 'Team leaders', asm: 'Assistant sales managers', sales_manager: 'Sales managers', business_head: 'Business heads', processing: 'Processing', mis: 'MIS', governance: 'Governance', it: 'IT' };
+export const PNL_ROLES = { sales: 'Sales staff', team_leader: 'Team leaders', asm: 'Assistant sales managers', sales_manager: 'Sales managers', business_head: 'Business heads', processing: 'Processing', mis: 'MIS', governance: 'Governance', it: 'IT', staff: 'Other staff (no CRM access)' };
 const round = (n) => Math.round((n || 0) * 100) / 100;
 
 const LEADER_ROLES = ['team_leader', 'sales_manager', 'asm'];
-const SUPPORT_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it'];
+const SUPPORT_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it', 'staff'];
 const regionKey = (code) => (REGIONS[String(code || '').toUpperCase()] ? String(code).toUpperCase() : 'NONE');
 
 /**
@@ -74,7 +74,7 @@ export function profitAndLoss(db, user, { cycle, region } = {}) {
   // Business heads' salaries are for the CEO (and the heads themselves): any other viewer sees them
   // folded into one support line with processing, MIS, governance and IT, so no head's pay can be read off.
   if (!isCeo(user)) {
-    const support = { role: 'support', label: 'Support (business heads, processing, MIS, governance, IT)', staff: 0, salary: 0, incentive: 0 };
+    const support = { role: 'support', label: 'Support (business heads, processing, MIS, governance, IT, other staff)', staff: 0, salary: 0, incentive: 0 };
     for (const role of SUPPORT_ROLES) { const l = lines[role]; support.staff += l.staff; support.salary += l.salary; support.incentive += l.incentive; delete lines[role]; }
     lines.support = support;
   }
@@ -97,7 +97,7 @@ function incentiveByUser(db, cycle) {
   return out;
 }
 
-const OVERHEAD_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it'];
+const OVERHEAD_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it', 'staff'];
 
 /** The statement by region and hierarchy: region → sales manager → team leader → staff, overheads at region level. */
 export function profitAndLossTree(db, user, { cycle, region } = {}) {
@@ -130,7 +130,7 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
   const regions = new Map();
   const regionNode = (code) => {
     const k = REGIONS[code] ? code : 'NONE';
-    if (!regions.has(k)) regions.set(k, node(k, REGIONS[k] || 'No region set', 'region', { managers: new Map(), overheads: node(`${k}:oh`, 'Overheads (business heads, processing, MIS, governance, IT)', 'overheads') }));
+    if (!regions.has(k)) regions.set(k, node(k, REGIONS[k] || 'No region set', 'region', { managers: new Map(), overheads: node(`${k}:oh`, 'Overheads (business heads, processing, MIS, governance, IT, other staff)', 'overheads') }));
     return regions.get(k);
   };
   const managerNode = (reg, sm) => {

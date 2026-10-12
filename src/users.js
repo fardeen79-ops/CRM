@@ -52,6 +52,28 @@ export function listUsers(db, { role } = {}) {
  * Validates the sales code, team leader and sales manager for a sales user. `current` is the
  * existing user when editing, so only the fields being changed need to be sent.
  */
+/** The roles whose profile carries a reporting line: a team leader reports to a sales manager (and optionally sits under an ASM); an ASM reports to a sales manager. */
+export const LEADER_LINE_ROLES = ['team_leader', 'asm'];
+/**
+ * A leader's reporting line from a form: `sales_manager_id` (an active sales manager, optional) and,
+ * for a team leader, `asm_id` (an active ASM, optional). Fields missing from `input` keep the current value.
+ */
+export function leaderProfile(db, role, input, current = null) {
+  const pick = (f) => (f in input ? input[f] : current?.[f]);
+  const manager = (field, roles, label) => {
+    const id = Number(pick(field));
+    if (!id) return null;
+    const row = db.prepare(`SELECT id FROM users WHERE id = ? AND role IN (${roles.map(() => '?').join(',')}) AND active = 1`).get(id, ...roles);
+    if (!row) throw new Error(`Choose an active ${label}`);
+    if (current && id === current.id) throw new Error(`${label[0].toUpperCase() + label.slice(1)}: a person cannot report to themselves`);
+    return id;
+  };
+  return {
+    sales_manager_id: manager('sales_manager_id', ['sales_manager'], 'sales manager'),
+    asm_id: role === 'team_leader' ? manager('asm_id', ['asm'], 'assistant sales manager') : null,
+  };
+}
+
 export function salesProfile(db, input, current = null) {
   const pick = (f) => (f in input ? input[f] : current?.[f]);
   const code = String(pick('sales_code') ?? '').trim().toUpperCase();

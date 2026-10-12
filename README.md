@@ -94,6 +94,7 @@ The page counts open leads, follow-ups due, converted, not interested and not el
 | **MIS** | Sees all cases and sets case status |
 | **Business head** | Sees all cases, team stats, sets case status, and approves or declines call recording requests |
 | **Accounts** | Sees only the Reports page: the seven incentive calculations for a sales cycle and the **Incentive payout file** (one line per person, every scheme added up, keyed by HRMS code) to pay from |
+| **Staff (no access)** | Settlement officers, bikers and other staff on the books: counted in the profit and loss with their salary and region, but the account cannot sign in |
 | **Governance** | Marks files for quality check, adds complaint numbers, scores verification calls (0–10) and requests call recordings after verification |
 
 ### Re-verification after changes
@@ -258,6 +259,8 @@ The recording server is set on the CRM server, never in the browser: the credent
 - **An HTTP API** (`RECORDING_SOURCE=http`, `RECORDING_API_URL`, `RECORDING_API_TOKEN`, `RECORDING_API_MAP`): the CRM calls the list URL with the number and reads the fields the map names; the audio behind each recording link is fetched with the same token. Most PBX and recorder APIs (3CX, Yeastar, FreePBX, Asterisk recorders) fit this shape; for one that does not, `src/recordings.js` is where an adapter goes.
 
 Without either, the card still shows the bot's calls and says the server is not connected.
+
+- **Hierarchy on the staff page.** The fields a role needs appear as soon as the role is chosen, on a new user and when an existing one's role is changed: a sales role asks for the sales profile (code, team leader, sales manager, ASM, salary, core product); a team leader for the sales manager they report to and, if any, the ASM above them; an ASM for their sales manager; every other role for the salary only. The reporting line of a leader can also be edited on its own.
 
 ### Who sees salaries, and what leaves the system
 

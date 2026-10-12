@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { resolveRole, withRole } from './roles.js';
-import { contactDetails, findUser, salesProfile, regionOf, salaryOf } from './users.js';
+import { contactDetails, findUser, salesProfile, leaderProfile, LEADER_LINE_ROLES, regionOf, salaryOf } from './users.js';
 
 const SESSION_DAYS = 7;
-export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'accounts', 'governance', 'it'];
+export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'accounts', 'governance', 'it', 'staff'];
 
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -41,7 +41,10 @@ export function createUser(db, input, { requireMobile = false } = {}) {
   }
   // Everyone's monthly salary feeds the profit and loss; sales staff also get their targets from it.
   let profile;
-  try { profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, sales_manager_id: null, asm_id: null, salary: salaryOf(input.salary), core_product: null }; }
+  try {
+    const line = LEADER_LINE_ROLES.includes(role) ? leaderProfile(db, role, input) : { sales_manager_id: null, asm_id: null };
+    profile = role === 'sales' ? salesProfile(db, input) : { sales_code: null, team_leader_id: null, ...line, salary: salaryOf(input.salary), core_product: null };
+  }
   catch (err) { throw new Error(err.message); }
   const region = regionOf(input.region);
   const { lastInsertRowid } = db
@@ -55,10 +58,13 @@ export function createUser(db, input, { requireMobile = false } = {}) {
 export const getUser = findUser;
 
 /** Signs in with the HRMS code (the username) or the email address. */
+/** Staff who are on the books (for the profit and loss) but have no CRM access: settlement officers, bikers and the like. */
+export const NO_ACCESS_ROLE = 'staff';
 export function login(db, email, password) {
   const id = String(email || '').trim();
   const user = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE OR (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE)').get(id, id);
   if (!user || !user.active || !verifyPassword(String(password || ''), user.password_hash)) return null;
+  if (user.role === NO_ACCESS_ROLE) return { no_access: true };
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
   db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);

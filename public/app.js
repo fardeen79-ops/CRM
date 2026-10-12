@@ -25,7 +25,7 @@ const incomeLabelsFor = (type) => type === 'self_employed'
   : { amount: 'Monthly salary (AED)', bank: 'Salary transferred to', choose: "Choose the customer's salary bank…", word: 'salary', need: 'monthly salary', earns: 'earns' };
 const ROLE_LABEL = {
   sales: 'Sales', processing: 'Processing', team_leader: 'Team Leader',
-  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', accounts: 'Accounts', governance: 'Governance', it: 'IT', ceo: 'CEO',
+  asm: 'Assistant Sales Manager', sales_manager: 'Sales Manager', mis: 'MIS', business_head: 'Business Head', accounts: 'Accounts', governance: 'Governance', it: 'IT', staff: 'Staff (no access)', ceo: 'CEO',
 };
 // Assistant sales managers use the same screens as sales managers, over their own teams.
 const effRole = () => (state.user.role === 'asm' ? 'sales_manager' : state.user.role);
@@ -504,7 +504,7 @@ async function route() {
     if (path === '/' || path === '') return state.user.role === 'it' ? await viewAssets(params) : state.user.role === 'accounts' ? await viewReports(params) : state.user.role_key === 'ceo' ? await viewCeo(params) : await viewDashboard();
     if (path === '/assets') return await viewAssets(params);
     if (path === '/roles') return await viewRoles();
-    if (path === '/allocation') return await viewAllocation();
+    if (path === '/allocation') return await viewAllocation(params);
     if (path === '/bot') return await viewBot();
     if (path === '/bot-calls') return await viewBotCalls();
     if (path === '/boosters') return await viewBoosters();
@@ -4015,15 +4015,18 @@ const allowedPage = (page) => !page || !state.meta.perms?.custom || state.meta.p
 const canDownload = () => state.meta.perms?.downloads !== false;
 
 // Processor allocation: the verification team leader maps each sales team leader's products to processors.
-async function viewAllocation() {
-  const { team_leaders, processors, products } = await api('/allocations');
+async function viewAllocation(params = new URLSearchParams()) {
+  // The region: from the page's own tabs, else the top-bar switch for those who have it.
+  const region = (params.get('region') ?? state.region ?? '').toUpperCase();
+  const { team_leaders, processors, products } = await api(`/allocations${region ? `?region=${region}` : ''}`);
   const prodKeys = Object.keys(products);
+  const regionTabs = html`<div class="tabs" role="tablist" aria-label="Region">${[['', 'All regions'], ...Object.entries(state.meta.regions || {})].map(([k, l]) => html`<a href="#/allocation?region=${k}" class="${region === k ? 'active' : ''}" role="tab" aria-selected="${region === k}">${l}</a>`)}</div>`;
   const options = (selected) => html`<option value="">Shared queue</option>
     ${processors.map((p) => html`<option value="${p.id}" ${selected === p.id ? raw('selected') : ''}>${p.name}${p.role_key === 'processing_lead' ? ' (verification TL)' : ''}${p.region ? ` · ${p.region}` : ''}</option>`)}`;
   shell(html`
     <div class="page-head"><div><h1>Processor allocation</h1>
       <p class="muted">Choose which processor verifies each sales team leader's files, product by product: credit cards, personal loans and auto loans can go to one processor or to different ones, and "All products" sets the three at once. A file reaches only the processors allocated for its products; a product left on the shared queue goes to every processor. The verification team leader sees every file.</p></div></div>
-    <div class="card"><h2>Sales team leaders</h2>
+    <div class="card"><div class="card-head"><h2>Sales team leaders${region ? ` · ${state.meta.regions[region]}` : ''}</h2>${regionTabs}</div>
       ${team_leaders.length ? html`<div class="table-wrap"><table class="allocation-table">
         <thead><tr><th>Team leader</th><th>Region</th><th>Staff</th><th>All products</th>${prodKeys.map((k) => html`<th>${products[k]}</th>`)}</tr></thead>
         <tbody>${team_leaders.map((t) => {
@@ -4705,6 +4708,19 @@ async function viewUsers() {
       <input id="${prefix}-salary" name="salary" inputmode="numeric" value="${u.salary != null ? u.salary.toLocaleString('en-US') : ''}" placeholder="e.g. 12,000">
       <div class="muted small">Counted in the profit and loss, in this person's region.${u.role === 'business_head' ? " Seen only by the CEO, accounts, or this business head." : ''}</div></div>`);
 
+  // What a role needs below the contact details: a sales profile, a leader's reporting line, or just the salary.
+  const reportsTo = (u, prefix, { withAsm }) => html`
+    <div class="field-row"><label for="${prefix}-sm">Reports to (sales manager)</label>
+      <select id="${prefix}-sm" name="sales_manager_id"><option value="">None (reports to the business head)</option>${options(managers.filter((m) => m.id !== u.id), u.sales_manager_id)}</select></div>
+    ${withAsm ? html`<div class="field-row"><label for="${prefix}-asm">Under an assistant sales manager</label>
+      <select id="${prefix}-asm" name="asm_id"><option value="">None</option>${options(asms.filter((m) => m.id !== u.id), u.asm_id)}</select></div>` : ''}`;
+  const hierarchyBlock = (role, u, prefix) => (role === 'sales'
+    ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, prefix)}</div>${u.id ? html`<p class="muted small">Changing the team leader, sales manager or ASM moves this person's open files to the new team. Completed and rejected files stay with the old team.</p>` : ''}`
+    : ['team_leader', 'asm'].includes(role)
+      ? html`<strong class="small">Reporting line</strong><div class="form-grid three">${reportsTo(u, prefix, { withAsm: role === 'team_leader' })}${salaryField(u, prefix)}</div><p class="muted small">${role === 'team_leader' ? 'The team leader\'s own manager; the sales staff under them are set on each sales profile.' : 'The sales manager this ASM reports to; the team leaders under them are set on each team leader.'}</p>`
+      : html`<div class="form-grid two">${salaryField(u, prefix)}</div>`);
+  const baseOf = (k) => (state.meta.custom_roles || []).find((c) => c.key === k)?.base || k;
+
   // Email, local mobile and WhatsApp for any user.
   const contactFields = (u = {}, prefix = 'n') => html`
     <div class="field-row"><label for="${prefix}-name">Full name <span class="req">*</span></label>
@@ -4775,11 +4791,7 @@ async function viewUsers() {
           ${Object.entries(state.meta.assignable_roles || ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}
         </select></div>
         ${regionField({}, 'nu')}
-        <fieldset class="product-detail" id="nu-profile">
-          <legend>Sales profile</legend>
-          ${!leaders.length || !managers.length ? html`<p class="small error">Add at least one team leader and one sales manager first.</p>` : ''}
-          ${profileFields({}, 'nu')}
-        </fieldset>
+        <div id="nu-profile">${hierarchyBlock('sales', {}, 'nu')}</div>
         <div class="field-row"><label for="nu-password">Temporary password</label><input id="nu-password" name="password" type="text" minlength="8" required></div>
         <button class="btn-primary">Add user</button>
       </form>
@@ -4814,10 +4826,7 @@ async function viewUsers() {
   const role = document.getElementById('nu-role');
   const profile = document.getElementById('nu-profile');
   const baseRole = (k) => (state.meta.custom_roles || []).find((c) => c.key === k)?.base || k;
-  const syncRole = () => {
-    profile.hidden = baseRole(role.value) !== 'sales';
-    profile.querySelectorAll('input, select').forEach((i) => (i.disabled = profile.hidden));
-  };
+  const syncRole = () => { profile.innerHTML = hierarchyBlock(baseRole(role.value), { role: baseRole(role.value) }, 'nu').s; };
   role.onchange = syncRole;
   syncRole();
   // Suggest first.last@<your domain> until the email is typed by hand.
@@ -4851,13 +4860,15 @@ async function viewUsers() {
     tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
       <strong>Edit ${u.name}</strong>
       <div class="form-grid two">${contactFields(u, `e${u.id}`)}${regionField(u, `e${u.id}`)}${u.id !== state.user.id ? html`<div class="field-row"><label for="e${u.id}-role">Role</label><select id="e${u.id}-role" name="role">${Object.entries({ ...(state.meta.assignable_roles || ROLE_LABEL), ...(u.role_key && !(state.meta.assignable_roles || {})[u.role_key] ? { [u.role_key]: ROLE_LABEL[u.role_key] } : {}) }).map(([k, l]) => html`<option value="${k}" ${(u.role_key || u.role) === k ? raw('selected') : ''}>${l}</option>`)}</select><div class="muted small">Moving to or from a sales role clears or needs the sales profile.</div></div>` : ''}</div>
-      ${u.role !== 'sales' ? html`<div class="form-grid two">${salaryField(u, `e${u.id}`)}</div>` : ''}
-      ${u.role === 'sales' ? html`<strong class="small">Sales profile</strong><div class="form-grid three">${profileFields(u, `e${u.id}`)}</div><p class="muted small">Changing the team leader, sales manager or ASM moves this person's open files to the new team. Completed and rejected files stay with the old team.</p>` : ''}
+      <div data-hierarchy>${hierarchyBlock(u.role, u, `e${u.id}`)}</div>
       <div class="actions"><button class="btn-primary">Save changes</button><button type="button" data-cancel>Cancel</button></div>
     </form></td>`.s;
     row.after(tr);
     const f = tr.querySelector('form');
     wireWhatsappSame(f);
+    // A role that needs a hierarchy shows its fields as soon as it is chosen.
+    const roleSel = f.querySelector(`#e${u.id}-role`);
+    if (roleSel) roleSel.onchange = () => { f.querySelector('[data-hierarchy]').innerHTML = hierarchyBlock(baseOf(roleSel.value), baseOf(roleSel.value) === u.role ? u : { id: u.id, salary: u.salary, salary_hidden: u.salary_hidden, role: baseOf(roleSel.value) }, `e${u.id}`).s; };
     f.querySelector('[data-cancel]').onclick = () => tr.remove();
     f.onsubmit = async (e) => {
       e.preventDefault();

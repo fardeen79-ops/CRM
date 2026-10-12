@@ -9,19 +9,24 @@ export const ALLOCATION_PRODUCTS = { credit_card: 'Credit cards', personal_loan:
 export const canAllocate = (user) => isProcessingLead(user) || user.role === 'business_head';
 const requireAllocator = (user) => { if (!canAllocate(user)) throw new WorkflowError(403, 'Only the verification team leader or a business head allocates processors'); };
 
-export function listAllocations(db, user) {
+export function listAllocations(db, user, { region = null } = {}) {
   requireAllocator(user);
+  const r = String(region || '').toUpperCase();
+  if (region && !['DXB', 'AUH'].includes(r)) throw new WorkflowError(400, 'Region must be DXB or AUH');
+  // A region view: the team leaders of that region, and the processors of that region (plus those with no region set).
+  const tlWhere = region ? ' AND UPPER(COALESCE(u.region, \'\')) = ?' : '';
+  const prWhere = region ? ' AND (UPPER(COALESCE(u.region, \'\')) = ? OR u.region IS NULL OR u.region = \'\')' : '';
   const rows = db.prepare(`SELECT a.team_leader_id, a.product, a.processor_id, p.name AS processor_name, a.set_at, s.name AS set_by_name
     FROM processor_allocations a JOIN users p ON p.id = a.processor_id LEFT JOIN users s ON s.id = a.set_by`).all();
   const team_leaders = db.prepare(`SELECT u.id, u.name, u.region,
       (SELECT COUNT(*) FROM users x WHERE x.team_leader_id = u.id AND x.active = 1 AND x.role = 'sales') AS staff
-    FROM users u WHERE u.role = 'team_leader' AND u.active = 1 ORDER BY u.region, u.name`).all()
+    FROM users u WHERE u.role = 'team_leader' AND u.active = 1${tlWhere} ORDER BY u.region, u.name`).all(...(region ? [r] : []))
     .map((t) => ({ ...t, products: Object.fromEntries(Object.keys(ALLOCATION_PRODUCTS).map((p) => { const a = rows.find((r) => r.team_leader_id === t.id && r.product === p); return [p, a ? { processor_id: a.processor_id, processor_name: a.processor_name, set_at: a.set_at, set_by_name: a.set_by_name } : null]; })) }));
   const processors = db.prepare(`SELECT u.id, u.name, u.region, u.role_key,
       (SELECT COUNT(DISTINCT a.team_leader_id) FROM processor_allocations a WHERE a.processor_id = u.id) AS team_leaders,
       (SELECT COUNT(*) FROM processor_allocations a WHERE a.processor_id = u.id) AS allocations
-    FROM users u WHERE u.role = 'processing' AND u.active = 1 ORDER BY u.name`).all();
-  return { team_leaders, processors, products: ALLOCATION_PRODUCTS };
+    FROM users u WHERE u.role = 'processing' AND u.active = 1${prWhere} ORDER BY u.name`).all(...(region ? [r] : []));
+  return { team_leaders, processors, products: ALLOCATION_PRODUCTS, region: region ? r : null };
 }
 
 /** Sets who verifies a team leader's files for one product, or for 'all' of them; a null processor clears it. */

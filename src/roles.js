@@ -40,6 +40,7 @@ export const BUILTIN_ROLES = {
   accounts: { label: 'Accounts', pages: ['reports'], uploads: [] },
   governance: { label: 'Governance', pages: ['cases', 'team', 'reports', 'access_log', 'chat'], uploads: [] },
   it: { label: 'IT', pages: ['assets', 'uploads', 'reports', 'roles'], uploads: ['assets'] },
+  staff: { label: 'Staff (no access)', pages: [], uploads: [] },
 };
 export const BUILTIN_KEYS = Object.keys(BUILTIN_ROLES);
 
@@ -108,7 +109,7 @@ export const allowsReport = (user, key) => { const p = permissionsOf(user); retu
 export const allowsUpload = (user, kind) => { const p = permissionsOf(user); return p.pages.includes('uploads') && p.uploads.includes(kind); };
 export const allowsDownload = (user) => permissionsOf(user).downloads;
 /** Built-in roles held to their page list on the API too (the others keep their own checks). */
-const STRICT_ROLES = ['accounts'];
+const STRICT_ROLES = ['accounts', 'staff'];
 /** The API path a custom role (or a strict built-in one) may not call, or null. */
 export function blockedPage(user, pathname) {
   const p = permissionsOf(user);
