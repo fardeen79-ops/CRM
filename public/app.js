@@ -564,7 +564,7 @@ async function route() {
       });
     }
     if (path === '/users') return await viewUsers();
-    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules|assets|payroll)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules|assets)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
@@ -3225,13 +3225,6 @@ const BULK = {
     template: 'tab-register-template.csv',
     done: ['#/assets', 'Open the tab register'],
   },
-  payroll: {
-    tab: 'Salaries paid',
-    title: 'Upload salaries paid',
-    lede: 'The salary actually paid to each person for a sales cycle, any role, by HRMS code. Add an incentive amount only where the actual differs from what the scheme computes. This feeds the profit and loss. Uploading the same person and cycle again replaces the earlier figure.',
-    template: 'salaries-paid-template.csv',
-    done: ['#/pnl', 'Open the profit and loss'],
-  },
   payout_rules: {
     tab: 'Payout rules',
     title: 'Upload the bank\'s payout rates',
@@ -3257,7 +3250,6 @@ const BULK_WORDS = {
   card_products: { one: 'card', many: 'cards', verb: 'Listed', who: 'Card', names: ['cardname'], sep: ' ', after: 'The New case form now offers exactly these cards.', excel: '' },
   target_rules: { one: 'band', many: 'bands', verb: 'Saved', who: 'Band', names: ['product', 'salaryfromaed'], sep: ' · ', after: 'Press Generate from salaries on the Targets page to apply them.', excel: '' },
   payout_rules: { one: 'rule', many: 'rules', verb: 'Saved', who: 'Rule', names: ['rule'], sep: ' ', after: 'Payouts on files, the dashboard and reports now use these rates.', excel: '' },
-  payroll: { one: 'person', many: 'people', verb: 'Saved', who: 'Person', names: ['hrmscode', 'cycle'], sep: ' · ', after: 'The profit and loss uses these figures now.', excel: 'HRMS code' },
   assets: { one: 'tab', many: 'tabs', verb: 'Saved', who: 'Tab', names: ['tabno', 'serialno'], sep: ' · ', after: 'They are in the tab register now.', excel: 'SIM card number and Mobile number registered' },
 };
 
@@ -3266,7 +3258,7 @@ function viewBulkUpload(kind) {
   const words = BULK_WORDS[kind];
   if (state.user.role === 'it' && kind !== 'assets') throw new Error('IT accounts upload the tab register only');
   if (!BULK_ROLES.includes(state.user.role) && state.user.role !== 'it') throw new Error('Only MIS and business heads can bulk upload');
-  if (['payout_rules', 'payroll'].includes(kind) && !state.meta.can_see_payout) { shell(html`<div class="card empty">Payout rates are for the business head and DXB MIS only</div>`); return; }
+  if (kind === 'payout_rules' && !state.meta.can_see_payout) { shell(html`<div class="card empty">Payout rates are for the business head and DXB MIS only</div>`); return; }
   const columns = state.meta.import_columns[kind];
   const required = (c) => c.required;
   let file = null;
@@ -3274,7 +3266,7 @@ function viewBulkUpload(kind) {
   shell(html`
     <div class="page-head">
       <div><h1>${cfg.title}</h1><p class="muted lede">${cfg.lede}</p></div>
-      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).filter(([k]) => (!['payout_rules', 'payroll'].includes(k) || state.meta.can_see_payout) && (state.user.role !== 'it' || k === 'assets') && (!state.meta.perms?.custom || state.meta.perms.uploads.includes(k))).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
+      <div class="segmented bulk-tabs" role="tablist">${Object.entries(BULK).filter(([k]) => (k !== 'payout_rules' || state.meta.can_see_payout) && (state.user.role !== 'it' || k === 'assets') && (!state.meta.perms?.custom || state.meta.perms.uploads.includes(k))).map(([k, b]) => html`<a role="tab" href="#/import/${k}" aria-selected="${k === kind}" class="${k === kind ? 'on' : ''}">${b.tab}</a>`)}</div>
     </div>
     <div class="bulk-steps">
       <section class="card">
@@ -3809,8 +3801,8 @@ async function viewLeads(params = new URLSearchParams()) {
 function pnlTreeRows(nodes, depth = 0) {
   const aed = (n) => `AED ${fmtAmount(n)}`;
   return nodes.map((n) => html`<tr data-node="${n.key}" data-depth="${depth}" data-open="${depth === 0 ? '1' : '0'}" class="lvl-${depth} ${n.kind}" ${depth > 1 ? raw('hidden') : ''}>
-      <td><span class="indent" style="--d:${depth}"></span>${n.children.length ? html`<span class="caret">${depth === 0 ? '▾' : '▸'}</span>` : html`<span class="caret none"></span>`}${n.label}${n.kind === 'staff' && n.person?.sales_code ? html` <span class="muted small mono">${n.person.sales_code}</span>` : ''}${n.left ? html` <span class="chip">left</span>` : ''}${n.without_upload && n.kind !== 'staff' ? html` <span class="muted small">(${n.without_upload} estimated)</span>` : n.without_upload ? html` <span class="muted small">(estimated)</span>` : ''}</td>
-      <td class="num">${n.headcount || '—'}</td><td class="num">${n.files || '—'}</td><td class="num">${aed(n.revenue)}</td><td class="num">${n.salary_paid + n.salary_estimated ? `− ${aed(n.salary_paid + n.salary_estimated)}` : '—'}</td><td class="num">${n.incentives ? `− ${aed(n.incentives)}` : '—'}</td>
+      <td><span class="indent" style="--d:${depth}"></span>${n.children.length ? html`<span class="caret">${depth === 0 ? '▾' : '▸'}</span>` : html`<span class="caret none"></span>`}${n.label}${n.kind === 'staff' && n.person?.sales_code ? html` <span class="muted small mono">${n.person.sales_code}</span>` : ''}${n.left ? html` <span class="chip">left</span>` : ''}</td>
+      <td class="num">${n.headcount || '—'}</td><td class="num">${n.files || '—'}</td><td class="num">${aed(n.revenue)}</td><td class="num">${n.salary ? `− ${aed(n.salary)}` : '—'}</td><td class="num">${n.incentives ? `− ${aed(n.incentives)}` : '—'}</td>
       <td class="num ${n.net < 0 ? 'loss' : 'gain'}">${n.net < 0 ? '− ' : ''}${aed(Math.abs(n.net))}</td><td class="num">${n.margin_pct == null ? '—' : `${n.margin_pct}%`}</td></tr>${pnlTreeRows(n.children, depth + 1)}`);
 }
 // ---------- CEO dashboard ----------
@@ -3841,7 +3833,7 @@ async function viewCeo(params = new URLSearchParams()) {
     <h2 class="tiles-head">Money</h2>
     <div class="kpis">
       <a class="kpi" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Revenue from the bank</span><span class="kpi-value">${aed(d.money.revenue.now)}</span><span class="kpi-sub">${delta(d.money.revenue)}</span></a>
-      <a class="kpi" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Costs</span><span class="kpi-value">${aed(d.money.costs.now)}</span><span class="kpi-sub">salaries ${fmtAedShort(d.money.salaries)} · incentives ${fmtAedShort(d.money.incentives)}${d.money.without_upload ? ` · ${d.money.without_upload} salaries estimated` : ''}</span></a>
+      <a class="kpi" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Costs</span><span class="kpi-value">${aed(d.money.costs.now)}</span><span class="kpi-sub">salaries ${fmtAedShort(d.money.salaries)} · incentives ${fmtAedShort(d.money.incentives)}</span></a>
       <a class="kpi ${d.money.net.now >= 0 ? 'kpi-good' : 'kpi-alert'}" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Net</span><span class="kpi-value">${signed(d.money.net.now)}</span><span class="kpi-sub">${d.money.margin_pct == null ? 'no revenue in the cycle' : `${d.money.margin_pct}% margin`} · ${delta(d.money.net)}</span></a>
       <a class="kpi ${d.loss.payout_lost ? 'kpi-alert' : ''}" href="#/reports?report=card_downsell&run=1&cycle=${cycle}"><span class="kpi-label">Payout lost to wrong sourcing</span><span class="kpi-value">${aed(d.loss.payout_lost)}</span><span class="kpi-sub">${d.loss.files} ${d.loss.files === 1 ? 'card' : 'cards'} sold below eligibility · ${fmtAmount(d.loss.points_lost)} points lost</span></a>
     </div>
@@ -3888,13 +3880,13 @@ async function viewPnl(params = new URLSearchParams()) {
   const cycle = params.get('cycle') || state.meta.current_cycle;
   const region = params.get('region') || '';
   const q = new URLSearchParams({ cycle }); if (region) q.set('region', region);
-  const { pnl: p, payroll, tree } = await api(`/pnl?${q}`);
+  const { pnl: p, tree } = await api(`/pnl?${q}`);
   const cycles = Array.from({ length: 12 }, (_, i) => shiftCycle(state.meta.current_cycle, -i));
   const aed = (n) => `AED ${fmtAmount(n)}`;
   const neg = (n) => (n ? html`<span class="neg">− ${aed(n)}</span>` : aed(0));
   shell(html`
-    <div class="page-head"><div><h1>Profit and loss</h1><p class="muted lede">The bank's payout on files completed in the cycle, less the salaries actually paid and the incentives earned, by role. Salaries come from the <a href="#/import/payroll">Salaries paid</a> upload; anyone without one is estimated from their profile salary and flagged.</p></div>
-      <div class="actions">${allowedPage('uploads') ? html`<a class="btn" href="#/import/payroll">Upload salaries paid</a>` : ''}${allowedPage('reports') ? html`<a class="btn" href="#/reports?report=pnl&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download as report</a>` : ''}</div></div>
+    <div class="page-head"><div><h1>Profit and loss</h1><p class="muted lede">The bank's payout on files completed in the cycle, less the salaries on the staff profiles and the incentives earned under the schemes, by role.</p></div>
+      <div class="actions">${allowedPage('reports') ? html`<a class="btn" href="#/reports?report=pnl&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download as report</a>` : ''}</div></div>
     <form class="toolbar" id="pnl-filters">
       <select name="cycle" aria-label="Cycle">${cycles.map((c) => html`<option value="${c}" ${c === cycle ? raw('selected') : ''}>${cycleName(c)} (${cycleSpan(c)})</option>`)}</select>
       <select name="region" aria-label="Region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${region === k ? raw('selected') : ''}>${l}</option>`)}</select>
@@ -3902,32 +3894,29 @@ async function viewPnl(params = new URLSearchParams()) {
     </form>
     <div class="kpis">
       <div class="kpi"><span class="kpi-label">Revenue</span><span class="kpi-value">${aed(p.revenue.total)}</span><span class="kpi-sub">${p.revenue.files} files completed · cards ${fmtAedShort(p.revenue.by_product.credit_card)} · loans ${fmtAedShort(p.revenue.by_product.personal_loan)} · auto ${fmtAedShort(p.revenue.by_product.auto_loan)}</span></div>
-      <div class="kpi"><span class="kpi-label">Salaries</span><span class="kpi-value">${aed(p.salaries + p.salaries_estimated)}</span><span class="kpi-sub">${aed(p.salaries)} uploaded for ${p.uploaded_people} people${p.without_upload ? ` · ${aed(p.salaries_estimated)} estimated for ${p.without_upload}` : ''}</span></div>
-      <div class="kpi"><span class="kpi-label">Incentives</span><span class="kpi-value">${aed(p.incentives)}</span><span class="kpi-sub">under the schemes, or the actual where uploaded</span></div>
+      <div class="kpi"><span class="kpi-label">Salaries</span><span class="kpi-value">${aed(p.salaries)}</span><span class="kpi-sub">${p.people} active people, from the staff profiles</span></div>
+      <div class="kpi"><span class="kpi-label">Incentives</span><span class="kpi-value">${aed(p.incentives)}</span><span class="kpi-sub">as the schemes work them out for the cycle</span></div>
       <div class="kpi ${p.net >= 0 ? 'kpi-good' : 'kpi-alert'}"><span class="kpi-label">Net</span><span class="kpi-value">${p.net < 0 ? '− ' : ''}${aed(Math.abs(p.net))}</span><span class="kpi-sub">${p.margin_pct == null ? 'no revenue in the cycle' : `${p.margin_pct}% of revenue`}</span></div>
     </div>
-    ${p.without_upload ? html`<div class="callout warn"><strong>${p.without_upload} active staff have no salary uploaded for ${p.label}.</strong> Their profile salary is used as an estimate until the actual is uploaded.</div>` : ''}
     <div class="card"><h2>Statement · ${p.label}${p.region ? ` · ${state.meta.regions[p.region]}` : ''}</h2>
       <div class="table-wrap"><table class="pnl">
-        <thead><tr><th>Line</th><th>Staff</th><th class="num">Salary paid</th><th class="num">Estimated</th><th class="num">Incentives</th><th class="num">Cost</th></tr></thead>
+        <thead><tr><th>Line</th><th>Staff</th><th class="num">Salaries</th><th class="num">Incentives</th><th class="num">Cost</th></tr></thead>
         <tbody>
-          <tr class="total"><td>Revenue</td><td></td><td></td><td></td><td></td><td class="num">${aed(p.revenue.total)}</td></tr>
-          ${p.rows.map((l) => html`<tr><td>${l.label}</td><td>${l.staff}${l.without_upload ? html` <span class="muted small">(${l.without_upload} estimated)</span>` : ''}</td><td class="num">${neg(l.salary_paid)}</td><td class="num">${l.salary_estimated ? neg(l.salary_estimated) : '—'}</td><td class="num">${l.incentive_paid ? neg(l.incentive_paid) : '—'}${l.incentive_override ? html`<div class="muted small">${l.incentive_override} actual</div>` : ''}</td><td class="num">${neg(l.cost)}</td></tr>`)}
-          <tr class="total"><td>Total costs</td><td></td><td class="num">${neg(p.salaries)}</td><td class="num">${neg(p.salaries_estimated)}</td><td class="num">${neg(p.incentives)}</td><td class="num">${neg(p.costs)}</td></tr>
-          <tr class="total net"><td>Net</td><td></td><td></td><td></td><td></td><td class="num">${p.net < 0 ? '− ' : ''}${aed(Math.abs(p.net))}</td></tr>
+          <tr class="total"><td>Revenue</td><td></td><td></td><td></td><td class="num">${aed(p.revenue.total)}</td></tr>
+          ${p.rows.map((l) => html`<tr><td>${l.label}</td><td>${l.staff}</td><td class="num">${neg(l.salary)}</td><td class="num">${l.incentive ? neg(l.incentive) : '—'}</td><td class="num">${neg(l.cost)}</td></tr>`)}
+          <tr class="total"><td>Total costs</td><td></td><td class="num">${neg(p.salaries)}</td><td class="num">${neg(p.incentives)}</td><td class="num">${neg(p.costs)}</td></tr>
+          <tr class="total net"><td>Net</td><td></td><td></td><td></td><td class="num">${p.net < 0 ? '− ' : ''}${aed(Math.abs(p.net))}</td></tr>
         </tbody></table></div>
-      <p class="muted small">Revenue is what the bank pays on files completed in the cycle, at the payout rates. Incentives are the amounts the schemes work out for the cycle; where an actual incentive was uploaded with the salary it is used instead. Both are before the 60% next-cycle condition and the bank's data cut.</p>
+      <p class="muted small">Revenue is what the bank pays on files completed in the cycle, at the payout rates. Incentives are the amounts the schemes work out for the cycle. Both are before the 60% next-cycle condition and the bank's data cut.</p>
     </div>
     <div class="card"><div class="card-head"><h2>By region and team · ${p.label}</h2><a class="tiles-link" href="#/reports?report=pnl_hierarchy&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download →</a></div>
       <p class="muted small">Revenue follows the team on each completed file. Sales executives' costs sit in their own region. Everyone else is split across regions by SE count: a team leader, ASM or sales manager by the regions of their own SEs, and business heads, processing, MIS, governance and IT (the overheads line) by the business's SE count per region. Headcounts on a region's lines are therefore fractions of a person. Click a row to open or close it.</p>
       <div class="table-wrap"><table class="pnl tree">
         <thead><tr><th>Region · manager · team · staff</th><th class="num">People</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Salaries</th><th class="num">Incentives</th><th class="num">Net</th><th class="num">Margin</th></tr></thead>
         <tbody>${pnlTreeRows(tree.tree)}
-          <tr class="total net"><td>All</td><td class="num">${tree.total.headcount}</td><td class="num">${tree.total.files}</td><td class="num">${aed(tree.total.revenue)}</td><td class="num">${neg(tree.total.salary_paid + tree.total.salary_estimated)}</td><td class="num">${neg(tree.total.incentives)}</td><td class="num ${tree.total.net < 0 ? 'loss' : ''}">${tree.total.net < 0 ? '− ' : ''}${aed(Math.abs(tree.total.net))}</td><td class="num">${tree.total.margin_pct == null ? '—' : `${tree.total.margin_pct}%`}</td></tr>
+          <tr class="total net"><td>All</td><td class="num">${tree.total.headcount}</td><td class="num">${tree.total.files}</td><td class="num">${aed(tree.total.revenue)}</td><td class="num">${neg(tree.total.salary)}</td><td class="num">${neg(tree.total.incentives)}</td><td class="num ${tree.total.net < 0 ? 'loss' : ''}">${tree.total.net < 0 ? '− ' : ''}${aed(Math.abs(tree.total.net))}</td><td class="num">${tree.total.margin_pct == null ? '—' : `${tree.total.margin_pct}%`}</td></tr>
         </tbody></table></div></div>
-    <details class="card"><summary><strong>Salaries uploaded for ${p.label}</strong> <span class="muted small">${payroll.length} people</span></summary>
-      ${payroll.length ? miniTable(['Name', 'HRMS code', 'Role', 'Region', 'Salary paid', 'Incentive paid', 'Notes'], payroll.map((x) => [x.name, x.hrms_code || '', ROLE_LABEL[x.role] || x.role, x.region || '', aed(x.salary_paid), x.incentive_paid != null ? aed(x.incentive_paid) : '—', x.notes || ''])) : html`<p class="muted small">Nothing uploaded yet for this cycle. <a href="#/import/payroll">Upload salaries paid</a>.</p>`}
-    </details>`);
+    `);
   document.querySelectorAll('tr[data-node]').forEach((tr) => { tr.onclick = (e) => { if (e.target.closest('a')) return; const open = tr.dataset.open === '1'; tr.dataset.open = open ? '0' : '1'; const caret = tr.querySelector('.caret'); if (caret && !caret.classList.contains('none')) caret.textContent = open ? '▸' : '▾'; const depth = Number(tr.dataset.depth); let n = tr.nextElementSibling; while (n && Number(n.dataset.depth) > depth) { if (open) { n.hidden = true; n.dataset.open = '0'; } else if (Number(n.dataset.depth) === depth + 1) n.hidden = false; n = n.nextElementSibling; } }; });
   document.getElementById('pnl-filters').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); const qs = new URLSearchParams({ cycle: f.get('cycle') }); if (f.get('region')) qs.set('region', f.get('region')); location.hash = `#/pnl?${qs}`; };
 }

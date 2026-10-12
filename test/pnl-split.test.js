@@ -69,37 +69,37 @@ test('the statement and the hierarchy carry each person at their share per regio
   const all = (await head('GET', `/pnl?cycle=${cycle}`)).data;
   const roles = Object.fromEntries(all.pnl.rows.map((l) => [l.role, l]));
   // Nothing is lost or doubled: every salary counts once across the business.
-  assert.equal(all.pnl.salaries_estimated, 30000 + 12000 + 9000 + 5000 + 5000 + 6000 + 4500 + 7500);
+  assert.equal(all.pnl.salaries, 30000 + 12000 + 9000 + 5000 + 5000 + 6000 + 4500 + 7500);
   assert.equal(roles.team_leader.staff, 2);
   const dxb = (await head('GET', `/pnl?cycle=${cycle}&region=DXB`)).data.pnl;
   const auh = (await head('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.pnl;
   const by = (p, role) => p.rows.find((l) => l.role === role);
   // TL Mixed: two of three SEs in Dubai, so 8,000 there and 4,000 in Abu Dhabi. TL Empty has no SEs and follows the business (also 2:1).
-  assert.equal(by(dxb, 'team_leader').salary_estimated, 8000 + 6000);
-  assert.equal(by(auh, 'team_leader').salary_estimated, 4000 + 3000);
+  assert.equal(by(dxb, 'team_leader').salary, 8000 + 6000);
+  assert.equal(by(auh, 'team_leader').salary, 4000 + 3000);
   assert.equal(by(dxb, 'team_leader').staff, 1.33);
   // The sales manager and the overheads follow the same 2:1 split; Pat's own region (Abu Dhabi) does not matter.
-  assert.equal(by(dxb, 'sales_manager').salary_estimated, 20000);
-  assert.equal(by(dxb, 'processing').salary_estimated, 3000);
-  assert.equal(by(auh, 'processing').salary_estimated, 1500);
-  assert.equal(by(dxb, 'governance').salary_estimated, 5000);
-  assert.equal(by(auh, 'sales').salary_estimated, 6000, 'sales executives stay whole in their own region');
-  assert.equal(dxb.salaries_estimated + auh.salaries_estimated, all.pnl.salaries_estimated);
+  assert.equal(by(dxb, 'sales_manager').salary, 20000);
+  assert.equal(by(dxb, 'processing').salary, 3000);
+  assert.equal(by(auh, 'processing').salary, 1500);
+  assert.equal(by(dxb, 'governance').salary, 5000);
+  assert.equal(by(auh, 'sales').salary, 6000, 'sales executives stay whole in their own region');
+  assert.equal(dxb.salaries + auh.salaries, all.pnl.salaries);
 
   const { tree, total } = (await head('GET', `/pnl?cycle=${cycle}`)).data.tree;
   assert.deepEqual(tree.map((n) => n.key), ['AUH', 'DXB'], 'no "No region set" bucket: Gina follows the SEs');
   const dxbT = tree.find((n) => n.key === 'DXB'); const auhT = tree.find((n) => n.key === 'AUH');
   const sm = (t) => t.children.find((n) => n.label === 'SM One');
   const tlMixed = (t) => sm(t).children.find((n) => n.label === 'TL Mixed');
-  assert.equal(tlMixed(dxbT).salary_estimated, 8000 + 5000 + 5000, 'team leader share plus the two Dubai SEs');
-  assert.equal(tlMixed(auhT).salary_estimated, 4000 + 6000);
+  assert.equal(tlMixed(dxbT).salary, 8000 + 5000 + 5000, 'team leader share plus the two Dubai SEs');
+  assert.equal(tlMixed(auhT).salary, 4000 + 6000);
   assert.equal(tlMixed(dxbT).headcount, 2.67);
-  assert.equal(sm(dxbT).salary_estimated - tlMixed(dxbT).salary_estimated - sm(dxbT).children.find((n) => n.label === 'TL Empty').salary_estimated, 20000);
-  assert.equal(dxbT.children.find((n) => n.kind === 'overheads').salary_estimated, 3000 + 5000);
-  assert.equal(auhT.children.find((n) => n.kind === 'overheads').salary_estimated, 1500 + 2500);
-  assert.equal(total.salary_estimated, all.pnl.salaries_estimated);
+  assert.equal(sm(dxbT).salary - tlMixed(dxbT).salary - sm(dxbT).children.find((n) => n.label === 'TL Empty').salary, 20000);
+  assert.equal(dxbT.children.find((n) => n.kind === 'overheads').salary, 3000 + 5000);
+  assert.equal(auhT.children.find((n) => n.kind === 'overheads').salary, 1500 + 2500);
+  assert.equal(total.salary, all.pnl.salaries);
   assert.equal(total.headcount, 9);
   const one = (await head('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.tree;
   assert.equal(one.tree.length, 1);
-  assert.equal(one.total.salary_estimated, auh.salaries_estimated);
+  assert.equal(one.total.salary, auh.salaries);
 });

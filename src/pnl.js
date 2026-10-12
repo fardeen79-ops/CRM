@@ -1,5 +1,5 @@
-// Profit and loss per sales cycle: the bank's payout on completed files, less the salaries actually
-// paid (uploaded per person per cycle) and the incentives earned under the schemes, by role. The
+// Profit and loss per sales cycle: the bank's payout on completed files, less the salaries on the
+// staff profiles and the incentives earned under the schemes, by role. The
 // business head and the CEO see it; nobody else.
 import { REGIONS, COMPLETED_IN_SQL, WorkflowError } from './cases.js';
 import { cycleRange, cycleLabel, cycleOf, uaeDay, isCycle } from './cycles.js';
@@ -39,12 +39,6 @@ export function regionShares(people) {
   };
 }
 
-/** The salaries actually paid for a cycle, per person: uploaded by the business head or Dubai MIS. */
-export function payrollFor(db, cycle, region = null) {
-  const r = String(region || '').toUpperCase();
-  return db.prepare(`SELECT p.*, u.name, u.role, u.region, u.hrms_code, u.salary AS profile_salary FROM payroll p JOIN users u ON u.id = p.user_id WHERE p.cycle = ?${region ? ' AND u.region = ?' : ''} ORDER BY u.role, u.name`).all(...(region ? [cycle, r] : [cycle]));
-}
-
 /** The statement for a cycle: revenue, salaries and incentives by role, and the net. */
 export function profitAndLoss(db, user, { cycle, region } = {}) {
   if (!PNL_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'The profit and loss is for the business head');
@@ -63,25 +57,21 @@ export function profitAndLoss(db, user, { cycle, region } = {}) {
   }
   revenue.total = round(revenue.total);
   for (const k of Object.keys(revenue.by_product)) revenue.by_product[k] = round(revenue.by_product[k]);
-  // Salaries: uploaded for the cycle; anyone active without an upload is estimated from the profile
-  // salary. For one region, a non-sales person's costs count at their share for that region (by SE count).
+  // Salaries: each active person's salary from their profile, at their share for the region.
   const everyone = db.prepare('SELECT id, name, role, region, salary, team_leader_id, sales_manager_id, asm_id FROM users WHERE active = 1').all();
   const sharesOf = regionShares(everyone);
   const weightOf = (p) => (region ? (sharesOf(p).find(([k]) => k === r)?.[1] || 0) : 1);
   const staff = everyone.map((p) => ({ ...p, weight: weightOf(p) })).filter((p) => p.weight > 0);
-  const paid = new Map(payrollFor(db, cycle, null).map((p) => [p.user_id, p]));
   const lines = {};
-  for (const role of Object.keys(PNL_ROLES)) lines[role] = { role, label: PNL_ROLES[role], staff: 0, salary_paid: 0, salary_estimated: 0, without_upload: 0, incentive_computed: 0, incentive_paid: 0, incentive_override: 0 };
+  for (const role of Object.keys(PNL_ROLES)) lines[role] = { role, label: PNL_ROLES[role], staff: 0, salary: 0, incentive: 0 };
   for (const s of staff) {
     const line = lines[s.role]; if (!line) continue;
     line.staff += s.weight;
-    const p = paid.get(s.id);
-    if (p) line.salary_paid += (p.salary_paid || 0) * s.weight;
-    else { line.without_upload += s.weight; line.salary_estimated += (s.salary || 0) * s.weight; }
+    line.salary += (s.salary || 0) * s.weight;
   }
-  // Incentives: computed under the schemes for the cycle, per person; an uploaded actual overrides it.
+  // Incentives: what the schemes work out for the cycle, per person.
   const byUser = new Map();
-  const add = (name, role, amount, key) => { const k = key || `${role}:${name}`; byUser.set(k, (byUser.get(k) || 0) + (amount || 0)); };
+  const add = (name, role, amount) => { const k = `${role}:${name}`; byUser.set(k, (byUser.get(k) || 0) + (amount || 0)); };
   for (const x of incentiveRows(db, cycle, null)) add(x.staff, 'sales', x.incentive_aed);
   for (const x of plIncentiveRows(db, cycle, null)) add(x.staff, 'sales', x.incentive_aed);
   for (const x of alIncentiveRows(db, cycle, null)) add(x.staff, 'sales', x.incentive_aed);
@@ -93,37 +83,27 @@ export function profitAndLoss(db, user, { cycle, region } = {}) {
   for (const [k, amount] of byUser) {
     const s = nameRole.get(k); if (!s) continue;
     const line = lines[s.role]; if (!line) continue;
-    const p = paid.get(s.id);
-    if (p && p.incentive_paid != null) { line.incentive_paid += p.incentive_paid * s.weight; line.incentive_override += s.weight; } else line.incentive_paid += amount * s.weight;
-    line.incentive_computed += amount * s.weight;
+    line.incentive += amount * s.weight;
   }
-  // Uploaded incentives for people the schemes do not cover (business heads, processing, MIS…).
-  for (const p of paid.values()) {
-    const line = lines[p.role]; if (!line) continue;
-    const s = staff.find((x) => x.id === p.user_id); if (!s) continue;
-    if (p.incentive_paid != null && !byUser.has(`${p.role}:${p.name}`)) { line.incentive_paid += p.incentive_paid * s.weight; line.incentive_override += s.weight; }
-  }
-  const rows = Object.values(lines).filter((l) => l.staff || l.salary_paid || l.incentive_paid).map((l) => ({ ...l, staff: round(l.staff), without_upload: round(l.without_upload), incentive_override: round(l.incentive_override), salary_paid: round(l.salary_paid), salary_estimated: round(l.salary_estimated), incentive_computed: round(l.incentive_computed), incentive_paid: round(l.incentive_paid), cost: round(l.salary_paid + l.salary_estimated + l.incentive_paid) }));
-  const salaries = round(rows.reduce((n, l) => n + l.salary_paid, 0));
-  const estimated = round(rows.reduce((n, l) => n + l.salary_estimated, 0));
-  const incentives = round(rows.reduce((n, l) => n + l.incentive_paid, 0));
-  const costs = round(salaries + estimated + incentives);
+  const rows = Object.values(lines).filter((l) => l.staff || l.salary || l.incentive).map((l) => ({ ...l, staff: round(l.staff), salary: round(l.salary), incentive: round(l.incentive), cost: round(l.salary + l.incentive) }));
+  const salaries = round(rows.reduce((n, l) => n + l.salary, 0));
+  const incentives = round(rows.reduce((n, l) => n + l.incentive, 0));
+  const costs = round(salaries + incentives);
   const net = round(revenue.total - costs);
   return {
     cycle, label: cycleLabel(cycle), start, end, region: region ? r : null,
-    revenue, salaries, salaries_estimated: estimated, without_upload: round(rows.reduce((n, l) => n + l.without_upload, 0)), incentives, costs, net,
-    margin_pct: revenue.total ? Math.round((net / revenue.total) * 1000) / 10 : null, rows, uploaded_people: staff.filter((x) => paid.has(x.id)).length,
+    revenue, salaries, incentives, costs, net, margin_pct: revenue.total ? Math.round((net / revenue.total) * 1000) / 10 : null, rows, people: round(rows.reduce((n, l) => n + l.staff, 0)),
   };
 }
 
-/** The incentive each person earns in the cycle under the schemes, by user id, with an uploaded actual overriding it. */
-function incentiveByUser(db, cycle, region, paid) {
+/** The incentive each person earns in the cycle under the schemes, by user id. */
+function incentiveByUser(db, cycle) {
   const out = new Map();
   const add = (x) => out.set(x.user_id, (out.get(x.user_id) || 0) + (x.incentive_aed || 0));
-  for (const fn of [incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, plTlIncentiveRows, ccSmIncentiveRows, plSmIncentiveRows]) for (const x of fn(db, cycle, region)) add(x);
-  for (const p of paid.values()) if (p.incentive_paid != null) out.set(p.user_id, p.incentive_paid);
+  for (const fn of [incentiveRows, plIncentiveRows, alIncentiveRows, tlIncentiveRows, plTlIncentiveRows, ccSmIncentiveRows, plSmIncentiveRows]) for (const x of fn(db, cycle, null)) add(x);
   return out;
 }
+
 const OVERHEAD_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it'];
 
 /** The statement by region and hierarchy: region → sales manager → team leader → staff, overheads at region level. */
@@ -145,14 +125,12 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
     return best ? byId.get(best[0]) || null : null;
   };
   const byId = new Map(people.map((p) => [p.id, p]));
-  const paid = new Map(payrollFor(db, cycle, null).map((p) => [p.user_id, p]));
-  const incentives = incentiveByUser(db, cycle, null, paid);
-  const node = (key, label, kind, extra = {}) => ({ key, label, kind, revenue: 0, files: 0, salary_paid: 0, salary_estimated: 0, incentives: 0, headcount: 0, without_upload: 0, children: [], ...extra });
+  const incentives = incentiveByUser(db, cycle);
+  const node = (key, label, kind, extra = {}) => ({ key, label, kind, revenue: 0, files: 0, salary: 0, incentives: 0, headcount: 0, children: [], ...extra });
   // A person's costs land on a node at their share for that region (1 for a sales executive).
   const costOf = (p, n, share = 1) => {
-    const pay = paid.get(p.id);
     n.headcount += share;
-    if (pay) n.salary_paid += (pay.salary_paid || 0) * share; else { n.salary_estimated += (p.salary || 0) * share; n.without_upload += share; }
+    n.salary += (p.salary || 0) * share;
     n.incentives += (incentives.get(p.id) || 0) * share;
   };
   // Regions, each with its managers, and overheads (business heads, processing, MIS, governance, IT) at region level.
@@ -208,11 +186,10 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
   // Roll up: a node's totals are its own costs plus its children's.
   const finish = (n, children) => {
     n.children = children;
-    for (const c of children) { n.revenue += c.revenue; n.files += c.files; n.salary_paid += c.salary_paid; n.salary_estimated += c.salary_estimated; n.incentives += c.incentives; n.headcount += c.headcount; n.without_upload += c.without_upload; }
-    n.costs = round(n.salary_paid + n.salary_estimated + n.incentives);
+    for (const c of children) { n.revenue += c.revenue; n.files += c.files; n.salary += c.salary; n.incentives += c.incentives; n.headcount += c.headcount; }
+    n.costs = round(n.salary + n.incentives);
     n.net = round(n.revenue - n.costs);
-    n.revenue = round(n.revenue); n.salary_paid = round(n.salary_paid); n.salary_estimated = round(n.salary_estimated); n.incentives = round(n.incentives);
-    n.headcount = round(n.headcount); n.without_upload = round(n.without_upload);
+    n.revenue = round(n.revenue); n.salary = round(n.salary); n.incentives = round(n.incentives); n.headcount = round(n.headcount);
     n.margin_pct = n.revenue ? Math.round((n.net / n.revenue) * 1000) / 10 : null;
     return n;
   };
@@ -233,7 +210,7 @@ export function profitAndLossRows(db, user, opts) {
   const t = profitAndLossTree(db, user, opts);
   const rows = [];
   const walk = (n, depth, path) => {
-    rows.push({ level: ['Region', 'Sales manager', 'Team leader', 'Staff'][depth] || 'Staff', region: path[0] || '', sales_manager: depth >= 1 ? (n.kind === 'overheads' ? '' : path[1] || n.label) : '', team_leader: depth >= 2 ? path[2] || n.label : '', name: n.label, headcount: n.headcount, files: n.files, revenue: n.revenue, salary_paid: n.salary_paid, salary_estimated: n.salary_estimated, incentives: n.incentives, costs: n.costs, net: n.net, margin_pct: n.margin_pct });
+    rows.push({ level: ['Region', 'Sales manager', 'Team leader', 'Staff'][depth] || 'Staff', region: path[0] || '', sales_manager: depth >= 1 ? (n.kind === 'overheads' ? '' : path[1] || n.label) : '', team_leader: depth >= 2 ? path[2] || n.label : '', name: n.label, headcount: n.headcount, files: n.files, revenue: n.revenue, salary: n.salary, incentives: n.incentives, costs: n.costs, net: n.net, margin_pct: n.margin_pct });
     for (const c of n.children) walk(c, depth + 1, [...path, n.label]);
   };
   for (const reg of t.tree) walk(reg, 0, []);

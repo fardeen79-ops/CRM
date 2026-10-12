@@ -406,16 +406,6 @@ CREATE TABLE IF NOT EXISTS roles (
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS payroll (
-  user_id        INTEGER NOT NULL REFERENCES users(id),
-  cycle          TEXT NOT NULL,
-  salary_paid    REAL NOT NULL,
-  incentive_paid REAL, -- the actual incentive paid, if it differs from the scheme
-  notes          TEXT,
-  set_by         INTEGER REFERENCES users(id),
-  set_at         TEXT NOT NULL,
-  PRIMARY KEY (user_id, cycle)
-);
 CREATE TABLE IF NOT EXISTS leads (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id      INTEGER NOT NULL REFERENCES users(id),

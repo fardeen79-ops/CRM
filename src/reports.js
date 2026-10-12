@@ -612,13 +612,13 @@ function pnl(db, user, { period, region }) {
   const rows = [
     { line: 'Revenue: credit cards', amount: p.revenue.by_product.credit_card, detail: '' }, { line: 'Revenue: personal loans', amount: p.revenue.by_product.personal_loan, detail: '' },
     { line: 'Revenue: auto loans', amount: p.revenue.by_product.auto_loan, detail: '' }, { line: 'Revenue', amount: p.revenue.total, detail: `${p.revenue.files} files completed` },
-    ...p.rows.map((l) => ({ line: `Salaries: ${l.label}`, amount: -(l.salary_paid + l.salary_estimated), detail: `${l.staff} staff${l.without_upload ? `, ${l.without_upload} estimated from profile salary` : ''}` })),
-    ...p.rows.filter((l) => l.incentive_paid).map((l) => ({ line: `Incentives: ${l.label}`, amount: -l.incentive_paid, detail: l.incentive_override ? `${l.incentive_override} actual amounts uploaded` : 'as computed under the schemes' })),
+    ...p.rows.map((l) => ({ line: `Salaries: ${l.label}`, amount: -l.salary, detail: `${l.staff} staff` })),
+    ...p.rows.filter((l) => l.incentive).map((l) => ({ line: `Incentives: ${l.label}`, amount: -l.incentive, detail: 'as computed under the schemes' })),
     { line: 'Total costs', amount: -p.costs, detail: '' }, { line: 'Net', amount: p.net, detail: p.margin_pct == null ? '' : `${p.margin_pct}% of revenue` },
   ];
   return {
     columns: [col('line', 'Line', 'text'), col('amount', 'AED', 'aed'), col('detail', 'Detail', 'text')], rows,
-    note: `${p.uploaded_people} people have a salary uploaded for ${p.label}${p.without_upload ? `; ${p.without_upload} active staff do not and are estimated from their profile salary` : ''}. Incentives are the schemes' amounts unless an actual was uploaded.`,
+    note: `Salaries are the figures on the staff profiles, for ${p.people} active people; non-sales people are split across regions by SE count. Incentives are the schemes' amounts for the cycle.`,
     totals: { line: 'Net', amount: p.net },
   };
 }
@@ -628,10 +628,10 @@ function pnl_hierarchy(db, user, { period, region }) {
   const t = profitAndLossRows(db, user, { cycle: period.cycle, region });
   return {
     columns: [col('level', 'Level', 'text'), col('region', 'Region', 'text'), col('sales_manager', 'Sales manager', 'text'), col('team_leader', 'Team leader', 'text'), col('name', 'Name', 'text'), col('headcount', 'People'), col('files', 'Files completed'),
-      col('revenue', 'Revenue (AED)', 'aed'), col('salary_paid', 'Salaries paid (AED)', 'aed'), col('salary_estimated', 'Salaries estimated (AED)', 'aed'), col('incentives', 'Incentives (AED)', 'aed'), col('costs', 'Costs (AED)', 'aed'), col('net', 'Net (AED)', 'aed'), col('margin_pct', 'Margin', 'pct')],
+      col('revenue', 'Revenue (AED)', 'aed'), col('salary', 'Salaries (AED)', 'aed'), col('incentives', 'Incentives (AED)', 'aed'), col('costs', 'Costs (AED)', 'aed'), col('net', 'Net (AED)', 'aed'), col('margin_pct', 'Margin', 'pct')],
     rows: t.rows,
-    note: `Revenue follows the team on each completed file; salaries and incentives follow the people, leaders counted at their own level. ${t.total.without_upload} people are estimated from their profile salary.`,
-    totals: { level: 'All', headcount: t.total.headcount, files: t.total.files, revenue: t.total.revenue, salary_paid: t.total.salary_paid, salary_estimated: t.total.salary_estimated, incentives: t.total.incentives, costs: t.total.costs, net: t.total.net },
+    note: 'Revenue follows the team on each completed file. Sales executives\' costs sit in their own region; everyone else is split across regions by SE count.',
+    totals: { level: 'All', headcount: t.total.headcount, files: t.total.files, revenue: t.total.revenue, salary: t.total.salary, incentives: t.total.incentives, costs: t.total.costs, net: t.total.net },
   };
 }
 

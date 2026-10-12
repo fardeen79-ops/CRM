@@ -32,8 +32,8 @@ export function ceoDashboard(db, user, { cycle, region } = {}) {
   const last = profitAndLoss(db, user, { cycle: prev, region: reg });
   const money = {
     revenue: change(pnl.revenue.total, last.revenue.total), costs: change(pnl.costs, last.costs), net: change(pnl.net, last.net),
-    margin_pct: pnl.margin_pct, margin_before_pct: last.margin_pct, salaries: ceoRound(pnl.salaries + pnl.salaries_estimated), incentives: pnl.incentives,
-    by_product: pnl.revenue.by_product, files: change(pnl.revenue.files, last.revenue.files), without_upload: pnl.without_upload,
+    margin_pct: pnl.margin_pct, margin_before_pct: last.margin_pct, salaries: pnl.salaries, incentives: pnl.incentives,
+    by_product: pnl.revenue.by_product, files: change(pnl.revenue.files, last.revenue.files),
   };
 
   // Production against target, per product, over the whole sales force in scope.
