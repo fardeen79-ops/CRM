@@ -658,25 +658,25 @@ window.fetch = async (input, init = {}) => {
 
 // ---- demo bar: one-click role switching and reset ----
 const DEMO_USERS = [
-  ['sales@demo.local', 'Sam', 'Sales'],
-  ['sales2@demo.local', 'Riya', 'Sales'],
-  ['sales3@demo.local', 'Noor', 'Sales · auto loans'],
-  ['sales4@demo.local', 'Dev', 'Sales · personal loans'],
-  ['sales5@demo.local', 'Anita', 'Sales · personal loans'],
-  ['processing@demo.local', 'Pat', 'Processing · DXB'],
-  ['vlead@demo.local', 'Vera', 'Verification TL'],
-  ['processing2@demo.local', 'Omar', 'Processing · AUH'],
-  ['leader@demo.local', 'Tara', 'Team leader'],
-  ['leader2@demo.local', 'Leena', 'Team leader · loans'],
-  ['asm@demo.local', 'Adil', 'Assistant SM'],
-  ['manager@demo.local', 'Sana', 'Sales manager'],
-  ['7337', 'Fajan', 'Sales · real list'],
-  ['mis@demo.local', 'Mira', 'MIS'],
-  ['head@demo.local', 'Bilal', 'Business head'],
-  ['ceo@demo.local', 'Yusuf', 'CEO'],
-  ['accounts@demo.local', 'Asha', 'Accounts'],
-  ['governance@demo.local', 'Gina', 'Governance'],
-  ['it@demo.local', 'Irfan', 'IT'],
+  ['sales@demo.local', 'Sam', 'Sales', 'Sales staff'],
+  ['sales2@demo.local', 'Riya', 'Sales', 'Sales staff'],
+  ['sales3@demo.local', 'Noor', 'Sales · auto loans', 'Sales staff'],
+  ['sales4@demo.local', 'Dev', 'Sales · personal loans', 'Sales staff'],
+  ['sales5@demo.local', 'Anita', 'Sales · personal loans', 'Sales staff'],
+  ['7337', 'Fajan', 'Sales · real list', 'Sales staff'],
+  ['processing@demo.local', 'Pat', 'Processing · DXB', 'Verification'],
+  ['processing2@demo.local', 'Omar', 'Processing · AUH', 'Verification'],
+  ['vlead@demo.local', 'Vera', 'Verification TL', 'Verification'],
+  ['leader@demo.local', 'Tara', 'Team leader', 'Leaders'],
+  ['leader2@demo.local', 'Leena', 'Team leader · loans', 'Leaders'],
+  ['asm@demo.local', 'Adil', 'Assistant SM', 'Leaders'],
+  ['manager@demo.local', 'Sana', 'Sales manager', 'Leaders'],
+  ['mis@demo.local', 'Mira', 'MIS', 'Management'],
+  ['head@demo.local', 'Bilal', 'Business head', 'Management'],
+  ['ceo@demo.local', 'Yusuf', 'CEO', 'Management'],
+  ['accounts@demo.local', 'Asha', 'Accounts', 'Support'],
+  ['governance@demo.local', 'Gina', 'Governance', 'Support'],
+  ['it@demo.local', 'Irfan', 'IT', 'Support'],
 ];
 async function switchTo(email) {
   await ready;
@@ -688,17 +688,24 @@ async function switchTo(email) {
   await window.__crmBoot();
   markActive();
 }
+// The drop-down shows who is signed in; choosing another account signs in as them.
 function markActive() {
   const id = getSession();
   const me = id && db?.prepare('SELECT email, hrms_code FROM users WHERE id = ?').get(id);
-  document.querySelectorAll('#demo-bar [data-user]').forEach((b) => b.setAttribute('aria-pressed', String(me && (b.dataset.user === me.email || b.dataset.user === me.hrms_code))));
+  const sel = document.getElementById('demo-user');
+  if (!sel) return;
+  const match = me && DEMO_USERS.find(([email]) => email === me.email || email === me.hrms_code);
+  sel.value = match ? match[0] : '';
 }
 const bar = document.getElementById('demo-bar');
-bar.querySelector('.who').innerHTML = DEMO_USERS.map(([email, name, r]) =>
-  '<button type="button" data-user="' + email + '" aria-pressed="false"><b>' + name + '</b> ' + r + '</button>').join('');
+{
+  const groups = [...new Set(DEMO_USERS.map((u) => u[3]))];
+  bar.querySelector('.who').innerHTML = '<select id="demo-user" aria-label="Sign in as"><option value="">Signed out · choose an account</option>' +
+    groups.map((g) => '<optgroup label="' + g + '">' + DEMO_USERS.filter((u) => u[3] === g).map(([email, name, r]) => '<option value="' + email + '">' + name + ' · ' + r + '</option>').join('') + '</optgroup>').join('') + '</select>';
+  bar.querySelector('#demo-user').addEventListener('change', (e) => { if (e.target.value) switchTo(e.target.value); });
+}
+window.__demoSwitch = switchTo;
 bar.addEventListener('click', async (e) => {
-  const u = e.target.closest('[data-user]');
-  if (u) return switchTo(u.dataset.user);
   const reset = e.target.closest('#demo-reset');
   if (!reset) return;
   if (!reset.dataset.armed) {
@@ -735,32 +742,30 @@ window.__demoMarkActive = markActive;
 `;
 
 const demoCss = `
-body { padding-bottom: 76px; }
+body { padding-bottom: 60px; }
 #demo-bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
   padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
   background: var(--surface); border-top: 1px solid var(--border);
-  display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 8px 14px; flex-wrap: nowrap;
   font-size: 13px;
 }
 @media (min-width: 1024px) { #demo-bar { left: 240px; } }
 @media (max-width: 1023px) { .sidebar.open { z-index: 50; } .scrim { z-index: 45; } }
 #demo-bar .tag { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--s-pending); background: var(--s-pending-bg); padding: 2px 8px; border-radius: 999px; }
-#demo-bar .who { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
-#demo-bar .who button { padding: 4px 10px; font-weight: 400; border-radius: 999px; font-size: 13px; }
-#demo-bar .who button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
+#demo-bar .who { flex: 1; min-width: 0; max-width: 360px; }
+#demo-bar .who select { width: 100%; padding: 5px 10px; font-size: 13px; border-radius: 8px; }
 #demo-bar .hint { color: var(--muted); }
 #demo-bar #demo-reset { padding: 4px 10px; font-size: 13px; }
 .demo-accounts { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); display: grid; gap: 8px; }
 .demo-accounts p { margin: 0; }
 .demo-accounts button { justify-content: space-between; flex-wrap: wrap; font-weight: 400; text-align: left; }
-#toast { bottom: 84px; }
+#toast { bottom: 68px; }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 @media (max-width: 760px) {
-  body { padding-bottom: 96px; } #toast { bottom: 104px; } #demo-bar .hint { display: none; }
-  #demo-bar .who { order: 3; flex-basis: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
-  #demo-bar .who button { flex: none; }
-  #demo-bar #demo-reset { margin-left: auto; }
+  body { padding-bottom: 64px; } #toast { bottom: 72px; } #demo-bar .hint { display: none; }
+  #demo-bar .who { max-width: none; }
+  #demo-bar #demo-reset { margin-left: auto; flex: none; }
 }
 @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
 `;
