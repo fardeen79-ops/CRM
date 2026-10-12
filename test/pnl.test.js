@@ -80,12 +80,12 @@ test('the profit and loss follows region and hierarchy: region → sales manager
   assert.deepEqual([tl.revenue, tl.headcount, tl.salary, tl.net], [875, 2, 5000, dana.net], 'the team leader line rolls up Dana; the leader has no salary of their own');
   assert.deepEqual([sm.revenue, sm.headcount], [875, 3]);
   const oh = dxb.children.find((n) => n.kind === 'overheads');
-  // Pat (4,000), Mira, Bilal and Gina are the overheads; all follow the business's SEs, who are all in Dubai.
-  assert.deepEqual([oh.headcount, oh.salary, oh.revenue], [4, 4000, 0]);
+  // Pat (4,000), Mira and Bilal are Dubai's overheads; Gina has no region and sits under No region set.
+  assert.deepEqual([oh.headcount, oh.salary, oh.revenue], [3, 4000, 0]);
   assert.deepEqual([dxb.revenue, dxb.costs, dxb.net], [875, 9000 + inc, 875 - 9000 - inc]);
   assert.deepEqual([total.net, total.headcount], [875 - 9000 - inc, 7]);
-  // Gina has no region of her own, but overheads follow the SEs, so there is no "No region set" bucket.
-  assert.equal(tree.find((n) => n.key === 'NONE'), undefined);
+  // Gina has no region of her own, so she is counted under "No region set", not split anywhere.
+  assert.deepEqual([tree.find((n) => n.key === 'NONE').headcount, tree.find((n) => n.key === 'NONE').salary], [1, 0]);
   assert.equal((await head('GET', `/pnl?cycle=${cycle}&region=DXB`)).data.tree.tree.length, 1);
   const rep = (await head('GET', `/reports/pnl_hierarchy?cycle=${cycle}`)).data;
   assert.deepEqual(rep.rows.slice(0, 4).map((r) => [r.level, r.name]), [['Region', 'DXB (Dubai)'], ['Sales manager', 'SM One'], ['Team leader', 'TL Dubai'], ['Staff', 'Dana']]);

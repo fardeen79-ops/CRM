@@ -16,29 +16,13 @@ const SUPPORT_ROLES = ['business_head', 'processing', 'mis', 'governance', 'it']
 const regionKey = (code) => (REGIONS[String(code || '').toUpperCase()] ? String(code).toUpperCase() : 'NONE');
 
 /**
- * How each person's cost is split across regions. A sales executive (SE) belongs to their own
- * region. Everyone else is split by SE count: a team leader, ASM or sales manager by the regions of
- * the SEs under them; business heads, processing, MIS, governance and IT (and a leader with no SEs)
- * by the SE count of each region across the business. Someone with no SEs to follow stays in their
- * own region. Returns (person) => [[regionKey, share], …] with the shares summing to 1.
+ * Where each person's cost sits: whole, in their own region (no splitting across regions). Someone
+ * with no region set goes to the "No region set" bucket and counts in the all-regions view only.
+ * Returns (person) => [[regionKey, share]] with the one share of 1, so the statement and the
+ * hierarchy can carry a share per region should the business ever want a split again.
  */
-export function regionShares(people) {
-  const byLeader = new Map(); const total = new Map();
-  const bump = (map, key, region) => { if (!map.has(key)) map.set(key, new Map()); const m = map.get(key); m.set(region, (m.get(region) || 0) + 1); };
-  for (const p of people) {
-    if (p.role !== 'sales') continue;
-    const region = regionKey(p.region);
-    total.set(region, (total.get(region) || 0) + 1);
-    for (const id of [p.team_leader_id, p.sales_manager_id, p.asm_id]) if (id) bump(byLeader, id, region);
-  }
-  const shares = (m) => { const n = [...m.values()].reduce((a, b) => a + b, 0); return [...m].map(([k, v]) => [k, v / n]); };
-  return (p) => {
-    if (p.role === 'sales') return [[regionKey(p.region), 1]];
-    const own = LEADER_ROLES.includes(p.role) ? byLeader.get(p.id) : null;
-    if (own && own.size) return shares(own);
-    if (total.size) return shares(total);
-    return [[regionKey(p.region), 1]];
-  };
+export function regionShares() {
+  return (p) => [[regionKey(p.region), 1]];
 }
 
 /** The statement for a cycle: revenue, salaries and incentives by role, and the net. */
@@ -168,7 +152,7 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
     const s = node(`u:${p.id}`, p.name, 'staff', { person: { id: p.id, role: p.role, sales_code: p.sales_code } });
     costOf(p, s); ldr.staff.set(p.id, s);
   }
-  // Everyone else is split across regions by SE count: a leader by the SEs under them, overheads by
+  // Everyone else sits whole in their own region: a leader under their own node, overheads on the region's overheads node.
   // the business's SEs. Each share lands on that region's node for the person.
   for (const p of people.filter((x) => x.role !== 'sales')) {
     for (const [k, share] of sharesOf(p)) {

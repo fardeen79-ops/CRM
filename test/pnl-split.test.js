@@ -1,6 +1,6 @@
-// Profit and loss: everyone who is not a sales executive is split across regions by SE count. A
-// team leader or manager by the regions of the SEs under them; business heads, processing, MIS,
-// governance and IT by the business's SE count per region.
+// Profit and loss by region: every person's cost sits whole in their own region, sales staff and
+// non-sales staff alike. Nobody is split across regions; a person with no region set is counted
+// under "No region set" and in the all-regions view only.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
@@ -16,8 +16,8 @@ before(async () => {
   ids = {};
   const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm@t.local', 'sales_manager', { region: 'DXB', salary: 30000 });
-  add('TL Mixed', 'tl@t.local', 'team_leader', { region: 'DXB', salary: 12000, sales_manager_id: ids['sm@t.local'] });
-  add('TL Empty', 'tl2@t.local', 'team_leader', { region: 'AUH', salary: 9000, sales_manager_id: ids['sm@t.local'] });
+  add('TL Mixed', 'tl@t.local', 'team_leader', { region: 'DXB', salary: 12000 });
+  add('TL Empty', 'tl2@t.local', 'team_leader', { region: 'AUH', salary: 9000 });
   // Three SEs under TL Mixed: two in Dubai, one in Abu Dhabi.
   add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm@t.local'], salary: 5000 });
   add('Dina', 'dina@t.local', 'sales', { region: 'DXB', sales_code: 'D-2', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm@t.local'], salary: 5000 });
@@ -26,10 +26,7 @@ before(async () => {
   add('Gina', 'gov@t.local', 'governance', { salary: 7500 });
   add('Bilal', 'head@t.local', 'business_head', { region: 'DXB', hrms_code: 'EN3' });
   add('Yusuf', 'ceo@t.local', 'ceo', { region: 'DXB', hrms_code: 'EN4' });
-  // Salaries and reporting lines for non-sales people are set on the Staff page; set them directly here.
-  const set = db.prepare('UPDATE users SET salary = ?, sales_manager_id = ? WHERE id = ?');
-  set.run(30000, null, ids['sm@t.local']); set.run(12000, ids['sm@t.local'], ids['tl@t.local']); set.run(9000, ids['sm@t.local'], ids['tl2@t.local']);
-  set.run(4500, null, ids['proc@t.local']); set.run(7500, null, ids['gov@t.local']);
+  db.prepare('UPDATE users SET sales_manager_id = ? WHERE id IN (?, ?)').run(ids['sm@t.local'], ids['tl@t.local'], ids['tl2@t.local']);
   server = createServer(db);
   await new Promise((r) => server.listen(0, r));
   base = `http://localhost:${server.address().port}`;
@@ -46,25 +43,19 @@ async function login(email) {
   };
 }
 
-test('shares follow the SEs: a leader by their own team, overheads by the business, nobody by their own region', () => {
+test('everyone sits whole in their own region, whatever their team looks like', () => {
   const people = [
-    { id: 1, role: 'sales', region: 'DXB', team_leader_id: 10, sales_manager_id: 20 }, { id: 2, role: 'sales', region: 'DXB', team_leader_id: 10, sales_manager_id: 20 },
-    { id: 3, role: 'sales', region: 'AUH', team_leader_id: 10, sales_manager_id: 20, asm_id: 30 },
-    { id: 10, role: 'team_leader', region: 'DXB' }, { id: 11, role: 'team_leader', region: 'AUH' }, { id: 20, role: 'sales_manager', region: 'DXB' }, { id: 30, role: 'asm', region: 'AUH' },
-    { id: 40, role: 'processing', region: 'AUH' }, { id: 41, role: 'governance', region: null },
+    { id: 1, role: 'sales', region: 'DXB', team_leader_id: 10 }, { id: 3, role: 'sales', region: 'AUH', team_leader_id: 10 },
+    { id: 10, role: 'team_leader', region: 'DXB' }, { id: 40, role: 'processing', region: 'AUH' }, { id: 41, role: 'governance', region: null },
   ];
   const sharesOf = regionShares(people);
-  const pct = (p) => Object.fromEntries(sharesOf(p).map(([k, v]) => [k, Math.round(v * 1000) / 10]));
-  assert.deepEqual(pct(people[0]), { DXB: 100 });
-  assert.deepEqual(pct(people[3]), { DXB: 66.7, AUH: 33.3 }, 'team leader with two SEs in Dubai and one in Abu Dhabi');
-  assert.deepEqual(pct(people[4]), { DXB: 66.7, AUH: 33.3 }, 'a team leader with no SEs follows the business');
-  assert.deepEqual(pct(people[6]), { AUH: 100 }, 'an ASM with one SE in Abu Dhabi');
-  assert.deepEqual(pct(people[7]), { DXB: 66.7, AUH: 33.3 }, 'processing follows the business, not its own region');
-  assert.deepEqual(pct(people[8]), { DXB: 66.7, AUH: 33.3 });
-  assert.deepEqual(regionShares([{ id: 5, role: 'mis', region: 'DXB' }])({ id: 5, role: 'mis', region: 'DXB' }), [['DXB', 1]], 'with no SEs at all, the own region');
+  assert.deepEqual(sharesOf(people[0]), [['DXB', 1]]);
+  assert.deepEqual(sharesOf(people[2]), [['DXB', 1]], 'a team leader with staff in both regions stays whole in their own');
+  assert.deepEqual(sharesOf(people[3]), [['AUH', 1]]);
+  assert.deepEqual(sharesOf(people[4]), [['NONE', 1]], 'no region set: the No region set bucket');
 });
 
-test('the statement and the hierarchy carry each person at their share per region', async () => {
+test('the statement and the hierarchy carry each person once, in their own region', async () => {
   const bilal = await login('head@t.local'); const head = await login('ceo@t.local');
   const cycle = (await head('GET', '/me')).data.meta.current_cycle;
   const all = (await head('GET', `/pnl?cycle=${cycle}`)).data;
@@ -81,31 +72,31 @@ test('the statement and the hierarchy carry each person at their share per regio
   const dxb = (await head('GET', `/pnl?cycle=${cycle}&region=DXB`)).data.pnl;
   const auh = (await head('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.pnl;
   const by = (p, role) => p.rows.find((l) => l.role === role);
-  // TL Mixed: two of three SEs in Dubai, so 8,000 there and 4,000 in Abu Dhabi. TL Empty has no SEs and follows the business (also 2:1).
-  assert.equal(by(dxb, 'team_leader').salary, 8000 + 6000);
-  assert.equal(by(auh, 'team_leader').salary, 4000 + 3000);
-  assert.equal(by(dxb, 'team_leader').staff, 1.33);
-  // The sales manager and the overheads follow the same 2:1 split; Pat's own region (Abu Dhabi) does not matter.
-  assert.equal(by(dxb, 'sales_manager').salary, 20000);
-  assert.equal(by(dxb, 'processing').salary, 3000);
-  assert.equal(by(auh, 'processing').salary, 1500);
-  assert.equal(by(dxb, 'governance').salary, 5000);
-  assert.equal(by(auh, 'sales').salary, 6000, 'sales executives stay whole in their own region');
-  assert.equal(dxb.salaries + auh.salaries, all.pnl.salaries);
+  // TL Mixed is a Dubai cost in full, although one of the three SEs is in Abu Dhabi; TL Empty is Abu Dhabi's.
+  assert.equal(by(dxb, 'team_leader').salary, 12000);
+  assert.equal(by(auh, 'team_leader').salary, 9000);
+  assert.equal(by(dxb, 'team_leader').staff, 1);
+  assert.equal(by(dxb, 'sales_manager').salary, 30000);
+  assert.equal(by(dxb, 'processing'), undefined, 'Pat is an Abu Dhabi cost only');
+  assert.equal(by(auh, 'processing').salary, 4500);
+  assert.equal(by(dxb, 'governance'), undefined, 'Gina has no region, so she is in the all-regions view only');
+  assert.equal(by(auh, 'sales').salary, 6000);
+  assert.equal(dxb.salaries + auh.salaries, all.pnl.salaries - 7500);
 
   const { tree, total } = (await head('GET', `/pnl?cycle=${cycle}`)).data.tree;
-  assert.deepEqual(tree.map((n) => n.key), ['AUH', 'DXB'], 'no "No region set" bucket: Gina follows the SEs');
+  assert.deepEqual(tree.map((n) => n.key), ['AUH', 'DXB', 'NONE'], 'Gina sits under No region set');
   const dxbT = tree.find((n) => n.key === 'DXB'); const auhT = tree.find((n) => n.key === 'AUH');
   const sm = (t) => t.children.find((n) => n.label === 'SM One');
   const tlMixed = (t) => sm(t).children.find((n) => n.label === 'TL Mixed');
-  assert.equal(tlMixed(dxbT).salary, 8000 + 5000 + 5000, 'team leader share plus the two Dubai SEs');
-  assert.equal(tlMixed(auhT).salary, 4000 + 6000);
-  assert.equal(tlMixed(dxbT).headcount, 2.67);
-  assert.equal(sm(dxbT).salary - tlMixed(dxbT).salary - sm(dxbT).children.find((n) => n.label === 'TL Empty').salary, 20000);
-  assert.equal(dxbT.children.find((n) => n.kind === 'overheads').salary, 3000 + 5000);
-  assert.equal(auhT.children.find((n) => n.kind === 'overheads').salary, 1500 + 2500);
+  assert.equal(tlMixed(dxbT).salary, 12000 + 5000 + 5000, 'the team leader whole plus the two Dubai SEs');
+  assert.equal(tlMixed(auhT).salary, 6000, 'in Abu Dhabi only Aziz, under the same team leader');
+  assert.equal(tlMixed(dxbT).headcount, 3);
+  assert.equal(sm(dxbT).salary - sm(dxbT).children.reduce((n, c) => n + c.salary, 0), 30000, 'the sales manager whole in Dubai');
+  assert.equal(sm(auhT).salary - sm(auhT).children.reduce((n, c) => n + c.salary, 0), 0, 'and nothing of them in Abu Dhabi');
+  assert.equal(auhT.children.find((n) => n.kind === 'overheads').salary, 4500);
+  assert.equal(tree.find((n) => n.key === 'NONE').salary, 7500);
   assert.equal(total.salary, all.pnl.salaries);
-  assert.equal(total.headcount, 10, 'the CEO account counts as a business head');
+  assert.equal(total.headcount, 10);
   const one = (await head('GET', `/pnl?cycle=${cycle}&region=AUH`)).data.tree;
   assert.equal(one.tree.length, 1);
   assert.equal(one.total.salary, auh.salaries);

@@ -699,7 +699,7 @@ function pnl(db, user, { period, region }) {
   ];
   return {
     columns: [col('line', 'Line', 'text'), col('amount', 'AED', 'aed'), col('detail', 'Detail', 'text')], rows,
-    note: `Salaries are the figures on the staff profiles, for ${p.people} active people; non-sales people are split across regions by SE count. Incentives are the schemes' amounts for the cycle.`,
+    note: `Salaries are the figures on the staff profiles, for ${p.people} active people; every person counts whole in their own region. Incentives are the schemes' amounts for the cycle.`,
     totals: { line: 'Net', amount: p.net },
   };
 }
@@ -711,7 +711,7 @@ function pnl_hierarchy(db, user, { period, region }) {
     columns: [col('level', 'Level', 'text'), col('region', 'Region', 'text'), col('sales_manager', 'Sales manager', 'text'), col('team_leader', 'Team leader', 'text'), col('name', 'Name', 'text'), col('headcount', 'People'), col('files', 'Files completed'),
       col('revenue', 'Revenue (AED)', 'aed'), col('salary', 'Salaries (AED)', 'aed'), col('incentives', 'Incentives (AED)', 'aed'), col('costs', 'Costs (AED)', 'aed'), col('net', 'Net (AED)', 'aed'), col('margin_pct', 'Margin', 'pct')],
     rows: t.rows,
-    note: 'Revenue follows the team on each completed file. Sales executives\' costs sit in their own region; everyone else is split across regions by SE count.',
+    note: 'Revenue follows the team on each completed file. Every person\'s costs sit whole in their own region.',
     totals: { level: 'All', headcount: t.total.headcount, files: t.total.files, revenue: t.total.revenue, salary: t.total.salary, incentives: t.total.incentives, costs: t.total.costs, net: t.total.net },
   };
 }

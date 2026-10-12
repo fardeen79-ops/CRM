@@ -3932,7 +3932,7 @@ async function viewCeo(params = new URLSearchParams()) {
       <a class="kpi" href="#/cases"><span class="kpi-label">Open files</span><span class="kpi-value">${d.pipeline.open}</span><span class="kpi-sub">${d.pipeline.rejected} rejected this cycle · ${d.pipeline.dncr} on the Do Not Call Register</span></a>
       <a class="kpi ${d.governance.valid_complaints ? 'kpi-alert' : ''}" href="#/reports?report=governance&run=1&cycle=${cycle}"><span class="kpi-label">Complaints</span><span class="kpi-value">${d.governance.complaints}</span><span class="kpi-sub">${d.governance.valid_complaints} found valid · ${d.governance.deviations} card deviations or promotions</span></a>
     </div>
-    <p class="muted small">People in scope: ${d.people.sales} sales staff, ${d.people.leaders} team leaders and managers, ${d.people.processing} processing, ${d.people.other} others. Money follows the profit and loss: revenue at the bank's payout rates on files completed in the cycle; non-sales costs split across regions by SE count.</p>`);
+    <p class="muted small">People in scope: ${d.people.sales} sales staff, ${d.people.leaders} team leaders and managers, ${d.people.processing} processing, ${d.people.other} others. Money follows the profit and loss: revenue at the bank's payout rates on files completed in the cycle; every person's costs sit in their own region.</p>`);
   document.getElementById('ceo-filters').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); location.hash = `#/ceo?cycle=${f.get('cycle')}${region ? `&region=${region}` : ''}`; };
   // Tiles and links lead to the page behind them only when the profile has it (the CEO profile has the P&L and reports only).
   for (const a of document.querySelectorAll('main a[href^="#/"]')) {
@@ -3978,7 +3978,7 @@ async function viewPnl(params = new URLSearchParams()) {
       <p class="muted small">Revenue is what the bank pays on files completed in the cycle, at the payout rates. Incentives are the amounts the schemes work out for the cycle. Both are before the 60% next-cycle condition and the bank's data cut.</p>
     </div>
     <div class="card"><div class="card-head"><h2>By region and team · ${p.label}</h2><a class="tiles-link" href="#/reports?report=pnl_hierarchy&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download →</a></div>
-      <p class="muted small">Revenue follows the team on each completed file. Sales executives' costs sit in their own region. Everyone else is split across regions by SE count: a team leader, ASM or sales manager by the regions of their own SEs, and business heads, processing, MIS, governance and IT (the overheads line) by the business's SE count per region. Headcounts on a region's lines are therefore fractions of a person. Click a row to open or close it.</p>
+      <p class="muted small">Revenue follows the team on each completed file. Every person's costs sit whole in their own region: a sales executive under their team, a team leader, ASM or sales manager under their own node, and business heads, processing, MIS, governance and IT on the region's overheads line. Someone with no region set appears under No region set. </p>
       <div class="table-wrap"><table class="pnl tree">
         <thead><tr><th>Region · manager · team · staff</th><th class="num">People</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Salaries</th><th class="num">Incentives</th><th class="num">Net</th><th class="num">Margin</th></tr></thead>
         <tbody>${pnlTreeRows(tree.tree)}
@@ -4703,7 +4703,7 @@ async function viewUsers() {
     ? html`<div class="field-row"><label>Monthly salary (AED)</label><div class="lock">Hidden</div><div class="muted small">A business head's salary is seen only by the CEO, accounts, or that business head.</div></div>`
     : html`<div class="field-row"><label for="${prefix}-salary">Monthly salary (AED)</label>
       <input id="${prefix}-salary" name="salary" inputmode="numeric" value="${u.salary != null ? u.salary.toLocaleString('en-US') : ''}" placeholder="e.g. 12,000">
-      <div class="muted small">Counted in the profit and loss, split across the regions by sales executive count.${u.role === 'business_head' ? " Seen only by the CEO, accounts, or this business head." : ''}</div></div>`);
+      <div class="muted small">Counted in the profit and loss, in this person's region.${u.role === 'business_head' ? " Seen only by the CEO, accounts, or this business head." : ''}</div></div>`);
 
   // Email, local mobile and WhatsApp for any user.
   const contactFields = (u = {}, prefix = 'n') => html`
