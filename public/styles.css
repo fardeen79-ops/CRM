@@ -952,6 +952,8 @@ table.pnl.tree td.gain { color: var(--s-done); }
 :root[data-theme="dark"] .yield-bad .yield-big, :root[data-theme="dark"] .yield-table .bad-num { color: #f08c84; }
 
 /* CEO dashboard */
+.no-link { cursor: default; }
+.no-link .tiles-link, a.tiles-link.no-link { display: none; }
 .ceo-up { color: #1f7a3d; font-weight: 600; }
 .ceo-down { color: #b91c1c; font-weight: 600; }
 .ceo-bar-row { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }

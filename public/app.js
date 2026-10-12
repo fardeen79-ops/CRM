@@ -3874,6 +3874,13 @@ async function viewCeo(params = new URLSearchParams()) {
     </div>
     <p class="muted small">People in scope: ${d.people.sales} sales staff, ${d.people.leaders} team leaders and managers, ${d.people.processing} processing, ${d.people.other} others. Money follows the profit and loss: revenue at the bank's payout rates on files completed in the cycle; non-sales costs split across regions by SE count.</p>`);
   document.getElementById('ceo-filters').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); location.hash = `#/ceo?cycle=${f.get('cycle')}${region ? `&region=${region}` : ''}`; };
+  // Tiles and links lead to the page behind them only when the profile has it (the CEO profile has the P&L and reports only).
+  for (const a of document.querySelectorAll('main a[href^="#/"]')) {
+    const href = a.getAttribute('href');
+    const page = NAV_PAGE(href);
+    const ok = page ? allowedPage(page) : !(state.meta.perms?.custom && href.startsWith('#/dashboard'));
+    if (!ok) { a.removeAttribute('href'); a.classList.add('no-link'); }
+  }
 }
 
 async function viewPnl(params = new URLSearchParams()) {
@@ -3887,7 +3894,7 @@ async function viewPnl(params = new URLSearchParams()) {
   const neg = (n) => (n ? html`<span class="neg">− ${aed(n)}</span>` : aed(0));
   shell(html`
     <div class="page-head"><div><h1>Profit and loss</h1><p class="muted lede">The bank's payout on files completed in the cycle, less the salaries actually paid and the incentives earned, by role. Salaries come from the <a href="#/import/payroll">Salaries paid</a> upload; anyone without one is estimated from their profile salary and flagged.</p></div>
-      <div class="actions"><a class="btn" href="#/import/payroll">Upload salaries paid</a><a class="btn" href="#/reports?report=pnl&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download as report</a></div></div>
+      <div class="actions">${allowedPage('uploads') ? html`<a class="btn" href="#/import/payroll">Upload salaries paid</a>` : ''}${allowedPage('reports') ? html`<a class="btn" href="#/reports?report=pnl&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download as report</a>` : ''}</div></div>
     <form class="toolbar" id="pnl-filters">
       <select name="cycle" aria-label="Cycle">${cycles.map((c) => html`<option value="${c}" ${c === cycle ? raw('selected') : ''}>${cycleName(c)} (${cycleSpan(c)})</option>`)}</select>
       <select name="region" aria-label="Region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${region === k ? raw('selected') : ''}>${l}</option>`)}</select>
@@ -3928,6 +3935,7 @@ async function viewPnl(params = new URLSearchParams()) {
 // ---------- roles: custom roles on top of the built-in ones ----------
 const NAV_PAGE = (href) => {
   if (/^#\/(cases|queue|callbacks|urgent|action-required|card-approvals|edit-requests|quality-check|recordings|recording-approvals)/.test(href)) return 'cases';
+  if (href.startsWith('#/bot') || href.startsWith('#/holidays')) return 'cases'; // the bot's pages and holidays belong with file work
   if (href.startsWith('#/leads')) return 'leads';
   if (href.startsWith('#/targets')) return 'targets';
   if (href.startsWith('#/my-tab')) return 'my_tab';

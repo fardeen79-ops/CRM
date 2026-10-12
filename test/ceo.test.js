@@ -91,10 +91,13 @@ test('the CEO profile is a business head role that carries the dashboard and no 
   const me = (await ceo('GET', '/me')).data;
   assert.equal(me.user.role, 'business_head'); assert.equal(me.user.role_key, 'ceo');
   assert.equal(me.meta.perms.label, 'CEO');
-  assert.ok(me.meta.perms.pages.includes('ceo') && me.meta.perms.pages.includes('pnl'));
+  assert.deepEqual(me.meta.perms.pages, ['ceo', 'pnl', 'reports']);
   assert.deepEqual(me.meta.perms.uploads, []);
   const cycle = me.meta.current_cycle;
   const d = (await ceo('GET', `/ceo?cycle=${cycle}`)).data;
   assert.equal(d.cycle, cycle);
   assert.equal((await ceo('GET', `/pnl?cycle=${cycle}`)).status, 200);
+  assert.equal((await ceo('GET', `/reports/pnl?cycle=${cycle}`)).status, 200);
+  assert.equal((await ceo('GET', '/cases')).status, 403, 'no files, targets or staff for the CEO profile');
+  assert.equal((await ceo('GET', `/targets?cycle=${cycle}`)).status, 403);
 });
