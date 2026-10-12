@@ -21,8 +21,10 @@ export const STATUS = {
   INCOMPLETE: 'incomplete',
   RETURNED: 'returned_to_sales',
   REJECTED: 'rejected',
-  // The customer's salary is below the card's requirement and the sales person chose no reason:
-  // a team leader, sales manager or ASM decides before it goes for verification.
+  // With the team leader: every file a sales person submits waits here until the team leader (or
+  // the sales manager or ASM) validates it and pushes it to verification, or sends it back. A card
+  // below the salary requirement with no reason, or a file flagged for its timing, waits here too,
+  // and the team's approval of the card or the timing is the validation.
   APPROVAL: 'awaiting_approval',
 };
 
@@ -439,7 +441,7 @@ export function setTatSwitch(db, user, on) {
 
 // The stage log: the stages a file passes through, how long it spent at each, and which took longest.
 export const CASE_STAGES = {
-  awaiting_approval: 'Waiting for TL/SM approval',
+  awaiting_approval: 'With the team leader',
   pending_verification: 'Waiting for a processor',
   in_verification: 'In verification',
   incomplete: 'Verification pending with team leader',
@@ -448,7 +450,7 @@ export const CASE_STAGES = {
   applicant_review: 'Applicant review',
 };
 const stageOf = (status, caseStatus) => (status === STATUS.COMPLETED ? (caseStatus === 'applicant_review' ? 'applicant_review' : 'with_bank') : status);
-const APPROVAL_EVENTS = ['card_approval_requested', 'timing_approval_requested'];
+const APPROVAL_EVENTS = ['card_approval_requested', 'timing_approval_requested', 'tl_review_requested'];
 
 /**
  * Replays a file's history into stages: each with when it started and ended, how long it took and
@@ -544,13 +546,16 @@ export const ACTIONS = {
   return_to_sales: { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.RETURNED, noteRequired: true },
   reverify:        { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.PENDING },
   reject:          { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.REJECTED, noteRequired: true },
-  resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.PENDING },
+  resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.APPROVAL },
   // Card sold below its salary requirement: the team decides the reason, or sends it back.
   approve_card:    { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.PENDING },
   decline_card:    { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.RETURNED, noteRequired: true },
   // Sourced on a Sunday or entered after 6 pm: the team approves the timing, or sends it back.
   approve_timing:  { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.PENDING },
   decline_timing:  { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.RETURNED, noteRequired: true },
+  // A plain submission from sales: the team leader checks it and pushes it to verification, or sends it back.
+  validate:        { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.PENDING },
+  send_back:       { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.RETURNED, noteRequired: true },
 };
 
 // Plain text fields and their length limits; name, product and number fields are validated separately.
@@ -1226,7 +1231,8 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   if (exception) Object.assign(data, { card_salary_exception: exception, card_exception_by: user.id, card_exception_at: ts, card_exception_note: clean(input.card_exception_note, 500) });
   // Bulk uploads carry past files, so the timing rules apply only to files entered one by one.
   data.timing_flag = bulk ? null : timingFlagsOf(data.sourcing_date).join(',') || null;
-  const status = needsApproval(data) ? STATUS.APPROVAL : STATUS.PENDING;
+  // A sales person's file waits with the team leader; a leader's own file, or a bulk upload, goes straight for verification unless flagged.
+  const status = needsApproval(data) || user.role === 'sales' ? STATUS.APPROVAL : STATUS.PENDING;
   const cols = [...EDITABLE_FIELDS, 'card_salary_exception', 'card_exception_by', 'card_exception_at', 'card_exception_note', 'timing_flag', 'status', 'created_by', 'created_at', 'updated_at'];
   const { lastInsertRowid } = db
     .prepare(`INSERT INTO cases (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
@@ -1237,6 +1243,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   if (data.timing_flag) addEvent(db, id, user.id, 'timing_flagged', { detail: timingFlags(data).map((f) => TIMING_FLAGS[f]).join('; ') });
   if (needsCardApproval(data)) sendForApproval(db, id, user, data);
   if (needsTimingApproval(data)) sendForTimingApproval(db, id, user, data);
+  if (status === STATUS.APPROVAL && !needsApproval(data)) sendForReview(db, id, user, data);
   if (bulk) addEvent(db, id, user.id, 'bulk_upload', { detail: 'Added from a bulk upload file' });
   if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
   recordReadBack(db, id, user.id, input.read_back);
@@ -1247,6 +1254,12 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
 function sendForApproval(db, id, user, row) {
   addEvent(db, id, user.id, 'card_approval_requested', { detail: `${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}; customer ${incomeWord(row)} AED ${row.salary.toLocaleString('en-US')}` });
   notify(db, approverIds(row), id, `Approval needed: ${caseRef(id)} (${row.customer_name}) — ${row.credit_card} needs AED ${row.card_min_salary.toLocaleString('en-US')}, customer ${row.customer_type === 'self_employed' ? 'has an average balance of' : 'earns'} AED ${row.salary.toLocaleString('en-US')}. Choose product deviation or new promotion, or return it to ${user.name}`);
+}
+
+/** Tells the team leader a sales person's file is waiting for their check before verification. */
+function sendForReview(db, id, user, row) {
+  addEvent(db, id, user.id, 'tl_review_requested', { detail: 'Waiting for the team leader to validate it' });
+  notify(db, approverIds(row), id, `To validate: ${caseRef(id)} (${row.customer_name}) from ${user.name}. Check it and push it to verification, or send it back`);
 }
 
 /** Alerts the file's team that a file sourced on a Sunday or entered after 6 pm needs their approval. */
@@ -1376,6 +1389,7 @@ function verificationActions(user, row) {
       if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id && !user.is_bot) return false;
       if (name === 'approve_card' || name === 'decline_card') return needsCardApproval(row);
       if (name === 'approve_timing' || name === 'decline_timing') return needsTimingApproval(row);
+      if (name === 'validate' || name === 'send_back') return !needsApproval(row);
       return name !== 'claim' || !row.assigned_to;
     })
     .map(([name]) => name);
@@ -1549,9 +1563,20 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         break;
       case 'resubmit':
         set.assigned_to = null;
-        if (needsApproval(row)) set.status = STATUS.APPROVAL;
+        set.status = STATUS.APPROVAL; // back to the team leader, flagged or not
         if (needsCardApproval(row)) sendForApproval(db, id, user, row);
         if (needsTimingApproval(row)) sendForTimingApproval(db, id, user, row);
+        if (!needsApproval(row)) sendForReview(db, id, user, row);
+        break;
+      case 'validate':
+        if (needsApproval(row)) throw new WorkflowError(409, needsCardApproval(row) ? 'This card needs its approval with a reason first' : 'The timing of this file needs its approval first');
+        set.assigned_to = null;
+        detail = 'Validated by the team and sent for verification';
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) validated by ${user.name} and sent for verification`);
+        break;
+      case 'send_back':
+        set.assigned_to = null;
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) sent back by ${user.name}: ${note}`);
         break;
       case 'approve_card': {
         const exception = cardExceptionOf({ card_salary_exception: extra.exception ?? extra.card_salary_exception });

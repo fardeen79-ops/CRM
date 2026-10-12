@@ -4,7 +4,7 @@ import { speechSupported, listen, readBackMatches } from './speech.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
 const STATUS_LABEL = {
-  awaiting_approval: 'Awaiting TL/SM approval',
+  awaiting_approval: 'With team leader',
   pending_verification: 'Awaiting verification',
   in_verification: 'In verification',
   completed: 'Verification completed',
@@ -71,6 +71,9 @@ const ACTION_LABEL = {
   complaint_decision: 'Complaint decided',
   score_quality: 'Verification call scored',
   rate_call: 'Call rated',
+  validate: 'Validated by the team leader, sent for verification',
+  send_back: 'Sent back to sales by the team leader',
+  tl_review_requested: 'Waiting for the team leader',
   set_card_status: 'Card activation saved',
   callback_due: 'Call-back due',
   disbursal: 'Disbursed amount recorded',
@@ -343,7 +346,7 @@ function navGroups() {
   const r = effRole();
   const urgent = ['#/urgent', 'Urgent', 'urgent', 'data-urgent-count', state.urgent];
   const editRequests = ['#/edit-requests', 'Edit requests', 'edit', 'data-er-count', state.editRequests];
-  const cardApprovals = ['#/card-approvals', 'Approvals', 'stamp', 'data-ca-count', state.cardApprovals];
+  const cardApprovals = ['#/card-approvals', 'To validate', 'stamp', 'data-ca-count', state.cardApprovals];
   const groups = [];
   if (r === 'it') return filterNav([['', [['#/assets', 'Tab register', 'tablet'], ['#/import/assets', 'Bulk upload', 'upload'], ['#/reports?report=assets&run=1', 'Inventory report', 'report'], ...(state.meta.can_manage_roles ? [['#/roles', 'Roles', 'users']] : [])]]]);
   if (r === 'accounts') return filterNav([['', [['#/reports', 'Reports', 'report'], ['#/reports?report=incentive_payout&run=1', 'Incentive payout file', 'report']]]]);
@@ -531,7 +534,7 @@ async function route() {
       return await viewCases({ title: 'Action required', subtitle: 'Files the processing team marked Verification pending. Decide whether to return to sales, re-verify, or reject.', params, fixedStatus: 'incomplete' });
     }
     if (path === '/card-approvals') {
-      return await viewCases({ title: 'Approvals', subtitle: 'Files waiting for the team before verification: credit cards sold below the salary requirement with no reason chosen, and files sourced on a Sunday or entered after 6 pm. Open a file to approve it for verification, or return it to sales.', params, fixedStatus: 'awaiting_approval', cols: ['ref', 'customer', 'source_by', 'sourced', 'why_waiting', 'updated'], empty: 'Nothing waiting for your approval' });
+      return await viewCases({ title: 'To validate', subtitle: 'Every file sales submitted waits here until you validate it for verification or send it back. Credit cards sold below the salary requirement with no reason, and files sourced on a Sunday or entered after 6 pm, need their approval with a reason. Open a file to approve it for verification, or return it to sales.', params, fixedStatus: 'awaiting_approval', cols: ['ref', 'customer', 'source_by', 'sourced', 'why_waiting', 'updated'], empty: 'Nothing waiting for your approval' });
     }
     if (path === '/edit-requests') {
       return await viewCases({
@@ -2062,6 +2065,17 @@ async function viewCase(id) {
         </div>
       </form>`);
   }
+  if (a.has('validate')) {
+    panel.push(html`<h3>Validate before verification</h3>
+      <p class="muted small">${c.sales_staff_name || 'Sales'} submitted this file. Check the details, then push it to the verification team or send it back with what to fix.</p>
+      <form data-form="tl_review">
+        <div class="field-row"><textarea name="note" placeholder="Note (required when sending back)"></textarea></div>
+        <div class="actions">
+          <button data-review="validate" class="btn-primary">Validate &amp; send for verification</button>
+          <button data-review="send_back">↩ Send back to sales</button>
+        </div>
+      </form>`);
+  }
   if (a.has('approve_timing')) {
     panel.push(html`<h3>${String(c.timing_flag).split(',').map((f) => state.meta.timing_flags?.[f] || f).join(' and ')}</h3>
       <p class="muted small">Approve the file for verification, or return it to ${c.sales_staff_name || 'sales'} with a note.</p>
@@ -2509,6 +2523,14 @@ async function viewCase(id) {
         if (b.dataset.card === 'approve_card' && !exception) { toast('Choose Product deviation or New promotion first', true); return; }
         if (b.dataset.card === 'decline_card' && !note?.trim()) { toast('Tell the sales person why the file is coming back', true); return; }
         run({ action: b.dataset.card, exception, note }, b);
+      }));
+    } else if (kind === 'tl_review') {
+      f.onsubmit = (e) => e.preventDefault();
+      f.querySelectorAll('[data-review]').forEach((b) => (b.onclick = (e) => {
+        e.preventDefault();
+        const { note } = formData(f);
+        if (b.dataset.review === 'send_back' && !note?.trim()) { toast('Tell the sales person what to fix', true); return; }
+        run({ action: b.dataset.review, note }, b);
       }));
     } else if (kind === 'timing_approval') {
       f.onsubmit = (e) => e.preventDefault();

@@ -205,7 +205,14 @@ function seed() {
       Object.assign(extra, { auto_loan_type: data.auto_loan_type || (year >= 2025 ? 'new' : 'used'), car_make: make, car_model: model, car_year: year, dealer_details: dealer, al_lead_source: lead, al_interest_rate: [3.25, 3.99, 4.5][nth % 3], al_tenure: [60, 48, 36][nth % 3] });
       if (!data.amount) extra.amount = '135000';
     }
-    return createCase(db, who, { ...data, ...extra }).id;
+    const { leave_with_tl, ...fields } = data;
+    const created = createCase(db, who, { ...fields, ...extra });
+    // Every sales submission waits with the team leader; the sample files are validated at once unless they are meant to show the queue.
+    if (created.status === 'awaiting_approval' && !leave_with_tl && who.team_leader_id) {
+      const tl = db.prepare('SELECT * FROM users WHERE id = ?').get(who.team_leader_id);
+      if (tl) { try { applyAction(db, tl, created.id, { action: 'validate' }); } catch { /* flagged: the team approves it with a reason instead */ } }
+    }
+    return created.id;
   };
   const act = (who, id, body) => applyAction(db, who, id, body);
 
@@ -377,7 +384,7 @@ function seed() {
   // One file sourced on a Sunday, waiting for Tara's or Sana's approval.
   const sundayMs = Date.now() - ((new Date(Date.now() + 4 * 3600e3).getUTCDay() || 7) * 864e5);
   timing.now = () => Date.parse('2026-10-04T07:00:00Z');
-  mk(sam, { region: 'DXB', core_product: 'personal_loan', first_name: 'Maryam', last_name: 'Al Suwaidi', phone: '+971 50 606 7788', company_name: 'Etisalat', salary: '21000', app_id: 'APP-55140', city: 'Dubai', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '95000', interest_rate: '8.75', source: 'Referral', sourcing_date: new Date(sundayMs + 4 * 3600e3).toISOString().slice(0, 10) });
+  mk(sam, { leave_with_tl: true, region: 'DXB', core_product: 'personal_loan', first_name: 'Maryam', last_name: 'Al Suwaidi', phone: '+971 50 606 7788', company_name: 'Etisalat', salary: '21000', app_id: 'APP-55140', city: 'Dubai', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '95000', interest_rate: '8.75', source: 'Referral', sourcing_date: new Date(sundayMs + 4 * 3600e3).toISOString().slice(0, 10) });
   timing.now = liveClock;
 }
 

@@ -57,6 +57,13 @@ async function login(email) {
   };
 }
 
+/** The team leader validates a sales submission so it reaches verification. */
+async function tlOk(id, who = 'lead@t.local') {
+  const r = await (await login(who))('POST', `/cases/${id}/actions`, { action: 'validate' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  return r.data.case;
+}
+
 // Card sourced type and FPD are required with those products; tests that don't care get defaults.
 const withProductDefaults = (body) => {
   const raw = body.bundle_products;
@@ -94,8 +101,9 @@ test('full workflow: source → verify incomplete → TL returns → sales resub
   let r = await sales('POST', '/cases', newCase);
   assert.equal(r.status, 201);
   const id = r.data.case.id;
-  assert.equal(r.data.case.status, 'pending_verification');
+  assert.equal(r.data.case.status, 'awaiting_approval'); // with the team leader first
   assert.equal(r.data.case.loan_amount, 150000);
+  await tlOk(id);
   assert.match(r.data.case.ref, /^CRM-0+\d+$/);
 
   // Processing sees it in the queue
@@ -145,8 +153,10 @@ test('full workflow: source → verify incomplete → TL returns → sales resub
   assert.equal(r.data.case.phone, null); // hidden from sales once submitted; see the privacy test
   assert.ok(r.data.case.hidden_fields.includes('phone'));
   r = await sales('POST', `/cases/${id}/actions`, { action: 'resubmit' });
-  assert.equal(r.data.case.status, 'pending_verification');
+  assert.equal(r.data.case.status, 'awaiting_approval'); // back to the team leader first
   assert.equal(r.data.case.assigned_to, null);
+  r = { data: { case: await tlOk(id) } };
+  assert.equal(r.data.case.status, 'pending_verification');
 
   // Processor verifies directly (auto-assigns)
   r = await proc2('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Customer confirmed' });
@@ -161,7 +171,7 @@ test('full workflow: source → verify incomplete → TL returns → sales resub
   r = await lead('GET', `/cases/${id}`);
   assert.deepEqual(
     r.data.case.events.map((e) => e.type).reverse(),
-    ['created', 'claim', 'log_call', 'mark_incomplete', 'return_to_sales', 'edited', 'resubmit', 'complete']
+    ['created', 'tl_review_requested', 'validate', 'claim', 'log_call', 'mark_incomplete', 'return_to_sales', 'edited', 'tl_review_requested', 'resubmit', 'validate', 'complete']
   );
 });
 
@@ -171,6 +181,7 @@ test('team leader can send back for re-verification or reject', async () => {
   const lead = await login('lead@t.local');
 
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'customer_unreachable', note: 'No answer x3' });
   let r = await lead('POST', `/cases/${id}/actions`, { action: 'reverify' });
   assert.equal(r.data.case.status, 'pending_verification');
@@ -186,6 +197,7 @@ test('sales staff only see their own cases and input is validated', async () => 
   const sales = await login('sales@t.local');
   const sales2 = await login('sales2@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
 
   assert.equal((await sales2('GET', `/cases/${id}`)).status, 404);
   assert.ok(!(await sales2('GET', '/cases')).data.cases.some((c) => c.id === id));
@@ -307,6 +319,7 @@ test('power button: only the Dubai business head; held files read as verified an
   const sales = await login('sales@t.local');
   const late = (await sales('POST', '/cases', { customer_name: 'Held File', phone: '9876543214', product: 'accounts', sourcing_date: '2026-01-06' })).data.case;
   const fresh = (await sales('POST', '/cases', { customer_name: 'Fresh File', phone: '9876543215', product: 'accounts' })).data.case;
+  await tlOk(late.id); await tlOk(fresh.id);
   const bh = await login('bhdxb@t.local');
   assert.equal((await (await login('lead@t.local'))('PUT', '/tat-switch', { on: true })).status, 403);
   assert.equal((await (await login('misdxb@t.local'))('PUT', '/tat-switch', { on: true })).status, 403); // not even Dubai MIS
@@ -339,7 +352,7 @@ test('power button: only the Dubai business head; held files read as verified an
   held = (await bh('GET', `/cases/${late.id}`)).data.case;
   assert.equal(held.status, 'pending_verification');
   assert.ok(!held.events.some((e) => e.type.startsWith('tat_') || e.type === 'complete')); // nothing in the file's history
-  assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'pending_verification');
+  assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'awaiting_approval'); // back to where it was: with the team leader
 
   // The record: governance and business heads see each press and the files it moved; MIS does not.
   const log = (await (await login('gov@t.local'))('GET', '/tat-switch/log')).data.log;
@@ -445,6 +458,7 @@ test('customer identity fields and personal loan amounts are captured and valida
   let r = await sales('POST', '/cases', base);
   assert.equal(r.status, 201);
   const c = r.data.case;
+  await tlOk(c.id);
   assert.equal(c.customer_name, 'Mohammed Ali Rahman');
   // Emirates ID and passport numbers are not kept: sent values are dropped, never stored.
   assert.equal((await sales('POST', '/cases', { ...base, phone: '+971 50 123 9999', eid_number: '784-1990-1234567-1', passport_number: 'N1234567' })).data.case.eid_number, null);
@@ -506,6 +520,7 @@ test('sourcing date and email are captured; files start as Sent to checker', asy
 test('only team leader, MIS, sales manager and business head can change case status', async () => {
   const sales = await login('sales@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   const set = (who, case_status, note) => who('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status, note });
 
   assert.equal((await set(sales, 'completed')).status, 403);
@@ -545,6 +560,7 @@ test('in Applicant review sales cannot edit, but can send an edit request to the
   const sm = await login('sm@t.local');
   const lead = await login('lead@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
 
   // Before review, sales can edit and cannot request edits
   assert.equal((await sales('PUT', `/cases/${id}`, { city: 'Dubai' })).status, 200);
@@ -589,6 +605,7 @@ test('processors mark verification completed, pending or rejected; case status i
 
   // Rejected: needs a note, closes verification, alerts sales and team leaders, leaves case status alone
   let id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   assert.equal((await proc('POST', `/cases/${id}/actions`, { action: 'reject_verification' })).status, 400);
   let r = await proc('POST', `/cases/${id}/actions`, { action: 'reject_verification', reason: 'customer_denied', note: 'Customer says they never applied' });
   assert.equal(r.data.case.status, 'rejected');
@@ -602,6 +619,7 @@ test('processors mark verification completed, pending or rejected; case status i
 
   // Completed verification does not complete the case; marking the case completed is a separate step
   id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   r = await proc('POST', `/cases/${id}/actions`, { action: 'complete' });
   assert.equal(r.data.case.status, 'completed');
   assert.equal(r.data.case.case_status, 'sent_to_check');
@@ -611,6 +629,7 @@ test('processors mark verification completed, pending or rejected; case status i
 
   // Pending still goes to the team leader
   id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   r = await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'documents_pending', note: 'Salary slips missing' });
   assert.equal(r.data.case.status, 'incomplete');
   assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /verification pending/.test(n.message)));
@@ -625,6 +644,7 @@ test('team leaders never see company or salary; processors lose them once verifi
   const bh = await login('bh@t.local');
   const secret = { company_name: 'Hidden Trading LLC', salary: 41000 };
   const id = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
+  await tlOk(id);
   // The salary is masked on screen, so read it through the logged reveal.
   const fields = async (who) => {
     const c = (await who('GET', `/cases/${id}`)).data.case;
@@ -750,6 +770,7 @@ test('governance marks files for QC, requests recordings after verification, add
   const gov = await login('gov@t.local');
   const lead = await login('lead@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   const act = (who, body) => who('POST', `/cases/${id}/actions`, body);
   const allowed = async (who) => (await who('GET', `/cases/${id}`)).data.case.allowed_actions;
 
@@ -811,6 +832,7 @@ test('governance marks files for QC, requests recordings after verification, add
 
   // Declining needs a reason
   const id2 = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id2);
   await proc('POST', `/cases/${id2}/actions`, { action: 'complete' });
   await gov('POST', `/cases/${id2}/actions`, { action: 'request_recording', note: 'Sample check' });
   assert.equal((await bh('POST', `/cases/${id2}/actions`, { action: 'decline_recording' })).status, 400);
@@ -857,6 +879,7 @@ test('while verification is pending, recordings cannot be retrieved; governance 
   const gov = await login('gov@t.local');
   const lead = await login('lead@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   const act = (who, body) => who('POST', `/cases/${id}/actions`, body);
   const allowed = async (who) => (await who('GET', `/cases/${id}`)).data.case.allowed_actions;
 
@@ -1180,6 +1203,7 @@ test('a call-back request takes a date and time and alerts the processor when it
   const proc = await login('proc@t.local');
   const proc2 = await login('proc2@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   const log = (body) => proc('POST', `/cases/${id}/actions`, { action: 'log_call', ...body });
   // Call back later needs a time, in the future and within 30 days.
   assert.match((await log({ outcome: 'call_back_later' })).data.error, /date and time/);
@@ -1238,6 +1262,7 @@ test('changing verified product details after verification sends the file back f
   const proc = await login('proc@t.local');
   const lead = await login('lead@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   // Before verification, edits never trigger anything.
   let r = await lead('PUT', `/cases/${id}`, { loan_amount: 160000 });
   assert.equal(r.data.case.status, 'pending_verification');
@@ -1278,6 +1303,7 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   const gov = await login('gov@t.local');
   const data = { ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', salary: 28500 };
   const id = (await sales('POST', '/cases', data)).data.case.id;
+  await tlOk(id);
   const c = (await proc('GET', `/cases/${id}`)).data.case;
   assert.deepEqual([c.phone, c.alt_phone], ['+••• •• ••• 4567', '••••••4567']);
   assert.deepEqual(c.masked_fields, ['phone', 'alt_phone', 'salary']);
@@ -1320,6 +1346,7 @@ test('chat: case discussions with @mentions, direct messages, team groups, overs
   const lead = await login('lead@t.local');
   const gov = await login('gov@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
 
   // Case discussion: anyone who can see the case can post; a mention notifies that person.
   let r = await proc('POST', `/cases/${id}/messages`, { body: '@Sally can you confirm the employer name?' });

@@ -399,7 +399,7 @@ function governance(db, user, { period, region }) {
     if (c.incomplete_reason === 'customer_in_dncr') r.dncr++;
     if (c.card_salary_exception === 'deviation') r.deviations++;
     if (c.card_salary_exception === 'promotion') r.promotions++;
-    if (c.status === 'awaiting_approval') r.card_approvals_waiting++;
+    if (c.status === 'awaiting_approval' && c.credit_card && c.card_min_salary != null && !c.card_salary_exception && (c.salary == null || c.salary < c.card_min_salary)) r.card_approvals_waiting++;
     if (c.card_higher_options > 0) r.below_eligibility++;
   }
   for (const e of extra) {
@@ -456,7 +456,7 @@ function access(db, user, { period, region }) {
   };
 }
 
-const VERIFICATION_LABELS = { awaiting_approval: 'Awaiting TL/SM approval', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
+const VERIFICATION_LABELS = { awaiting_approval: 'With team leader', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
 const REGISTER_LIMIT = 5000;
 function register(db, user, { period, region }) {
   sweepCardAgeing(db);
@@ -473,7 +473,7 @@ function register(db, user, { period, region }) {
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',
       verification: VERIFICATION_LABELS[c.status] || c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || c.tat_held_at || '',
       case_status: CASE_STATUS[c.case_status] || c.case_status, case_status_at: c.case_status_at || '', disbursed_aed: (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0) || null,
-      card_reason: c.card_salary_exception ? CARD_EXCEPTIONS[c.card_salary_exception] : (c.status === 'awaiting_approval' ? 'Awaiting approval' : ''), eligible_category: c.card_higher_options > 0 ? c.card_eligible_category : '',
+      card_reason: c.card_salary_exception ? CARD_EXCEPTIONS[c.card_salary_exception] : (c.status === 'awaiting_approval' && c.credit_card && c.card_min_salary != null && (c.salary == null || c.salary < c.card_min_salary) ? 'Awaiting approval' : ''), eligible_category: c.card_higher_options > 0 ? c.card_eligible_category : '',
       card_status: c.card_status ? CARD_STATES[c.card_status] : (c.case_status === 'completed' && includesCard(c) ? 'Not mapped' : ''), card_date: c.card_activation_date || '',
       qc_score: c.qc_score ?? null, complaint: c.complaint_number || '', source: c.source || '',
     };
@@ -489,13 +489,13 @@ function register(db, user, { period, region }) {
   };
 }
 
-const STATUS_WORDS = { awaiting_approval: 'Awaiting TL/SM approval', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
+const STATUS_WORDS = { awaiting_approval: 'With team leader', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
 const CASE_COLS = [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text')];
 const caseCells = (c) => ({ ref: caseRef(c.id), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, sales_staff: c.sales_staff_name || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '' });
 
 /** Credit cards sold below the salary requirement: deviations, promotions and files still awaiting approval. */
 function card_exceptions(db, user, { period, region }) {
-  const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?', "(c.card_salary_exception IS NOT NULL OR c.status = 'awaiting_approval')"], [period.from, period.to]);
+  const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?', "(c.card_salary_exception IS NOT NULL OR (c.status = 'awaiting_approval' AND c.credit_card IS NOT NULL AND c.card_min_salary IS NOT NULL AND c.card_salary_exception IS NULL AND COALESCE(c.salary, 0) < c.card_min_salary))"], [period.from, period.to]);
   const rows = db.prepare(`SELECT c.*, ceb.name AS decided_by, ceb.role AS decided_role FROM cases c LEFT JOIN users ceb ON ceb.id = c.card_exception_by ${sql} ORDER BY c.sourcing_date DESC, c.id DESC`).all(...params);
   const out = rows.map((c) => ({
     ...caseCells(c), card: c.credit_card || '', category: c.card_category || '', min_salary: c.card_min_salary,

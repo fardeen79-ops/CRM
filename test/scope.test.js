@@ -44,6 +44,13 @@ async function login(email) {
     return { status: r.status, data: await r.json() };
   };
 }
+
+/** The team leader validates a sales submission so it reaches verification. */
+async function tlOk(id, who = 'tl@t.local') {
+  const r = await (await login(who))('POST', `/cases/${id}/actions`, { action: 'validate' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  return r.data.case;
+}
 const file = (name, region = 'DXB') => ({ customer_name: name, region, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan', auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 4, al_tenure: 48 });
 const names = (list) => list.map((c) => c.customer_name).sort();
 
@@ -260,15 +267,17 @@ test('a card below the salary requirement needs a reason or team approval; a hig
   const noSalary = await dana('POST', '/cases', card({}));
   assert.equal(noSalary.status, 400);
   assert.match(noSalary.data.error, /salary.*30,000/);
-  // Salary meets the requirement: straight to verification.
+  // Salary meets the requirement: no approval needed, so it waits only for the team leader's validation.
   const fine = await dana('POST', '/cases', card({ salary: 32000 }));
   assert.equal(fine.status, 201, JSON.stringify(fine.data));
-  assert.equal(fine.data.case.status, 'pending_verification');
+  assert.equal(fine.data.case.status, 'awaiting_approval');
+  assert.ok(!fine.data.case.events.some((e) => e.type === 'card_approval_requested'));
   assert.equal(fine.data.case.card_min_salary, 30000);
-  // Below with a reason: goes for verification, the reason recorded against the sales person.
+  // Below with a reason: no card approval needed (it waits only for the team leader's validation), the reason recorded against the sales person.
   const promo = await dana('POST', '/cases', card({ salary: 9000, card_salary_exception: 'promotion', card_exception_note: 'Oct campaign' }));
   assert.equal(promo.status, 201, JSON.stringify(promo.data));
-  assert.deepEqual([promo.data.case.status, promo.data.case.card_salary_exception, promo.data.case.card_exception_by_name, promo.data.case.card_exception_note], ['pending_verification', 'promotion', 'Dana', 'Oct campaign']);
+  assert.deepEqual([promo.data.case.status, promo.data.case.card_salary_exception, promo.data.case.card_exception_by_name, promo.data.case.card_exception_note], ['awaiting_approval', 'promotion', 'Dana', 'Oct campaign']);
+  assert.ok(!promo.data.case.allowed_actions?.includes('approve_card'));
   assert.ok(promo.data.case.events.some((e) => e.type === 'card_exception'));
   assert.equal((await dana('POST', '/cases', card({ salary: 9000, card_salary_exception: 'discount' }))).status, 400);
   // Below with no reason: waits for the team, invisible to processors, and the team is told.
@@ -279,7 +288,7 @@ test('a card below the salary requirement needs a reason or team approval; a hig
   assert.ok(!(await proc('GET', '/cases?status=pending_verification')).data.cases.some((c) => c.id === id));
   assert.equal((await proc('POST', `/cases/${id}/actions`, { action: 'claim' })).status, 409);
   assert.ok((await tl('GET', '/notifications')).data.items.some((n) => /Approval needed/.test(n.message) && n.case_id === id));
-  assert.equal((await tl('GET', '/stats')).data.card_approvals, 1);
+  assert.ok((await tl('GET', '/stats')).data.card_approvals >= 1, 'the To validate count carries every file waiting with the team');
   assert.ok((await sm('GET', '/cases?status=awaiting_approval')).data.cases.some((c) => c.id === id));
   // The sales person can still add the reason themselves, which releases the file.
   const self = await dana('PUT', `/cases/${id}`, { card_salary_exception: 'deviation' });

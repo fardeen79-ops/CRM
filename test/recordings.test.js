@@ -96,6 +96,7 @@ test('a folder of recordings: the calls for the customer, newest first, with the
   const r = await sally('POST', '/cases', { region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   const id = r.data.case.id;
+  assert.equal((await (await login('tl@t.local'))('POST', `/cases/${id}/actions`, { action: 'validate' })).status, 200, 'the team leader validates it first');
   assert.equal((await sally('GET', `/cases/${id}`)).data.case.calls_lookup, null, 'sales staff cannot look calls up');
   assert.equal((await sally('GET', `/cases/${id}/calls`)).status, 403);
   assert.equal((await mis('GET', `/cases/${id}/calls`)).status, 403, 'MIS neither');
@@ -155,6 +156,7 @@ test('an HTTP recording API: the list is mapped and the audio fetched with the t
   const r = await sally('POST', '/cases', { region: 'DXB', phone: '050 333 4444', alt_phone: '+971 50 999 8888', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   const id = r.data.case.id;
+  assert.equal((await (await login('tl@t.local', pbxBase))('POST', `/cases/${id}/actions`, { action: 'validate' })).status, 200);
   const pam = await login('proc@t.local', pbxBase); const head = await login('head@t.local', pbxBase);
   assert.equal((await pam('POST', `/cases/${id}/actions`, { action: 'claim' })).status, 200);
   assert.equal((await pam('POST', `/cases/${id}/actions`, { action: 'complete', note: 'Customer confirmed' })).status, 200);

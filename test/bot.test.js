@@ -61,6 +61,13 @@ async function login(email) {
   };
 }
 
+/** The team leader validates a sales submission so it reaches verification. */
+async function tlOk(id, who = 'lead@t.local') {
+  const r = await (await login(who))('POST', `/cases/${id}/actions`, { action: 'validate' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  return r.data.case;
+}
+
 // Posts a result to the callback URL the way the bot would, signed unless told otherwise.
 async function botResult(url, payload, { signature } = {}) {
   const body = JSON.stringify(payload);
@@ -97,6 +104,7 @@ test('bot call: only the verification team leader asks, and governance and a bus
   const gina = await login('gov@t.local');
   const boss = await login('bh@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   const before = botRequests.length;
 
   let r = await proc('GET', `/cases/${id}`);
@@ -142,6 +150,8 @@ test('bot call: declined or withdrawn requests are never dialled; approved calls
   const before = botRequests.length;
 
   let id = (await sales('POST', '/cases', newCase)).data.case.id;
+
+  await tlOk(id);
   await vera('POST', `/cases/${id}/actions`, { action: 'bot_call', note: 'Try the bot' });
   assert.equal((await boss('POST', `/cases/${id}/actions`, { action: 'decline_bot_call' })).status, 400, 'declining needs a reason');
   let r = await boss('POST', `/cases/${id}/actions`, { action: 'decline_bot_call', note: 'VIP customer: call personally' });
@@ -151,6 +161,8 @@ test('bot call: declined or withdrawn requests are never dialled; approved calls
   assert.ok((await vera('GET', `/cases/${id}`)).data.case.allowed_actions.includes('bot_call'), 'can be asked for again');
 
   id = (await sales('POST', '/cases', newCase)).data.case.id;
+
+  await tlOk(id);
   await vera('POST', `/cases/${id}/actions`, { action: 'bot_call', note: 'Try the bot' });
   r = await vera('POST', `/cases/${id}/actions`, { action: 'withdraw_bot_call' });
   assert.equal(r.data.case.bot_call_status, 'withdrawn');
@@ -158,6 +170,7 @@ test('bot call: declined or withdrawn requests are never dialled; approved calls
 
   // Approved at 22:00 UAE time: held until the calling window opens.
   id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   const realNow = timing.now;
   timing.now = () => Date.parse('2026-10-05T18:00:00Z');
   try {
@@ -177,6 +190,7 @@ test('bot call: signed result, logged on the case; with default rules the proces
   const sales = await login('sales@t.local');
   const proc = await login('proc@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   await proc('POST', `/cases/${id}/actions`, { action: 'claim' });
   const r0 = await pushBotCall(id);
   assert.equal(r0.data.case.bot_call_status, 'requested');
@@ -234,6 +248,7 @@ test('bot call: a refused request fails the call and tells the verification team
   const sales = await login('sales@t.local');
   const vera = await login('vlead@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
+  await tlOk(id);
   botAnswer = 503;
   try {
     const r = await pushBotCall(id);

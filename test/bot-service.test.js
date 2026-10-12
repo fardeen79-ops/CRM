@@ -76,6 +76,13 @@ async function login(email) {
   };
 }
 
+/** The team leader validates a sales submission so it reaches verification. */
+async function tlOk(id, who = 'lead@t.local') {
+  const r = await (await login(who))('POST', `/cases/${id}/actions`, { action: 'validate' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  return r.data.case;
+}
+
 // A webhook from "Twilio" to the bot, signed the way Twilio signs it.
 async function hook(path, params) {
   const r = await fetch(`${botBase}${path}`, {
@@ -175,6 +182,7 @@ test('the bot calls, holds the conversation and completes the verification', asy
   const sales = await login('sales@t.local');
   const pam = await login('proc@t.local');
   const id = (await sales('POST', '/cases', newCase())).data.case.id;
+  await tlOk(id);
 
   const r = await pushBotCall(id);
   assert.equal(r.data.case.bot_call_status, 'requested');
@@ -228,6 +236,7 @@ test('a detail that does not match goes to the team leader', async () => {
   const pam = await login('proc@t.local');
   const lead = await login('lead@t.local');
   const id = (await sales('POST', '/cases', newCase({ first_name: 'Ravi', last_name: 'Menon' }))).data.case.id;
+  await tlOk(id);
   await pushBotCall(id);
   await converse(dialled.at(-1), ['yes', 'yes', 'Ravi Menon', 'personal loan', 'Emirates Steel', '12000', '12000']);
   const c = await until(async () => { const x = (await pam('GET', `/cases/${id}`)).data.case; return x.status === 'incomplete' && x; });
@@ -240,6 +249,7 @@ test('after the set number of unanswered bot calls the file goes to the team lea
   const sales = await login('sales@t.local');
   const pam = await login('proc@t.local');
   const id = (await sales('POST', '/cases', newCase({ first_name: 'Lina', last_name: 'Saeed', phone: '0559876543' }))).data.case.id;
+  await tlOk(id);
 
   // Nobody answers the first call.
   await pushBotCall(id);
@@ -263,6 +273,7 @@ test('after the set number of unanswered bot calls the file goes to the team lea
 test('the bot service explains why it cannot call', async () => {
   const sales = await login('sales@t.local');
   const id = (await sales('POST', '/cases', newCase({ first_name: 'Tom', last_name: 'Lee', phone: '0500000000' }))).data.case.id;
+  await tlOk(id);
   const r = await pushBotCall(id);
   assert.equal(r.data.case.bot_call_status, 'failed');
   assert.equal(r.data.case.bot_call.error, "Twilio refused the call: The 'To' number is not a valid phone number.");
@@ -277,6 +288,7 @@ test('with the AI on, a paraphrased answer is understood; AI-confirmed details c
 
   const call = async (first) => {
     const id = (await sales('POST', '/cases', newCase({ first_name: first, last_name: 'Karim' }))).data.case.id;
+    await tlOk(id);
     await pushBotCall(id);
     await converse(dialled.at(-1), ['yes', 'yes', `${first} Karim`, 'personal loan', 'the steel company in Abu Dhabi', '25000']);
     return until(async () => { const x = (await vera('GET', `/cases/${id}`)).data.case; return x.bot_call?.status === 'completed' && x; });

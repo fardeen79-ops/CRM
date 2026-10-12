@@ -85,6 +85,13 @@ async function login(email) {
   };
 }
 
+/** The team leader validates a sales submission so it reaches verification. */
+async function tlOk(id, who = 'lead@t.local') {
+  const r = await (await login(who))('POST', `/cases/${id}/actions`, { action: 'validate' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  return r.data.case;
+}
+
 async function pushBotCall(id) {
   for (const [email, body] of [['vlead@t.local', { action: 'bot_call', note: 'Customer did not pick up our calls' }], ['gov@t.local', { action: 'approve_bot_call' }], ['bh@t.local', { action: 'approve_bot_call' }]]) {
     const r = await (await login(email))('POST', `/cases/${id}/actions`, body);
@@ -110,6 +117,7 @@ const newCase = (over = {}) => ({ fpd: new Date(Date.now() + 30 * 864e5).toISOSt
 async function fileFor(sales, over) {
   const r = await sales('POST', '/cases', newCase(over));
   assert.ok(r.status < 300, JSON.stringify(r.data));
+  await tlOk(r.data.case.id);
   return r.data.case.id;
 }
 

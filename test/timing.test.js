@@ -38,6 +38,13 @@ async function login(email) {
   };
 }
 
+/** The team leader validates a sales submission so it reaches verification. */
+async function tlOk(id, who = 'tl2@t.local') {
+  const r = await (await login(who))('POST', `/cases/${id}/actions`, { action: 'validate' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  return r.data.case;
+}
+
 
 const UAE = (iso) => Date.parse(iso) - 4 * 3600e3; // a UAE wall-clock time as an instant
 const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
@@ -49,7 +56,7 @@ test('a file sourced on a Sunday waits for the team leader or sales manager befo
   const proc = await login('proc@t.local');
   timing.now = () => UAE('2026-10-05T10:00:00'); // Monday morning
   const normal = (await cara('POST', '/cases', loan({ sourcing_date: '2026-10-05' }))).data.case;
-  assert.deepEqual([normal.status, normal.timing_flag], ['pending_verification', null]);
+  assert.deepEqual([normal.status, normal.timing_flag], ['awaiting_approval', null]); // with the team leader, no timing flag
   const sunday = (await cara('POST', '/cases', loan({ sourcing_date: '2026-10-04' }))).data.case;
   assert.deepEqual([sunday.status, sunday.timing_flag], ['awaiting_approval', 'sunday']);
   assert.ok(sunday.events.some((e) => e.type === 'timing_flagged' && /Sunday/.test(e.detail)));
@@ -67,7 +74,7 @@ test('a file entered after 6 pm is flagged; the team can return it and it waits 
   const cara = await login('cara@t.local');
   const sm = await login('sm1@t.local');
   timing.now = () => UAE('2026-10-05T17:59:00');
-  assert.equal((await cara('POST', '/cases', loan({ sourcing_date: '2026-10-05' }))).data.case.status, 'pending_verification');
+  assert.equal((await cara('POST', '/cases', loan({ sourcing_date: '2026-10-05' }))).data.case.timing_flag, null);
   timing.now = () => UAE('2026-10-05T18:00:00');
   const late = (await cara('POST', '/cases', loan({ sourcing_date: '2026-10-05' }))).data.case;
   assert.deepEqual([late.status, late.timing_flag], ['awaiting_approval', 'after_hours']);
@@ -145,6 +152,7 @@ test('a file marked Customer in DNCR carries a permission email to the customer,
   timing.now = () => UAE('2026-10-05T10:00:00');
   const c = (await cara('POST', '/cases', { region: 'DXB', core_product: 'credit_card', first_name: 'Hind', last_name: 'Saeed', email: 'hind@example.com', phone: '+971 50 777 1234', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' })).data.case;
   assert.equal('dncr_email' in c, false);
+  await tlOk(c.id);
   assert.equal((await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' })).status, 200);
   const marked = (await proc('POST', `/cases/${c.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'Number is on the DNCR' })).data.case;
   assert.equal(marked.status, 'incomplete');
@@ -170,6 +178,7 @@ test('a file carries a salutation, used on the file and in the customer email', 
   assert.equal((await cara('POST', '/cases', { ...base, salutation: 'Sir' })).status, 400);
   const c = (await cara('POST', '/cases', { ...base, salutation: 'Ms' })).data.case;
   assert.deepEqual([c.salutation, c.customer_name], ['Ms', 'Noura Al Ali']);
+  await tlOk(c.id);
   await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' });
   await proc('POST', `/cases/${c.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'On the register' });
   assert.match((await proc('GET', `/cases/${c.id}`)).data.case.dncr_email.body, /^Dear Ms Al Ali,/);

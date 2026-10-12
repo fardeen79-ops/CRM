@@ -42,6 +42,13 @@ async function login(email) {
   };
 }
 
+/** The team leader validates a sales submission so it reaches verification. */
+async function tlOk(id, who = 'tl@t.local') {
+  const r = await (await login(who))('POST', `/cases/${id}/actions`, { action: 'validate' });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  return r.data.case;
+}
+
 
 const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
 const loan = (extra = {}) => ({ region: 'DXB', core_product: 'personal_loan', customer_name: 'Alloc Test', phone: '+971 50 222 3333', city: 'Dubai', salary: 15000, source: 'Walk-in', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd, sourcing_date: '2026-10-05', ...extra });
@@ -50,7 +57,8 @@ test('a processor can complete verification on a deviation, with a mandatory not
   const dana = await login('dana@t.local');
   const pat = await login('pat@t.local');
   const c = (await dana('POST', '/cases', loan())).data.case;
-  assert.equal(c.status, 'pending_verification');
+  assert.equal(c.status, 'awaiting_approval');
+  await tlOk(c.id);
   assert.ok((await pat('GET', `/cases/${c.id}`)).data.case.allowed_actions.includes('complete_deviation'));
   assert.equal((await pat('POST', `/cases/${c.id}/actions`, { action: 'complete_deviation' })).status, 400);
   const done = (await pat('POST', `/cases/${c.id}/actions`, { action: 'complete_deviation', note: 'Customer abroad; employer HR confirmed the details in writing' })).data.case;
@@ -81,6 +89,7 @@ test('the verification team leader allocates processors to sales team leaders; t
   // Cara (TL Two's team) sources a loan: Pat sees and claims it, Omar cannot, Vera sees everything.
   const c = (await cara('POST', '/cases', loan({ customer_name: 'Routed File' }))).data.case;
   const d = (await dana('POST', '/cases', loan({ customer_name: 'Shared File', phone: '+971 50 222 4444' }))).data.case;
+  await tlOk(c.id, 'tl2@t.local'); await tlOk(d.id);
   const ids_of = (r) => r.data.cases.map((x) => x.id);
   assert.ok(ids_of(await pat('GET', '/cases?status=pending_verification')).includes(c.id));
   assert.ok(!ids_of(await omar('GET', '/cases?status=pending_verification')).includes(c.id));
