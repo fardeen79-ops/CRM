@@ -3846,7 +3846,7 @@ async function viewPnl(params = new URLSearchParams()) {
       <p class="muted small">Revenue is what the bank pays on files completed in the cycle, at the payout rates. Incentives are the amounts the schemes work out for the cycle; where an actual incentive was uploaded with the salary it is used instead. Both are before the 60% next-cycle condition and the bank's data cut.</p>
     </div>
     <div class="card"><div class="card-head"><h2>By region and team · ${p.label}</h2><a class="tiles-link" href="#/reports?report=pnl_hierarchy&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}">Download →</a></div>
-      <p class="muted small">Revenue follows the team on each completed file. Salaries and incentives follow the people: a team leader's at the team leader line, a sales manager's at the manager line, business heads, processing, MIS, governance and IT as the region's overheads. Click a row to open or close it.</p>
+      <p class="muted small">Revenue follows the team on each completed file. Sales executives' costs sit in their own region. Everyone else is split across regions by SE count: a team leader, ASM or sales manager by the regions of their own SEs, and business heads, processing, MIS, governance and IT (the overheads line) by the business's SE count per region. Headcounts on a region's lines are therefore fractions of a person. Click a row to open or close it.</p>
       <div class="table-wrap"><table class="pnl tree">
         <thead><tr><th>Region · manager · team · staff</th><th class="num">People</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Salaries</th><th class="num">Incentives</th><th class="num">Net</th><th class="num">Margin</th></tr></thead>
         <tbody>${pnlTreeRows(tree.tree)}

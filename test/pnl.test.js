@@ -85,12 +85,13 @@ test('the profit and loss follows region and hierarchy: region → sales manager
   assert.deepEqual([tl.revenue, tl.headcount, tl.salary_estimated, tl.net], [875, 2, 0, -4225]);
   assert.deepEqual([sm.revenue, sm.headcount], [875, 3]);
   const oh = dxb.children.find((n) => n.kind === 'overheads');
-  // Pat (processing), Mira (MIS, 7,000 uploaded) and Bilal (20,000 uploaded) are the region's overheads.
-  assert.deepEqual([oh.headcount, oh.salary_paid, oh.revenue], [3, 27000, 0]);
+  // Pat (processing), Mira (MIS, 7,000 uploaded), Bilal (20,000 uploaded) and Gina (no region, no salary) are the
+  // overheads; all of them follow the business's SEs, who are all in Dubai.
+  assert.deepEqual([oh.headcount, oh.salary_paid, oh.revenue], [4, 27000, 0]);
   assert.deepEqual([dxb.revenue, dxb.costs, dxb.net], [875, 32100, -31225]);
   assert.deepEqual([total.net, total.headcount], [-31225, 7]);
-  // Gina has no region: she sits under "No region set"; the region filter drops her.
-  assert.ok(tree.find((n) => n.key === 'NONE')?.children.some((n) => n.kind === 'overheads'));
+  // Gina has no region of her own, but overheads follow the SEs, so there is no "No region set" bucket.
+  assert.equal(tree.find((n) => n.key === 'NONE'), undefined);
   assert.equal((await head('GET', `/pnl?cycle=${cycle}&region=DXB`)).data.tree.tree.length, 1);
   const rep = (await head('GET', `/reports/pnl_hierarchy?cycle=${cycle}`)).data;
   assert.deepEqual(rep.rows.slice(0, 4).map((r) => [r.level, r.name]), [['Region', 'DXB (Dubai)'], ['Sales manager', 'SM One'], ['Team leader', 'TL Dubai'], ['Staff', 'Dana']]);
