@@ -495,7 +495,7 @@ test('staff master shapes from the real list: a manager leading a team, a team w
     'Amal Asm,L7003,amal.asm@t.local,Assistant sales manager,,,,,AUH,,,praveen.lead@t.local,,,,',
     'Praveen Lead,L7001,praveen.lead@t.local,Sales manager,,,,,AUH,,,,,,,',
     'Direct Report,7001,hrms7001@t.local,Sales,,,2025-01-15,,AUH,P-1,praveen.lead@t.local,praveen.lead@t.local,,5000,Credit Cards,',
-    'No Manager,7002,hrms7002@t.local,Sales,,,2025-02-15,,DXB,R-1,raji.lead@t.local,,,4500,Auto Loans,',
+    'No Manager,7002,hrms7002@t.local,Sales,,,2025-02-15,,DXB,R-1,raji.lead@t.local,N/A,-,4500,Auto Loans,',
     'Multi Seller,7003,hrms7003@t.local,Sales,,,2025-03-15,,DXB,R-2,raji.lead@t.local,,,6000,Multi product,',
     'No Code,,nocode@t.local,Sales,,,2025-03-15,,DXB,R-3,raji.lead@t.local,,,6000,Credit Cards,',
   ].join('\n');
@@ -513,7 +513,8 @@ test('staff master shapes from the real list: a manager leading a team, a team w
   assert.equal(amal.sales_manager_id, praveen.id);
   assert.equal(direct.team_leader_id, praveen.id);
   assert.equal(direct.sales_manager_id, praveen.id);
-  assert.equal(users.find((u) => u.sales_code === 'R-1').sales_manager_id, null);
+  assert.equal(users.find((u) => u.sales_code === 'R-1').sales_manager_id, null); // "N/A" in the sheet is an empty cell
+  assert.equal(users.find((u) => u.sales_code === 'R-1').asm_id, null); // and so is "-"
   // The manager sees the file of the staff member they lead directly, through either field.
   const as = async (email, password) => {
     const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });

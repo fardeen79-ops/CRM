@@ -196,6 +196,8 @@ function mapHeader(header, columns) {
   return { positions, missing, unknown };
 }
 
+const BLANK_WORDS = new Set(['-', '--', '—', '–', 'na', 'n/a', 'n.a.', 'none', 'nil', 'null', 'nan']);
+const NAME_KEYS = new Set(['name', 'first_name', 'middle_name', 'last_name', 'customer_name', 'company_name', 'car_make', 'car_model', 'bank', 'buyout_bank']);
 function readFile(csv, columns) {
   const rows = parseCsv(csv);
   const headerAt = rows.findIndex((r) => r.some((c) => c.trim()));
@@ -208,7 +210,9 @@ function readFile(csv, columns) {
   const records = [];
   rows.slice(headerAt + 1).forEach((cells, i) => {
     if (!cells.some((c) => c.trim())) return;
-    const values = Object.fromEntries(Object.entries(positions).map(([key, at]) => [key, (cells[at] ?? '').trim()]));
+    // A cell that says "-", "NA", "N/A", "none", "nil" or "null" is an empty cell: spreadsheets are
+    // often filled that way for a sales manager or ASM a person does not have. Names are left as typed.
+    const values = Object.fromEntries(Object.entries(positions).map(([key, at]) => { const v = (cells[at] ?? '').trim(); return [key, !NAME_KEYS.has(key) && BLANK_WORDS.has(v.toLowerCase()) ? '' : v]; }));
     records.push({ line: headerAt + i + 2, cells, values });
   });
   if (!records.length) throw new WorkflowError(400, 'The file has a header row but no data rows');
