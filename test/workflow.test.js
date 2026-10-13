@@ -289,10 +289,18 @@ test('sourcing type: Regular by default; Fixed Deposit only for credit cards and
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'], ...pl, sourcing_type: 'fixed_deposit' })).status, 400);
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'gold' })).status, 400);
 
-  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit' });
-  assert.equal(r.status, 201);
+  // Fixed Deposit sourcing needs the deposit's amount.
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit', fd_amount: 0 })).status, 400);
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit', fd_amount: '2,50,000' });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.case.sourcing_type, 'fixed_deposit');
-  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['credit_card', 'personal_loan'], credit_card: 'Skywards Infinite Credit Card', salary: 40000, ...pl, sourcing_type: 'fixed_deposit' });
+  assert.equal(r.data.case.fd_amount, 250000);
+  // Back to Regular, the amount clears.
+  assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { sourcing_type: 'regular' })).data.case.fd_amount, null);
+  r = await sales('PUT', `/cases/${r.data.case.id}`, { sourcing_type: 'fixed_deposit', fd_amount: 300000 });
+  assert.equal(r.data.case.fd_amount, 300000);
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['credit_card', 'personal_loan'], credit_card: 'Skywards Infinite Credit Card', salary: 40000, ...pl, sourcing_type: 'fixed_deposit', fd_amount: 500000 });
   assert.equal(r.status, 201);
 
   // A Fixed Deposit file cannot be switched to another product, and an auto loan cannot become Fixed Deposit.

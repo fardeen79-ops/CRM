@@ -448,7 +448,7 @@ The API fields are `region`, `core_product` and, for team leaders and sales mana
 
 ### Customer details
 
-The Employment section records the customer's **designation** (job title), **department** and **date of joining** the current employer, all optional (the date cannot be in the future); the Product section records the **journey type**, Emirates ID or UAE Pass (how the application was made), required on every new file and in the cases upload; they show on the case page and in the register export, and are columns in the cases bulk upload. It also records the bank the customer's **salary is currently transferred to**, chosen from the bank list (with an Other option), required on the form; it shows on the case page and in the register export, and is a column in the cases bulk upload.
+The Employment section records the customer's **designation** (job title), **department** and **date of joining** the current employer, all optional (the date cannot be in the future); the Product section records the **journey type**, Emirates ID or UAE Pass (how the application was made), required on every new file and in the cases upload, and on **Fixed Deposit** sourcing the **fixed deposit amount** (AED, required; shown on the case page and in the register; the upload takes *Sourcing type* and *Fixed deposit amount (AED)* columns); they show on the case page and in the register export, and are columns in the cases bulk upload. It also records the bank the customer's **salary is currently transferred to**, chosen from the bank list (with an Other option), required on the form; it shows on the case page and in the register export, and is a column in the cases bulk upload.
 
 
 The case form groups the customer's details:

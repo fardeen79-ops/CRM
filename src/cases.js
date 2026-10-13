@@ -593,7 +593,7 @@ const VERIFIED_FIELD_LABELS = {
 // The card's category and points, copied from the product list when the card is chosen.
 const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points', 'card_min_salary'];
 const EDITABLE_FIELDS = [
-  ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'customer_doj', 'region', 'core_product',
+  ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'customer_doj', 'fd_amount', 'region', 'core_product',
   ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS, ...CARD_SNAPSHOT_FIELDS, 'card_higher_options', 'card_eligible_category',
 ];
 /** Category and points for the card on a file (null when it has no card). */
@@ -700,6 +700,12 @@ function validateProduct(input, current, out) {
     throw new WorkflowError(400, 'Fixed Deposit sourcing is only for Credit Card and Personal Loan');
   }
   out.sourcing_type = sourcing;
+  // The fixed deposit the card or loan is sourced against: its amount, required on Fixed Deposit sourcing.
+  if (sourcing === 'fixed_deposit') {
+    const raw = 'fd_amount' in input ? input.fd_amount : current?.fd_amount;
+    if (raw == null || String(raw).trim() === '') throw new WorkflowError(400, 'Enter the fixed deposit amount (AED)');
+    out.fd_amount = parseNumber(raw, 'Fixed deposit amount', { required: true, positive: true });
+  } else out.fd_amount = null;
 
   const includes = (p) => product === p || String(out.bundle_products).split(',').includes(p);
 
@@ -872,7 +878,7 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
     if (!CORE_PRODUCTS[core]) throw new WorkflowError(400, 'Choose the core product: Credit Card, Personal Loan, Auto Loan or Multi product');
     out.core_product = core;
   }
-  if (!partial || PRODUCT_FIELDS.some((f) => f in input) || 'sourcing_type' in input) validateProduct(input, current, out);
+  if (!partial || PRODUCT_FIELDS.some((f) => f in input) || 'sourcing_type' in input || 'fd_amount' in input) validateProduct(input, current, out);
   return out;
 }
 

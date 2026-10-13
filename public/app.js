@@ -1455,6 +1455,9 @@ async function viewCaseForm(id, leadId = null) {
             </select>
             <div class="muted small" id="sourcing-hint" ${c.sourcing_type === 'fixed_deposit' ? '' : raw('hidden')}>Fixed Deposit is only for Credit Card and Personal Loan.</div>
           </div>
+          <div id="fd-amount-field" ${c.sourcing_type === 'fixed_deposit' ? '' : raw('hidden')}>
+            ${field('fd_amount', 'Fixed deposit amount (AED)', { type: 'number', attrs: money + (c.sourcing_type === 'fixed_deposit' ? ' required' : ' disabled'), hint: 'The deposit the card or loan is sourced against' })}
+          </div>
           <div class="full">
             <label for="f-journey_type">Journey type <span class="req">*</span></label>
             <select id="f-journey_type" name="journey_type" required style="max-width:320px">
@@ -1719,6 +1722,8 @@ async function viewCaseForm(id, leadId = null) {
     const fd = sourcingSelect.value === 'fixed_deposit';
     const allowed = (p) => !fd || state.meta.fixed_deposit_products.includes(p);
     $('#sourcing-hint').hidden = !fd;
+    $('#fd-amount-field').hidden = !fd;
+    const fdInput = $('#f-fd_amount'); fdInput.disabled = !fd; fdInput.required = fd; if (!fd) fdInput.value = '';
     for (const o of productSelect.options) if (o.value && o.value !== 'bundle') o.disabled = !allowed(o.value);
     if (productSelect.value && productSelect.value !== 'bundle' && !allowed(productSelect.value)) productSelect.value = '';
     boxes.forEach((b) => { b.disabled = !allowed(b.value); if (b.disabled) b.checked = false; b.closest('label').classList.toggle('muted', b.disabled); });
@@ -2373,6 +2378,7 @@ async function viewCase(id) {
           <h2 class="sub">Product</h2>
           <dl class="details">
             ${row('Sourcing type', state.meta.sourcing_types[c.sourcing_type || 'regular'])}
+            ${c.sourcing_type === 'fixed_deposit' ? html`<dt>Fixed deposit</dt><dd><strong>${c.fd_amount != null ? `AED ${fmtAmount(c.fd_amount)}` : '—'}</strong></dd>` : ''}
             ${c.journey_type ? row('Journey type', (state.meta.journey_types || {})[c.journey_type] || c.journey_type) : ''}
             ${row('Core product', state.meta.core_products[c.core_product])}
             ${c.payout ? html`<dt>Agency payout</dt><dd><strong>AED ${fmtAmount(c.payout.total)}</strong>${c.payout.parts.length && c.payout.earned !== c.payout.total ? html` <span class="muted">· paid so far AED ${fmtAmount(c.payout.earned)}</span>` : ''}${c.payout.parts.length ? html`<div class="muted small">${c.payout.parts.map((p) => `${p.basis}${p.rate != null ? ` · ${p.rate}% of AED ${fmtAmount(p.amount)}` : ''}: AED ${fmtAmount(p.payout)}`).join(' · ')}</div>` : html`<div class="muted small">No payable product on this file yet</div>`}${c.payout.card && c.payout.card.status !== 'none' ? html`<div class="small"><span class="chip ${c.payout.card.status === 'paid' ? 'good' : c.payout.card.status === 'awaiting' ? 'fair' : 'bad'}">${{ paid: 'Card paid', awaiting: 'Card awaiting activation', not_paid: 'Card not paid' }[c.payout.card.status]}</span> <span class="muted">${c.payout.card.when}. The bank pays a card only once it is activated, within 90 days of the temp end.</span></div>` : ''}</dd>` : ''}
