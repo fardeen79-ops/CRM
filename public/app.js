@@ -1413,6 +1413,8 @@ async function viewCaseForm(id, leadId = null) {
             </select>
           </div>
           ${field('company_name', 'Company name', { placeholder: 'Employer', dictate: true })}
+          ${field('designation', 'Designation', { placeholder: 'Job title', dictate: true })}
+          ${field('customer_doj', 'Date of joining', { type: 'date', hint: 'With the current employer' })}
           ${field('salary', incomeLabels.amount, { type: 'number', attrs: money })}
           <div>
             <label for="f-salary_bank">${incomeLabels.bank} <span class="req">*</span></label>
@@ -2349,6 +2351,8 @@ async function viewCase(id) {
             ${c.alt_phone || hiddenFields.has('alt_phone') ? phoneRow('Alternate phone', 'alt_phone') : ''}
             ${c.customer_type ? html`<dt>Customer type</dt><dd>${state.meta.customer_types[c.customer_type]}</dd>` : ''}
             ${row('Company', c.company_name, false, 'company_name')}
+            ${row('Designation', c.designation)}
+            ${c.customer_doj ? html`<dt>Date of joining</dt><dd><strong>${fmtDay(c.customer_doj)}</strong><div class="muted small">With the current employer</div></dd>` : ''}
             ${row(incomeLabelsFor(c.customer_type).amount.replace(' (AED)', ''), c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
             ${c.salary_bank ? html`<dt>${incomeLabelsFor(c.customer_type).bank}</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
             ${row('Bidaya ID', c.bidaya_id, true)}

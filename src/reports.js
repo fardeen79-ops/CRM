@@ -466,7 +466,7 @@ function register(db, user, { period, region }) {
   const out = rows.slice(0, REGISTER_LIMIT).map((raw) => {
     const c = present(user, raw); // hides and masks personal details exactly as on screen
     return {
-      ref: caseRef(c.id), ...payoutCols(user, raw), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '',
+      ref: caseRef(c.id), ...payoutCols(user, raw), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '', designation: c.designation || '', customer_doj: c.customer_doj || '',
       product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.personal_loan_kind), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
       card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? c.al_interest_rate ?? null, tenure: c.pl_tenure ?? c.al_tenure ?? null, fpd: c.fpd || '',
       auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
@@ -479,7 +479,7 @@ function register(db, user, { period, region }) {
     };
   });
   return {
-    columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'), col('city', 'City', 'text'), col('salary_bank', 'Salary bank', 'text'), col('product', 'Product', 'text'), col('core_product', 'Core product', 'text'),
+    columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'), col('city', 'City', 'text'), col('salary_bank', 'Salary bank', 'text'), col('designation', 'Designation', 'text'), col('customer_doj', 'Date of joining', 'date'), col('product', 'Product', 'text'), col('core_product', 'Core product', 'text'),
       col('card_fee_type', 'Card sourced type', 'text'), col('card_reason', 'Card sold as', 'text'), col('eligible_category', 'Eligible for higher', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest / ROI %', 'rate'), col('tenure', 'Tenure (months)'), col('fpd', 'FPD', 'date'), col('auto_loan_type', 'Auto loan type', 'text'), col('car', 'Car', 'text'), col('dealer', 'Dealer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
       col('verification', 'Verification', 'text'), col('verification_reason', 'Reason', 'text'), col('processor', 'Processor', 'text'), col('verified_at', 'Verified at', 'datetime'), col('case_status', 'Case status', 'text'), col('case_status_at', 'Case status at', 'datetime'), col('disbursed_aed', 'Disbursed (AED)', 'aed'),
       col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text'), ...(canSeePayout(user) ? [col('payout_aed', 'Payout (AED)', 'aed'), col('payout_paid_aed', 'Payout paid (AED)', 'aed'), col('payout_status', 'Payout status', 'text')] : [])],

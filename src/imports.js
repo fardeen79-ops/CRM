@@ -62,6 +62,8 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'alt_phone', header: 'Alternate phone', example: '' },
   { key: 'email', header: 'Customer email', example: 'customer@example.com' },
   { key: 'company_name', header: 'Company name', example: 'Emirates Logistics LLC' },
+  { key: 'designation', header: 'Designation', example: 'Operations Manager', help: "Optional. The customer's job title" },
+  { key: 'customer_doj', header: 'Date of joining', example: '15/03/2021', help: 'Optional. When the customer joined the current employer, DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'salary_bank', header: 'Salary transfer bank', example: 'Emirates NBD', help: 'The bank the salary is currently transferred to' },
   { key: 'salary', header: 'Salary', example: '25000', help: 'Monthly, AED' },
   { key: 'bidaya_id', header: 'Bidaya ID', example: '' },
@@ -277,6 +279,7 @@ function caseInput(v) {
   const input = {
     ...v,
     sourcing_date: parseDate(v.sourcing_date),
+    customer_doj: v.customer_doj ? parseDate(v.customer_doj) : null,
     region: choose(regionKey, REGION_NAMES, 'Region'),
     core_product: choose(v.core_product, CORE_PRODUCTS, 'Core product'),
     product,
