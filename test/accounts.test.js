@@ -251,3 +251,37 @@ test('users added by mistake can be deleted together; anyone with activity or st
   const gone = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'wrong1@t.local', password: PASSWORD }) });
   assert.equal(gone.status, 401);
 });
+
+test('the users upload updates existing people when asked: matched by email or HRMS code, blank cells unchanged', async () => {
+  const mis = await login('mis@t.local');
+  const bina = await login('head2@t.local');
+  const HEADER = 'Full name,HRMS code,Email,Role,Local mobile,WhatsApp number,Date of joining,Date of leaving,Region,Sales code,Team leader email,Sales manager email,Assistant sales manager email,Monthly salary (AED),Core product,Temporary password';
+  // Without the option an existing person is skipped with a hint.
+  const plain = (await mis('POST', '/import/users', { csv: [HEADER, 'Sally Renamed,EN6,sally@t.local,Sales,,,,,DXB,,,,,,,'].join('\n') })).data;
+  assert.equal(plain.failed, 1);
+  assert.match(plain.rows[0].error, /already exists.*Update existing users/);
+  // With it: Sally's name, salary and region change by email; the TL's salary changes by HRMS code; blanks stay.
+  const upd = (await mis('POST', '/import/users', { update: true, csv: [HEADER,
+    'Sally Renamed,,sally@t.local,,,,,,AUH,,,,,6500,,',
+    ',EN5,,,,,,,,,,sm@t.local,,12000,,',
+    'Brand New,EN21,new@t.local,Processing,0501234520,,,,DXB,,,,,4000,,',
+  ].join('\n') })).data;
+  assert.equal(upd.failed, 0, JSON.stringify(upd.rows.filter((r) => !r.ok)));
+  assert.equal(upd.rows.filter((r) => r.updated).length, 2, JSON.stringify(upd.rows));
+  assert.deepEqual(upd.rows[0].changed.sort(), ['name', 'region', 'salary']);
+  assert.deepEqual(upd.rows[1].changed.sort(), ['salary', 'sales manager']);
+  assert.ok(upd.rows[2].temp_password);
+  const users = (await mis('GET', '/users')).data.users;
+  const sally = users.find((u) => u.email === 'sally@t.local');
+  assert.equal(sally.name, 'Sally Renamed'); assert.equal(sally.region, 'AUH'); assert.equal(sally.salary, 6500);
+  assert.equal(sally.sales_code, 'D-1'); assert.equal(sally.team_leader_id, ids['tl@t.local']); assert.equal(sally.core_product, 'credit_card');
+  const tl = users.find((u) => u.email === 'tl@t.local');
+  assert.equal(tl.salary, 12000); assert.equal(tl.sales_manager_id, ids['sm@t.local']);
+  // A business head's salary is not MIS's to change, even by upload; that business head can set their own.
+  const bh = (await mis('POST', '/import/users', { update: true, csv: [HEADER, ',EN7,,,,,,,,,,,,50000,,'].join('\n') })).data;
+  assert.match(bh.rows[0].error, /business head's salary/);
+  assert.equal((await bina('POST', '/import/users', { update: true, csv: [HEADER, ',EN7,,,,,,,,,,,,50000,,'].join('\n') })).data.failed, 0);
+  // A preview changes nothing.
+  (await mis('POST', '/import/users', { update: true, dry_run: true, csv: [HEADER, 'Sally Again,,sally@t.local,,,,,,,,,,,,,'].join('\n') }));
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'sally@t.local').name, 'Sally Renamed');
+});

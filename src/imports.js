@@ -3,15 +3,15 @@
 // and rolls it back; a real import keeps the good rows and reports the rest so they can be fixed
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
-import { ROLES, createUser, tempPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError } from './cases.js';
+import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
 import { isBankPage } from './card-pitch.js';
 import { BANKS } from './banks.js';
 import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
-import { TEAM_LEADER_ROLES, LEADER_LINE_ROLES, hrmsCodeOf } from './users.js';
+import { TEAM_LEADER_ROLES, LEADER_LINE_ROLES, hrmsCodeOf, contactDetails, salesProfile, leaderProfile, salaryOf, regionOf, canSeeSalary, sweepLeavers } from './users.js';
 import { ASSET_ADMINS, ASSET_STATUS, NETWORKS, createAsset, updateAsset, assignAsset, setAssetStatus, assetOf } from './assets.js';
 
 export const MAX_ROWS = 1000;
@@ -485,7 +485,101 @@ export function importPayoutRules(db, user, csv, { dryRun = false } = {}) {
 }
 
 /** Adds users from a CSV file. Team leaders and sales managers in the file are added before sales staff. */
-export function importUsers(db, user, csv, { dryRun = false } = {}) {
+/**
+ * Updates an existing user from an upload row. A blank cell leaves that detail as it is, so a file
+ * with only the columns to change (and the email or HRMS code to match on) is enough. Returns the
+ * names of the details that changed.
+ */
+function updateUserFromRow(db, viewer, target, v) {
+  const given = (f) => v[f] != null && String(v[f]).trim() !== '';
+  const changed = [];
+  const manager = (field, wanted, label) => {
+    if (!given(field)) return undefined;
+    const row = db.prepare('SELECT id, role, active FROM users WHERE email = ? COLLATE NOCASE').get(v[field]);
+    if (!row) throw new Error(`No user with the email ${v[field]} (${label.toLowerCase()})`);
+    if (!wanted.includes(row.role) || !row.active) throw new Error(`${v[field]} is not an active ${label.toLowerCase()}`);
+    if (row.id === target.id) throw new Error(`${label}: a person cannot report to themselves`);
+    return row.id;
+  };
+  const current = db.prepare('SELECT * FROM users WHERE id = ?').get(target.id);
+  // Name, codes, numbers and dates.
+  const contactInput = {};
+  for (const f of ['name', 'hrms_code', 'email', 'mobile_number', 'whatsapp_number', 'doj', 'dol']) if (given(f)) contactInput[f] = v[f];
+  const contact = contactDetails(contactInput, { current });
+  if (contact.email && db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(contact.email, current.id)) throw new Error(`A user with the email ${contact.email} already exists`);
+  if (contact.hrms_code && db.prepare('SELECT 1 FROM users WHERE hrms_code = ? COLLATE NOCASE AND id != ?').get(contact.hrms_code, current.id)) throw new Error(`HRMS code ${contact.hrms_code} is already used by another user`);
+  if (contact.dol && current.id === viewer.id) throw new Error('You cannot set your own date of leaving');
+  for (const [f, value] of Object.entries(contact)) {
+    if ((value ?? null) === (current[f] ?? null)) continue;
+    db.prepare(`UPDATE users SET ${f} = ? WHERE id = ?`).run(value, current.id);
+    changed.push(f === 'dol' ? 'date of leaving' : f === 'doj' ? 'date of joining' : f.replace(/_/g, ' '));
+  }
+  if ('dol' in contact) sweepLeavers(db);
+  // Role, and with it the profile the role needs.
+  let role = current.role; let roleKey = current.role_key;
+  if (given('role')) {
+    const r = resolveRole(choose(v.role, assignableLabels(), 'Role'));
+    if (current.id === viewer.id && r.base !== current.role) throw new Error('You cannot change your own role');
+    if (r.base !== current.role || (r.key ?? null) !== (current.role_key ?? null)) { role = r.base; roleKey = r.key; changed.push('role'); }
+  }
+  if (role === 'sales') {
+    const input = {};
+    if (given('sales_code')) input.sales_code = v.sales_code;
+    for (const [f, field, wanted, label] of [['team_leader_id', 'team_leader_email', TEAM_LEADER_ROLES, 'Team leader'], ['sales_manager_id', 'sales_manager_email', ['sales_manager'], 'Sales manager'], ['asm_id', 'asm_email', ['asm'], 'Assistant sales manager']]) {
+      const id = manager(field, wanted, label);
+      if (id !== undefined) input[f] = id;
+    }
+    if (given('salary')) input.salary = v.salary;
+    if (given('core_product')) input.core_product = v.core_product;
+    const was = current.role === 'sales' ? current : null;
+    if (was || Object.keys(input).length || role !== current.role) {
+      const profile = salesProfile(db, input, was);
+      for (const [f, value] of Object.entries(profile)) {
+        if ((value ?? null) === (current[f] ?? null)) continue;
+        db.prepare(`UPDATE users SET ${f} = ? WHERE id = ?`).run(value, current.id);
+        changed.push({ sales_code: 'sales code', team_leader_id: 'team leader', sales_manager_id: 'sales manager', asm_id: 'ASM', salary: 'salary', core_product: 'core product' }[f]);
+      }
+      if (was && ['team_leader_id', 'sales_manager_id', 'asm_id'].some((f) => (profile[f] ?? null) !== (current[f] ?? null))) moveOpenCases(db, viewer, current.id);
+    }
+  } else {
+    if (current.role === 'sales') db.prepare('UPDATE users SET sales_code = NULL, team_leader_id = NULL, core_product = NULL WHERE id = ?').run(current.id);
+    if (LEADER_LINE_ROLES.includes(role)) {
+      const input = {};
+      const sm = manager('sales_manager_email', ['sales_manager'], 'Sales manager'); if (sm !== undefined) input.sales_manager_id = sm;
+      const asm = role === 'team_leader' ? manager('asm_email', ['asm'], 'Assistant sales manager') : null; if (asm != null) input.asm_id = asm;
+      const line = leaderProfile(db, role, input, LEADER_LINE_ROLES.includes(current.role) ? current : null);
+      for (const [f, value] of Object.entries(line)) {
+        if ((value ?? null) === (current[f] ?? null)) continue;
+        db.prepare(`UPDATE users SET ${f} = ? WHERE id = ?`).run(value, current.id);
+        changed.push(f === 'sales_manager_id' ? 'sales manager' : 'ASM');
+      }
+    } else if (current.sales_manager_id || current.asm_id) {
+      db.prepare('UPDATE users SET sales_manager_id = NULL, asm_id = NULL WHERE id = ?').run(current.id);
+    }
+    if (given('salary')) {
+      if (!canSeeSalary(viewer, { ...current, role })) throw new Error("A business head's salary is seen and set only by the CEO, accounts, or that business head");
+      const salary = salaryOf(v.salary);
+      if ((salary ?? null) !== (current.salary ?? null)) { db.prepare('UPDATE users SET salary = ? WHERE id = ?').run(salary, current.id); changed.push('salary'); }
+    }
+  }
+  if (role !== current.role || (roleKey ?? null) !== (current.role_key ?? null)) {
+    db.prepare('UPDATE users SET role = ?, role_key = ? WHERE id = ?').run(role, roleKey, current.id);
+    if (role !== current.role) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(current.id);
+  }
+  if (given('region')) {
+    const region = regionOf(v.region);
+    if ((region ?? null) !== (current.region ?? null)) { db.prepare('UPDATE users SET region = ? WHERE id = ?').run(region, current.id); changed.push('region'); }
+  }
+  if (given('password')) {
+    if (String(v.password).length < 8) throw new Error('Password must be at least 8 characters');
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(String(v.password)), current.id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(current.id);
+    changed.push('password');
+  }
+  return changed;
+}
+
+export function importUsers(db, user, csv, { dryRun = false, update = false } = {}) {
   requireBulkRole(user, 'users');
   const { header, records, unknown } = readFile(csv, USER_IMPORT_COLUMNS);
   const seen = new Set();
@@ -501,10 +595,24 @@ export function importUsers(db, user, csv, { dryRun = false } = {}) {
       results.set(record, rowResult(record, () => savepoint(db, () => {
         const v = record.values;
         const role = choose(v.role, assignableLabels(), 'Role');
-        resolveRole(role);
-        const email = v.email.toLowerCase();
-        if (seen.has(email)) throw new Error(`${email} appears more than once in this file`);
-        seen.add(email);
+        if (role) resolveRole(role);
+        const email = String(v.email ?? '').trim().toLowerCase();
+        const hrms = hrmsCodeOf(v.hrms_code);
+        if (!email && !hrms) throw new Error('Email or HRMS code is required');
+        const key = email || `hrms:${hrms.toLowerCase()}`;
+        if (seen.has(key)) throw new Error(`${email || hrms} appears more than once in this file`);
+        seen.add(key);
+        // An existing person, matched by email and then by HRMS code, is updated when asked for.
+        const existing = (email && db.prepare('SELECT id, name, email, hrms_code, role FROM users WHERE email = ? COLLATE NOCASE').get(email))
+          || (hrms && db.prepare('SELECT id, name, email, hrms_code, role FROM users WHERE hrms_code = ? COLLATE NOCASE').get(hrms)) || null;
+        if (existing) {
+          if (!update) throw new Error(`${existing.name} already exists (${existing.email}); tick "Update existing users" to change their details`);
+          const changed = updateUserFromRow(db, user, existing, v);
+          const after = db.prepare('SELECT name, email, hrms_code, role FROM users WHERE id = ?').get(existing.id);
+          return { id: existing.id, label: `${after.name} · ${roleLabels()[after.role]}`, email: after.email, hrms_code: after.hrms_code, updated: true, changed };
+        }
+        if (!email) throw new Error('Email is required for a new user');
+        if (!role) throw new Error('Role is required for a new user');
         const manager = (field, wanted, label, { optional = false } = {}) => {
           if (!v[field]) { if (optional) return null; throw new Error(`${label} email is required for sales staff`); }
           const row = db.prepare('SELECT id, role, active FROM users WHERE email = ? COLLATE NOCASE').get(v[field]);

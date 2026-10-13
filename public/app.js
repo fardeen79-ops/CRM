@@ -3411,6 +3411,7 @@ function viewBulkUpload(kind) {
           <span class="dz-main" id="dz-main">Choose a CSV file or drop it here</span>
           <span class="muted small">.csv, saved from Excel or Google Sheets</span>
         </label>
+        ${kind === 'users' ? html`<label class="check-row" style="margin-top:12px;align-items:flex-start;gap:8px;flex-wrap:nowrap"><input type="checkbox" id="bulk-update" style="margin-top:3px"> <span><strong>Update existing users</strong> <span class="muted small">A row whose email (or HRMS code) is already on the Staff page changes that person's details instead of being skipped. Blank cells leave a detail as it is, so a file with just the columns to change is enough.</span></span></label>` : ''}
         <div class="actions" style="margin-top:12px"><button class="btn-primary" id="bulk-check" disabled>Check file</button></div>
         <div id="bulk-result"></div>
       </section>
@@ -3443,7 +3444,7 @@ function viewBulkUpload(kind) {
   zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('over'); pick(e.dataTransfer.files[0]); });
 
   let csv = '';
-  const send = (dryRun) => api(`/import/${kind}`, { method: 'POST', body: { csv, dry_run: dryRun } });
+  const send = (dryRun) => api(`/import/${kind}`, { method: 'POST', body: { csv, dry_run: dryRun, ...(document.getElementById('bulk-update')?.checked && { update: true }) } });
 
   // Who an error row is about, from the name columns of the uploaded file.
   let rowLabel = () => '';
@@ -3453,15 +3454,16 @@ function viewBulkUpload(kind) {
     rowLabel = (cells = []) => nameCols.map((i) => cells[i]).filter(Boolean).join(words.sep) || '—';
     const failed = r.rows.filter((x) => !x.ok);
     const passwords = r.rows.filter((x) => x.temp_password);
+    const updatedN = r.rows.filter((x) => x.ok && x.updated).length;
     const summary = r.dry_run
       ? (r.failed
         ? html`<div class="callout warn"><strong>${r.ok} of ${r.total} rows are ready. ${r.failed} ${r.failed === 1 ? 'has' : 'have'} errors.</strong>Fix them and check again, or upload the ${r.ok} good rows now and the rest later.</div>`
         : html`<div class="callout success"><strong>All ${r.total} rows are ready to upload.</strong>Nothing has been saved yet.</div>`)
-      : html`<div class="callout ${r.failed ? 'warn' : 'success'}"><strong>${words.verb} ${r.ok} ${r.ok === 1 ? words.one : words.many}.${r.failed ? ` ${r.failed} ${r.failed === 1 ? 'row was' : 'rows were'} skipped.` : ''}</strong>${r.failed ? 'Download the skipped rows, fix them and upload that file.' : words.after}</div>`;
+      : html`<div class="callout ${r.failed ? 'warn' : 'success'}"><strong>${updatedN ? `${words.verb} ${r.ok - updatedN} ${r.ok - updatedN === 1 ? words.one : words.many}, updated ${updatedN}.` : `${words.verb} ${r.ok} ${r.ok === 1 ? words.one : words.many}.`}${r.failed ? ` ${r.failed} ${r.failed === 1 ? 'row was' : 'rows were'} skipped.` : ''}</strong>${r.failed ? 'Download the skipped rows, fix them and upload that file.' : updatedN === r.ok ? 'Their details are updated.' : words.after}</div>`;
     result.innerHTML = html`
       <div class="bulk-summary">
         <div class="kpi-mini"><span>${r.total}</span>rows</div>
-        <div class="kpi-mini good"><span>${r.ok}</span>${r.dry_run ? 'ready' : words.verb.toLowerCase()}</div>
+        <div class="kpi-mini good"><span>${r.ok}</span>${r.dry_run ? 'ready' : updatedN ? 'saved' : words.verb.toLowerCase()}</div>
         <div class="kpi-mini ${r.failed ? 'bad' : ''}"><span>${r.failed}</span>${r.dry_run ? 'with errors' : 'skipped'}</div>
       </div>
       ${summary}
@@ -3477,9 +3479,9 @@ function viewBulkUpload(kind) {
         <thead><tr><th>Line</th><th>Result</th><th>${words.who}</th><th>Details</th></tr></thead>
         <tbody>${[...failed, ...r.rows.filter((x) => x.ok)].map((x) => html`<tr>
           <td class="mono">${x.line}</td>
-          <td>${x.ok ? html`<span class="chip good">${r.dry_run ? 'Ready' : words.verb}</span>` : html`<span class="chip bad">Error</span>`}</td>
+          <td>${x.ok ? html`<span class="chip good">${x.updated ? (r.dry_run ? 'Will update' : 'Updated') : r.dry_run ? 'Ready' : words.verb}</span>` : html`<span class="chip bad">Error</span>`}</td>
           <td>${x.ok ? (x.ref ? html`<a href="#/cases/${x.id}"><strong class="mono">${x.ref}</strong></a> ` : '') : ''}${x.ok ? x.label : rowLabel(x.cells)}</td>
-          <td class="small">${x.ok ? (x.temp_password ? html`${x.hrms_code ? html`Username <code>${x.hrms_code}</code> · ` : ''}Temporary password <code>${x.temp_password}</code>` : x.email || '') : html`<span class="error">${x.error}</span>`}</td>
+          <td class="small">${x.ok ? (x.temp_password ? html`${x.hrms_code ? html`Username <code>${x.hrms_code}</code> · ` : ''}Temporary password <code>${x.temp_password}</code>` : x.updated ? (x.changed?.length ? `Changed: ${x.changed.join(', ')}` : 'No change') : x.email || '') : html`<span class="error">${x.error}</span>`}</td>
         </tr>`)}</tbody>
       </table></div>`.s;
     const go = document.getElementById('bulk-go');

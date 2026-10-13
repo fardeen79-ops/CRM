@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v70';
+const DB_KEY = 'sourcing-crm-demo-db-v71';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -560,7 +560,7 @@ function handle(method, pathname, query, body) {
     try { return deleteUsers(db, user, body.ids); } catch (e) { throw new ApiError(400, e.message); }
   }
   if (method === 'POST' && pathname === '/api/import/users') {
-    return importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
+    return importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run), update: Boolean(body.update) });
   }
   if (method === 'POST' && pathname === '/api/import/cases') return importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
   if (method === 'POST' && pathname === '/api/import/cards') return importCards(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
