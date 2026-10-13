@@ -157,32 +157,3 @@ export async function cardPitch(db, name, { fetcher = globalThis.fetch, now = ()
   }
   return savedCardPitch(db, card.name, { reason: problem });
 }
-
-/**
- * The pitch written by the AI for this customer (pitch-ai.js): Claude reads the card's page through
- * Anthropic's web fetch and writes the headline, features and a spoken script. The features it read
- * are kept (source 'ai') and reused for a week, so a card is read once, not on every pitch. When
- * the AI is unavailable or cannot read the page and holds nothing, the plain pitch is returned.
- */
-export async function aiCardPitch(db, name, ctx, writer, { freshHours = 24 * 7, now = () => new Date() } = {}) {
-  const card = cardProduct(name);
-  if (!card) return null;
-  const url = cardPageUrl(card);
-  const saved = savedPitch(db, card.name);
-  const fresh = saved?.source === 'ai' && now() - new Date(saved.fetched_at) < freshHours * 3600e3;
-  const held = saved?.features || [];
-  const out = writer ? await writer({ card: { name: card.name, category: card.category, min_salary: card.min_salary, url }, current: ctx.current || null, customer: ctx.customer || '', income: ctx.income ?? null, income_word: ctx.income_word || 'salary', features: held, ...(fresh && { page_already_read: true }) }) : null;
-  if (!out) return cardPitch(db, card.name);
-  const features = out.features.length ? out.features : held;
-  if (out.read_page && out.features.length && saved?.source !== 'uploaded') {
-    db.prepare(`INSERT INTO card_pitch_cache (card_name, url, title, headline, features, fetched_at, source) VALUES (?, ?, ?, ?, ?, ?, 'ai')
-      ON CONFLICT (card_name) DO UPDATE SET url = excluded.url, title = excluded.title, headline = excluded.headline, features = excluded.features, fetched_at = excluded.fetched_at, source = 'ai'`)
-      .run(card.name, url, card.name, out.headline, JSON.stringify(out.features), now().toISOString());
-  }
-  return {
-    card: { name: card.name, family: card.family, category: card.category, min_salary: card.min_salary },
-    url, title: card.name, headline: out.headline || saved?.headline || '', features, script: out.script, caution: out.caution,
-    source: 'ai', read_page: out.read_page, fetched_at: out.read_page ? now().toISOString() : saved?.fetched_at || null,
-    problem: out.read_page || features.length ? null : "the bank's site could not be read and the CRM holds no features for this card",
-  };
-}

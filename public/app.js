@@ -3752,8 +3752,7 @@ async function showCardPitch({ current, suggested, income, inc, customer, onSwit
   modal.onclick = (e) => { if (e.target === modal) close(); };
 
   let p;
-  const q = new URLSearchParams({ name: suggested, ...(customer && { customer }), ...(income != null && { income: String(income) }), ...(inc?.word && { income_word: inc.word }), ...(current?.name && { current: current.name }), ...(current?.category && { current_category: current.category }) });
-  try { p = await api(`/cards/pitch?${q}`); } catch (err) {
+  try { p = await api(`/cards/pitch?name=${encodeURIComponent(suggested)}`); } catch (err) {
     if (!modal.isConnected) return;
     modal.querySelector('.pitch-sheet').innerHTML = html`<h2 id="pitch-title">${suggested}</h2><p class="error">${err.message}</p><div class="actions"><button type="button" class="btn" data-pitch-close>Close</button></div>`.s;
     modal.querySelector('[data-pitch-close]').onclick = close;
@@ -3762,13 +3761,7 @@ async function showCardPitch({ current, suggested, income, inc, customer, onSwit
   if (!modal.isConnected) return;
   const amount = `AED ${income.toLocaleString()}`;
   const when = p.fetched_at ? new Date(p.fetched_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
-  const source = p.source === 'ai'
-    ? (p.read_page
-      ? html`Written by the AI from <a href="${p.url}" target="_blank" rel="noopener">the card's page on emiratesnbd.com</a>, read just now.`
-      : p.features.length
-        ? html`Written by the AI from the card details the CRM holds${when ? ` (${when})` : ''}; the bank's page could not be read now. <a href="${p.url}" target="_blank" rel="noopener">Check the card's page</a> before quoting it.`
-        : html`The bank's page could not be read and the CRM holds no features for this card. <a href="${p.url}" target="_blank" rel="noopener">Open the card's page</a> to talk through its features.`)
-    : p.source === 'uploaded'
+  const source = p.source === 'uploaded'
     ? html`From the card list loaded on ${when}. <a href="${p.url}" target="_blank" rel="noopener">The card's page</a> has the full terms.`
     : p.source === 'live'
     ? html`Read just now from <a href="${p.url}" target="_blank" rel="noopener">the card's page on emiratesnbd.com</a>.`
@@ -3799,12 +3792,11 @@ async function showCardPitch({ current, suggested, income, inc, customer, onSwit
       <div class="eyebrow">Say it like this</div>
       <h3>Your pitch</h3>
       <blockquote class="pitch-script">
-        ${p.script?.length ? p.script.map((para) => html`<p>${para}</p>`) : html`
         <p>${hello}based on your ${inc.word} of ${amount}, you qualify for our ${p.card.name}, a ${p.card.category} card, instead of the ${current.name}.</p>
         ${top.length ? html`<p>With it you get:</p><ul>${top.map((f) => html`<li>${f}</li>`)}</ul>` : ''}
-        <p>Shall I put your application in for the ${p.card.name}?</p>`}
+        <p>Shall I put your application in for the ${p.card.name}?</p>
       </blockquote>
-      <p class="muted small">${p.caution || 'Quote only what is on the bank\'s page, and check fees and eligibility before promising them.'}</p>
+      <p class="muted small">Quote only what is on the bank's page, and check fees and eligibility before promising them.</p>
     </div>`,
   ];
   let at = 0;

@@ -7,8 +7,7 @@ import * as cases from './cases.js';
 import * as allocations from './allocations.js';
 import * as boosters from './boosters.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
-import { cardPitch, aiCardPitch } from './card-pitch.js';
-import { makePitchWriter } from './pitch-ai.js';
+import { cardPitch } from './card-pitch.js';
 import * as holidays from './holidays.js';
 import { loadPayoutRules, payoutRules, payoutSource, PAYOUT_LABELS, canSeePayout } from './payouts.js';
 import { myIncentive, INCENTIVE_RULES, AL_INCENTIVE_RULES } from './incentives.js';
@@ -235,7 +234,7 @@ export function buildInfo() {
   }
 }
 
-function routes(db, dispatch, bot, interpret, phrase, recordings, pitchWriter = null) {
+function routes(db, dispatch, bot, interpret, phrase, recordings) {
   return [
     // What this server runs, for anyone on the sign-in page: the build and when it was last updated.
     ['GET', /^\/api\/version$/, async () => buildInfo(), { public: true }],
@@ -331,9 +330,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings, pitchWriter = 
     // The signed-in user's own dashboard: this cycle, the last six, and the incentive so far.
     // Pitch for a higher card: its features read from the bank's website now, or the last good reading.
     ['GET', /^\/api\/cards\/pitch$/, async ({ query }) => {
-      const name = query.get('name') || '';
-      const ctx = { customer: (query.get('customer') || '').slice(0, 80), income: query.get('income') ? Number(query.get('income')) || null : null, income_word: (query.get('income_word') || 'salary').slice(0, 30), current: query.get('current') ? { name: query.get('current').slice(0, 120), category: (query.get('current_category') || '').slice(0, 40) } : null };
-      const pitch = pitchWriter ? await aiCardPitch(db, name, ctx, pitchWriter) : await cardPitch(db, name);
+      const pitch = await cardPitch(db, query.get('name') || '');
       if (!pitch) throw new HttpError(404, 'That card is not in the card list');
       return pitch;
     }],
@@ -660,7 +657,7 @@ function serveFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, recordings = makeRecordingLookup(), interpret = aiConfigured() ? makeInterpreter() : null, phrase = aiConfigured() ? makePhraser() : null, pitchWriter = aiConfigured() ? makePitchWriter() : null } = {}) {
+export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, recordings = makeRecordingLookup(), interpret = aiConfigured() ? makeInterpreter() : null, phrase = aiConfigured() ? makePhraser() : null } = {}) {
   cases.config.itEmail = itEmail;
   loadCardProducts(db);
   holidays.loadHolidays(db);
@@ -670,7 +667,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;
-  const table = routes(db, dispatch, bot, interpret, phrase, recordings, pitchWriter);
+  const table = routes(db, dispatch, bot, interpret, phrase, recordings);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

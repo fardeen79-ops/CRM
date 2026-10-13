@@ -217,7 +217,7 @@ sudo nginx -t && sudo systemctl reload nginx</pre>
 <tr><td><code>RECORDING_DIR</code></td><td>With <code>folder</code></td><td><code>/mnt/recordings</code></td><td>The PBX's recordings folder, mounted read-only on the CRM server</td></tr>
 <tr><td><code>RECORDING_API_URL</code>, <code>RECORDING_API_TOKEN</code>, <code>RECORDING_API_MAP</code></td><td>With <code>http</code></td><td>The PBX's list URL with <code>{number}</code>, a bearer token, a JSON field map</td><td>The CRM calls the API itself and fetches the audio with the token; nothing about the server reaches the browser</td></tr>
 <tr><td><code>RECORDING_LABEL</code></td><td>Optional</td><td><code>the 3CX recorder</code></td><td>How the server is named on screen</td></tr>
-<tr><td><code>ANTHROPIC_API_KEY</code></td><td>Optional</td><td>Leave blank</td><td>With it set, the AI writes the credit card pitch: it reads the card's page on the bank's website through Anthropic's web fetch (the bank's site refuses this server's own requests) and writes the benefits and a spoken script for the customer. It also lets the verification bot's AI read answers. Compliance must approve first: with it set, customer answers are sent to Anthropic. Blank keeps every call on the server</td></tr>
+<tr><td><code>ANTHROPIC_API_KEY</code></td><td>Optional</td><td>Leave blank</td><td>Lets the verification bot's AI read answers. Compliance must approve first: with it set, customer answers are sent to Anthropic. Blank keeps every call on the server</td></tr>
 </table>
 <p>With the optional variables blank the app makes no outbound connections at all.</p>
 
