@@ -1518,14 +1518,13 @@ test('salary-based targets: bands and points are uploaded, targets generated, po
 test('the customer\'s designation and date of joining are kept on the file, on the register and loaded by upload', async () => {
   const sales = await login('sales@t.local');
   const mis = await login('mis@t.local');
-  const r = await sales('POST', '/cases', { ...newCase, customer_name: 'Designated Customer', phone: '+971 50 400 4001', designation: 'Operations Manager', department: 'Finance', customer_doj: '2021-03-15', customer_dob: '1990-08-22' });
+  const r = await sales('POST', '/cases', { ...newCase, customer_name: 'Designated Customer', phone: '+971 50 400 4001', designation: 'Operations Manager', department: 'Finance', customer_doj: '2021-03-15', journey_type: 'uae_pass' });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.case.designation, 'Operations Manager');
   assert.equal(r.data.case.department, 'Finance');
   assert.equal(r.data.case.customer_doj, '2021-03-15');
-  assert.equal(r.data.case.customer_dob, '1990-08-22');
-  // A customer must be at least 18.
-  assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { customer_dob: '2015-01-01' })).status, 400);
+  assert.equal(r.data.case.journey_type, 'uae_pass');
+  assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { journey_type: 'walk_in' })).status, 400);
   assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { customer_doj: '2099-01-01' })).status, 400);
   assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { customer_doj: 'soon' })).status, 400);
   const cleared = await sales('PUT', `/cases/${r.data.case.id}`, { customer_doj: '' });
@@ -1534,9 +1533,9 @@ test('the customer\'s designation and date of joining are kept on the file, on t
   const reg = (await mis('GET', '/reports/register?from=2026-01-01&to=2026-12-31')).data;
   assert.ok(reg.columns.some((c) => c.key === 'designation') && reg.columns.some((c) => c.key === 'customer_doj'));
   assert.equal(reg.rows.find((x) => x.customer === 'Designated Customer').designation, 'Operations Manager');
-  const up = (await mis('POST', '/import/cases', { csv: 'Sales code,Sourcing date,Region,Core product,First name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,FPD,PL tenure (months),Designation,Date of joining,Department,Date of birth\nS-001,06/10/2026,DXB,Personal Loan,Upload,Joiner,+971 50 400 4002,Personal Loan,Fresh,150000,6.5,15/11/2026,36,Senior Analyst,01/02/2020,Operations,05/05/1988\n' })).data;
+  const up = (await mis('POST', '/import/cases', { csv: 'Sales code,Sourcing date,Region,Core product,First name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,FPD,PL tenure (months),Designation,Date of joining,Department,Journey type\nS-001,06/10/2026,DXB,Personal Loan,Upload,Joiner,+971 50 400 4002,Personal Loan,Fresh,150000,6.5,15/11/2026,36,Senior Analyst,01/02/2020,Operations,Emirates ID\n' })).data;
   assert.equal(up.failed, 0, JSON.stringify(up.rows));
   const got = (await mis('GET', `/cases/${up.rows[0].id}`)).data.case;
   assert.equal(got.designation, 'Senior Analyst'); assert.equal(got.customer_doj, '2020-02-01');
-  assert.equal(got.department, 'Operations'); assert.equal(got.customer_dob, '1988-05-05');
+  assert.equal(got.department, 'Operations'); assert.equal(got.journey_type, 'emirates_id');
 });

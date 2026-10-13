@@ -1416,7 +1416,6 @@ async function viewCaseForm(id, leadId = null) {
           ${field('designation', 'Designation', { placeholder: 'Job title', dictate: true })}
           ${field('department', 'Department', { placeholder: 'e.g. Finance', dictate: true })}
           ${field('customer_doj', 'Date of joining', { type: 'date', hint: 'With the current employer' })}
-          ${field('customer_dob', 'Date of birth', { type: 'date' })}
           ${field('salary', incomeLabels.amount, { type: 'number', attrs: money })}
           <div>
             <label for="f-salary_bank">${incomeLabels.bank} <span class="req">*</span></label>
@@ -1455,6 +1454,14 @@ async function viewCaseForm(id, leadId = null) {
               ${Object.entries(state.meta.sourcing_types).map(([k, l]) => html`<option value="${k}" ${(c.sourcing_type || 'regular') === k ? raw('selected') : ''}>${l}</option>`)}
             </select>
             <div class="muted small" id="sourcing-hint" ${c.sourcing_type === 'fixed_deposit' ? '' : raw('hidden')}>Fixed Deposit is only for Credit Card and Personal Loan.</div>
+          </div>
+          <div class="full">
+            <label for="f-journey_type">Journey type</label>
+            <select id="f-journey_type" name="journey_type" style="max-width:320px">
+              <option value="">Choose…</option>
+              ${Object.entries(state.meta.journey_types || {}).map(([k, l]) => html`<option value="${k}" ${c.journey_type === k ? raw('selected') : ''}>${l}</option>`)}
+            </select>
+            <div class="muted small">How the application was made.</div>
           </div>
           <div>
             <label for="f-core_product">Core product <span class="req">*</span></label>
@@ -2356,7 +2363,6 @@ async function viewCase(id) {
             ${row('Designation', c.designation)}
             ${row('Department', c.department)}
             ${c.customer_doj ? html`<dt>Date of joining</dt><dd><strong>${fmtDay(c.customer_doj)}</strong><div class="muted small">With the current employer</div></dd>` : ''}
-            ${c.customer_dob ? html`<dt>Date of birth</dt><dd><strong>${fmtDay(c.customer_dob)}</strong></dd>` : ''}
             ${row(incomeLabelsFor(c.customer_type).amount.replace(' (AED)', ''), c.salary != null && !maskedFields.has('salary') ? `AED ${fmtAmount(c.salary)}` : c.salary, false, 'salary')}
             ${c.salary_bank ? html`<dt>${incomeLabelsFor(c.customer_type).bank}</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
             ${row('Bidaya ID', c.bidaya_id, true)}
@@ -2367,6 +2373,7 @@ async function viewCase(id) {
           <h2 class="sub">Product</h2>
           <dl class="details">
             ${row('Sourcing type', state.meta.sourcing_types[c.sourcing_type || 'regular'])}
+            ${c.journey_type ? row('Journey type', (state.meta.journey_types || {})[c.journey_type] || c.journey_type) : ''}
             ${row('Core product', state.meta.core_products[c.core_product])}
             ${c.payout ? html`<dt>Agency payout</dt><dd><strong>AED ${fmtAmount(c.payout.total)}</strong>${c.payout.parts.length && c.payout.earned !== c.payout.total ? html` <span class="muted">· paid so far AED ${fmtAmount(c.payout.earned)}</span>` : ''}${c.payout.parts.length ? html`<div class="muted small">${c.payout.parts.map((p) => `${p.basis}${p.rate != null ? ` · ${p.rate}% of AED ${fmtAmount(p.amount)}` : ''}: AED ${fmtAmount(p.payout)}`).join(' · ')}</div>` : html`<div class="muted small">No payable product on this file yet</div>`}${c.payout.card && c.payout.card.status !== 'none' ? html`<div class="small"><span class="chip ${c.payout.card.status === 'paid' ? 'good' : c.payout.card.status === 'awaiting' ? 'fair' : 'bad'}">${{ paid: 'Card paid', awaiting: 'Card awaiting activation', not_paid: 'Card not paid' }[c.payout.card.status]}</span> <span class="muted">${c.payout.card.when}. The bank pays a card only once it is activated, within 90 days of the temp end.</span></div>` : ''}</dd>` : ''}
             <dt>Product</dt><dd>${c.product === 'bundle'

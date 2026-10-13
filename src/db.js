@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS cases (
   designation        TEXT, -- the customer's job title
   customer_doj       TEXT, -- date of joining the current employer, YYYY-MM-DD
   department         TEXT,
-  customer_dob       TEXT, -- date of birth, YYYY-MM-DD
+  journey_type       TEXT, -- how the application was made: emirates_id or uae_pass
   customer_type      TEXT, -- salaried or self_employed
   sourcing_type      TEXT, -- regular or fixed_deposit (credit card and personal loan only)
   tat_override_from  TEXT, -- the status a file held as completed by the TAT switch goes back to
@@ -535,7 +535,7 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
 // Columns added after the first release; ALTER existing databases in place.
 const ADDED_COLUMNS = {
   bundle_products: 'TEXT', credit_card: 'TEXT', personal_loan_type: 'TEXT', personal_loan_kind: 'TEXT', buyout_bank: 'TEXT',
-  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', designation: 'TEXT', customer_doj: 'TEXT', department: 'TEXT', customer_dob: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT', tat_override_from: 'TEXT', tat_held_at: 'TEXT',
+  salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', designation: 'TEXT', customer_doj: 'TEXT', department: 'TEXT', journey_type: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT', tat_override_from: 'TEXT', tat_held_at: 'TEXT',
   eid_number: 'TEXT', passport_number: 'TEXT', bidaya_id: 'TEXT', app_id: 'TEXT',
   loan_amount: 'REAL', interest_rate: 'REAL', full_loan_amount: 'REAL', incremental_amount: 'REAL',
   case_status: "TEXT NOT NULL DEFAULT 'sent_to_check'", case_status_note: 'TEXT',

@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -65,7 +65,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'designation', header: 'Designation', example: 'Operations Manager', help: "Optional. The customer's job title" },
   { key: 'customer_doj', header: 'Date of joining', example: '15/03/2021', help: 'Optional. When the customer joined the current employer, DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'department', header: 'Department', example: 'Finance', help: "Optional. The customer's department at the employer" },
-  { key: 'customer_dob', header: 'Date of birth', example: '22/08/1990', help: 'Optional. DD/MM/YYYY or YYYY-MM-DD; the customer must be at least 18' },
+  { key: 'journey_type', header: 'Journey type', example: 'UAE Pass', allowed: Object.values(JOURNEY_TYPES), help: 'Optional. How the application was made: Emirates ID or UAE Pass' },
   { key: 'salary_bank', header: 'Salary transfer bank', example: 'Emirates NBD', help: 'The bank the salary is currently transferred to' },
   { key: 'salary', header: 'Salary', example: '25000', help: 'Monthly, AED' },
   { key: 'bidaya_id', header: 'Bidaya ID', example: '' },
@@ -282,7 +282,7 @@ function caseInput(v) {
     ...v,
     sourcing_date: parseDate(v.sourcing_date),
     customer_doj: v.customer_doj ? parseDate(v.customer_doj) : null,
-    customer_dob: v.customer_dob ? parseDate(v.customer_dob) : null,
+    journey_type: choose(v.journey_type, JOURNEY_TYPES, 'Journey type') || null,
     region: choose(regionKey, REGION_NAMES, 'Region'),
     core_product: choose(v.core_product, CORE_PRODUCTS, 'Core product'),
     product,

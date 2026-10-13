@@ -81,6 +81,8 @@ export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 // How the file is sourced: the regular process, or against a fixed deposit, which is offered only
 // for credit cards and personal loans (alone or bundled together).
 export const SOURCING_TYPES = { regular: 'Regular', fixed_deposit: 'Fixed Deposit' };
+// How the customer's application was made.
+export const JOURNEY_TYPES = { emirates_id: 'Emirates ID', uae_pass: 'UAE Pass' };
 export const FIXED_DEPOSIT_PRODUCTS = ['credit_card', 'personal_loan'];
 
 export const PERSONAL_LOAN_TYPES = { fresh: 'Fresh', top_up: 'Top Up', buy_out: 'Buy Out' };
@@ -568,7 +570,7 @@ export const ACTIONS = {
 
 // Plain text fields and their length limits; name, product and number fields are validated separately.
 const TEXT_FIELDS = {
-  salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, designation: 100, department: 100, salary_bank: 200, customer_type: 20, sourcing_type: 20,
+  salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, designation: 100, department: 100, salary_bank: 200, customer_type: 20, sourcing_type: 20, journey_type: 20,
   phone: 30, alt_phone: 30, email: 200, address: 2000, city: 100, source: 200, sales_notes: 2000,
   bidaya_id: 50, app_id: 50,
 };
@@ -591,7 +593,7 @@ const VERIFIED_FIELD_LABELS = {
 // The card's category and points, copied from the product list when the card is chosen.
 const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points', 'card_min_salary'];
 const EDITABLE_FIELDS = [
-  ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'customer_doj', 'customer_dob', 'region', 'core_product',
+  ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'customer_doj', 'region', 'core_product',
   ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS, ...CARD_SNAPSHOT_FIELDS, 'card_higher_options', 'card_eligible_category',
 ];
 /** Category and points for the card on a file (null when it has no card). */
@@ -836,23 +838,16 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
 
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
   if (has('salary')) out.salary = parseNumber(input.salary, 'Salary');
-  // The customer's date of joining their employer and date of birth: optional, real dates, not in
-  // the future; a customer is at least 18.
-  const pastDate = (field, label, { minYears = 0 } = {}) => {
-    if (!has(field)) return;
-    const d = clean(input[field], 10);
-    if (d) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d))) throw new WorkflowError(400, `${label} must be a valid date`);
-      if (Date.parse(d) > Date.now() + 864e5) throw new WorkflowError(400, `${label} cannot be in the future`);
-      if (minYears) {
-        const limit = new Date(); limit.setFullYear(limit.getFullYear() - minYears);
-        if (Date.parse(d) > limit.getTime()) throw new WorkflowError(400, `${label}: the customer must be at least ${minYears}`);
-      }
+  // The customer's date of joining their employer: optional, a real date, not in the future.
+  if (has('customer_doj')) {
+    const doj = clean(input.customer_doj, 10);
+    if (doj) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(doj) || Number.isNaN(Date.parse(doj))) throw new WorkflowError(400, 'Date of joining must be a valid date');
+      if (Date.parse(doj) > Date.now() + 864e5) throw new WorkflowError(400, 'Date of joining cannot be in the future');
     }
-    out[field] = d || null;
-  };
-  pastDate('customer_doj', 'Date of joining');
-  pastDate('customer_dob', 'Date of birth', { minYears: 18 });
+    out.customer_doj = doj || null;
+  }
+  if (has('journey_type') && out.journey_type && !JOURNEY_TYPES[out.journey_type]) throw new WorkflowError(400, 'Journey type must be Emirates ID or UAE Pass');
   if (has('sourcing_date')) {
     const date = clean(input.sourcing_date) ?? (partial ? null : now().slice(0, 10));
     if (!date) throw new WorkflowError(400, 'Sourcing date is required');
