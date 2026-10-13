@@ -92,3 +92,54 @@ test('a pitch loaded with the card list is shown as it is; the website is not as
   assert.equal(again.source, 'none');
   assert.match(again.problem, /bot protection/);
 });
+
+test('the AI writes the pitch for the customer from the page it reads, keeps the reading, and falls back when it cannot', async () => {
+  const { aiCardPitch } = await import('../src/card-pitch.js');
+  const db = openDb(':memory:');
+  loadCardProducts(db);
+  const name = 'Darna Visa Infinite Credit Card';
+  const seen = [];
+  const writer = async (ctx) => { seen.push(ctx); return { read_page: true, headline: 'Up to 10% back across Aldar', features: ['10% back on Aldar spend', 'Lounge access'], script: ['Mr Khan, your salary of AED 35,000 qualifies you for the Darna Visa Infinite.', 'Shall I put the application in for it?'], caution: 'Check the annual fee.' }; };
+  const p = await aiCardPitch(db, name, { customer: 'Mr Khan', income: 35000, income_word: 'salary', current: { name: 'Darna Select Visa Credit Card', category: 'Mass' } }, writer, { now: () => new Date('2026-10-13T09:00:00Z') });
+  assert.equal(p.source, 'ai'); assert.equal(p.read_page, true);
+  assert.deepEqual(p.features, ['10% back on Aldar spend', 'Lounge access']);
+  assert.equal(p.script.length, 2); assert.equal(p.caution, 'Check the annual fee.');
+  assert.equal(seen[0].card.url, 'https://www.emiratesnbd.com/en/cards/credit-cards/darna-visa-infinite-credit-card');
+  assert.equal(seen[0].customer, 'Mr Khan'); assert.deepEqual(seen[0].features, []);
+  // The reading is kept for the plain pitch too, and handed to the AI next time.
+  const saved = (await cardPitch(db, name, { fetcher: page('', { status: 403 }) }));
+  assert.equal(saved.source, 'saved'); assert.deepEqual(saved.features, ['10% back on Aldar spend', 'Lounge access']);
+  const noPage = async (ctx) => ({ read_page: false, headline: '', features: [], script: ['From what we hold, the card gives 10% back on Aldar spend.'], caution: '' });
+  const p2 = await aiCardPitch(db, name, { customer: 'Ms Ali' }, noPage);
+  assert.equal(p2.read_page, false); assert.deepEqual(p2.features, ['10% back on Aldar spend', 'Lounge access']); assert.equal(p2.problem, null);
+  // The AI unavailable: the plain pitch, with the saved reading.
+  const p3 = await aiCardPitch(db, name, {}, async () => null);
+  assert.equal(p3.source, 'saved');
+  // An uploaded pitch is never overwritten by a reading.
+  const { saveUploadedPitch } = await import('../src/card-pitch.js');
+  saveUploadedPitch(db, name, { headline: 'Loaded', features: ['Loaded feature'] });
+  await aiCardPitch(db, name, {}, writer);
+  assert.equal((await cardPitch(db, name)).source, 'uploaded');
+  assert.equal(await aiCardPitch(db, 'No Such Card', {}, writer), null);
+});
+
+test('the pitch route hands the customer, income and current card to the AI writer', async () => {
+  const { createServer } = await import('../src/server.js');
+  const { createUser } = await import('../src/auth.js');
+  const db = openDb(':memory:');
+  loadCardProducts(db);
+  const tl = createUser(db, { name: 'Tara', email: 'tl@t.local', role: 'team_leader', password: 'password123', region: 'DXB', hrms_code: 'EN0' });
+  createUser(db, { name: 'Sam', email: 'sam@t.local', role: 'sales', password: 'password123', region: 'DXB', sales_code: 'D-1', core_product: 'credit_card', hrms_code: 'EN1', team_leader_id: tl.id });
+  let got = null;
+  const server = createServer(db, { pitchWriter: async (ctx) => { got = ctx; return { read_page: true, headline: 'H', features: ['F1', 'F2', 'F3'], script: ['Hello Mr Khan.'], caution: '' }; } });
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://localhost:${server.address().port}`;
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sam@t.local', password: 'password123' }) });
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  const r = await fetch(`${base}/api/cards/pitch?name=Darna%20Visa%20Infinite%20Credit%20Card&customer=Mr%20Khan&income=35000&income_word=salary&current=Darna%20Select%20Visa%20Credit%20Card&current_category=Mass`, { headers: { cookie } });
+  const p = await r.json();
+  assert.equal(r.status, 200, JSON.stringify(p));
+  assert.equal(p.source, 'ai'); assert.deepEqual(p.script, ['Hello Mr Khan.']);
+  assert.equal(got.customer, 'Mr Khan'); assert.equal(got.income, 35000); assert.equal(got.current.name, 'Darna Select Visa Credit Card');
+  server.close();
+});
