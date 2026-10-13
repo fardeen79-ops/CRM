@@ -241,9 +241,22 @@ function strideMark() {
   return html`<svg class="stride-mark" viewBox="0 0 120 120" width="28" height="28" aria-hidden="true"><rect class="stride-tile" width="120" height="120" rx="28"/>${chevron(22, 'stride-c1')}${chevron(46, 'stride-c2')}${chevron(70, 'stride-c3')}</svg>`;
 }
 /** The "Powered by STRIDE" bar at the foot of every screen (brand write-up, page 4): copyright left, badge right. */
+// The build this server runs, shown in the footer so anyone can tell whether an update has landed.
+let buildLabel = '';
+const buildText = (v) => (v?.commit ? `Build ${v.commit}${v.updated_at ? ` · ${new Date(v.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}` : '');
+async function loadBuild() {
+  if (buildLabel) return;
+  try {
+    const v = await (await fetch('/api/version', { credentials: 'same-origin' })).json();
+    buildLabel = buildText(v);
+    document.querySelectorAll('.foot-build').forEach((el) => { el.textContent = buildLabel; });
+  } catch { /* no build to show */ }
+}
 function siteFooter() {
+  setTimeout(loadBuild, 0);
   return html`<footer class="site-foot">
     <span class="foot-copy">© ${new Date().getFullYear()} STRIDE <span class="foot-dot">·</span> Created by Fardeen Ismail</span>
+    <span class="foot-build" title="The version this server runs">${buildLabel}</span>
     <span class="foot-badge"><span class="foot-by">Powered by</span>${strideMark()}<span class="foot-word">STRID<b>E</b></span><span class="foot-div" aria-hidden="true"></span><span class="foot-tag">Sales in stride.</span></span>
   </footer>`;
 }

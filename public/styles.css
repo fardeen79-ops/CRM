@@ -955,6 +955,8 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .login-wrap { align-content: center; grid-auto-rows: max-content; }
 .login-wrap .site-foot { background: transparent; border-top: 0; justify-content: center; --foot-text: #B9C2D0; --foot-word: #ffffff; --foot-e: var(--stride-amber-dark); --stride-tile: var(--stride-amber-dark); --stride-c1: #B98A4A; --stride-c2: #6E5A45; --stride-c3: var(--stride-navy); }
 .login-wrap .foot-copy { display: none; }
+.foot-build { color: var(--foot-text, var(--muted)); font-size: 12px; white-space: nowrap; }
+.foot-build:empty { display: none; }
 @media (max-width: 480px) { .foot-tag, .foot-div { display: none; } .site-foot { padding: 0 16px; } }
 
 /* Personal loan yield */

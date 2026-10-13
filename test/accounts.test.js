@@ -311,3 +311,10 @@ test('a session ends after the idle limit without the person using the CRM; back
   assert.equal((await fetch(`${base}/api/me`, { headers: { cookie: cookie2, 'x-active': '1' } })).status, 200); // the person used it
   assert.notEqual(db.prepare('SELECT active_at FROM sessions WHERE token = ?').get(token2).active_at, recent);
 });
+
+test('the build the server runs is public, for the sign-in page footer', async () => {
+  const r = await fetch(`${base}/api/version`);
+  assert.equal(r.status, 200);
+  const v = await r.json();
+  assert.ok('commit' in v && 'updated_at' in v);
+});

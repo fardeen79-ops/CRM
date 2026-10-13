@@ -261,6 +261,7 @@ The recording server is set on the CRM server, never in the browser: the credent
 
 Without either, the card still shows the bot's calls and says the server is not connected.
 
+- **Which build is running.** The footer of the sign-in page and of every screen shows *Build* with the commit the server runs and the date it was last updated (`GET /api/version`, public), so anyone can tell whether an update has reached the server without logging into it.
 - **Idle sign-out.** A person who has not used the CRM for **5 minutes** (no click, keystroke, touch or scroll) is signed out and sees why on the sign-in page. The browser's own background refreshes (notifications, chat, counters) do not count as using it: only requests that follow a real action keep the session alive on the server, so the sign-out holds even if the tab stays open. `IDLE_TIMEOUT_MINUTES` changes the limit (`0` turns it off). Signed-in sessions otherwise last 7 days.
 - **My profile.** Their name in the sidebar opens every user's own profile: the details on file (name, email, HRMS code, role, region, reporting line, salary, dates), their **mobile and WhatsApp numbers**, which they change themselves, and **Reset my password**. Everything else is kept by MIS on the Staff page.
 

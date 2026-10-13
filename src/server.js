@@ -214,8 +214,31 @@ function rateCall(db, user, caseId, key, { score, note, name }) {
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
 const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/;
 
+/** The build this server runs: the git commit of the checkout (deploy/update.sh) and when it was made. */
+export function buildInfo() {
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+  try {
+    const head = fs.readFileSync(path.join(root, '.git', 'HEAD'), 'utf8').trim();
+    const ref = head.startsWith('ref: ') ? head.slice(5) : null;
+    let commit = ref ? null : head;
+    if (ref) {
+      try { commit = fs.readFileSync(path.join(root, '.git', ref), 'utf8').trim(); } catch {
+        const packed = fs.readFileSync(path.join(root, '.git', 'packed-refs'), 'utf8');
+        commit = packed.split('\n').find((l) => l.endsWith(' ' + ref))?.split(' ')[0] || null;
+      }
+    }
+    const at = fs.statSync(path.join(root, '.git', ref ? ref.replace(/^refs\/heads\//, 'refs/heads/') : 'HEAD')).mtime;
+    return { commit: commit ? commit.slice(0, 7) : null, branch: ref ? ref.replace(/^refs\/heads\//, '') : null, updated_at: at.toISOString() };
+  } catch {
+    return { commit: null, branch: null, updated_at: null };
+  }
+}
+
 function routes(db, dispatch, bot, interpret, phrase, recordings) {
   return [
+    // What this server runs, for anyone on the sign-in page: the build and when it was last updated.
+    ['GET', /^\/api\/version$/, async () => buildInfo(), { public: true }],
+
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
       const result = auth.login(db, body.email, body.password);
       if (!result) throw new HttpError(401, 'Invalid email or password');
