@@ -14,7 +14,7 @@ before(async () => {
   const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm1@t.local', 'sales_manager', { region: 'DXB' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
-  add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'], salary: 5000, hrms_code: 'EN1' });
+  add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'personal_loan', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'], salary: 5000, hrms_code: 'EN1' });
   add('Pat', 'proc@t.local', 'processing', { region: 'DXB', salary: 4000 });
   add('Mira', 'mis@t.local', 'mis', { region: 'DXB', hrms_code: 'EN2' });
   add('Bilal', 'head@t.local', 'business_head', { region: 'DXB', hrms_code: 'EN3' });

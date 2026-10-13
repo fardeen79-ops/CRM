@@ -24,7 +24,7 @@ before(async () => {
   ]) ids[email] = createUser(db, { name, email, role, password: PASSWORD }).id;
   createUser(db, { name: 'Dina', email: 'bhdxb@t.local', role: 'business_head', password: PASSWORD, region: 'DXB' });
   createUser(db, { name: 'Mo', email: 'misdxb@t.local', role: 'mis', password: PASSWORD, region: 'DXB' });
-  const profile = (code) => ({ sales_code: code, team_leader_id: ids['lead@t.local'], sales_manager_id: ids['sm@t.local'] });
+  const profile = (code) => ({ sales_code: code, team_leader_id: ids['lead@t.local'], sales_manager_id: ids['sm@t.local'], core_product: 'multi_product' });
   createUser(db, { name: 'Sally', email: 'sales@t.local', role: 'sales', password: PASSWORD, ...profile('S-001') });
   createUser(db, { name: 'Sid', email: 'sales2@t.local', role: 'sales', password: PASSWORD, ...profile('S-002') });
   server = createServer(db, { dispatch: (t) => dispatched.push(...t), itEmail: 'it-recordings@t.local' });
@@ -723,16 +723,19 @@ test('files capture region, core product and the sales staff details from the us
   const me = (await sales('GET', '/me')).data.user;
   assert.deepEqual([me.sales_code, me.team_leader_name, me.sales_manager_name], ['S-001', 'Lead', 'Manager']);
 
-  // Region and core product are required and checked
+  // Region is required and checked
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, region: '' })).status, 400);
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, region: 'SHJ' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, core_product: 'accounts' })).status, 400);
 
+  // The core product is never taken from the form: it comes from the sales person's profile
   let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, region: 'auh', core_product: 'multi_product', sales_staff_id: 999 });
   assert.equal(r.status, 201);
   const c = r.data.case;
   assert.equal(c.region, 'AUH');
   assert.equal(c.core_product, 'multi_product');
+  // ...and cannot be edited on the file later
+  assert.equal((await sales('PUT', `/cases/${c.id}`, { core_product: 'credit_card' })).status, 200);
+  assert.equal((await sales('GET', `/cases/${c.id}`)).data.case.core_product, 'multi_product');
   // Sales staff always file as themselves, whatever is sent
   assert.deepEqual([c.sales_staff_name, c.sales_code, c.team_leader_name, c.sales_manager_name], ['Sally', 'S-001', 'Lead', 'Manager']);
 
@@ -775,6 +778,12 @@ test('registering sales staff requires a sales code, team leader and sales manag
   const r = await staffAdmin('POST', '/users', { ...base, sales_code: 's-900', team_leader_id: tl, sales_manager_id: smId });
   assert.equal(r.status, 201);
   assert.deepEqual([r.data.user.sales_code, r.data.user.team_leader_name, r.data.user.sales_manager_name], ['S-900', 'Lead', 'Manager']);
+  // A sales person without a core product on the profile cannot source a file; the error names what is missing
+  const withoutCore = await lead('POST', '/cases', { journey_type: 'emirates_id', ...newCase, sales_staff_id: r.data.user.id, core_product: 'credit_card' });
+  assert.equal(withoutCore.status, 400);
+  assert.match(withoutCore.data.error, /New Sales's profile has no core product/);
+  await staffAdmin('PATCH', `/users/${r.data.user.id}`, { core_product: 'credit_card' });
+  assert.equal((await lead('POST', '/cases', { journey_type: 'emirates_id', ...newCase, sales_staff_id: r.data.user.id })).data.case.core_product, 'credit_card');
   // Other roles don't need (or get) a profile
   const p = await staffAdmin('POST', '/users', { name: 'Proc 3', email: 'p3@t.local', role: 'processing', password: 'longenough', mobile_number: '0501234567', hrms_code: 'EN30002', sales_code: 'X-1' });
   assert.equal(p.data.user.sales_code, null);
@@ -1180,7 +1189,7 @@ test('an inactive card 90 or more days after its temp end moves to Out of activa
   const tl = createUser(db, { name: 'TL', email: 'tl@x.local', role: 'team_leader', password: 'password123' });
   const sm = createUser(db, { name: 'SM', email: 'sm@x.local', role: 'sales_manager', password: 'password123' });
   const mis = createUser(db, { name: 'Mo', email: 'mis@x.local', role: 'mis', password: 'password123' });
-  const sales = createUser(db, { name: 'Sa', email: 's@x.local', role: 'sales', password: 'password123', sales_code: 'S-9', team_leader_id: tl.id, sales_manager_id: sm.id });
+  const sales = createUser(db, { name: 'Sa', email: 's@x.local', role: 'sales', password: 'password123', sales_code: 'S-9', core_product: 'credit_card', team_leader_id: tl.id, sales_manager_id: sm.id });
   const make = (daysAgo) => {
     const id = cases.createCase(db, sales, withProductDefaults({ journey_type: 'emirates_id', ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' })).id;
     cases.applyAction(db, mis, id, { action: 'set_case_status', case_status: 'completed' });

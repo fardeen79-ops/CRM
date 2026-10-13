@@ -580,7 +580,7 @@ const PRODUCT_FIELDS = [
   'pl_buyouts', 'secondary_buyout', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure',
 ];
 // Snapshot of the sales person's profile, copied onto the file when it is sourced.
-const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name', 'team_leader_id', 'sales_manager_id', 'asm_id'];
+const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name', 'team_leader_id', 'sales_manager_id', 'asm_id', 'core_product'];
 // Details the processor confirmed with the customer. Changing any of them after verification is
 // completed sends the file back for a fresh verification.
 export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_kind', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
@@ -593,7 +593,7 @@ const VERIFIED_FIELD_LABELS = {
 // The card's category and points, copied from the product list when the card is chosen.
 const CARD_SNAPSHOT_FIELDS = ['card_category', 'card_points', 'card_min_salary'];
 const EDITABLE_FIELDS = [
-  ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'customer_doj', 'fd_amount', 'region', 'core_product',
+  ...Object.keys(TEXT_FIELDS), 'customer_name', 'salary', 'amount', 'sourcing_date', 'customer_doj', 'fd_amount', 'region',
   ...PRODUCT_FIELDS, ...SALES_STAFF_FIELDS, ...CARD_SNAPSHOT_FIELDS, 'card_higher_options', 'card_eligible_category',
 ];
 /** Category and points for the card on a file (null when it has no card). */
@@ -873,16 +873,12 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
     if (!REGIONS[region]) throw new WorkflowError(400, 'Choose the region: DXB or AUH');
     out.region = region;
   }
-  if (has('core_product')) {
-    const core = clean(input.core_product);
-    if (!CORE_PRODUCTS[core]) throw new WorkflowError(400, 'Choose the core product: Credit Card, Personal Loan, Auto Loan or Multi product');
-    out.core_product = core;
-  }
+  // The core product is not entered on a file: it is copied from the sales person's profile (salesStaffSnapshot).
   if (!partial || PRODUCT_FIELDS.some((f) => f in input) || 'sourcing_type' in input || 'fd_amount' in input) validateProduct(input, current, out);
   return out;
 }
 
-/** Copies the sales person's name, code, team leader and sales manager onto the file. */
+/** Copies the sales person's name, code, team leader, sales manager and core product onto the file. */
 function salesStaffSnapshot(db, staffId) {
   const staff = staffId ? findUser(db, Number(staffId)) : null;
   if (!staff || staff.role !== 'sales' || !staff.active) {
@@ -890,12 +886,14 @@ function salesStaffSnapshot(db, staffId) {
   }
   // A sales code and a team leader are needed; the sales manager is optional (a team can report to
   // the business head directly), so a file is sourced without one.
-  const missing = [!staff.sales_code && 'sales code', !staff.team_leader_name && 'team leader'].filter(Boolean);
+  // The core product is the line the person mainly sells; it is set on the profile, never typed on a file.
+  const missing = [!staff.sales_code && 'sales code', !staff.team_leader_name && 'team leader', !CORE_PRODUCTS[staff.core_product] && 'core product'].filter(Boolean);
   if (missing.length) {
-    throw new WorkflowError(400, `${staff.name}'s profile has no ${missing.join(' or ')}. MIS or a business head can add it on the Staff page.`);
+    throw new WorkflowError(400, `${staff.name}'s profile has no ${missing.join(', ')}. MIS or a business head can add it on the Staff page.`);
   }
   return {
     sales_staff_id: staff.id,
+    core_product: staff.core_product,
     sales_staff_name: staff.name,
     sales_code: staff.sales_code,
     team_leader_name: staff.team_leader_name,

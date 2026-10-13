@@ -60,7 +60,7 @@ before(async () => {
   createUser(db, { name: 'Vera', email: 'vlead@t.local', role: 'processing_lead', password: PASSWORD });
   createUser(db, { name: 'Boss', email: 'bh@t.local', role: 'business_head', password: PASSWORD, region: 'DXB' });
   createUser(db, { name: 'Gina', email: 'gov@t.local', role: 'governance', password: PASSWORD });
-  createUser(db, { name: 'Sally', email: 'sales@t.local', role: 'sales', password: PASSWORD, sales_code: 'S-001', team_leader_id: lead.id, sales_manager_id: sm.id });
+  createUser(db, { name: 'Sally', email: 'sales@t.local', role: 'sales', password: PASSWORD, sales_code: 'S-001', core_product: 'personal_loan', team_leader_id: lead.id, sales_manager_id: sm.id });
   crm = createServer(db, { dispatch: () => {}, callBot: { url: `${botBase}/calls`, secret: SECRET } });
   await new Promise((r) => crm.listen(0, r));
   crmBase = `http://localhost:${crm.address().port}`;

@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -53,7 +53,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'sales_code', header: 'Sales code', required: true, example: 'DXB-S-014', help: 'The sales person who sourced the file' },
   { key: 'sourcing_date', header: 'Sourcing date', required: true, example: '06/10/2026', help: 'DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'region', header: 'Region', required: true, example: 'DXB', allowed: Object.keys(REGIONS) },
-  { key: 'core_product', header: 'Core product', required: true, example: 'Personal Loan', allowed: Object.values(CORE_PRODUCTS) },
+  { key: 'core_product', header: 'Core product', example: '', help: 'Ignored: the core product comes from the sales person\'s profile' },
   { key: 'salutation', header: 'Salutation', example: 'Mr' },
   { key: 'first_name', header: 'First name', required: true, example: 'Mohammed' },
   { key: 'middle_name', header: 'Middle name', example: 'Rashid' },
@@ -288,7 +288,7 @@ function caseInput(v) {
     sourcing_type: choose(v.sourcing_type, SOURCING_TYPES, 'Sourcing type') || 'regular',
     fd_amount: v.fd_amount,
     region: choose(regionKey, REGION_NAMES, 'Region'),
-    core_product: choose(v.core_product, CORE_PRODUCTS, 'Core product'),
+    core_product: undefined, // from the sales person's profile
     product,
     personal_loan_kind: choose(v.personal_loan_kind, PERSONAL_LOAN_KINDS, 'Personal loan kind') || null,
     personal_loan_type: choose(v.personal_loan_type, PERSONAL_LOAN_TYPES, 'Personal loan type'),

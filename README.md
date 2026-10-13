@@ -390,7 +390,7 @@ Once a credit card case is completed (temp end), MIS records whether the custome
 
 ### Users and contact details
 
-The **Staff** page (MIS and business heads only; team leaders no longer add users) lists every user with counts by role, a search and filters by role, region and status, a **Download staff list** button, and the add and edit forms. Every user added there needs a full name, an **HRMS code**, an **email address** and a **local mobile** number; a **WhatsApp number** is optional. Sales staff also carry a **core product** (Credit Cards, Personal Loans, Auto Loans or Multi product), the line they mainly sell, which pre-fills the core product on their new files. A **date of joining** is optional on every user (Users page or the bulk upload, DD/MM/YYYY). When someone resigns, a team leader sets their **date of leaving** (Edit on the Users page, or the bulk upload): the account is disabled from that day, up to 180 days ahead for a notice period, and cannot be re-enabled until the date is cleared. Their files, numbers and history stay. The HRMS code is the bank's staff code: it is unique, stored upper-case, and is the person's **username** at sign-in (the email address also works). The bulk users upload has an HRMS code column, and the sign-in details sheet it produces lists the HRMS code as the username.
+The **Staff** page (MIS and business heads only; team leaders no longer add users) lists every user with counts by role, a search and filters by role, region and status, a **Download staff list** button, and the add and edit forms. Every user added there needs a full name, an **HRMS code**, an **email address** and a **local mobile** number; a **WhatsApp number** is optional. Sales staff also carry a **core product** (Credit Cards, Personal Loans, Auto Loans or Multi product), the line they mainly sell, which is stamped on every file they source (it cannot be changed on the file). A **date of joining** is optional on every user (Users page or the bulk upload, DD/MM/YYYY). When someone resigns, a team leader sets their **date of leaving** (Edit on the Users page, or the bulk upload): the account is disabled from that day, up to 180 days ahead for a notice period, and cannot be re-enabled until the date is cleared. Their files, numbers and history stay. The HRMS code is the bank's staff code: it is unique, stored upper-case, and is the person's **username** at sign-in (the email address also works). The bulk users upload has an HRMS code column, and the sign-in details sheet it produces lists the HRMS code as the username.
 
 - The email is suggested from the name as `first.last@` plus your own email domain. Overwrite it if the person's address is different.
 - Local mobile numbers must be UAE mobiles. They are stored as `05XXXXXXXX`, whether typed as `050 123 4567`, `+971 50 123 4567` or `501234567`.
@@ -432,19 +432,18 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 
 When MIS or a business head registers a sales person on the **Staff** page, they enter a **sales code** and choose the person's **team leader** and **sales manager** from existing users, and optionally an **assistant sales manager**. A team leader can change these later with **Edit**.
 
-At the top of every file, the **Sales staff** section shows the sales person's full name, sales code, team leader and sales manager:
+At the top of every file, the **Sales staff** section shows the sales person's full name, sales code, team leader and sales manager, and the **core product** shows the line they mainly sell:
 
 - When a sales person enters a file, it fills in automatically from their profile and can't be edited.
 - When a team leader or sales manager enters a file, they pick the sales person and the rest fills in.
 
-These details are saved with the file as they were at submission, so later changes to a profile don't rewrite old files. A sales person can't submit until their profile is complete. The named sales person owns the file: they see it, can request edits and receive its notifications.
+These details, the core product included, are saved with the file as they were at submission, so later changes to a profile don't rewrite old files. A sales person can't submit until their profile is complete (sales code, team leader and core product). The named sales person owns the file: they see it, can request edits and receive its notifications.
 
-Every file also needs:
+Every file also needs a **Region**: `DXB` or `AUH`.
 
-- a **Region**: `DXB` or `AUH`
-- a **Core product**: Credit Card, Personal Loan, Auto Loan or Multi product. It is suggested from the product chosen, and a bundle suggests Multi product.
+The **Core product** (Credit Card, Personal Loan, Auto Loan or Multi product) is **not entered on the file**: it is read from the sales person's staff profile and shown read-only, so a loan sold by a core card seller is always recorded as a cross-sell and incentives and targets stay on the right scheme. A sales person whose profile has no core product cannot source a file until MIS or a business head sets it on the Staff page. A `core_product` sent to the API, or in the Core product column of the files upload, is ignored.
 
-The API fields are `region`, `core_product` and, for team leaders and sales managers, `sales_staff_id`.
+The API fields are `region` and, for team leaders and sales managers, `sales_staff_id`.
 
 ### Customer details
 

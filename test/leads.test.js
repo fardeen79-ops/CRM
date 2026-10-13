@@ -15,8 +15,8 @@ before(async () => {
   add('SM One', 'sm1@t.local', 'sales_manager');
   add('TL Dubai', 'tl-dxb@t.local', 'team_leader');
   add('TL Abu Dhabi', 'tl-auh@t.local', 'team_leader');
-  add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', team_leader_id: ids['tl-dxb@t.local'], sales_manager_id: ids['sm1@t.local'] });
-  add('Amal', 'amal@t.local', 'sales', { region: 'AUH', sales_code: 'A-1', team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm1@t.local'] });
+  add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'personal_loan', team_leader_id: ids['tl-dxb@t.local'], sales_manager_id: ids['sm1@t.local'] });
+  add('Amal', 'amal@t.local', 'sales', { region: 'AUH', sales_code: 'A-1', core_product: 'personal_loan', team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Mira', 'mis@t.local', 'mis', { region: 'DXB' });
   server = createServer(db);
   await new Promise((r) => server.listen(0, r));

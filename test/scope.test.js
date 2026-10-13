@@ -24,8 +24,8 @@ before(async () => {
   add('Mira', 'mis@t.local', 'mis', { region: 'DXB' });
   add('Mina', 'mis-auh@t.local', 'mis', { region: 'AUH' });
   add('Gina', 'gov@t.local', 'governance');
-  add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', team_leader_id: ids['tl-dxb@t.local'], sales_manager_id: ids['sm1@t.local'], asm_id: ids['asm1@t.local'] });
-  add('Amal', 'amal@t.local', 'sales', { region: 'AUH', sales_code: 'A-1', team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm2@t.local'] });
+  add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'personal_loan', team_leader_id: ids['tl-dxb@t.local'], sales_manager_id: ids['sm1@t.local'], asm_id: ids['asm1@t.local'] });
+  add('Amal', 'amal@t.local', 'sales', { region: 'AUH', sales_code: 'A-1', core_product: 'personal_loan', team_leader_id: ids['tl-auh@t.local'], sales_manager_id: ids['sm2@t.local'] });
   server = createServer(db, { dispatch: () => {} });
   await new Promise((r) => server.listen(0, r));
   base = `http://localhost:${server.address().port}`;

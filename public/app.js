@@ -1331,9 +1331,11 @@ async function viewCaseForm(id, leadId = null) {
   const staffList = pickStaff ? (await api('/sales-staff')).staff : [];
   const me = state.user;
   const staffNow = id
-    ? { id: c.sales_staff_id, name: c.sales_staff_name, sales_code: c.sales_code, team_leader_name: c.team_leader_name, sales_manager_name: c.sales_manager_name }
+    ? { id: c.sales_staff_id, name: c.sales_staff_name, sales_code: c.sales_code, team_leader_name: c.team_leader_name, sales_manager_name: c.sales_manager_name, core_product: c.core_product }
     : r === 'sales' ? me : null;
-  const profileGap = r === 'sales' && !id && (!me.sales_code || !me.team_leader_name);
+  const profileGap = r === 'sales' && !id && (!me.sales_code || !me.team_leader_name || !me.core_product);
+  // The core product is read from the staff profile, never chosen on the file.
+  const coreLabel = (k) => (k ? state.meta.core_products[k] || k : '');
   const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
   const listedBanks = state.meta.banks.flatMap((g) => g.banks);
   // Fields this viewer may not read; they can still type a replacement without seeing the old value.
@@ -1370,7 +1372,7 @@ async function viewCaseForm(id, leadId = null) {
 
       <section>
         <h2>Sales staff</h2>
-        ${profileGap ? html`<div class="callout warn"><strong>Your sales profile is incomplete.</strong>Ask MIS or a business head to add your sales code and team leader on the Staff page before you submit files.</div>` : ''}
+        ${profileGap ? html`<div class="callout warn"><strong>Your sales profile is incomplete.</strong>Ask MIS or a business head to add your sales code, team leader and core product on the Staff page before you submit files.</div>` : ''}
         <div class="form-grid four">
           <div>
             <label for="f-sales_staff_id">Sales staff full name ${pickStaff ? raw('<span class="req">*</span>') : ''}</label>
@@ -1467,11 +1469,9 @@ async function viewCaseForm(id, leadId = null) {
             <div class="muted small">How the application was made.</div>
           </div>
           <div>
-            <label for="f-core_product">Core product <span class="req">*</span></label>
-            <select id="f-core_product" name="core_product" required>
-              <option value="">Choose…</option>
-              ${Object.entries(state.meta.core_products).map(([k, l]) => html`<option value="${k}" ${(c.core_product || (!id && staffNow?.core_product)) === k ? raw('selected') : ''}>${l}</option>`)}
-            </select>
+            <label for="f-core_product">Core product</label>
+            <input id="f-core_product" value="${coreLabel(id ? c.core_product : staffNow?.core_product)}" readonly placeholder="From the user profile">
+            <div class="muted small">The line the sales person mainly sells, from their staff profile.</div>
           </div>
           <div>
             <label for="f-product">Product <span class="req">*</span></label>
@@ -1706,16 +1706,7 @@ async function viewCaseForm(id, leadId = null) {
     const over = !increment.disabled && fullAmount.value && increment.value && Number(increment.value) > Number(fullAmount.value);
     increment.setCustomValidity(over ? 'Incremental amount cannot be more than the full loan amount' : '');
   };
-  // Suggest the core product from the product until the user picks one themselves.
-  const coreSelect = $('#f-core_product');
-  let coreTouched = Boolean(c.core_product || (!id && staffNow?.core_product));
-  coreSelect.onchange = () => { coreTouched = true; };
-  const suggestCore = () => {
-    if (coreTouched) return;
-    const map = { personal_loan: 'personal_loan', credit_card: 'credit_card', auto_loan: 'auto_loan', bundle: 'multi_product' };
-    coreSelect.value = map[productSelect.value] || '';
-  };
-  productSelect.onchange = () => { updateProductFields(); suggestCore(); };
+  productSelect.onchange = updateProductFields;
   // Fixed Deposit sourcing offers only credit cards and personal loans; other products are switched off.
   const sourcingSelect = $('#f-sourcing_type');
   const applySourcing = () => {
@@ -1727,7 +1718,7 @@ async function viewCaseForm(id, leadId = null) {
     for (const o of productSelect.options) if (o.value && o.value !== 'bundle') o.disabled = !allowed(o.value);
     if (productSelect.value && productSelect.value !== 'bundle' && !allowed(productSelect.value)) productSelect.value = '';
     boxes.forEach((b) => { b.disabled = !allowed(b.value); if (b.disabled) b.checked = false; b.closest('label').classList.toggle('muted', b.disabled); });
-    updateProductFields(); suggestCore();
+    updateProductFields();
   };
   sourcingSelect.onchange = applySourcing;
   applySourcing();
@@ -1739,7 +1730,7 @@ async function viewCaseForm(id, leadId = null) {
       $('#f-team_leader_name').value = st.team_leader_name || '';
       $('#f-sales_manager_name').value = st.sales_manager_name || '';
       if (!id && st.region) $('#f-region').value = st.region;
-      if (!id && st.core_product) { coreSelect.value = st.core_product; coreTouched = true; }
+      $('#f-core_product').value = coreLabel(st.core_product);
     };
   }
   boxes.forEach((b) => (b.onchange = updateProductFields));
