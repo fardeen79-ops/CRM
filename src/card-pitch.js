@@ -64,13 +64,23 @@ export function parseCardPage(html) {
 }
 
 /** Reads the page with a time limit. Resolves to the HTML, or throws with a reason staff can read. */
+const BROWSER_HEADERS = {
+  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'accept-language': 'en-GB,en;q=0.9,ar;q=0.8',
+  'upgrade-insecure-requests': '1',
+  'sec-fetch-dest': 'document', 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'none', 'sec-fetch-user': '?1',
+};
 async function readCardPage(url, fetcher) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PITCH_TIMEOUT_MS);
   try {
-    const res = await fetcher(url, { signal: ctrl.signal, redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (Sourcing CRM card pitch)', accept: 'text/html' } });
+    // The bank's site sits behind bot protection that answers 403 to anything that does not look
+    // like a browser, so the request carries ordinary browser headers.
+    const res = await fetcher(url, { signal: ctrl.signal, redirect: 'follow', headers: BROWSER_HEADERS });
     if (res.url && !isBankPage(res.url)) throw new Error('the page moved off the bank\'s site');
     if (res.status === 404) throw new Error('no page at this address');
+    if (res.status === 403) throw new Error('the bank\'s site blocked the read (403, its bot protection)');
     if (!res.ok) throw new Error(`the site answered ${res.status}`);
     return await res.text();
   } catch (err) {
