@@ -58,7 +58,7 @@ test('accounts sees the incentive reports and the payout file for a cycle, and n
   // Sally sells three cards past her target: an incentive and the bonus to pay.
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   for (let i = 0; i < 3; i++) {
-    const r = await sally('POST', '/cases', { region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
+    const r = await sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
     assert.equal(r.status, 201, JSON.stringify(r.data));
     assert.equal((await mis('POST', `/cases/${r.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' })).status, 200);
   }
@@ -236,7 +236,7 @@ test('users added by mistake can be deleted together; anyone with activity or st
   // A wrong upload: two people who never did anything, plus a leader who already has staff.
   const wrong1 = (await mis('POST', '/users', { name: 'Wrong One', email: 'wrong1@t.local', role: 'processing', password: PASSWORD, hrms_code: 'W1', region: 'DXB', mobile_number: '0501234501' })).data.user;
   const wrong2 = (await mis('POST', '/users', { name: 'Wrong Two', email: 'wrong2@t.local', role: 'governance', password: PASSWORD, hrms_code: 'W2', region: 'DXB', mobile_number: '0501234502' })).data.user;
-  const sourced = (await sally('POST', '/cases', { customer_name: 'Keeps Sally', region: 'DXB', phone: '+971 50 111 2233', city: 'Dubai', product: 'credit_card', credit_card: 'Mass', salary: 9000, company_name: 'Co', source: 'Cold call', customer_type: 'salaried' })).status;
+  const sourced = (await sally('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Keeps Sally', region: 'DXB', phone: '+971 50 111 2233', city: 'Dubai', product: 'credit_card', credit_card: 'Mass', salary: 9000, company_name: 'Co', source: 'Cold call', customer_type: 'salaried' })).status;
   assert.ok([201, 400].includes(sourced));
   const r = (await mis('POST', '/users/delete', { ids: [wrong1.id, wrong2.id, ids['tl@t.local'], ids['mis@t.local'], 99999] })).data;
   assert.deepEqual(r.deleted.map((d) => d.name).sort(), ['Wrong One', 'Wrong Two']);
@@ -323,7 +323,7 @@ test('MIS or a business head deletes files entered by mistake, with a reason; th
   const mis = await login('mis@t.local');
   const sally = await login('sally@t.local');
   const gov = await login('governance@t.local').catch(() => null);
-  const mk = async (name) => { const r = await sally('POST', '/cases', { customer_name: name, region: 'DXB', phone: '+971 50 999 1234', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Mastercard Platinum', card_fee_type: 'fyf', salary: 15000, company_name: 'Co', source: 'Cold call', customer_type: 'salaried' }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.case; };
+  const mk = async (name) => { const r = await sally('POST', '/cases', { journey_type: 'emirates_id', customer_name: name, region: 'DXB', phone: '+971 50 999 1234', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Mastercard Platinum', card_fee_type: 'fyf', salary: 15000, company_name: 'Co', source: 'Cold call', customer_type: 'salaried' }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.case; };
   const a = await mk('Test Entry One');
   const b = await mk('Test Entry Two');
   const keep = await mk('Real Customer');

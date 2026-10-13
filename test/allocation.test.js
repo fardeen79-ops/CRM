@@ -53,7 +53,7 @@ async function tlOk(id, who = 'tl@t.local') {
 
 
 const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-const loan = (extra = {}) => ({ region: 'DXB', core_product: 'personal_loan', customer_name: 'Alloc Test', phone: '+971 50 222 3333', city: 'Dubai', salary: 15000, source: 'Walk-in', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd, sourcing_date: '2026-10-05', ...extra });
+const loan = (extra = {}) => ({ journey_type: 'emirates_id', region: 'DXB', core_product: 'personal_loan', customer_name: 'Alloc Test', phone: '+971 50 222 3333', city: 'Dubai', salary: 15000, source: 'Walk-in', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd, sourcing_date: '2026-10-05', ...extra });
 
 test('a processor can complete verification on a deviation, with a mandatory note', async () => {
   const dana = await login('dana@t.local');
@@ -109,8 +109,8 @@ test('the verification team leader allocates processors to sales team leaders; t
   // Split by product: cards to Omar, loans stay with Pat, auto loans back to the shared queue.
   assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'credit_card', processor_id: ids['omar@t.local'] })).status, 200);
   assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'auto_loan', processor_id: null })).status, 200);
-  const card = (await cara('POST', '/cases', { region: 'DXB', core_product: 'credit_card', customer_name: 'Card File', phone: '+971 50 222 5555', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' })).data.case;
-  const auto = (await cara('POST', '/cases', { region: 'DXB', core_product: 'auto_loan', customer_name: 'Auto File', phone: '+971 50 222 6666', city: 'Dubai', salary: 20000, source: 'Walk-in', product: 'auto_loan', auto_loan_type: 'new', amount: 90000, car_make: 'Toyota', car_model: 'Camry', car_year: 2026, al_lead_source: 'Dealer referral', al_interest_rate: 3.25, al_tenure: 60, sourcing_date: '2026-10-05' })).data.case;
+  const card = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', core_product: 'credit_card', customer_name: 'Card File', phone: '+971 50 222 5555', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' })).data.case;
+  const auto = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', core_product: 'auto_loan', customer_name: 'Auto File', phone: '+971 50 222 6666', city: 'Dubai', salary: 20000, source: 'Walk-in', product: 'auto_loan', auto_loan_type: 'new', amount: 90000, car_make: 'Toyota', car_model: 'Camry', car_year: 2026, al_lead_source: 'Dealer referral', al_interest_rate: 3.25, al_tenure: 60, sourcing_date: '2026-10-05' })).data.case;
   assert.equal((await omar('GET', `/cases/${card.id}`)).status, 200);
   assert.equal((await pat('GET', `/cases/${card.id}`)).status, 404);
   assert.equal((await pat('GET', `/cases/${c.id}`)).status, 200);

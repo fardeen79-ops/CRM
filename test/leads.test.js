@@ -63,8 +63,8 @@ test('a lead converts into a case with its details, or is marked not interested 
   const amal = await login('amal@t.local');
   const l = (await dana('POST', '/leads', { first_name: 'Noor', last_name: 'Salem', phone: '+971 55 222 3333', company_name: 'ADNOC', salary: 15000, product: 'personal_loan', city: 'Dubai' })).data.lead;
   // Another sales person cannot convert it.
-  const body = { customer_name: 'Noor Salem', first_name: 'Noor', last_name: 'Salem', region: 'DXB', phone: '+971 55 222 3333', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd: '2026-12-01', secondary_buyout: 'no', salary: 15000, company_name: 'ADNOC', source: 'Lead', lead_id: l.id };
-  assert.equal((await amal('POST', '/cases', { ...body, region: 'AUH' })).status, 404);
+  const body = { journey_type: 'emirates_id', customer_name: 'Noor Salem', first_name: 'Noor', last_name: 'Salem', region: 'DXB', phone: '+971 55 222 3333', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd: '2026-12-01', secondary_buyout: 'no', salary: 15000, company_name: 'ADNOC', source: 'Lead', lead_id: l.id };
+  assert.equal((await amal('POST', '/cases', { journey_type: 'emirates_id', ...body, region: 'AUH' })).status, 404);
   const c = (await dana('POST', '/cases', body)).data.case;
   assert.ok(c?.id, 'case created from the lead');
   const after = (await dana('GET', `/leads/${l.id}`)).data.lead;

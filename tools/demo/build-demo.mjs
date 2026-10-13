@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v80';
+const DB_KEY = 'sourcing-crm-demo-db-v81';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -193,7 +193,7 @@ function seed() {
   let nth = 0;
   const mk = (who, data) => {
     const products = data.product === 'bundle' ? data.bundle_products : [data.product];
-    const extra = {};
+    const extra = { journey_type: data.journey_type || ['emirates_id', 'uae_pass'][nth % 2] };
     if (products.includes('credit_card') && !data.card_fee_type) extra.card_fee_type = ['fyf', 'full_fee', 'ffl'][nth++ % 3];
     if (products.includes('personal_loan') && !data.fpd) extra.fpd = new Date(Date.now() + (28 + (nth % 4) * 7) * 864e5).toISOString().slice(0, 10);
     if (!data.salary_bank) extra.salary_bank = ['Emirates NBD', 'First Abu Dhabi Bank (FAB)', 'Mashreq', 'Abu Dhabi Commercial Bank (ADCB)'][nth % 4];

@@ -6,7 +6,7 @@ import { openDb } from '../src/db.js';
 import { addHoliday, loadHolidays, removeHoliday } from '../src/holidays.js';
 
 const at = (h) => new Date(Date.UTC(2026, 9, 5, 6) + h * 36e5).toISOString();
-const ev = (id, h, type, extra = {}) => ({ id, created_at: at(h), type, user_name: 'Someone', ...extra });
+const ev = (id, h, type, extra = {}) => ({ journey_type: 'emirates_id', id, created_at: at(h), type, user_name: 'Someone', ...extra });
 
 test('stages, time at each and the slowest; returning to a stage adds to it', () => {
   const events = [

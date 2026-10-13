@@ -38,7 +38,7 @@ test('the bonus level comes with the salary band and pays AED 1,000 once the poi
   const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   const card = async () => {
-    const r = await sally('POST', '/cases', { region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
+    const r = await sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
     assert.equal(r.status, 201, JSON.stringify(r.data));
     assert.equal((await mis('POST', `/cases/${r.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' })).status, 200);
   };

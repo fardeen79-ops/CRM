@@ -93,7 +93,7 @@ test('a number takes every form; file names give the time and length', () => {
 test('a folder of recordings: the calls for the customer, newest first, with the time, direction, length and extension', async () => {
   const sally = await login('sally@t.local'); const gina = await login('gov@t.local'); const mis = await login('mis@t.local');
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-  const r = await sally('POST', '/cases', { region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
+  const r = await sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   const id = r.data.case.id;
   assert.equal((await (await login('tl@t.local'))('POST', `/cases/${id}/actions`, { action: 'validate' })).status, 200, 'the team leader validates it first');
@@ -153,7 +153,7 @@ test('a folder of recordings: the calls for the customer, newest first, with the
 test('an HTTP recording API: the list is mapped and the audio fetched with the token, never from the browser', async () => {
   const sally = await login('sally@t.local', pbxBase); const gina = await login('gov@t.local', pbxBase);
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-  const r = await sally('POST', '/cases', { region: 'DXB', phone: '050 333 4444', alt_phone: '+971 50 999 8888', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
+  const r = await sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', phone: '050 333 4444', alt_phone: '+971 50 999 8888', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', fpd });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   const id = r.data.case.id;
   assert.equal((await (await login('tl@t.local', pbxBase))('POST', `/cases/${id}/actions`, { action: 'validate' })).status, 200);

@@ -37,7 +37,7 @@ if (db.prepare('SELECT COUNT(*) AS n FROM cases').get().n === 0) {
       product: 'accounts', source: 'Cold call' }],
   ];
   const ids = samples.map(([u, data]) => {
-    const c = createCase(db, u, data);
+    const c = createCase(db, u, { journey_type: 'emirates_id', ...data });
     // A sales file waits with its team leader (and, on a Sunday or after 6 pm, needs timing/card approval):
     // approve and validate it so the sample lands in the verification queue.
     if (c.status === STATUS.APPROVAL) {

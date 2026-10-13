@@ -109,7 +109,7 @@ async function until(fn, tries = 600) {
 }
 const finishedCall = (caseId) => until(() => db.prepare(`SELECT * FROM bot_calls WHERE case_id = ? AND status IN ('completed', 'failed')`).get(caseId));
 
-const newCase = (over = {}) => ({ fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
+const newCase = (over = {}) => ({ journey_type: 'emirates_id', fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10),
   first_name: 'Asha', last_name: 'Rao', phone: '050 123 4567', region: 'DXB', core_product: 'personal_loan',
   product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 150000, interest_rate: 6.5, pl_tenure: 48,
   company_name: 'Emirates Steel', salary: 25000, ...over });

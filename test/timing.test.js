@@ -48,7 +48,7 @@ async function tlOk(id, who = 'tl2@t.local') {
 
 const UAE = (iso) => Date.parse(iso) - 4 * 3600e3; // a UAE wall-clock time as an instant
 const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-const loan = (extra = {}) => ({ region: 'DXB', core_product: 'personal_loan', customer_name: 'Timing Test', phone: '+971 50 777 8888', city: 'Dubai', salary: 15000, source: 'Walk-in', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd, ...extra });
+const loan = (extra = {}) => ({ journey_type: 'emirates_id', region: 'DXB', core_product: 'personal_loan', customer_name: 'Timing Test', phone: '+971 50 777 8888', city: 'Dubai', salary: 15000, source: 'Walk-in', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd, ...extra });
 
 test('a file sourced on a Sunday waits for the team leader or sales manager before verification', async () => {
   const cara = await login('cara@t.local');
@@ -93,7 +93,7 @@ test('a card below salary on a Sunday needs both approvals before it goes for ve
   const cara = await login('cara@t.local');
   const tl2 = await login('tl2@t.local');
   timing.now = () => UAE('2026-10-04T11:00:00');
-  const c = (await cara('POST', '/cases', { region: 'DXB', core_product: 'credit_card', customer_name: 'Both Rules', phone: '+971 50 777 9999', city: 'Dubai', salary: 9000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-04' })).data.case;
+  const c = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', core_product: 'credit_card', customer_name: 'Both Rules', phone: '+971 50 777 9999', city: 'Dubai', salary: 9000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-04' })).data.case;
   timing.now = () => UAE('2026-10-05T10:00:00');
   assert.equal(c.status, 'awaiting_approval');
   const seen = (await tl2('GET', `/cases/${c.id}`)).data.case;
@@ -120,9 +120,9 @@ test('governance marks a complaint valid or invalid; a valid one removes the fil
   const gov = await login('gov@t.local');
   const head = await login('head@t.local');
   const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
-  const card = { region: 'DXB', core_product: 'credit_card', customer_name: 'Complaint Case', phone: '+971 50 123 9999', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' };
+  const card = { journey_type: 'emirates_id', region: 'DXB', core_product: 'credit_card', customer_name: 'Complaint Case', phone: '+971 50 123 9999', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' };
   const a = (await cara('POST', '/cases', card)).data.case;
-  const b = (await cara('POST', '/cases', { ...card, customer_name: 'Clean Case', phone: '+971 50 123 8888' })).data.case;
+  const b = (await cara('POST', '/cases', { journey_type: 'emirates_id', ...card, customer_name: 'Clean Case', phone: '+971 50 123 8888' })).data.case;
   for (const id of [a.id, b.id]) assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' })).status, 200);
   const before = (await cara('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
   assert.deepEqual([before.cards_sold, before.excluded_files, before.remark], [2, 0, '']);
@@ -150,7 +150,7 @@ test('a file marked Customer in DNCR carries a permission email to the customer,
   const proc = await login('proc@t.local');
   const tl2 = await login('tl2@t.local');
   timing.now = () => UAE('2026-10-05T10:00:00');
-  const c = (await cara('POST', '/cases', { region: 'DXB', core_product: 'credit_card', first_name: 'Hind', last_name: 'Saeed', email: 'hind@example.com', phone: '+971 50 777 1234', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' })).data.case;
+  const c = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', core_product: 'credit_card', first_name: 'Hind', last_name: 'Saeed', email: 'hind@example.com', phone: '+971 50 777 1234', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' })).data.case;
   assert.equal('dncr_email' in c, false);
   await tlOk(c.id);
   assert.equal((await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' })).status, 200);
@@ -175,13 +175,13 @@ test('a file carries a salutation, used on the file and in the customer email', 
   const proc = await login('proc@t.local');
   timing.now = () => UAE('2026-10-05T10:00:00');
   const base = { region: 'DXB', core_product: 'credit_card', first_name: 'Noura', last_name: 'Al Ali', email: 'noura@example.com', phone: '+971 50 777 2222', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-05' };
-  assert.equal((await cara('POST', '/cases', { ...base, salutation: 'Sir' })).status, 400);
-  const c = (await cara('POST', '/cases', { ...base, salutation: 'Ms' })).data.case;
+  assert.equal((await cara('POST', '/cases', { journey_type: 'emirates_id', ...base, salutation: 'Sir' })).status, 400);
+  const c = (await cara('POST', '/cases', { journey_type: 'emirates_id', ...base, salutation: 'Ms' })).data.case;
   assert.deepEqual([c.salutation, c.customer_name], ['Ms', 'Noura Al Ali']);
   await tlOk(c.id);
   await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' });
   await proc('POST', `/cases/${c.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'On the register' });
   assert.match((await proc('GET', `/cases/${c.id}`)).data.case.dncr_email.body, /^Dear Ms Al Ali,/);
-  const plain = (await cara('POST', '/cases', { ...base, phone: '+971 50 777 3333', email: 'n2@example.com' })).data.case;
+  const plain = (await cara('POST', '/cases', { journey_type: 'emirates_id', ...base, phone: '+971 50 777 3333', email: 'n2@example.com' })).data.case;
   assert.equal(plain.salutation, null);
 });

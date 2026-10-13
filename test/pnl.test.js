@@ -42,7 +42,7 @@ test('profit and loss for the business head: revenue less profile salaries and i
   const gov = await login('gov@t.local');
   const cycle = (await mis('GET', '/me')).data.meta.current_cycle;
   // One used-car auto loan of 50,000 completed: the bank pays 1.75% = AED 875.
-  const c = (await dana('POST', '/cases', { customer_name: 'PL Customer', region: 'DXB', phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan', auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 3.5, al_tenure: 48, salary: 9000, source: 'Walk-in' })).data.case;
+  const c = (await dana('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'PL Customer', region: 'DXB', phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan', auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 3.5, al_tenure: 48, salary: 9000, source: 'Walk-in' })).data.case;
   assert.ok(c, 'case created');
   assert.equal((await mis('POST', `/cases/${c.id}/actions`, { action: 'set_case_status', case_status: 'completed', al_disbursed_amount: 50000 })).status, 200);
   // Only the business head sees it.

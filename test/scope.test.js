@@ -51,7 +51,7 @@ async function tlOk(id, who = 'tl@t.local') {
   assert.equal(r.status, 200, JSON.stringify(r.data));
   return r.data.case;
 }
-const file = (name, region = 'DXB') => ({ customer_name: name, region, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan', auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 4, al_tenure: 48 });
+const file = (name, region = 'DXB') => ({ journey_type: 'emirates_id', customer_name: name, region, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan', auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 4, al_tenure: 48 });
 const names = (list) => list.map((c) => c.customer_name).sort();
 
 test('a file starts in the sales person\'s region but can name any region', async () => {
@@ -62,7 +62,7 @@ test('a file starts in the sales person\'s region but can name any region', asyn
   assert.equal(d.data.case.region, 'DXB');
   const a = await amal('POST', '/cases', file('Abu Dhabi customer', 'AUH'));
   assert.equal(a.data.case.region, 'AUH');
-  const d2 = await amal('POST', '/cases', { ...file('Default region'), region: '' });
+  const d2 = await amal('POST', '/cases', { journey_type: 'emirates_id', ...file('Default region'), region: '' });
   assert.equal(d2.data.case.region, 'AUH');
   ids.defaultCase = d2.data.case.id;
   const x = await amal('POST', '/cases', file('Abu Dhabi staff, Dubai customer'));
@@ -107,7 +107,7 @@ test('team leaders, sales managers and assistant sales managers see only their t
   assert.deepEqual((await sm2('GET', '/targets')).data.staff.map((s) => s.name), ['Amal']);
   assert.deepEqual((await asm('GET', '/targets')).data.staff.map((s) => s.name), ['Dana']);
   // An assistant sales manager can enter a file for their own staff, not someone else's.
-  assert.equal((await asm('POST', '/cases', { ...file('ASM entered'), sales_staff_id: ids['dana@t.local'] })).status, 201);
+  assert.equal((await asm('POST', '/cases', { journey_type: 'emirates_id', ...file('ASM entered'), sales_staff_id: ids['dana@t.local'] })).status, 201);
   const other = await sm1('PUT', `/cases/${ids.dubaiCase}`, { sales_staff_id: ids['amal@t.local'] });
   assert.equal(other.status, 403);
 });
@@ -259,7 +259,7 @@ test('a card below the salary requirement needs a reason or team approval; a hig
   const tl = await login('tl-auh@t.local');
   const proc = await login('proc-dxb@t.local');
   const sm = await login('sm2@t.local');
-  const card = (extra) => ({ customer_name: 'Card Customer', region: 'DXB', phone: '+971 50 111 3333', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Skywards Infinite Credit Card', card_fee_type: 'fyf', ...extra });
+  const card = (extra) => ({ journey_type: 'emirates_id', customer_name: 'Card Customer', region: 'DXB', phone: '+971 50 111 3333', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Skywards Infinite Credit Card', card_fee_type: 'fyf', ...extra });
   // The list carries each card's salary requirement; Skywards Infinite needs AED 30,000 in the bank's list.
   const cards = (await dana('GET', '/me')).data.meta.credit_cards.flatMap((f) => f.cards);
   assert.equal(cards.find((k) => k.name === 'Skywards Infinite Credit Card').min_salary, 30000);
@@ -312,7 +312,7 @@ test('a card below the salary requirement needs a reason or team approval; a hig
 test('auto loans need the car and loan details; tenures are capped at 60 and 48 months', async () => {
   const dana = await login('dana@t.local');
   const base = file('Car buyer');
-  const bad = async (patch, re) => { const r = await dana('POST', '/cases', { ...base, ...patch }); assert.equal(r.status, 400, JSON.stringify(r.data)); assert.match(r.data.error, re); };
+  const bad = async (patch, re) => { const r = await dana('POST', '/cases', { journey_type: 'emirates_id', ...base, ...patch }); assert.equal(r.status, 400, JSON.stringify(r.data)); assert.match(r.data.error, re); };
   await bad({ auto_loan_type: '' }, /New or Used/);
   await bad({ car_make: '' }, /car make/i);
   await bad({ car_year: 1980 }, /Car year/);
@@ -322,30 +322,30 @@ test('auto loans need the car and loan details; tenures are capped at 60 and 48 
   await bad({ al_tenure: 61 }, /tenure.*60/i);
   await bad({ al_tenure: 0 }, /tenure/i);
   await bad({ amount: '' }, /amount/i);
-  const ok = await dana('POST', '/cases', { ...base, dealer_details: 'Arabian Automobiles, Deira' });
+  const ok = await dana('POST', '/cases', { journey_type: 'emirates_id', ...base, dealer_details: 'Arabian Automobiles, Deira' });
   assert.equal(ok.status, 201, JSON.stringify(ok.data));
   assert.deepEqual([ok.data.case.auto_loan_type, ok.data.case.car_make, ok.data.case.car_year, ok.data.case.al_tenure, ok.data.case.dealer_details], ['used', 'Nissan', 2023, 48, 'Arabian Automobiles, Deira']);
   // Personal loans need a tenure of at most 48 months.
   const pl = { customer_name: 'Loan buyer', region: 'DXB', phone: '+971 50 111 4444', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 100000, interest_rate: 6, fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) };
   assert.equal((await dana('POST', '/cases', pl)).status, 400);
-  assert.equal((await dana('POST', '/cases', { ...pl, pl_tenure: 49 })).status, 400);
-  assert.equal((await dana('POST', '/cases', { ...pl, pl_tenure: 48 })).data.case.pl_tenure, 48);
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, pl_tenure: 49 })).status, 400);
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, pl_tenure: 48 })).data.case.pl_tenure, 48);
 });
 
 test('fresh loans confirm secondary buyouts; buy-out loans list the primary buyout and any secondary ones', async () => {
   const dana = await login('dana@t.local');
   const pl = { customer_name: 'Buyout Customer', region: 'DXB', phone: '+971 50 111 5555', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 200000, interest_rate: 6, pl_tenure: 48, fpd: new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10) };
   // Fresh: no secondary buyouts.
-  const none = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no' });
+  const none = await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no' });
   assert.equal(none.status, 201, JSON.stringify(none.data));
   assert.deepEqual([none.data.case.secondary_buyout, none.data.case.pl_buyouts], ['no', []]);
   // Fresh with secondary buyouts: two cards (bank and limit each) and a mortgage.
   const list = [{ role: 'secondary', kind: 'credit_card', bank: 'Mashreq', amount: 20000 }, { role: 'secondary', kind: 'credit_card', bank: 'FAB', amount: 15000 }, { role: 'secondary', kind: 'mortgage', bank: 'ADCB', amount: 900000 }];
-  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes' })).status, 400);
-  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'credit_card', bank: '', amount: 5000 }] })).status, 400);
-  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'boat', bank: 'FAB', amount: 5000 }] })).status, 400);
-  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'maybe' })).status, 400);
-  const fresh = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: list });
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes' })).status, 400);
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'credit_card', bank: '', amount: 5000 }] })).status, 400);
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'boat', bank: 'FAB', amount: 5000 }] })).status, 400);
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'maybe' })).status, 400);
+  const fresh = await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: list });
   assert.equal(fresh.status, 201, JSON.stringify(fresh.data));
   assert.equal(fresh.data.case.pl_buyouts.length, 3);
   assert.equal(fresh.data.case.pl_buyouts.filter((b) => b.kind === 'credit_card').length, 2);
@@ -353,23 +353,23 @@ test('fresh loans confirm secondary buyouts; buy-out loans list the primary buyo
   const dropped = await dana('PUT', `/cases/${fresh.data.case.id}`, { secondary_buyout: 'no', pl_buyouts: list });
   assert.deepEqual(dropped.data.case.pl_buyouts, []);
   // Buy-out: the primary buyout is required and names the bank the loan is bought out from.
-  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no' })).status, 400);
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no' })).status, 400);
   // The primary buyout must be the personal loan being bought out; a personal loan cannot be a secondary buyout.
-  const noLoan = await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'non_stl_loan', bank: 'RAKBANK', amount: 180000 }] });
+  const noLoan = await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'non_stl_loan', bank: 'RAKBANK', amount: 180000 }] });
   assert.equal(noLoan.status, 400);
   assert.match(noLoan.data.error, /personal loan/);
-  assert.equal((await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'personal_loan', bank: 'RAKBANK', amount: 1000 }] })).status, 400);
-  const buy = await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'yes', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'RAKBANK', amount: 180000 }, { role: 'primary', kind: 'credit_card', bank: 'Mashreq', amount: 10000 }, { role: 'secondary', kind: 'auto_loan', bank: 'Emirates NBD', amount: 60000 }] });
+  assert.equal((await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'yes', pl_buyouts: [{ role: 'secondary', kind: 'personal_loan', bank: 'RAKBANK', amount: 1000 }] })).status, 400);
+  const buy = await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'yes', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'RAKBANK', amount: 180000 }, { role: 'primary', kind: 'credit_card', bank: 'Mashreq', amount: 10000 }, { role: 'secondary', kind: 'auto_loan', bank: 'Emirates NBD', amount: 60000 }] });
   assert.equal(buy.status, 201, JSON.stringify(buy.data));
   assert.deepEqual([buy.data.case.buyout_bank, buy.data.case.product_label, buy.data.case.pl_buyouts.length], ['RAKBANK', 'Personal Loan (Buy Out from RAKBANK)', 3]);
   // A primary entry on a fresh loan is ignored; the bulk upload format reads into the same list.
-  const stray = await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'mortgage', bank: 'ADCB', amount: 1 }] });
+  const stray = await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'mortgage', bank: 'ADCB', amount: 1 }] });
   assert.deepEqual(stray.data.case.pl_buyouts, []);
 });
 
 test('the salary transfer bank is saved on the file', async () => {
   const dana = await login('dana@t.local');
-  const r = await dana('POST', '/cases', { ...file('Salary bank'), salary_bank: 'Emirates NBD' });
+  const r = await dana('POST', '/cases', { journey_type: 'emirates_id', ...file('Salary bank'), salary_bank: 'Emirates NBD' });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.case.salary_bank, 'Emirates NBD');
   assert.equal((await dana('PUT', `/cases/${r.data.case.id}`, { salary_bank: 'Some Other Bank' })).data.case.salary_bank, 'Some Other Bank');
@@ -380,7 +380,7 @@ test('reports list card deviations, promotions, approvals waiting and cards sold
   const mis = await login('mis@t.local');
   const gov = await login('gov@t.local');
   const tl = await login('tl-auh@t.local');
-  const card = (extra) => ({ customer_name: 'Report Card', region: 'DXB', phone: '+971 50 111 6666', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary_bank: 'Mashreq', ...extra });
+  const card = (extra) => ({ journey_type: 'emirates_id', customer_name: 'Report Card', region: 'DXB', phone: '+971 50 111 6666', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary_bank: 'Mashreq', ...extra });
   // Titanium needs 5,000; a salary of 32,000 qualifies for higher cards, so this is sold below eligibility.
   const low = await dana('POST', '/cases', card({ salary: 32000 }));
   assert.equal(low.status, 201, JSON.stringify(low.data));
@@ -422,7 +422,7 @@ test('payouts: what the bank pays per file, for the business head and DXB MIS on
   const gov = await login('gov@t.local');
   const sm = await login('sm1@t.local');
   const proc = await login('proc-dxb@t.local');
-  const card = (extra) => ({ customer_name: 'Payout Card', region: 'DXB', phone: '+971 50 111 7777', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary: 32000, ...extra });
+  const card = (extra) => ({ journey_type: 'emirates_id', customer_name: 'Payout Card', region: 'DXB', phone: '+971 50 111 7777', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary: 32000, ...extra });
   const mass = (await dana('POST', '/cases', card({}))).data.case;
   assert.equal(mass.payout, undefined); // sales staff never see it
   const seen = (await mis('GET', `/cases/${mass.id}`)).data.case.payout;
@@ -441,19 +441,19 @@ test('payouts: what the bank pays per file, for the business head and DXB MIS on
   // Personal loans: 3% of the amount, 1.5% when buying out an Emirates Islamic loan.
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   const pl = { customer_name: 'Payout Loan', region: 'DXB', phone: '+971 50 111 8888', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd };
-  const fresh = (await dana('POST', '/cases', { ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no' })).data.case;
+  const fresh = (await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'fresh', secondary_buyout: 'no' })).data.case;
   assert.equal((await mis('GET', `/cases/${fresh.id}`)).data.case.payout.total, 3000);
-  const eib = (await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Emirates Islamic', amount: 100000 }] })).data.case;
+  const eib = (await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Emirates Islamic', amount: 100000 }] })).data.case;
   assert.equal(eib.status !== undefined, true);
   const eibPay = (await mis('GET', `/cases/${eib.id}`)).data.case.payout;
   assert.equal(eibPay.total, 1500);
   assert.match(eibPay.parts[0].basis, /Emirates Islamic/);
-  const other = (await dana('POST', '/cases', { ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Mashreq', amount: 100000 }] })).data.case;
+  const other = (await dana('POST', '/cases', { journey_type: 'emirates_id', ...pl, personal_loan_type: 'buy_out', secondary_buyout: 'no', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Mashreq', amount: 100000 }] })).data.case;
   assert.equal((await mis('GET', `/cases/${other.id}`)).data.case.payout.total, 3000);
   // Auto loans: 1.75% used, 0.70% new.
   const used = (await dana('POST', '/cases', file('Payout Used'))).data.case;
   assert.equal((await mis('GET', `/cases/${used.id}`)).data.case.payout.total, 875);
-  const brandNew = (await dana('POST', '/cases', { ...file('Payout New'), auto_loan_type: 'new', car_year: 2026 })).data.case;
+  const brandNew = (await dana('POST', '/cases', { journey_type: 'emirates_id', ...file('Payout New'), auto_loan_type: 'new', car_year: 2026 })).data.case;
   assert.equal((await mis('GET', `/cases/${brandNew.id}`)).data.case.payout.total, 350);
   // Reports: the down-sell report prices the lost upgrade; the sourcing and register reports carry payout for managers only.
   const down = (await mis('GET', '/reports/card_downsell')).data;
@@ -524,11 +524,11 @@ test('staff master shapes from the real list: a manager leading a team, a team w
     return async (method, path, body) => { const r = await fetch(`${base}/api${path}`, { method, headers: { cookie, ...(body && { 'content-type': 'application/json' }) }, body: body && JSON.stringify(body) }); return { status: r.status, data: await r.json() }; };
   };
   const praveenLogin = await as('praveen.lead@t.local', up.rows[2].temp_password);
-  const sold = (await (await as('7001', up.rows[3].temp_password))('POST', '/cases', { ...file('Direct customer'), region: 'AUH' })).data.case;
+  const sold = (await (await as('7001', up.rows[3].temp_password))('POST', '/cases', { journey_type: 'emirates_id', ...file('Direct customer'), region: 'AUH' })).data.case;
   assert.equal((await praveenLogin('GET', `/cases/${sold.id}`)).status, 200);
   // A sales person with no sales manager still sources files, and a sheet that repeats the full name in every name column keeps it once.
   const noMgr = await as('7002', up.rows[4].temp_password);
-  const sourced = await noMgr('POST', '/cases', { ...file('x'), customer_name: undefined, first_name: 'Anand Kumar Mishra', middle_name: 'Anand Kumar Mishra', last_name: 'ANAND KUMAR MISHRA', region: 'DXB' });
+  const sourced = await noMgr('POST', '/cases', { journey_type: 'emirates_id', ...file('x'), customer_name: undefined, first_name: 'Anand Kumar Mishra', middle_name: 'Anand Kumar Mishra', last_name: 'ANAND KUMAR MISHRA', region: 'DXB' });
   assert.equal(sourced.status, 201, JSON.stringify(sourced.data));
   assert.equal(sourced.data.case.customer_name, 'Anand Kumar Mishra');
   assert.equal(sourced.data.case.sales_manager_name, null);
@@ -554,14 +554,14 @@ test('credit card incentives: points beyond target at AED 1.25 with the premium 
   for (const email of ['dana@t.local', 'amal@t.local']) assert.equal((await mis('PATCH', `/users/${ids[email]}`, { core_product: 'credit_card' })).status, 200);
   assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: ids['dana@t.local'], credit_card: 1000 }, { user_id: ids['amal@t.local'], credit_card: 100 }] })).status, 200);
   const complete = (id, extra = {}) => mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', ...extra });
-  const card = (who, name, extra) => who('POST', '/cases', { customer_name: name, region: 'DXB', phone: '+971 50 111 9999', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary: 32000, ...extra });
+  const card = (who, name, extra) => who('POST', '/cases', { journey_type: 'emirates_id', customer_name: name, region: 'DXB', phone: '+971 50 111 9999', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Titanium Credit Card', card_fee_type: 'fyf', salary: 32000, ...extra });
   // Dana: two Mass cards (650 each) and one Premium (800) = 2,100 points, 33.3% premium mix.
   for (const [name, extra] of [['Inc Mass 1', {}], ['Inc Mass 2', {}], ['Inc Premium', { credit_card: 'Skywards Signature Credit Card' }]]) {
     const c = (await card(dana, name, extra)).data.case; assert.equal((await complete(c.id)).status, 200, name);
   }
   // Plus a fresh loan of 100,000 (1,000 points) and an Emirates Islamic buy-out of 100,000 (counts 50,000 = 500 points).
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-  const pl = (extra) => dana('POST', '/cases', { customer_name: 'Inc Loan', region: 'DXB', phone: '+971 50 111 9998', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd, secondary_buyout: 'no', ...extra });
+  const pl = (extra) => dana('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Inc Loan', region: 'DXB', phone: '+971 50 111 9998', city: 'Dubai', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd, secondary_buyout: 'no', ...extra });
   const fresh = (await pl({ personal_loan_type: 'fresh' })).data.case; assert.equal((await complete(fresh.id, { pl_disbursed_amount: 100000 })).status, 200);
   const eib = (await pl({ personal_loan_type: 'buy_out', pl_buyouts: [{ role: 'primary', kind: 'personal_loan', bank: 'Emirates Islamic', amount: 100000 }] })).data.case;
   assert.equal((await complete(eib.id, { pl_disbursed_amount: 100000 })).status, 200);
@@ -597,7 +597,7 @@ test('personal loan incentives: a banded percentage of the cycle\'s production, 
   assert.equal((await mis('PUT', '/targets', { cycle, targets: [{ user_id: amalId, personal_loan: 600000 }] })).status, 200);
   const complete = (id, extra = {}) => mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', ...extra });
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
-  const pl = (name, extra) => amal('POST', '/cases', { customer_name: name, region: 'AUH', phone: '+971 50 111 9997', city: 'Abu Dhabi', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd, secondary_buyout: 'no', ...extra });
+  const pl = (name, extra) => amal('POST', '/cases', { journey_type: 'emirates_id', customer_name: name, region: 'AUH', phone: '+971 50 111 9997', city: 'Abu Dhabi', product: 'personal_loan', core_product: 'personal_loan', loan_amount: 100000, interest_rate: 6, pl_tenure: 48, fpd, secondary_buyout: 'no', ...extra });
   // Below AED 600K nothing is paid.
   const first = (await pl('PL Inc 1', { personal_loan_type: 'fresh' })).data.case; assert.equal((await complete(first.id, { pl_disbursed_amount: 500000 })).status, 200);
   let mine = (await amal('GET', `/incentives/me?cycle=${cycle}`)).data;
@@ -639,7 +639,7 @@ test('auto loan incentives: points at the payout rate, excess over target, AED 1
   // Earlier tests completed auto loans for Dana in this cycle: work from that baseline.
   const b = (await dana('GET', `/incentives/me?cycle=${cycle}`)).data.incentive;
   const mult = (fullAed) => (b.full_payout_aed + fullAed >= 250000 ? 1.1 : 0.6);
-  const al = (name, extra) => dana('POST', '/cases', { ...file(name), ...extra });
+  const al = (name, extra) => dana('POST', '/cases', { journey_type: 'emirates_id', ...file(name), ...extra });
   // Payout class defaults to full payout and is validated.
   assert.equal((await al('AL Bad', { al_payout_class: 'half' })).status, 400);
   // New car 200,000 at 0.80% = 1,600 points; below AED 250,000 of new and used disbursal the multiplier is 0.60.
@@ -811,7 +811,7 @@ test('an ASM or sales manager who leads a team directly sees it everywhere, even
   assert.equal(pia.asm_id, null);
   const asm = await login('priya@t.local');
   const piaLogin = await login('pia@t.local');
-  const f = (await piaLogin('POST', '/cases', { ...file('Pia customer'), phone: '+971 50 777 1234', region: 'DXB' })).data.case;
+  const f = (await piaLogin('POST', '/cases', { journey_type: 'emirates_id', ...file('Pia customer'), phone: '+971 50 777 1234', region: 'DXB' })).data.case;
   // Team view: both the team under her team leader and her own direct team.
   const h = (await asm('GET', '/hierarchy')).data;
   assert.deepEqual(h.levels, ['team_leader', 'staff']);

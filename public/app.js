@@ -1456,8 +1456,8 @@ async function viewCaseForm(id, leadId = null) {
             <div class="muted small" id="sourcing-hint" ${c.sourcing_type === 'fixed_deposit' ? '' : raw('hidden')}>Fixed Deposit is only for Credit Card and Personal Loan.</div>
           </div>
           <div class="full">
-            <label for="f-journey_type">Journey type</label>
-            <select id="f-journey_type" name="journey_type" style="max-width:320px">
+            <label for="f-journey_type">Journey type <span class="req">*</span></label>
+            <select id="f-journey_type" name="journey_type" required style="max-width:320px">
               <option value="">Choose…</option>
               ${Object.entries(state.meta.journey_types || {}).map(([k, l]) => html`<option value="${k}" ${c.journey_type === k ? raw('selected') : ''}>${l}</option>`)}
             </select>

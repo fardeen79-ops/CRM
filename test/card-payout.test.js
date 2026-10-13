@@ -36,7 +36,7 @@ async function login(email) {
 }
 
 test('where a card stands with the bank', () => {
-  const base = { product: 'credit_card', credit_card: 'Skywards Signature Credit Card', case_status: 'completed', case_status_at: '2026-09-25T06:00:00.000Z' };
+  const base = { journey_type: 'emirates_id', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', case_status: 'completed', case_status_at: '2026-09-25T06:00:00.000Z' };
   assert.equal(cardActivation({ ...base, case_status: 'sent_to_check' }).status, 'none');
   assert.equal(cardActivation({ ...base, card_status: 'inactive' }).status, 'awaiting');
   assert.deepEqual([cardActivation({ ...base, card_status: 'active', card_activation_date: '2026-10-10' }).status, cardActivation({ ...base, card_status: 'active', card_activation_date: '2026-10-10' }).days], ['paid', 15]);
@@ -50,7 +50,7 @@ test('a card pays in the cycle it is activated, within 90 days; a loan pays when
   const cycle = (await head('GET', '/me')).data.meta.current_cycle; // 2026-10: 21 Sep to 20 Oct, today 5 Oct
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   const file = async (over) => {
-    const r = await sally('POST', '/cases', { region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', fpd, ...over });
+    const r = await sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Card Customer', fpd, ...over });
     assert.equal(r.status, 201, JSON.stringify(r.data));
     return r.data.case.id;
   };

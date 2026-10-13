@@ -847,7 +847,11 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
     }
     out.customer_doj = doj || null;
   }
-  if (has('journey_type') && out.journey_type && !JOURNEY_TYPES[out.journey_type]) throw new WorkflowError(400, 'Journey type must be Emirates ID or UAE Pass');
+  // The journey type is required on every file; an edit that leaves it out keeps the one on file.
+  if (has('journey_type')) {
+    if (!out.journey_type && !(partial && current?.journey_type && !('journey_type' in input))) throw new WorkflowError(400, 'Choose the journey type: Emirates ID or UAE Pass');
+    if (out.journey_type && !JOURNEY_TYPES[out.journey_type]) throw new WorkflowError(400, 'Journey type must be Emirates ID or UAE Pass');
+  }
   if (has('sourcing_date')) {
     const date = clean(input.sourcing_date) ?? (partial ? null : now().slice(0, 10));
     if (!date) throw new WorkflowError(400, 'Sourcing date is required');

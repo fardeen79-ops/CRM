@@ -65,7 +65,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'designation', header: 'Designation', example: 'Operations Manager', help: "Optional. The customer's job title" },
   { key: 'customer_doj', header: 'Date of joining', example: '15/03/2021', help: 'Optional. When the customer joined the current employer, DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'department', header: 'Department', example: 'Finance', help: "Optional. The customer's department at the employer" },
-  { key: 'journey_type', header: 'Journey type', example: 'UAE Pass', allowed: Object.values(JOURNEY_TYPES), help: 'Optional. How the application was made: Emirates ID or UAE Pass' },
+  { key: 'journey_type', header: 'Journey type', required: true, example: 'UAE Pass', allowed: Object.values(JOURNEY_TYPES), help: 'How the application was made: Emirates ID or UAE Pass' },
   { key: 'salary_bank', header: 'Salary transfer bank', example: 'Emirates NBD', help: 'The bank the salary is currently transferred to' },
   { key: 'salary', header: 'Salary', example: '25000', help: 'Monthly, AED' },
   { key: 'bidaya_id', header: 'Bidaya ID', example: '' },

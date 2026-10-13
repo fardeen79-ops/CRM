@@ -57,7 +57,7 @@ test('each level sees its own yield on the dashboard and in the report', async (
   const mis = await login('mis@t.local'); const tl = await login('tl@t.local'); const sm = await login('sm@t.local'); const head = await login('head@t.local');
   const fpd = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10);
   const file = async (who, region, over) => {
-    const r = await who('POST', '/cases', { region, phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Loan Customer', core_product: 'personal_loan', product: 'personal_loan', personal_loan_type: 'fresh', pl_tenure: 48, fpd, ...over });
+    const r = await who('POST', '/cases', { journey_type: 'emirates_id', region, phone: '+971 50 333 4444', city: 'Dubai', salary: 15000, source: 'Walk-in', customer_name: 'Loan Customer', core_product: 'personal_loan', product: 'personal_loan', personal_loan_type: 'fresh', pl_tenure: 48, fpd, ...over });
     assert.equal(r.status, 201, JSON.stringify(r.data));
     return r.data.case.id;
   };

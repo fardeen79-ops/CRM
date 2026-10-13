@@ -35,7 +35,7 @@ async function login(email) {
   };
 }
 
-const tab = (serial, extra = {}) => ({ serial_no: serial, tab_no: `TAB-${serial.slice(-3)}`, charger: true, stylus: false, card_reader: true, network: 'etisalat', sim_number: '8997101234567', entra_id: 'dana@derbygroup.ae', mobile_number: '0501234567', ...extra });
+const tab = (serial, extra = {}) => ({ journey_type: 'emirates_id', serial_no: serial, tab_no: `TAB-${serial.slice(-3)}`, charger: true, stylus: false, card_reader: true, network: 'etisalat', sim_number: '8997101234567', entra_id: 'dana@derbygroup.ae', mobile_number: '0501234567', ...extra });
 
 test('IT registers tabs, assigns them, changes status; sales staff see their own; the inventory report lists all', async () => {
   const it = await login('it@t.local');

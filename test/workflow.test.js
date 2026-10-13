@@ -79,7 +79,7 @@ const withProductDefaults = (body) => {
   }
   return out;
 };
-const newCase = { customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '1,50,000', interest_rate: 6.5 };
+const newCase = { journey_type: 'emirates_id', customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '1,50,000', interest_rate: 6.5 };
 
 test('rejects unauthenticated access and bad credentials', async () => {
   assert.equal((await fetch(`${base}/api/cases`)).status, 401);
@@ -202,9 +202,9 @@ test('sales staff only see their own cases and input is validated', async () => 
   assert.equal((await sales2('GET', `/cases/${id}`)).status, 404);
   assert.ok(!(await sales2('GET', '/cases')).data.cases.some((c) => c.id === id));
 
-  assert.equal((await sales('POST', '/cases', { customer_name: 'X' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { customer_name: 'X', phone: 'abc' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { customer_name: 'X', phone: '9876543210', email: 'bad' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'X' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'X', phone: 'abc' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'X', phone: '9876543210', email: 'bad' })).status, 400);
 });
 
 test('team leaders, MIS and business heads manage users', async () => {
@@ -245,20 +245,20 @@ test('team leaders, MIS and business heads manage users', async () => {
 
 test('product must be one of the fixed options, and a bundle needs two or more products', async () => {
   const sales = await login('sales@t.local');
-  const base = { customer_name: 'Bundle Test', phone: '9876543210' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Bundle Test', phone: '9876543210' };
 
   assert.equal((await sales('POST', '/cases', base)).status, 400); // product required
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'home_loan' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card'] })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card', 'mortgage'] })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'home_loan' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['credit_card'] })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['credit_card', 'mortgage'] })).status, 400);
 
-  let r = await sales('POST', '/cases', { ...base, product: 'auto_loan' });
+  let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'auto_loan' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.product_label, 'Auto Loan');
   assert.equal(r.data.case.bundle_products, null);
 
-  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'], personal_loan_type: 'buy_out', buyout_bank: 'RAKBANK', loan_amount: '1,50,000', interest_rate: 6.5 });
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['accounts', 'personal_loan', 'accounts'], personal_loan_type: 'buy_out', buyout_bank: 'RAKBANK', loan_amount: '1,50,000', interest_rate: 6.5 });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.bundle_products, 'personal_loan,accounts');
   assert.equal(r.data.case.product_label, 'Bundle: Personal Loan (Buy Out from RAKBANK) + Accounts');
@@ -279,34 +279,34 @@ test('product must be one of the fixed options, and a bundle needs two or more p
 
 test('sourcing type: Regular by default; Fixed Deposit only for credit cards and personal loans', async () => {
   const sales = await login('sales@t.local');
-  const base = { customer_name: 'Deposit Test', phone: '9876543211' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Deposit Test', phone: '9876543211' };
   const pl = { personal_loan_type: 'fresh', loan_amount: 50000, interest_rate: 6 };
 
-  let r = await sales('POST', '/cases', { ...base, product: 'auto_loan' });
+  let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'auto_loan' });
   assert.equal(r.data.case.sourcing_type, 'regular');
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'auto_loan', sourcing_type: 'fixed_deposit' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'accounts', sourcing_type: 'fixed_deposit' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'], ...pl, sourcing_type: 'fixed_deposit' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'personal_loan', ...pl, sourcing_type: 'gold' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'auto_loan', sourcing_type: 'fixed_deposit' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'accounts', sourcing_type: 'fixed_deposit' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'], ...pl, sourcing_type: 'fixed_deposit' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'gold' })).status, 400);
 
-  r = await sales('POST', '/cases', { ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit' });
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.sourcing_type, 'fixed_deposit');
-  r = await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card', 'personal_loan'], credit_card: 'Skywards Infinite Credit Card', salary: 40000, ...pl, sourcing_type: 'fixed_deposit' });
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['credit_card', 'personal_loan'], credit_card: 'Skywards Infinite Credit Card', salary: 40000, ...pl, sourcing_type: 'fixed_deposit' });
   assert.equal(r.status, 201);
 
   // A Fixed Deposit file cannot be switched to another product, and an auto loan cannot become Fixed Deposit.
   const id = r.data.case.id;
   assert.equal((await sales('PUT', `/cases/${id}`, { product: 'auto_loan' })).status, 400);
-  const auto = (await sales('POST', '/cases', { ...base, product: 'auto_loan' })).data.case.id;
+  const auto = (await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'auto_loan' })).data.case.id;
   assert.equal((await sales('PUT', `/cases/${auto}`, { sourcing_type: 'fixed_deposit' })).status, 400);
 });
 
 test('files past their verification TAT are counted and listed', async () => {
   const sales = await login('sales@t.local');
-  const old = (await sales('POST', '/cases', { customer_name: 'Late File', phone: '9876543212', product: 'accounts', sourcing_date: '2026-01-05' })).data.case;
+  const old = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Late File', phone: '9876543212', product: 'accounts', sourcing_date: '2026-01-05' })).data.case;
   assert.equal(old.tat.state, 'overdue');
-  const fresh = (await sales('POST', '/cases', { customer_name: 'New File', phone: '9876543213', product: 'accounts' })).data.case;
+  const fresh = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'New File', phone: '9876543213', product: 'accounts' })).data.case;
   assert.equal(fresh.tat.state, 'due');
   const lead = await login('lead@t.local');
   const listed = (await lead('GET', '/cases?tat=overdue')).data.cases.map((c) => c.id);
@@ -317,8 +317,8 @@ test('files past their verification TAT are counted and listed', async () => {
 
 test('power button: only the Dubai business head; held files read as verified and it never shows in a file history', async () => {
   const sales = await login('sales@t.local');
-  const late = (await sales('POST', '/cases', { customer_name: 'Held File', phone: '9876543214', product: 'accounts', sourcing_date: '2026-01-06' })).data.case;
-  const fresh = (await sales('POST', '/cases', { customer_name: 'Fresh File', phone: '9876543215', product: 'accounts' })).data.case;
+  const late = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Held File', phone: '9876543214', product: 'accounts', sourcing_date: '2026-01-06' })).data.case;
+  const fresh = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Fresh File', phone: '9876543215', product: 'accounts' })).data.case;
   await tlOk(late.id); await tlOk(fresh.id);
   const bh = await login('bhdxb@t.local');
   assert.equal((await (await login('lead@t.local'))('PUT', '/tat-switch', { on: true })).status, 403);
@@ -343,7 +343,7 @@ test('power button: only the Dubai business head; held files read as verified an
   assert.ok(line.verified_at);
   assert.equal((await bh('GET', `/cases/${fresh.id}`)).data.case.status, 'pending_verification');
   // A file that passes its TAT while the button is on follows.
-  const later = (await sales('POST', '/cases', { customer_name: 'Later File', phone: '9876543216', product: 'accounts', sourcing_date: '2026-01-07' })).data.case;
+  const later = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Later File', phone: '9876543216', product: 'accounts', sourcing_date: '2026-01-07' })).data.case;
   assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'completed');
 
   r = await bh('PUT', '/tat-switch', { on: false });
@@ -364,13 +364,13 @@ test('power button: only the Dubai business head; held files read as verified an
 
 test('credit card cases must name a card from the list', async () => {
   const sales = await login('sales@t.local');
-  const base = { customer_name: 'Card Test', phone: '9876543210' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Card Test', phone: '9876543210' };
 
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'credit_card' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'credit_card', credit_card: 'Made Up Card' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['credit_card', 'accounts'] })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'credit_card' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'credit_card', credit_card: 'Made Up Card' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['credit_card', 'accounts'] })).status, 400);
 
-  let r = await sales('POST', '/cases', { ...base, product: 'credit_card', credit_card: 'noon One Visa Credit Card' });
+  let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'credit_card', credit_card: 'noon One Visa Credit Card' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.product_label, 'Credit Card (noon One Visa Credit Card)');
   const id = r.data.case.id;
@@ -385,7 +385,7 @@ test('credit card cases must name a card from the list', async () => {
   assert.equal(r.data.case.credit_card, null);
 
   // A card is ignored for products that are not credit cards
-  r = await sales('POST', '/cases', { ...base, product: 'auto_loan', credit_card: 'Voyager World' });
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'auto_loan', credit_card: 'Voyager World' });
   assert.equal(r.data.case.credit_card, null);
 
   const me = await sales('GET', '/me');
@@ -396,13 +396,13 @@ test('credit card cases must name a card from the list', async () => {
 
 test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
   const sales = await login('sales@t.local');
-  const base = { customer_name: 'Loan Test', phone: '9876543210' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Loan Test', phone: '9876543210' };
 
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'personal_loan' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'personal_loan', personal_loan_type: 'refinance' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'] })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', personal_loan_type: 'refinance' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'bundle', bundle_products: ['personal_loan', 'accounts'] })).status, 400);
 
-  let r = await sales('POST', '/cases', { ...base, product: 'personal_loan', personal_loan_type: 'top_up', loan_amount: '1,50,000', interest_rate: 6.5, full_loan_amount: 200000, incremental_amount: 50000 });
+  let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', personal_loan_type: 'top_up', loan_amount: '1,50,000', interest_rate: 6.5, full_loan_amount: 200000, incremental_amount: 50000 });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.product_label, 'Personal Loan (Top Up)');
   const id = r.data.case.id;
@@ -426,16 +426,16 @@ test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
   // Dropping the personal loan clears the type; a type is ignored for other products
   r = await sales('PUT', `/cases/${id}`, { product: 'auto_loan' });
   assert.equal(r.data.case.personal_loan_type, null);
-  r = await sales('POST', '/cases', { ...base, product: 'accounts', personal_loan_type: 'buy_out' });
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'accounts', personal_loan_type: 'buy_out' });
   assert.equal(r.data.case.personal_loan_type, null);
 });
 
 test('a buy-out personal loan must name the bank it is bought out from', async () => {
   const sales = await login('sales@t.local');
-  const base = { customer_name: 'Buyout Test', phone: '9876543210', product: 'personal_loan', loan_amount: '1,50,000', interest_rate: 6.5 };
+  const base = { journey_type: 'emirates_id', customer_name: 'Buyout Test', phone: '9876543210', product: 'personal_loan', loan_amount: '1,50,000', interest_rate: 6.5 };
 
-  assert.equal((await sales('POST', '/cases', { ...base, personal_loan_type: 'buy_out' })).status, 400);
-  let r = await sales('POST', '/cases', { ...base, personal_loan_type: 'buy_out', buyout_bank: 'Mashreq' });
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, personal_loan_type: 'buy_out' })).status, 400);
+  let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, personal_loan_type: 'buy_out', buyout_bank: 'Mashreq' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.product_label, 'Personal Loan (Buy Out from Mashreq)');
   const id = r.data.case.id;
@@ -448,7 +448,7 @@ test('a buy-out personal loan must name the bank it is bought out from', async (
   // Switching to another loan type clears the bank; a bank is ignored for Fresh/Top Up
   r = await sales('PUT', `/cases/${id}`, { personal_loan_type: 'top_up', full_loan_amount: 200000, incremental_amount: 50000 });
   assert.equal(r.data.case.buyout_bank, null);
-  r = await sales('POST', '/cases', { ...base, personal_loan_type: 'fresh', buyout_bank: 'Mashreq' });
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, personal_loan_type: 'fresh', buyout_bank: 'Mashreq' });
   assert.equal(r.data.case.buyout_bank, null);
 
   const me = await sales('GET', '/me');
@@ -457,7 +457,7 @@ test('a buy-out personal loan must name the bank it is bought out from', async (
 
 test('customer identity fields and personal loan amounts are captured and validated', async () => {
   const sales = await login('sales@t.local');
-  const base = {
+  const base = { journey_type: 'emirates_id',
     first_name: 'Mohammed', middle_name: 'Ali', last_name: 'Rahman', phone: '+971 50 123 4567',
     company_name: 'Acme Trading LLC', salary: '25,000', bidaya_id: 'BID-0042', app_id: 'APP-7781',
     product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '120,000', interest_rate: '5.99',
@@ -469,7 +469,7 @@ test('customer identity fields and personal loan amounts are captured and valida
   await tlOk(c.id);
   assert.equal(c.customer_name, 'Mohammed Ali Rahman');
   // Emirates ID and passport numbers are not kept: sent values are dropped, never stored.
-  assert.equal((await sales('POST', '/cases', { ...base, phone: '+971 50 123 9999', eid_number: '784-1990-1234567-1', passport_number: 'N1234567' })).data.case.eid_number, null);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, phone: '+971 50 123 9999', eid_number: '784-1990-1234567-1', passport_number: 'N1234567' })).data.case.eid_number, null);
   // Once submitted, sales staff cannot uncover the masked values; a processor can.
   assert.equal(c.can_reveal, false);
   assert.equal((await sales('GET', `/cases/${c.id}/reveal?fields=salary`)).status, 403);
@@ -481,18 +481,18 @@ test('customer identity fields and personal loan amounts are captured and valida
   assert.equal(c.full_loan_amount, null);
 
   // Required names, rate and loan amount rules
-  assert.equal((await sales('POST', '/cases', { ...base, first_name: '' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, last_name: '' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, interest_rate: '' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, interest_rate: '120' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, loan_amount: '0' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...base, salary: 'lots' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, first_name: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, last_name: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, interest_rate: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, interest_rate: '120' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, loan_amount: '0' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, salary: 'lots' })).status, 400);
 
   // Top Up needs the full and incremental amounts, and the increment cannot exceed the full amount
   const topUp = { ...base, personal_loan_type: 'top_up' };
   assert.equal((await sales('POST', '/cases', topUp)).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...topUp, full_loan_amount: 100000, incremental_amount: 150000 })).status, 400);
-  r = await sales('POST', '/cases', { ...topUp, full_loan_amount: '180,000', incremental_amount: '60,000' });
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...topUp, full_loan_amount: 100000, incremental_amount: 150000 })).status, 400);
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...topUp, full_loan_amount: '180,000', incremental_amount: '60,000' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.full_loan_amount, 180000);
   assert.equal(r.data.case.incremental_amount, 60000);
@@ -512,7 +512,7 @@ test('customer identity fields and personal loan amounts are captured and valida
 
 test('sourcing date and email are captured; files start as Sent to checker', async () => {
   const sales = await login('sales@t.local');
-  let r = await sales('POST', '/cases', { ...newCase, email: 'asha@example.com', sourcing_date: '2026-09-30' });
+  let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, email: 'asha@example.com', sourcing_date: '2026-09-30' });
   assert.equal(r.status, 201);
   assert.equal(r.data.case.case_status, 'sent_to_check');
   assert.equal(r.data.case.sourcing_date, '2026-09-30');
@@ -521,8 +521,8 @@ test('sourcing date and email are captured; files start as Sent to checker', asy
   // Defaults to today when not given; rejects bad and future dates
   r = await sales('POST', '/cases', newCase);
   assert.equal(r.data.case.sourcing_date, new Date().toISOString().slice(0, 10));
-  assert.equal((await sales('POST', '/cases', { ...newCase, sourcing_date: '30/09/2026' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...newCase, sourcing_date: '2099-01-01' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, sourcing_date: '30/09/2026' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, sourcing_date: '2099-01-01' })).status, 400);
 });
 
 test('only team leader, MIS, sales manager and business head can change case status', async () => {
@@ -651,7 +651,7 @@ test('team leaders never see company or salary; processors lose them once verifi
   const mis = await login('mis@t.local');
   const bh = await login('bh@t.local');
   const secret = { company_name: 'Hidden Trading LLC', salary: 41000 };
-  const id = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
+  const id = (await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, ...secret })).data.case.id;
   await tlOk(id);
   // The salary is masked on screen, so read it through the logged reveal.
   const fields = async (who) => {
@@ -694,7 +694,7 @@ test('team leaders never see company or salary; processors lose them once verifi
   assert.ok(!(await proc('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
 
   // Verification Rejected hides them as well
-  const id2 = (await sales('POST', '/cases', { ...newCase, ...secret })).data.case.id;
+  const id2 = (await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, ...secret })).data.case.id;
   await proc('POST', `/cases/${id2}/actions`, { action: 'reject_verification', note: 'Employer denies' });
   assert.equal((await proc('GET', `/cases/${id2}`)).data.case.company_name, null);
 
@@ -716,11 +716,11 @@ test('files capture region, core product and the sales staff details from the us
   assert.deepEqual([me.sales_code, me.team_leader_name, me.sales_manager_name], ['S-001', 'Lead', 'Manager']);
 
   // Region and core product are required and checked
-  assert.equal((await sales('POST', '/cases', { ...newCase, region: '' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...newCase, region: 'SHJ' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { ...newCase, core_product: 'accounts' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, region: '' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, region: 'SHJ' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, core_product: 'accounts' })).status, 400);
 
-  let r = await sales('POST', '/cases', { ...newCase, region: 'auh', core_product: 'multi_product', sales_staff_id: 999 });
+  let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, region: 'auh', core_product: 'multi_product', sales_staff_id: 999 });
   assert.equal(r.status, 201);
   const c = r.data.case;
   assert.equal(c.region, 'AUH');
@@ -734,7 +734,7 @@ test('files capture region, core product and the sales staff details from the us
   assert.equal((await sales('GET', '/sales-staff')).status, 403);
   const sid = staff.find((s) => s.name === 'Sid');
   assert.equal(sid.sales_code, 'S-002');
-  r = await lead('POST', '/cases', { ...newCase, sales_staff_id: sid.id });
+  r = await lead('POST', '/cases', { journey_type: 'emirates_id', ...newCase, sales_staff_id: sid.id });
   assert.equal(r.data.case.sales_staff_name, 'Sid');
   const sidLogin = await login('sales2@t.local');
   assert.ok((await sidLogin('GET', '/cases')).data.cases.some((x) => x.id === r.data.case.id));
@@ -964,13 +964,13 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   const lead = await login('lead@t.local');
   const sales = await login('sales@t.local');
   const head = await login('bh@t.local');
-  const header = 'Sales code,Salary,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID,Card sourced type,FPD,PL tenure (months)';
+  const header = 'Sales code,Salary,Sourcing date,Region,Core product,First name,Middle name,Last name,Mobile number,Product,Personal loan type,Loan amount,Interest rate,Full loan amount,Incremental amount,Buy-out bank,Credit card,Bundle products,App ID,Emirates ID,Card sourced type,FPD,PL tenure (months),Journey type';
   const csv = [
     header,
-    'S-002,30000,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671,,05/11/2026,48',
-    'S-002,30000,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,,first year free,2026-11-05,36',
-    'S-002,30000,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,,Full fee,,',
-    'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,,,,',
+    'S-002,30000,01/10/2026,Dubai,Personal Loan,Rami,,Haddad,0501234567,personal loan,Top Up,"150,000",6.5,250000,100000,,,,BULK-APP-1,784199012345671,,05/11/2026,48,UAE Pass',
+    'S-002,30000,2026-10-02,AUH,Multi product,Lina,Maria,Costa,0501234567,Bundle,Buy Out,90000,7,,,abu dhabi islamic bank (adib),infinite credit card,Personal Loan; Credit Card,BULK-APP-2,,first year free,2026-11-05,36,Emirates ID',
+    'S-002,30000,02/10/2026,DXB,Credit Card,Copy,,Paste,0501234567,Credit Card,,,,,,,Infinite Credit Card,,bulk-app-1,,Full fee,,,Emirates ID',
+    'NOPE,02/10/2026,DXB,Auto Loan,A,,B,0501234567,Auto Loan,,,,,,,,,,,,,,Emirates ID',
   ].join('\n');
   for (const who of [sales, lead]) assert.equal((await who('POST', '/import/cases', { csv })).status, 403);
   const done = await head('POST', '/import/cases', { csv });
@@ -992,7 +992,7 @@ test('bulk upload of cases by sales code, with labels, UAE dates and duplicate A
   // The sales person owns an uploaded file: Sid sees it, and a blank sales code is an error.
   const sid = await login('sales2@t.local');
   assert.equal((await sid('GET', `/cases/${done.data.rows[0].id}`)).status, 200);
-  const blank = await head('POST', '/import/cases', { csv: [header, ',03/10/2026,DXB,Auto Loan,No,,Code,0501234567,Auto Loan,,,,,,,,,,,,'].join('\n') });
+  const blank = await head('POST', '/import/cases', { csv: [header, ',03/10/2026,DXB,Auto Loan,No,,Code,0501234567,Auto Loan,,,,,,,,,,,,,Emirates ID'].join('\n') });
   assert.match(blank.data.rows[0].error, /Sales code is required/);
   // MIS and business heads still can't add single files from the New case form.
   assert.equal((await head('POST', '/cases', newCase)).status, 403);
@@ -1022,7 +1022,7 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   const start = before.staff[0].achieved;
 
   // A bundle with a card and a loan, completed now: counts once for each product.
-  const id = (await sally('POST', '/cases', { ...newCase, product: 'bundle', bundle_products: ['personal_loan', 'credit_card'], credit_card: 'Infinite Credit Card' })).data.case.id;
+  const id = (await sally('POST', '/cases', { journey_type: 'emirates_id', ...newCase, product: 'bundle', bundle_products: ['personal_loan', 'credit_card'], credit_card: 'Infinite Credit Card' })).data.case.id;
   assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_card_status', card_status: 'active' })).status, 403); // not completed yet
   // Completing records the amount actually disbursed (here less than the AED 150,000 applied for).
   assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed', pl_disbursed_amount: '-5' })).status, 400);
@@ -1067,7 +1067,7 @@ test('card activation is mapped on completed card cases, one by one or from a ba
   const head = await login('bh@t.local');
   const sally = await login('sales@t.local');
   const lead = await login('lead@t.local');
-  const make = async (extra) => (await sally('POST', '/cases', { ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card', ...extra })).data.case.id;
+  const make = async (extra) => (await sally('POST', '/cases', { journey_type: 'emirates_id', ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card', ...extra })).data.case.id;
   const a = await make({ app_id: 'CARD-APP-1' });
   const b = await make({ app_id: 'CARD-APP-2' });
   const c = await make({});
@@ -1144,10 +1144,10 @@ test('completing a loan records the disbursed amount, suggested from the file', 
   // Fresh personal loan: the loan amount. Top up: the incremental amount (the new money).
   const fresh = (await sally('POST', '/cases', newCase)).data.case.id;
   assert.equal((await complete(fresh)).data.case.pl_disbursed_amount, 150000);
-  const topUp = (await sally('POST', '/cases', { ...newCase, personal_loan_type: 'top_up', loan_amount: 300000, full_loan_amount: 300000, incremental_amount: 80000 })).data.case.id;
+  const topUp = (await sally('POST', '/cases', { journey_type: 'emirates_id', ...newCase, personal_loan_type: 'top_up', loan_amount: 300000, full_loan_amount: 300000, incremental_amount: 80000 })).data.case.id;
   assert.equal((await complete(topUp)).data.case.pl_disbursed_amount, 80000);
   // An auto loan: the loan amount on file is suggested, and can be overridden with what was actually disbursed.
-  const auto = (await sally('POST', '/cases', { ...newCase, product: 'auto_loan', core_product: 'auto_loan', amount: 120000 })).data.case.id;
+  const auto = (await sally('POST', '/cases', { journey_type: 'emirates_id', ...newCase, product: 'auto_loan', core_product: 'auto_loan', amount: 120000 })).data.case.id;
   const r = await complete(auto);
   assert.equal(r.status, 200, JSON.stringify(r.data));
   assert.equal(r.data.case.al_disbursed_amount, 120000);
@@ -1158,7 +1158,7 @@ test('completing a loan records the disbursed amount, suggested from the file', 
   const back = await mis('POST', `/cases/${auto}/actions`, { action: 'set_case_status', case_status: 'applicant_review', note: 'Disbursal reversed' });
   assert.equal(back.data.case.al_disbursed_amount, null);
   // A card-only case has no disbursal.
-  const card = (await sally('POST', '/cases', { ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card' })).data.case.id;
+  const card = (await sally('POST', '/cases', { journey_type: 'emirates_id', ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card' })).data.case.id;
   const c = (await complete(card)).data.case;
   assert.deepEqual([c.pl_disbursed_amount, c.allowed_actions.includes('set_disbursal')], [null, false]);
 });
@@ -1174,7 +1174,7 @@ test('an inactive card 90 or more days after its temp end moves to Out of activa
   const mis = createUser(db, { name: 'Mo', email: 'mis@x.local', role: 'mis', password: 'password123' });
   const sales = createUser(db, { name: 'Sa', email: 's@x.local', role: 'sales', password: 'password123', sales_code: 'S-9', team_leader_id: tl.id, sales_manager_id: sm.id });
   const make = (daysAgo) => {
-    const id = cases.createCase(db, sales, withProductDefaults({ ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' })).id;
+    const id = cases.createCase(db, sales, withProductDefaults({ journey_type: 'emirates_id', ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' })).id;
     cases.applyAction(db, mis, id, { action: 'set_case_status', case_status: 'completed' });
     cases.applyAction(db, mis, id, { action: 'set_card_status', card_status: 'inactive', activation_date: '2026-01-01' });
     db.prepare('UPDATE cases SET case_status_at = ? WHERE id = ?').run(new Date(Date.now() - daysAgo * 864e5).toISOString(), id);
@@ -1185,7 +1185,7 @@ test('an inactive card 90 or more days after its temp end moves to Out of activa
   const edge = make(89);
   const ninety = make(90);
   // A card nobody mapped is Inactive by default, so it ages out the same way.
-  const neverMapped = cases.createCase(db, sales, withProductDefaults({ ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' })).id;
+  const neverMapped = cases.createCase(db, sales, withProductDefaults({ journey_type: 'emirates_id', ...newCase, region: 'DXB', core_product: 'credit_card', product: 'credit_card', credit_card: 'Infinite Credit Card' })).id;
   db.prepare("UPDATE cases SET case_status = 'completed', case_status_at = ? WHERE id = ?").run(new Date(Date.now() - 100 * 864e5).toISOString(), neverMapped);
   // Reading cases applies the rule.
   const byId = Object.fromEntries(cases.listCases(db, mis, { card: 'all' }).map((c) => [c.id, c.card_status]));
@@ -1309,7 +1309,7 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   const proc = await login('proc@t.local');
   const lead = await login('lead@t.local');
   const gov = await login('gov@t.local');
-  const data = { ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', salary: 28500 };
+  const data = { journey_type: 'emirates_id', ...newCase, phone: '+971 50 123 4567', alt_phone: '0551234567', salary: 28500 };
   const id = (await sales('POST', '/cases', data)).data.case.id;
   await tlOk(id);
   const c = (await proc('GET', `/cases/${id}`)).data.case;
@@ -1422,7 +1422,7 @@ test('chat: case discussions with @mentions, direct messages, team groups, overs
 
 test('read-back flags from older clients are ignored now that no identifier is read back', async () => {
   const sales = await login('sales@t.local');
-  const r = await sales('POST', '/cases', { ...newCase, read_back: ['eid_number', 'passport_number', 'bogus'] });
+  const r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, read_back: ['eid_number', 'passport_number', 'bogus'] });
   assert.equal(r.status, 201);
   assert.ok(!r.data.case.events.some((e) => e.type === 'read_back'));
 });
@@ -1431,7 +1431,7 @@ test('a card\'s category is filled from the product list and the list can be rep
   const sales = await login('sales@t.local');
   const mis = await login('mis@t.local');
   const lead = await login('lead@t.local');
-  const card = { ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf' };
+  const card = { journey_type: 'emirates_id', ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf' };
   let r = await sales('POST', '/cases', card);
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.case.card_category, 'Premium'); // from the bank's product list
@@ -1460,12 +1460,12 @@ test('a card\'s category is filled from the product list and the list can be rep
   assert.deepEqual(pitch.features, ['Up to 2 Skywards Miles per AED 1', 'Free lounge access']);
   assert.equal(pitch.headline, 'Miles on every spend');
   // A new file with an uploaded card gets its category and points; a retired card is refused.
-  r = await sales('POST', '/cases', { ...card, credit_card: 'new cashback credit card' });
+  r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...card, credit_card: 'new cashback credit card' });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.case.credit_card, 'New Cashback Credit Card');
   assert.equal(r.data.case.card_category, 'Everyday');
   assert.equal(r.data.case.card_points, 40);
-  assert.equal((await sales('POST', '/cases', { ...card, credit_card: 'Skywards Infinite Credit Card' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...card, credit_card: 'Skywards Infinite Credit Card' })).status, 400);
   // The earlier file keeps the card it was sourced with; its category was set at the time.
   const old = (await sales('GET', `/cases/${id}`)).data.case;
   assert.equal(old.credit_card, 'Skywards Signature Credit Card');
@@ -1501,7 +1501,7 @@ test('salary-based targets: bands and points are uploaded, targets generated, po
   // A completed used car loan of AED 150,000 earns 1,200 points (0.80% of the disbursed amount); a card earns the product list's points.
   assert.equal((await mis('GET', '/targets')).data.setup.auto_loan_rates.used, 0.8);
   const autoBefore = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.auto_loan;
-  const car = await sales('POST', '/cases', { ...newCase, product: 'auto_loan', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, amount: 150000, core_product: 'auto_loan' });
+  const car = await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, product: 'auto_loan', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, amount: 150000, core_product: 'auto_loan' });
   assert.equal(car.status, 201, JSON.stringify(car.data));
   await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' });
   assert.equal((await mis('POST', `/cases/${car.data.case.id}/actions`, { action: 'set_disbursal', al_disbursed_amount: 150000 })).status, 200);
@@ -1509,7 +1509,7 @@ test('salary-based targets: bands and points are uploaded, targets generated, po
   assert.equal(now.achieved.auto_loan, autoBefore + 1200);
   assert.ok(now.cases.auto_loan >= 1);
   const cardsBefore = (await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.credit_card;
-  const card = await sales('POST', '/cases', { ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'New Cashback Credit Card', card_fee_type: 'fyf' });
+  const card = await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, product: 'credit_card', personal_loan_type: undefined, loan_amount: undefined, interest_rate: undefined, credit_card: 'New Cashback Credit Card', card_fee_type: 'fyf' });
   assert.equal(card.status, 201, JSON.stringify(card.data));
   await mis('POST', `/cases/${card.data.case.id}/actions`, { action: 'set_case_status', case_status: 'completed' });
   assert.equal((await mis('GET', '/targets')).data.staff.find((s) => s.id === sallyId).achieved.credit_card, cardsBefore + 40);
@@ -1518,13 +1518,16 @@ test('salary-based targets: bands and points are uploaded, targets generated, po
 test('the customer\'s designation and date of joining are kept on the file, on the register and loaded by upload', async () => {
   const sales = await login('sales@t.local');
   const mis = await login('mis@t.local');
-  const r = await sales('POST', '/cases', { ...newCase, customer_name: 'Designated Customer', phone: '+971 50 400 4001', designation: 'Operations Manager', department: 'Finance', customer_doj: '2021-03-15', journey_type: 'uae_pass' });
+  const r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, customer_name: 'Designated Customer', phone: '+971 50 400 4001', designation: 'Operations Manager', department: 'Finance', customer_doj: '2021-03-15', journey_type: 'uae_pass' });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.case.designation, 'Operations Manager');
   assert.equal(r.data.case.department, 'Finance');
   assert.equal(r.data.case.customer_doj, '2021-03-15');
   assert.equal(r.data.case.journey_type, 'uae_pass');
   assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { journey_type: 'walk_in' })).status, 400);
+  // The journey type is required on every new file; an edit of other fields keeps the one on file.
+  assert.equal((await sales('POST', '/cases', { ...newCase, journey_type: '', customer_name: 'No Journey', phone: '+971 50 400 4009' })).status, 400);
+  assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { department: 'Audit' })).data.case.journey_type, 'uae_pass');
   assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { customer_doj: '2099-01-01' })).status, 400);
   assert.equal((await sales('PUT', `/cases/${r.data.case.id}`, { customer_doj: 'soon' })).status, 400);
   const cleared = await sales('PUT', `/cases/${r.data.case.id}`, { customer_doj: '' });

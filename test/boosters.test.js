@@ -64,7 +64,7 @@ test('business heads run boosters per product with dates; covered staff and thei
   assert.equal((await sm('GET', '/dashboard')).data.boosters[0].covered, 1);
   assert.equal((await proc('GET', '/dashboard')).status, 200);
   // Progress: Cara completes a card in the window.
-  const c = (await cara('POST', '/cases', { region: 'DXB', core_product: 'credit_card', customer_name: 'Boost Card', phone: '+971 50 123 4567', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: today() })).data.case;
+  const c = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', core_product: 'credit_card', customer_name: 'Boost Card', phone: '+971 50 123 4567', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: today() })).data.case;
   assert.equal((await mis('POST', `/cases/${c.id}/actions`, { action: 'set_case_status', case_status: 'completed' })).status, 200);
   assert.deepEqual((await cara('GET', '/dashboard')).data.boosters[0].progress, { files: 1, staff_with_files: 1, aed: 0 });
   // An upcoming all-products booster for everyone shows ahead of time; an ended one from long ago does not.
