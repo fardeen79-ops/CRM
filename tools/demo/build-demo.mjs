@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v69';
+const DB_KEY = 'sourcing-crm-demo-db-v70';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -554,6 +554,10 @@ function handle(method, pathname, query, body) {
     if (method === 'GET') return { users: user.role === 'it' ? listUsers(db).map(({ id, name, hrms_code, sales_code, role: r, region, active, team_leader_name, sales_manager_name }) => ({ id, name, hrms_code, sales_code, role: r, region, active, team_leader_name, sales_manager_name })) : listUsers(db).map((u) => withSalaryFor(user, u)) };
     role(user, 'mis', 'business_head');
     if (method === 'POST') return [201, { user: createUser(db, body, { requireMobile: true }) }];
+  }
+  if (method === 'POST' && pathname === '/api/users/delete') {
+    role(user, 'mis', 'business_head');
+    try { return deleteUsers(db, user, body.ids); } catch (e) { throw new ApiError(400, e.message); }
   }
   if (method === 'POST' && pathname === '/api/import/users') {
     return importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
