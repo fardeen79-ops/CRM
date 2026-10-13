@@ -650,11 +650,23 @@ function serveStatic(req, res, pathname) {
   return serveFile(res, file);
 }
 
+// The page names its script and stylesheet with the build, so a browser never keeps an old copy
+// across an update; the module files the script imports are revalidated on every load.
 function serveFile(res, file) {
+  const type = MIME[path.extname(file)] || 'application/octet-stream';
+  if (path.basename(file) === 'index.html') {
+    const v = encodeURIComponent(buildInfo().commit || String(fs.statSync(file).mtimeMs));
+    const html = fs.readFileSync(file, 'utf8').replace(/(href|src)="\/(styles\.css|app\.js)"/g, (m, attr, name) => `${attr}="/${name}?v=${v}"`);
+    res.writeHead(200, { 'content-type': type, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' });
+    return res.end(html);
+  }
+  const stat = fs.statSync(file);
   res.writeHead(200, {
-    'content-type': MIME[path.extname(file)] || 'application/octet-stream',
+    'content-type': type,
     'x-content-type-options': 'nosniff',
     'cache-control': 'no-cache',
+    'last-modified': stat.mtime.toUTCString(),
+    etag: `"${stat.size}-${Math.floor(stat.mtimeMs)}"`,
   });
   fs.createReadStream(file).pipe(res);
 }

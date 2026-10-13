@@ -317,6 +317,12 @@ test('the build the server runs is public, for the sign-in page footer', async (
   assert.equal(r.status, 200);
   const v = await r.json();
   assert.ok('commit' in v && 'updated_at' in v);
+  // The page names its script and stylesheet with the build, so an update always loads fresh code.
+  const page = await (await fetch(`${base}/`)).text();
+  assert.match(page, /src="\/app\.js\?v=[^"]+"/);
+  assert.match(page, /href="\/styles\.css\?v=[^"]+"/);
+  const js = await fetch(`${base}/app.js?v=x`);
+  assert.equal(js.status, 200); assert.ok(js.headers.get('etag'));
 });
 
 test('MIS or a business head deletes files entered by mistake, with a reason; the deletion is on the access log', async () => {
