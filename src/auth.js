@@ -4,7 +4,7 @@ import { contactDetails, findUser, salesProfile, leaderProfile, LEADER_LINE_ROLE
 
 const SESSION_DAYS = 7;
 /** Minutes without using the CRM after which a session ends (IDLE_TIMEOUT_MINUTES; 0 turns it off). */
-export const IDLE_MINUTES = process.env.IDLE_TIMEOUT_MINUTES === undefined ? 1 : Math.max(0, Number(process.env.IDLE_TIMEOUT_MINUTES) || 0);
+export const IDLE_MINUTES = process.env.IDLE_TIMEOUT_MINUTES === undefined ? 5 : Math.max(0, Number(process.env.IDLE_TIMEOUT_MINUTES) || 0);
 export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'accounts', 'governance', 'it', 'staff'];
 
 export function hashPassword(password) {

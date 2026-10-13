@@ -291,20 +291,20 @@ test('a session ends after the idle limit without the person using the CRM; back
   const cookie = res.headers.get('set-cookie').split(';')[0];
   const token = cookie.split('=')[1];
   const me = (headers = {}) => fetch(`${base}/api/me`, { headers: { cookie, ...headers } });
-  assert.equal((await (await me()).json()).meta.idle_minutes, 1);
-  // Mark the session as last used two minutes ago. A background refresh (no x-active) does not refresh it,
+  assert.equal((await (await me()).json()).meta.idle_minutes, 5);
+  // Mark the session as last used six minutes ago. A background refresh (no x-active) does not refresh it,
   // and a request after that finds it gone with a message saying why.
-  const old = new Date(Date.now() - 2 * 60e3).toISOString();
+  const old = new Date(Date.now() - 6 * 60e3).toISOString();
   db.prepare('UPDATE sessions SET active_at = ? WHERE token = ?').run(old, token);
   const gone = await me();
   assert.equal(gone.status, 401);
-  assert.match((await gone.json()).error, /signed out after 1 minute/);
+  assert.match((await gone.json()).error, /signed out after 5 minutes/);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE token = ?').get(token).n, 0);
   // A session the person keeps using stays alive: an active request refreshes the stamp.
   const res2 = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'mis@t.local', password: PASSWORD }) });
   const cookie2 = res2.headers.get('set-cookie').split(';')[0];
   const token2 = cookie2.split('=')[1];
-  const recent = new Date(Date.now() - 50e3).toISOString();
+  const recent = new Date(Date.now() - 4 * 60e3).toISOString();
   db.prepare('UPDATE sessions SET active_at = ? WHERE token = ?').run(recent, token2);
   assert.equal((await fetch(`${base}/api/me`, { headers: { cookie: cookie2 } })).status, 200);          // background: allowed, not refreshed
   assert.equal(db.prepare('SELECT active_at FROM sessions WHERE token = ?').get(token2).active_at, recent);
