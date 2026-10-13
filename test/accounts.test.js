@@ -229,3 +229,25 @@ test('my profile: the numbers can be changed by the person themselves, nothing e
   assert.equal((await sm('PATCH', '/me', { mobile_number: '12345' })).status, 400, 'a UAE mobile number or blank');
   assert.equal((await sm('GET', '/me')).data.user.role, 'sales_manager');
 });
+
+test('users added by mistake can be deleted together; anyone with activity or staff is skipped and named', async () => {
+  const mis = await login('mis@t.local');
+  const sally = await login('sally@t.local');
+  // A wrong upload: two people who never did anything, plus a leader who already has staff.
+  const wrong1 = (await mis('POST', '/users', { name: 'Wrong One', email: 'wrong1@t.local', role: 'processing', password: PASSWORD, hrms_code: 'W1', region: 'DXB', mobile_number: '0501234501' })).data.user;
+  const wrong2 = (await mis('POST', '/users', { name: 'Wrong Two', email: 'wrong2@t.local', role: 'governance', password: PASSWORD, hrms_code: 'W2', region: 'DXB', mobile_number: '0501234502' })).data.user;
+  const sourced = (await sally('POST', '/cases', { customer_name: 'Keeps Sally', region: 'DXB', phone: '+971 50 111 2233', city: 'Dubai', product: 'credit_card', credit_card: 'Mass', salary: 9000, company_name: 'Co', source: 'Cold call', customer_type: 'salaried' })).status;
+  assert.ok([201, 400].includes(sourced));
+  const r = (await mis('POST', '/users/delete', { ids: [wrong1.id, wrong2.id, ids['tl@t.local'], ids['mis@t.local'], 99999] })).data;
+  assert.deepEqual(r.deleted.map((d) => d.name).sort(), ['Wrong One', 'Wrong Two']);
+  const reason = (id) => r.skipped.find((s) => s.id === id)?.reason;
+  assert.match(reason(ids['tl@t.local']), /staff reporting to them/);
+  assert.match(reason(ids['mis@t.local']), /your own account/);
+  assert.match(reason(99999), /no such user/);
+  const left = (await mis('GET', '/users')).data.users.map((u) => u.email);
+  assert.ok(!left.includes('wrong1@t.local') && !left.includes('wrong2@t.local') && left.includes('tl@t.local'));
+  // Only MIS and business heads may delete, and a deleted person can no longer sign in.
+  assert.equal((await sally('POST', '/users/delete', { ids: [ids['tl@t.local']] })).status, 403);
+  const gone = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'wrong1@t.local', password: PASSWORD }) });
+  assert.equal(gone.status, 401);
+});

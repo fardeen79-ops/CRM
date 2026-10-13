@@ -19,7 +19,7 @@ import { profitAndLoss, profitAndLossTree } from './pnl.js';
 import { ceoDashboard } from './ceo.js';
 import * as leads from './leads.js';
 import { BANKS } from './banks.js';
-import { contactDetails, findUser, listUsers, salesProfile, leaderProfile, LEADER_LINE_ROLES, regionOf, sweepLeavers, salaryOf, canSeeSalary, withSalaryFor, STAFF_CORE_PRODUCTS } from './users.js';
+import { contactDetails, findUser, listUsers, salesProfile, leaderProfile, LEADER_LINE_ROLES, regionOf, sweepLeavers, salaryOf, canSeeSalary, withSalaryFor, STAFF_CORE_PRODUCTS, deleteUsers } from './users.js';
 import * as imports from './imports.js';
 import * as performance from './performance.js';
 import * as reports from './reports.js';
@@ -515,6 +515,11 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
 
     ['POST', /^\/api\/import\/cases$/, async ({ user, body }) => imports.importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) }), { maxBody: MAX_UPLOAD }],
 
+    // Removes users added by mistake. Anyone with activity is skipped and named; disable them instead.
+    ['POST', /^\/api\/users\/delete$/, async ({ user, body }) => {
+      requireRole(user, ...USER_ADMINS);
+      try { return deleteUsers(db, user, body.ids); } catch (err) { throw new HttpError(400, err.message); }
+    }],
     ['PATCH', /^\/api\/users\/(\d+)$/, async ({ user, params, body }) => {
       requireRole(user, ...USER_ADMINS);
       const id = Number(params[0]);

@@ -4883,11 +4883,13 @@ async function viewUsers() {
       <select id="staff-region" aria-label="Region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}">${l}</option>`)}</select>
       <select id="staff-status" aria-label="Status"><option value="">Active and disabled</option><option value="active">Active only</option><option value="inactive">Disabled or left</option></select>
       <span class="muted small" id="staff-count"></span>
+      <button class="btn danger" id="staff-delete" hidden>Delete selected</button>
     </div>
     <div class="grid two-col">
       <div class="card"><div class="table-wrap"><table class="users-table">
-        <thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
+        <thead><tr><th class="pick"><input type="checkbox" id="staff-pick-all" aria-label="Select every staff member shown" title="Select every staff member shown"></th><th>Name</th><th>Contact</th><th>Role</th><th>Sales profile</th><th></th></tr></thead>
         <tbody>${users.map((u) => html`<tr style="cursor:default" data-user-row="${u.id}">
+          <td class="pick">${u.id !== state.user.id ? html`<input type="checkbox" data-pick="${u.id}" aria-label="Select ${u.name}">` : ''}</td>
           <td>${u.name}${u.active ? '' : html` <span class="chip">Disabled</span>`}<div class="muted small">${u.hrms_code ? html`<span class="mono">${u.hrms_code}</span> · ` : html`<span class="lock">No HRMS code</span> · `}<a href="mailto:${u.email}">${u.email}</a></div></td><td class="small">${contactCell(u)}</td><td>${ROLE_LABEL[u.role_key || u.role]}${u.region ? html`<div class="muted small">${u.region}</div>` : ''}${u.doj ? html`<div class="muted small">Joined ${fmtDay(u.doj)}</div>` : ''}${u.dol ? html`<div class="small ${u.dol <= todayLocal() ? 'lock' : 'muted'}">${u.dol <= todayLocal() ? 'Left' : 'Leaving'} ${fmtDay(u.dol)}</div>` : ''}</td>
           <td class="small">${u.role === 'sales'
             ? (u.sales_code
@@ -4934,6 +4936,36 @@ async function viewUsers() {
   };
   ['staff-q', 'staff-role', 'staff-region', 'staff-status'].forEach((id) => (document.getElementById(id).oninput = applyFilters));
   applyFilters();
+  // Selecting rows (the header box takes every row the filters show) offers Delete selected: people
+  // added by mistake go for good; anyone with activity is skipped and named, to be disabled instead.
+  const picks = [...app.querySelectorAll('input[data-pick]')];
+  const pickAll = document.getElementById('staff-pick-all');
+  const delBtn = document.getElementById('staff-delete');
+  const chosen = () => picks.filter((p) => p.checked).map((p) => Number(p.dataset.pick));
+  const syncPicks = () => {
+    const n = chosen().length;
+    delBtn.hidden = !n;
+    delBtn.textContent = `Delete selected (${n})`;
+    const visible = picks.filter((p) => !p.closest('tr').hidden);
+    pickAll.checked = visible.length > 0 && visible.every((p) => p.checked);
+    pickAll.indeterminate = !pickAll.checked && visible.some((p) => p.checked);
+  };
+  picks.forEach((p) => (p.onchange = syncPicks));
+  pickAll.onchange = () => { picks.forEach((p) => { if (!p.closest('tr').hidden) p.checked = pickAll.checked; }); syncPicks(); };
+  ['staff-q', 'staff-role', 'staff-region', 'staff-status'].forEach((id) => document.getElementById(id).addEventListener('input', syncPicks));
+  delBtn.onclick = async () => {
+    const ids = chosen();
+    const names = ids.map((id) => byId.get(id).name);
+    const list = names.length > 6 ? `${names.slice(0, 6).join(', ')} and ${names.length - 6} more` : names.join(', ');
+    if (!await askConfirm(`Delete ${ids.length === 1 ? 'this user' : `these ${ids.length} users`} for good? ${list}. Anyone with files, staff reporting to them or other activity is skipped and can be disabled instead.`, { ok: 'Delete', danger: true })) return;
+    delBtn.disabled = true;
+    try {
+      const r = await api('/users/delete', { method: 'POST', body: { ids } });
+      const skipped = r.skipped.length ? ` ${r.skipped.length} skipped: ${r.skipped.map((x) => `${x.name} (${x.reason})`).join('; ')}` : '';
+      toast(`${r.deleted.length} ${r.deleted.length === 1 ? 'user' : 'users'} deleted.${skipped}`, Boolean(r.skipped.length && !r.deleted.length));
+      viewUsers();
+    } catch (ex) { toast(ex.message, true); delBtn.disabled = false; }
+  };
   if (document.getElementById('staff-csv')) document.getElementById('staff-csv').onclick = () => saveFile('staff-list.csv', toCsv([
     ['Name', 'HRMS code', 'Email', 'Role', 'Region', 'Local mobile', 'WhatsApp', 'Sales code', 'Team leader', 'Sales manager', 'ASM', 'Date of joining', 'Date of leaving', 'Status'],
     ...users.map((u) => [u.name, u.hrms_code || '', u.email, ROLE_LABEL[u.role_key || u.role] || u.role, u.region || '', u.mobile_number || '', u.whatsapp_number || '', u.sales_code || '', u.team_leader_name || '', u.sales_manager_name || '', u.asm_name || '', u.doj || '', u.dol || '', u.active ? 'Active' : 'Disabled']),
@@ -4973,7 +5005,7 @@ async function viewUsers() {
     if (row.nextElementSibling?.dataset.profileEditor) return;
     const tr = document.createElement('tr');
     tr.dataset.profileEditor = '1';
-    tr.innerHTML = html`<td colspan="5"><form class="profile-editor">
+    tr.innerHTML = html`<td colspan="6"><form class="profile-editor">
       <strong>Edit ${u.name}</strong>
       <div class="form-grid two">${contactFields(u, `e${u.id}`)}${regionField(u, `e${u.id}`)}${u.id !== state.user.id ? html`<div class="field-row"><label for="e${u.id}-role">Role</label><select id="e${u.id}-role" name="role">${Object.entries({ ...(state.meta.assignable_roles || ROLE_LABEL), ...(u.role_key && !(state.meta.assignable_roles || {})[u.role_key] ? { [u.role_key]: ROLE_LABEL[u.role_key] } : {}) }).map(([k, l]) => html`<option value="${k}" ${(u.role_key || u.role) === k ? raw('selected') : ''}>${l}</option>`)}</select><div class="muted small">Moving to or from a sales role clears or needs the sales profile.</div></div>` : ''}</div>
       <div data-hierarchy>${hierarchyBlock(u.role, u, `e${u.id}`)}</div>

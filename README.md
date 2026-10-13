@@ -403,6 +403,7 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 - Choose the role by name (`Sales`, `Team Leader`…).
 - Sales staff name their team leader and sales manager by **email**. These can be existing users or ones anywhere in the same file, because rows are added in hierarchy order (sales managers, ASMs, team leaders, then sales staff). On a team leader's or ASM's own row, the sales manager (and ASM) email is their reporting line; the team leader column is ignored on every non-sales row.
 - Leave *Temporary password* blank and one is generated. **Download sign-in details** right after the upload to get the generated passwords. They aren't shown again; a team leader can reset a password later.
+- **A wrong upload is undone from the Staff page**: tick the people (the header box takes every row the filters show, so search for the batch first) and press **Delete selected**. A person with any record in the CRM (a file sourced, verified or actioned, staff reporting to them, a message, a tab, a target) is never deleted: they are skipped and named, and can be disabled instead. The signed-in user and the verification bot cannot be deleted. API: `POST /api/users/delete {ids}` (MIS and business heads) returns `deleted` and `skipped` with reasons.
 
 **Case rows**
 - Name the sales person by **sales code** (required). The file belongs to that sales person exactly as if they had entered it.

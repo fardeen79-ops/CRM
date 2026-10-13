@@ -1,5 +1,6 @@
 // User profiles. Sales staff carry a sales code plus their team leader and sales manager,
 // which pre-fill the "Sales staff" section of every file they source.
+import { transaction } from './db.js';
 
 export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.role_key, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj, u.dol, u.core_product,
   u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
@@ -217,4 +218,43 @@ export function contactDetails(input, { current = null, requireMobile = false } 
   const dol = 'dol' in out ? out.dol : current?.dol;
   if (doj && dol && dol < doj) throw new Error('Date of leaving is before the date of joining');
   return out;
+}
+
+/**
+ * Permanently removes users who were added by mistake (a wrong upload, a duplicate). A person with any
+ * record in the CRM (a file sourced, verified or actioned, staff reporting to them, a message, a tab)
+ * cannot be deleted and is reported instead: disable them from the Staff page. Their sign-in sessions,
+ * notifications, chat memberships and access-log rows go with them. Returns the deleted and the skipped.
+ */
+export function deleteUsers(db, viewer, ids) {
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (!wanted.length) throw new Error('Choose at least one user to delete');
+  if (wanted.length > 500) throw new Error('Delete at most 500 users at a time');
+  // Every column that points at a user and would keep history alive (the cascading ones are the
+  // user's own sessions, notifications, chat memberships and access log, which go with them).
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((t) => t.name);
+  const refs = [];
+  for (const table of tables) {
+    for (const fk of db.prepare(`PRAGMA foreign_key_list(${table})`).all()) {
+      if (fk.table === 'users' && fk.on_delete !== 'CASCADE') refs.push({ table, column: fk.from });
+    }
+  }
+  const counters = refs.map((r) => ({ ...r, count: db.prepare(`SELECT COUNT(*) AS n FROM ${r.table} WHERE ${r.column} = ?`) }));
+  const LABEL = { cases: 'files', users: 'staff reporting to them', assets: 'tabs', messages: 'messages', targets: 'targets', leads: 'leads', bot_calls: 'bot calls' };
+  const deleted = []; const skipped = [];
+  transaction(db, () => {
+    for (const id of wanted) {
+      const u = db.prepare('SELECT id, name, email, role FROM users WHERE id = ?').get(id);
+      if (!u) { skipped.push({ id, name: `#${id}`, reason: 'no such user' }); continue; }
+      if (id === viewer.id) { skipped.push({ id, name: u.name, reason: 'you cannot delete your own account' }); continue; }
+      if (u.email === BOT_EMAIL) { skipped.push({ id, name: u.name, reason: 'the verification bot is built in' }); continue; }
+      const held = {};
+      for (const c of counters) { const n = c.count.get(id).n; if (n) held[LABEL[c.table] || c.table] = (held[LABEL[c.table] || c.table] || 0) + n; }
+      const what = Object.entries(held).map(([k, n]) => `${n} ${k}`);
+      if (what.length) { skipped.push({ id, name: u.name, reason: `has activity (${what.join(', ')}); disable the account instead` }); continue; }
+      db.prepare('DELETE FROM users WHERE id = ?').run(id);
+      deleted.push({ id, name: u.name, email: u.email, role: u.role });
+    }
+  });
+  return { deleted, skipped };
 }

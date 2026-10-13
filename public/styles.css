@@ -997,3 +997,7 @@ table.pnl.tree td.gain { color: var(--s-done); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ceo-up, :root:not([data-theme="light"]) .good-num { color: #5ccb7f; } :root:not([data-theme="light"]) .ceo-down, :root:not([data-theme="light"]) .bad-num { color: #f08c84; } }
 :root[data-theme="dark"] .ceo-up, :root[data-theme="dark"] .good-num { color: #5ccb7f; }
 :root[data-theme="dark"] .ceo-down, :root[data-theme="dark"] .bad-num { color: #f08c84; }
+.btn.danger { color: var(--s-incomplete); border-color: var(--s-incomplete); background: var(--s-incomplete-bg); }
+.btn.danger:hover { filter: brightness(.97); }
+.users-table .pick { width: 28px; padding-right: 0; }
+.users-table .pick input { margin: 0; }
