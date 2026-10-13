@@ -52,8 +52,9 @@ function staffInScope(db, user, region = null) {
   const order = ' ORDER BY u.active DESC, u.name';
   if (user.role === 'sales') return db.prepare(`${base} AND u.id = ?`).all(user.id);
   if (user.role === 'team_leader') return db.prepare(`${base} AND u.team_leader_id = ?${order}`).all(user.id);
-  if (user.role === 'sales_manager') return db.prepare(`${base} AND u.sales_manager_id = ?${order}`).all(user.id);
-  if (user.role === 'asm') return db.prepare(`${base} AND u.asm_id = ?${order}`).all(user.id);
+  // A sales manager or ASM also sees a team they lead directly.
+  if (user.role === 'sales_manager') return db.prepare(`${base} AND (u.sales_manager_id = ? OR u.team_leader_id = ?)${order}`).all(user.id, user.id);
+  if (user.role === 'asm') return db.prepare(`${base} AND (u.asm_id = ? OR u.team_leader_id = ?)${order}`).all(user.id, user.id);
   return db.prepare(`${base}${order}`).all();
 }
 

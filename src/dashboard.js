@@ -1,7 +1,7 @@
 // Each user's own dashboard: what they (or their team, or the agency) did this cycle and over the
 // last six, with the incentive so far for the people who earn one. Everything is within the
 // viewer's case scope, so a sales person sees their files, a leader their team's, MIS everything.
-import { caseScope, caseProducts, REGIONS, STATUS, COMPLETED_IN_SQL, TEAM_FIELDS } from './cases.js';
+import { caseScope, caseProducts, REGIONS, STATUS, COMPLETED_IN_SQL, TEAM_FIELDS, teamSql } from './cases.js';
 import { cycleOf, cycleRange, cycleLabel, shiftCycle, uaeDay } from './cycles.js';
 import { myIncentive, incentiveRows, plIncentiveRows, alIncentiveRows } from './incentives.js';
 import { TEAM_LEADER_ROLES, STAFF_CORE_PRODUCTS } from './users.js';
@@ -76,7 +76,7 @@ export function submissionCalendar(db, user, scope, params, cycle) {
     FROM cases c WHERE ${dayOf} BETWEEN ? AND ? ${scope} GROUP BY day`).all(start, end, ...params);
   const byDay = new Map(rows.map((r) => [r.day, r]));
   const leader = TEAM_LEADER_ROLES.includes(user.role);
-  const team = leader ? db.prepare(`SELECT COUNT(*) AS n FROM users u WHERE u.role = 'sales' AND u.active = 1 AND u.${TEAM_FIELDS[user.role]} = ?`).get(user.id).n : null;
+  const team = leader ? db.prepare(`SELECT COUNT(*) AS n FROM users u WHERE u.role = 'sales' AND u.active = 1 AND ${teamSql(user).sql}`).get(...teamSql(user).params).n : null;
   const days = [];
   for (let ms = Date.parse(start); ms <= Date.parse(end); ms += 864e5) {
     const date = new Date(ms).toISOString().slice(0, 10);
@@ -106,8 +106,9 @@ export function submissionCalendar(db, user, scope, params, cycle) {
 export function zeroStaff(db, user, cycle, { region } = {}) {
   const { start, end } = cycleRange(cycle);
   const field = TEAM_FIELDS[user.role];
-  const where = field ? `u.${field} = ?` : REGIONS[String(region || '').toUpperCase()] ? 'u.region = ?' : '1 = 1';
-  const args = field ? [user.id] : REGIONS[String(region || '').toUpperCase()] ? [String(region).toUpperCase()] : [];
+  const mine = teamSql(user);
+  const where = mine ? mine.sql : REGIONS[String(region || '').toUpperCase()] ? 'u.region = ?' : '1 = 1';
+  const args = mine ? mine.params : REGIONS[String(region || '').toUpperCase()] ? [String(region).toUpperCase()] : [];
   const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager, asm.name AS asm,
       (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND COALESCE(c.sourcing_date, date(c.created_at, '+4 hours')) BETWEEN ? AND ?) AS sourced,
       (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND ${COMPLETED_IN_SQL}) AS completed
@@ -150,9 +151,10 @@ export function zeroStaff(db, user, cycle, { region } = {}) {
  */
 export function incentiveEarners(db, user, cycle, { region } = {}) {
   const field = TEAM_FIELDS[user.role];
+  const mine = teamSql(user);
   const r = String(region || '').toUpperCase();
-  const where = field ? `u.${field} = ?` : REGIONS[r] ? 'u.region = ?' : '1 = 1';
-  const args = field ? [user.id] : REGIONS[r] ? [r] : [];
+  const where = mine ? mine.sql : REGIONS[r] ? 'u.region = ?' : '1 = 1';
+  const args = mine ? mine.params : REGIONS[r] ? [r] : [];
   const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager, asm.name AS asm
     FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id
     WHERE u.role = 'sales' AND u.active = 1 AND ${where} ORDER BY u.name`).all(...args);

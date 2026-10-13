@@ -499,9 +499,8 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
     // Sales people in the viewer's own team, for entering a file on their behalf.
     ['GET', /^\/api\/sales-staff$/, async ({ user }) => {
       requireRole(user, 'team_leader', 'sales_manager', 'asm');
-      const field = cases.TEAM_FIELDS[user.role];
       return {
-        staff: listUsers(db, { role: 'sales' }).filter((u) => u[field] === user.id).map(({ id, name, sales_code, team_leader_name, sales_manager_name, region, core_product }) =>
+        staff: listUsers(db, { role: 'sales' }).filter((u) => cases.inTeamRow(user, u)).map(({ id, name, sales_code, team_leader_name, sales_manager_name, region, core_product }) =>
           ({ id, name, sales_code, team_leader_name, sales_manager_name, region, core_product })),
       };
     }],

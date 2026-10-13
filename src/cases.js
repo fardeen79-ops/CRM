@@ -190,7 +190,10 @@ export function caseScope(user, c = 'c') {
   const own = `${c}.created_by = ?`;
   // A file belongs to the team stored on it, so a completed file stays with the managers it was
   // sourced under even after the sales person moves team.
-  const team = (field) => ({ sql: `(${own} OR ${c}.${field} = ?)`, params: [user.id, user.id] });
+  // A sales manager or ASM also sees the files of a team they lead directly.
+  const team = (field) => (field === 'team_leader_id'
+    ? { sql: `(${own} OR ${c}.team_leader_id = ?)`, params: [user.id, user.id] }
+    : { sql: `(${own} OR ${c}.${field} = ? OR ${c}.team_leader_id = ?)`, params: [user.id, user.id, user.id] });
   switch (user.role) {
     case 'sales': return { sql: `(${own} OR ${c}.sales_staff_id = ?)`, params: [user.id, user.id] };
     case 'processing': {
@@ -901,12 +904,24 @@ export function moveOpenCases(db, user, staffId) {
 
 /** Is this sales person in the viewer's team? Always true for roles that see everyone. */
 export function inTeam(db, user, staffId) {
-  const field = TEAM_FIELDS[user.role];
-  if (!field) return true;
-  return findUser(db, Number(staffId))?.[field] === user.id;
+  if (!TEAM_FIELDS[user.role]) return true;
+  return inTeamRow(user, findUser(db, Number(staffId)));
 }
 // Which users column links a sales person to each kind of manager.
 export const TEAM_FIELDS = { team_leader: 'team_leader_id', sales_manager: 'sales_manager_id', asm: 'asm_id' };
+/**
+ * The SQL for "in this leader's team", on a users or cases alias: a team leader's staff; for a sales
+ * manager or ASM, the staff under them in that role plus any team they lead directly (named as the
+ * staff's team leader). Null for roles that see everyone.
+ */
+export function teamSql(user, alias = 'u') {
+  const field = TEAM_FIELDS[user.role];
+  if (!field) return null;
+  if (user.role === 'team_leader') return { sql: `${alias}.team_leader_id = ?`, params: [user.id] };
+  return { sql: `(${alias}.${field} = ? OR ${alias}.team_leader_id = ?)`, params: [user.id, user.id] };
+}
+/** The same test on a loaded user or case row. */
+export const inTeamRow = (user, row) => !TEAM_FIELDS[user.role] || row?.[TEAM_FIELDS[user.role]] === user.id || (user.role !== 'team_leader' && row?.team_leader_id === user.id);
 
 // The sales person a file belongs to: the one named on it, or whoever entered it before that existed.
 const ownerId = (row) => row.sales_staff_id ?? row.created_by;
@@ -1897,9 +1912,9 @@ export function stats(db, user, { region } = {}) {
         `SELECT u.name, COUNT(c.id) AS sourced,
            SUM(CASE WHEN c.status = 'completed' THEN 1 ELSE 0 END) AS completed
          FROM users u LEFT JOIN cases c ON COALESCE(c.sales_staff_id, c.created_by) = u.id
-         WHERE u.role = 'sales' ${TEAM_FIELDS[user.role] ? `AND u.${TEAM_FIELDS[user.role]} = ?` : ''} GROUP BY u.id ORDER BY u.name`
+         WHERE u.role = 'sales' ${teamSql(user) ? `AND ${teamSql(user).sql}` : ''} GROUP BY u.id ORDER BY u.name`
       )
-      .all(...(TEAM_FIELDS[user.role] ? [user.id] : []));
+      .all(...(teamSql(user)?.params || []));
   }
   if (canSeePayout(user)) {
     // Revenue: what the bank pays this cycle (loans disbursed, cards activated within the window),

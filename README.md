@@ -499,8 +499,8 @@ Each role sees only the files that concern them. The server applies this to list
 |------|------|
 | Sales | Their own files |
 | Team leader | Files of the sales staff whose team leader they are, plus any they entered themselves |
-| Assistant sales manager (ASM) | Files of the sales staff mapped to them as ASM |
-| Sales manager | Files of the sales staff mapped to them as sales manager |
+| Assistant sales manager (ASM) | Files of the sales staff mapped to them as ASM, plus any team they lead directly (staff who name them as team leader) |
+| Sales manager | Files of the sales staff mapped to them as sales manager, plus any team they lead directly |
 | Processor with a **region** | Files in that region (`DXB` or `AUH`) and files with no region |
 | Processor without a region, MIS, business head, governance | Everything |
 

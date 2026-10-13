@@ -2,7 +2,7 @@
 // staff it is for and to their leaders and managers while it runs (and shortly before it starts).
 // Business heads and MIS create them. Progress is the files completed in the window with the
 // booster's product, by the person or by the team.
-import { WorkflowError, caseProducts, COMPLETED_IN_SQL, PRODUCTS, TEAM_FIELDS, REGIONS } from './cases.js';
+import { WorkflowError, caseProducts, COMPLETED_IN_SQL, PRODUCTS, TEAM_FIELDS, REGIONS, teamSql } from './cases.js';
 import { TEAM_LEADER_ROLES } from './users.js';
 import { uaeDay } from './cycles.js';
 
@@ -97,7 +97,7 @@ export function boostersFor(db, user) {
   if (!live.length) return [];
   let staff;
   if (user.role === 'sales') staff = db.prepare('SELECT id, name, region, core_product, team_leader_id FROM users WHERE id = ?').all(user.id);
-  else if (TEAM_LEADER_ROLES.includes(user.role)) staff = db.prepare(`SELECT id, name, region, core_product, team_leader_id FROM users WHERE role = 'sales' AND active = 1 AND ${TEAM_FIELDS[user.role]} = ?`).all(user.id);
+  else if (TEAM_LEADER_ROLES.includes(user.role)) staff = db.prepare(`SELECT id, name, region, core_product, team_leader_id FROM users u WHERE role = 'sales' AND active = 1 AND ${teamSql(user).sql}`).all(...teamSql(user).params);
   else if (BOOSTER_ADMINS.includes(user.role)) staff = db.prepare("SELECT id, name, region, core_product, team_leader_id FROM users WHERE role = 'sales' AND active = 1").all();
   else return [];
   const out = [];

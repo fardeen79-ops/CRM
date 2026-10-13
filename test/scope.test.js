@@ -799,3 +799,31 @@ test('a team with no sales manager sits under its ASM at the sales manager level
   const e = d.earners.groups.map((g) => [g.level, g.label]);
   assert.ok(e.some(([l, n]) => l === 'sales_manager' && n === 'Asma ASM (ASM)'), JSON.stringify(e));
 });
+
+test('an ASM or sales manager who leads a team directly sees it everywhere, even when the staff name nobody in that role column', async () => {
+  const mis = await login('mis@t.local');
+  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, region: 'DXB', ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.user; };
+  // Priya is an ASM: two team leaders report to her as ASM, and she also leads Pia directly (Pia's ASM column is blank).
+  const priya = await add({ name: 'Priya ASM', email: 'priya@t.local', role: 'asm', hrms_code: 'ASM7', mobile_number: '0501234571' });
+  const tl = await add({ name: 'Under Priya TL', email: 'upriya.tl@t.local', role: 'team_leader', hrms_code: 'TL7', mobile_number: '0501234572', asm_id: priya.id });
+  const viaTl = await add({ name: 'Via TL', email: 'viatl@t.local', role: 'sales', hrms_code: 'S71', sales_code: 'D-71', core_product: 'credit_card', team_leader_id: tl.id, asm_id: priya.id, mobile_number: '0501234573' });
+  const pia = await add({ name: 'Pia Direct', email: 'pia@t.local', role: 'sales', hrms_code: 'S72', sales_code: 'D-72', core_product: 'credit_card', team_leader_id: priya.id, mobile_number: '0501234574' });
+  assert.equal(pia.asm_id, null);
+  const asm = await login('priya@t.local');
+  const piaLogin = await login('pia@t.local');
+  const f = (await piaLogin('POST', '/cases', { ...file('Pia customer'), phone: '+971 50 777 1234', region: 'DXB' })).data.case;
+  // Team view: both the team under her team leader and her own direct team.
+  const h = (await asm('GET', '/hierarchy')).data;
+  assert.deepEqual(h.levels, ['team_leader', 'staff']);
+  assert.deepEqual(h.nodes.map((n) => n.name).sort(), ['Priya ASM', 'Under Priya TL']);
+  assert.deepEqual(h.nodes.find((n) => n.name === 'Priya ASM').children.map((n) => n.name), ['Pia Direct']);
+  // Targets, the sales staff list, the dashboard team count and the files all follow.
+  assert.deepEqual((await asm('GET', '/targets')).data.staff.map((s) => s.name).sort(), ['Pia Direct', 'Via TL']);
+  assert.deepEqual((await asm('GET', '/sales-staff')).data.staff.map((s) => s.name).sort(), ['Pia Direct', 'Via TL']);
+  const d = (await asm('GET', '/dashboard')).data;
+  assert.equal(d.zero.team, 2);
+  assert.equal((await asm('GET', `/cases/${f.id}`)).status, 200);
+  assert.ok((await asm('GET', '/cases')).data.cases.some((c) => c.id === f.id));
+  // She can validate her own direct team's file, as its team leader.
+  assert.equal((await asm('POST', `/cases/${f.id}/actions`, { action: 'validate' })).status, 200);
+});
