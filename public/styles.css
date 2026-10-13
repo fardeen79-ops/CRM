@@ -1004,5 +1004,7 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .users-table .pick { width: 28px; padding-right: 0; }
 .users-table .pick input { margin: 0; }
 
-.loan-kind-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.loan-kind { font-size: 13px; font-weight: 600; min-width: 150px; }
+.loan-kind-row { display: grid; grid-template-columns: minmax(200px, 1fr) 2fr; gap: 16px; align-items: end; margin-bottom: 8px; }
+.loan-kind-row .field-row { margin: 0; }
+.loan-kind-row .sub-label { display: block; margin-bottom: 6px; }
+@media (max-width: 640px) { .loan-kind-row { grid-template-columns: 1fr; } }

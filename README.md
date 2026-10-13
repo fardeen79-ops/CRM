@@ -186,7 +186,7 @@ API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the r
 
 ### Personal Loan and Personal Cash Loan
 
-A personal loan file is sourced as one of six: **Personal Loan - Fresh / Top Up / Buy Out** or **Personal Cash Loan - Fresh / Top Up / Buy Out** (two labelled rows on the sourcing form; the file, the register and the reports show the full name). The kind is a name only: a top-up counts its share of the incremental amount and an Emirates Islamic buy-out counts at 50% whether it is a Personal Loan or a Personal Cash Loan, and targets, incentives, yield and the bank payout treat both the same. The case upload has a *Personal loan kind* column (Personal Loan when blank). API field: `personal_loan_kind` (`personal_loan`, `personal_cash_loan`) next to `personal_loan_type`.
+A personal loan file is sourced as one of six: **Personal Loan - Fresh / Top Up / Buy Out** or **Personal Cash Loan - Fresh / Top Up / Buy Out** (a Loan drop-down beside the Fresh / Top Up / Buy Out control on the sourcing form; the file, the register and the reports show the full name). The kind is a name only: a top-up counts its share of the incremental amount and an Emirates Islamic buy-out counts at 50% whether it is a Personal Loan or a Personal Cash Loan, and targets, incentives, yield and the bank payout treat both the same. The case upload has a *Personal loan kind* column (Personal Loan when blank). API field: `personal_loan_kind` (`personal_loan`, `personal_cash_loan`) next to `personal_loan_type`.
 
 ### Buyouts on a personal loan
 

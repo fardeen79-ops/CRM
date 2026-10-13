@@ -1446,11 +1446,13 @@ async function viewCaseForm(id, leadId = null) {
           </fieldset>
           <fieldset class="full product-detail" id="loan-type-field" hidden>
             <legend>Personal loan</legend>
-            <div class="sub-label">Loan type <span class="req">*</span></div>
-            ${Object.entries(state.meta.personal_loan_kinds || { personal_loan: 'Personal Loan' }).map(([kind, kl]) => html`<div class="loan-kind-row"><span class="loan-kind">${kl}</span><div class="segmented">
-              ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" data-kind="${kind}" required disabled ${c.personal_loan_type === k && (c.personal_loan_kind || 'personal_loan') === kind ? raw('checked') : ''}><span>${l}</span></label>`)}
-            </div></div>`)}
-            <input type="hidden" name="personal_loan_kind" id="f-personal_loan_kind" value="${c.personal_loan_kind || 'personal_loan'}">
+            <div class="loan-kind-row">
+              <div class="field-row"><label for="f-personal_loan_kind">Loan <span class="req">*</span></label>
+                <select id="f-personal_loan_kind" name="personal_loan_kind" disabled data-pl>${Object.entries(state.meta.personal_loan_kinds || { personal_loan: 'Personal Loan' }).map(([kind, kl]) => html`<option value="${kind}" ${(c.personal_loan_kind || 'personal_loan') === kind ? raw('selected') : ''}>${kl}</option>`)}</select></div>
+              <div class="field-row"><span class="sub-label">Loan type <span class="req">*</span></span><div class="segmented">
+                ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" required disabled ${c.personal_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
+              </div></div>
+            </div>
             <div class="form-grid three">
               ${field('loan_amount', 'Loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-pl' })}
               ${field('interest_rate', 'Interest rate (%)', { type: 'number', required: true, placeholder: 'e.g. 5.99', attrs: 'inputmode="decimal" min="0" max="100" step="0.01" disabled data-pl' })}
@@ -1697,7 +1699,7 @@ async function viewCaseForm(id, leadId = null) {
     };
   }
   boxes.forEach((b) => (b.onchange = updateProductFields));
-  loanRadios.forEach((r) => (r.onchange = () => { $('#f-personal_loan_kind').value = r.dataset.kind || 'personal_loan'; updateProductFields(); }));
+  loanRadios.forEach((r) => (r.onchange = updateProductFields));
   secondaryRadios.forEach((r) => (r.onchange = updateProductFields));
   const salaryBank = $('#f-salary_bank');
   // A self-employed customer has an average balance and a bank they bank with, not a salary.
