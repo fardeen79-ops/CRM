@@ -2,8 +2,9 @@
 // columns, filtered by a period (a sales cycle or two dates), a region, and the viewer's own
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
-import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, JOURNEY_TYPES, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents } from './cases.js';
+import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, JOURNEY_TYPES, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents, verificationTat } from './cases.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
+import { isProcessingLead } from './roles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
 import { cardProducts } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
@@ -46,6 +47,7 @@ export const REPORTS = {
   assets: { name: 'Tab inventory', roles: ASSET_VIEWERS, period: 'the register as it stands now', description: 'Every sourcing tab issued by the bank: number, serial, who holds it, accessories, network, SIM, Microsoft Entra ID and registered mobile, with its status (in use, with IT, handed over on exit).' },
   pnl: { name: 'Profit and loss', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'Revenue (the bank\'s payout on files completed in the cycle) less the salaries actually paid and the incentives earned, by role: sales staff, team leaders, ASMs, sales managers, business heads, processing, MIS. Salaries come from the Salaries paid upload; anyone without one is estimated from their profile salary.' },
   pnl_hierarchy: { name: 'Profit and loss by region and team', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'The profit and loss broken down by region, sales manager, team leader and sales staff: each level\'s revenue (files completed by its staff), salaries and incentives (its people, leaders included at their level), net and margin. Overheads (business heads, processing, MIS, governance, IT) sit at region level.' },
+  open_files: { name: 'Files in process', roles: [...ALL, 'governance', 'processing'], only: (user) => user.role !== 'processing' || isProcessingLead(user), period: 'every open file as it stands now, whenever it was sourced', description: 'Every file that is neither completed nor rejected: where it stands, who it is waiting on, the processor, calls made, the last call, days since sourcing and since the last action, the verification TAT and any call-back due. Sourced in any period; the period filter does not apply.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
 };
 
@@ -458,6 +460,49 @@ function access(db, user, { period, region }) {
 
 const VERIFICATION_LABELS = { awaiting_approval: 'With team leader', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
 const REGISTER_LIMIT = 5000;
+const CALL_OUTCOME_LABELS = { connected: 'Connected', no_answer: 'No answer', busy: 'Busy', switched_off: 'Switched off', wrong_number: 'Wrong number', call_back_later: 'Call back later', not_reachable: 'Not reachable' };
+/** Every file still in process: not completed, not rejected, whenever it was sourced. */
+function open_files(db, user, { region }) {
+  const { sql, params } = caseWhere(user, region, ["c.case_status NOT IN ('completed', 'rejected')", 'c.status != ?'], [STATUS.REJECTED]);
+  const rows = db.prepare(`SELECT c.*, at.name AS assigned_to_name,
+      (SELECT COUNT(*) FROM case_events e WHERE e.case_id = c.id AND e.type = 'log_call') AS calls,
+      (SELECT e.created_at FROM case_events e WHERE e.case_id = c.id AND e.type = 'log_call' ORDER BY e.id DESC LIMIT 1) AS last_call_at,
+      (SELECT e.detail FROM case_events e WHERE e.case_id = c.id AND e.type = 'log_call' ORDER BY e.id DESC LIMIT 1) AS last_call,
+      (SELECT MAX(e.created_at) FROM case_events e WHERE e.case_id = c.id) AS last_action_at
+    FROM cases c LEFT JOIN users at ON at.id = c.assigned_to ${sql} ORDER BY c.sourcing_date, c.id LIMIT ?`).all(...params, REGISTER_LIMIT + 1);
+  const today = uaeDay();
+  const days = (day) => (day ? Math.max(0, Math.round((Date.parse(today) - Date.parse(String(day).slice(0, 10))) / 864e5)) : null);
+  const waitingOn = (c) => ({
+    awaiting_approval: 'Team leader (validation)', pending_verification: 'Verification queue', in_verification: c.assigned_to_name ? `Processor: ${c.assigned_to_name}` : 'Processor',
+    incomplete: 'Team leader (verification pending)', returned_to_sales: 'Sales person', completed: c.case_status === 'applicant_review' ? 'Sales / team leader (applicant review)' : 'Case status (bank)',
+  }[c.status] || c.status);
+  const out = rows.slice(0, REGISTER_LIMIT).map((raw) => {
+    const c = present(user, raw);
+    const tat = verificationTat(raw);
+    return {
+      ref: caseRef(c.id), sourcing_date: c.sourcing_date, days_open: days(c.sourcing_date || c.created_at), region: c.region || '', customer: c.customer_name, phone: c.phone || '',
+      product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.personal_loan_kind),
+      sales_staff: c.sales_staff_name || '', team_leader: c.team_leader_name || '',
+      verification: VERIFICATION_LABELS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status, waiting_on: waitingOn(raw),
+      processor: c.assigned_to_name || '', calls: raw.calls, last_call: CALL_OUTCOME_LABELS[raw.last_call] || raw.last_call || '', last_call_at: raw.last_call_at || '',
+      last_action_at: raw.last_action_at || c.updated_at || '', days_idle: days(raw.last_action_at || c.updated_at),
+      tat: tat ? ({ overdue: `Overdue by ${tat.days_over} working day${tat.days_over === 1 ? '' : 's'}`, met: 'Met', missed: 'Missed', held: 'Held', closed: '' }[tat.state] || (tat.due ? `Due ${tat.due}` : '')) : '',
+      callback_at: c.callback_at || '', urgent: c.urgent_at ? 'Urgent' : '', reason: c.incomplete_reason || '',
+    };
+  });
+  const byStatus = {};
+  for (const r of out) byStatus[r.verification] = (byStatus[r.verification] || 0) + 1;
+  return {
+    columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('days_open', 'Days open'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'),
+      col('product', 'Product', 'text'), col('sales_staff', 'Sales staff', 'text'), col('team_leader', 'Team leader', 'text'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text'),
+      col('waiting_on', 'Waiting on', 'text'), col('processor', 'Processor', 'text'), col('calls', 'Calls'), col('last_call', 'Last call', 'text'), col('last_call_at', 'Last call at', 'datetime'),
+      col('last_action_at', 'Last action', 'datetime'), col('days_idle', 'Days idle'), col('tat', 'Verification TAT', 'text'), col('callback_at', 'Call-back due', 'datetime'), col('urgent', 'Urgent', 'text'), col('reason', 'Pending reason', 'text')],
+    rows: out,
+    totals: { ref: `${out.length} files`, verification: Object.entries(byStatus).map(([k, n]) => `${n} ${k.toLowerCase()}`).join(', '), calls: sum(out, 'calls') },
+    truncated: rows.length > REGISTER_LIMIT,
+  };
+}
+
 function register(db, user, { period, region }) {
   sweepCardAgeing(db);
   const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
@@ -726,7 +771,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { open_files, pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {

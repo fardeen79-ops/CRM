@@ -136,3 +136,34 @@ test('the allocation list can be narrowed to one region: its team leaders, and i
   assert.deepEqual([auh.team_leaders.map((t) => t.name), auh.processors.map((p) => p.name)], [['TL Abu Dhabi'], ['Aziz']]);
   assert.equal((await lead('GET', '/allocations?region=XYZ')).status, 400);
 });
+
+test('the verification team leader runs the Files in process report: every open file, who it waits on, calls and TAT', async () => {
+  const vera = await login('vlead@t.local');
+  const pat = await login('pat@t.local');
+  const dana = await login('dana@t.local');
+  const list = (await vera('GET', '/reports')).data.reports.map((r) => r.key);
+  assert.deepEqual(list, ['open_files']);
+  assert.equal((await pat('GET', '/reports/open_files')).status, 404);
+  const c = (await dana('POST', '/cases', loan({ customer_name: 'Open Report File', phone: '+971 50 222 7777' }))).data.case;
+  await tlOk(c.id);
+  await pat('POST', `/cases/${c.id}/actions`, { action: 'log_call', outcome: 'no_answer' });
+  const rep = (await vera('GET', '/reports/open_files')).data;
+  assert.equal(rep.status ?? 200, 200);
+  const row = rep.rows.find((r) => r.customer === 'Open Report File');
+  assert.ok(row, JSON.stringify(rep.rows.slice(0, 2)));
+  assert.equal(row.verification, 'In verification');
+  assert.equal(row.waiting_on, 'Processor: Pat');
+  assert.equal(row.calls, 1); assert.equal(row.last_call, 'No answer');
+  assert.ok(Number.isInteger(row.days_open) && row.days_open >= 0); // the suite pins the sourcing clock, so the exact count varies
+  assert.ok(rep.columns.some((k) => k.key === 'tat') && rep.columns.some((k) => k.key === 'waiting_on'));
+  // A completed file leaves the report.
+  const head = await login('head@t.local');
+  await pat('POST', `/cases/${c.id}/actions`, { action: 'complete', note: 'ok' });
+  await head('POST', `/cases/${c.id}/actions`, { action: 'set_case_status', case_status: 'completed', pl_disbursed_amount: 100000 });
+  assert.ok(!(await vera('GET', '/reports/open_files')).data.rows.some((r) => r.customer === 'Open Report File'));
+  // The download leaves the phone out.
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'vlead@t.local', password: PASSWORD }) });
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  const csv = await fetch(`${base}/api/reports/open_files?format=csv`, { headers: { cookie } });
+  assert.equal(csv.status, 200); assert.ok(!/Phone/.test((await csv.text()).split('\n')[0]));
+});

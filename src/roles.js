@@ -47,7 +47,7 @@ export const BUILTIN_KEYS = Object.keys(BUILTIN_ROLES);
 // Roles the system ships ready-made on top of a base role. The verification team leader is a
 // processor who also allocates processors to sales team leaders; nobody can edit or delete it.
 export const SYSTEM_ROLES = {
-  processing_lead: { key: 'processing_lead', label: 'Verification Team Leader', base: 'processing', description: 'Verifies files like any processor and allocates processors to sales team leaders', pages: ['cases', 'chat', 'allocation'], reports: null, uploads: [], downloads: true, payout: false, status: 'approved', system: true },
+  processing_lead: { key: 'processing_lead', label: 'Verification Team Leader', base: 'processing', description: 'Verifies files like any processor and allocates processors to sales team leaders', pages: ['cases', 'chat', 'allocation', 'reports'], reports: ['open_files'], uploads: [], downloads: true, payout: false, status: 'approved', system: true },
   ceo: { key: 'ceo', label: 'CEO', base: 'business_head', description: 'Opens on the CEO dashboard, with the profit and loss and the reports; nothing else', pages: ['ceo', 'pnl', 'reports'], reports: null, uploads: [], downloads: true, payout: true, status: 'approved', system: true },
 };
 export const isCeo = (user) => user.role === 'business_head' && user.role_key === 'ceo';
