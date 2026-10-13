@@ -156,7 +156,7 @@ Delete or disable the demo accounts on the Staff page before real staff are load
 **Two branches.** Development happens on `claude/sales-sourcing-crm-workflow-rdlw4h`. The server follows
 `production`, which only moves when the business owner says a change is ready: then the development
 branch is fast-forwarded into `production` and pushed, and the server picks it up with the update
-script (by hand, or with the nightly timer below). Nothing reaches the server by being merely developed.
+script (by hand, or with the five-minute timer below). Nothing reaches the server by being merely developed.
 
 **Updates come from git.** Once `/opt/sourcing-crm` is a git checkout (it is if it was cloned in step 3b;
 if it was extracted from an archive, run `sudo bash /opt/sourcing-crm/deploy/switch-to-git.sh` once,
@@ -170,8 +170,10 @@ It pulls the branch, refreshes packages only if `package.json` changed, restarts
 its status. The database and the environment file are never touched. Changes are developed and tested
 in Claude Code first and pushed to the branch; the server only ever pulls.
 
-To pull unattended every night instead, install the timer (`deploy/sourcing-crm-update.timer`, 03:10
-Gulf time; it restarts the service only when something new was pulled):
+To pull unattended instead, install the timer (`deploy/sourcing-crm-update.timer`): every five
+minutes it checks the production branch and restarts the service only when something new was pulled,
+so a change pushed to production is live within five minutes. The update script reloads the timer
+itself when its unit file changes.
 
 ```bash
 sudo cp /opt/sourcing-crm/deploy/sourcing-crm-update.service /opt/sourcing-crm/deploy/sourcing-crm-update.timer /etc/systemd/system/

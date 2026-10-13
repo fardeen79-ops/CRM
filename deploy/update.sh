@@ -12,6 +12,8 @@ BEFORE=$(git rev-parse --short HEAD)
 echo "Branch $BRANCH at $BEFORE; fetching..."
 git fetch -q origin "$BRANCH"
 if [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")" ]; then echo "Already up to date."; exit 0; fi
+# The timer unit file itself may have changed: reload it so the new cadence applies without a hand step.
+TIMER_CHANGED=$(git diff --name-only HEAD "origin/$BRANCH" | grep -c 'deploy/sourcing-crm-update' || true)
 git log --oneline "HEAD..origin/$BRANCH"
 git merge -q --ff-only "origin/$BRANCH"
 AFTER=$(git rev-parse --short HEAD)
@@ -19,6 +21,10 @@ AFTER=$(git rev-parse --short HEAD)
 if git diff --name-only "$BEFORE" "$AFTER" | grep -q '^package'; then echo "package.json changed: npm ci"; npm ci --omit=dev; fi
 [ -f public/vendor/tesseract/tesseract.min.js ] || npm run setup:ocr
 id crm >/dev/null 2>&1 && chown -R crm:crm "$APP"
+if [ "$TIMER_CHANGED" != "0" ] && [ -f /etc/systemd/system/sourcing-crm-update.timer ]; then
+  cp deploy/sourcing-crm-update.service deploy/sourcing-crm-update.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl restart sourcing-crm-update.timer || true
+  echo "Auto-update timer reloaded."
+fi
 systemctl restart "$SERVICE"
 sleep 2
 systemctl --no-pager --lines=5 status "$SERVICE" || true

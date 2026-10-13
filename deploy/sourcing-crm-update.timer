@@ -1,14 +1,17 @@
-# Optional nightly auto-update, 03:10 Gulf time (23:10 UTC), when nobody is sourcing.
+# Optional auto-update: every five minutes the server checks the production branch and, only when
+# there is something new, pulls it and restarts the CRM (deploy/update.sh). So a change pushed to
+# production is live within five minutes, with no inbound access to the server.
 #   sudo cp deploy/sourcing-crm-update.service deploy/sourcing-crm-update.timer /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now sourcing-crm-update.timer
 #   systemctl list-timers sourcing-crm-update.timer     # next run
 #   journalctl -u sourcing-crm-update                    # what each run did
-# It only restarts the service when there is something new to pull.
 [Unit]
-Description=Nightly update of the sourcing CRM from git
+Description=Update the sourcing CRM from git every five minutes
 
 [Timer]
-OnCalendar=*-*-* 23:10:00 UTC
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
 Persistent=true
 
 [Install]
