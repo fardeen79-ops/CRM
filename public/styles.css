@@ -940,8 +940,14 @@ table.pnl.tree td.gain { color: var(--s-done); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --foot-bg: var(--stride-navy); --foot-border: var(--stride-navy); --foot-text: #B9C2D0; --foot-word: #ffffff; --foot-e: var(--stride-amber-dark); --stride-tile: var(--stride-amber-dark); --stride-c1: #B98A4A; --stride-c2: #6E5A45; --stride-c3: var(--stride-navy); } }
 :root[data-theme="dark"] { --foot-bg: var(--stride-navy); --foot-border: var(--stride-navy); --foot-text: #B9C2D0; --foot-word: #ffffff; --foot-e: var(--stride-amber-dark); --stride-tile: var(--stride-amber-dark); --stride-c1: #B98A4A; --stride-c2: #6E5A45; --stride-c3: var(--stride-navy); }
 .site-foot {
-  height: 64px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  min-height: 64px; padding: 12px 28px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
   background: var(--foot-bg); border-top: 1px solid var(--foot-border); color: var(--foot-text); font-size: 13px; font-weight: 500;
+}
+.foot-copy { white-space: nowrap; }
+/* On a phone the three parts stack, each on its own line, instead of squeezing into columns. */
+@media (max-width: 720px) {
+  .site-foot { flex-direction: column; align-items: flex-start; padding: 12px 16px; gap: 6px; }
+  .foot-copy, .foot-build { white-space: normal; }
 }
 .foot-dot { margin: 0 4px; }
 .foot-badge { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
