@@ -153,6 +153,11 @@ Delete or disable the demo accounts on the Staff page before real staff are load
 
 ## 6. Backups and updates
 
+**Two branches.** Development happens on `claude/sales-sourcing-crm-workflow-rdlw4h`. The server follows
+`production`, which only moves when the business owner says a change is ready: then the development
+branch is fast-forwarded into `production` and pushed, and the server picks it up with the update
+script (by hand, or with the nightly timer below). Nothing reaches the server by being merely developed.
+
 **Updates come from git.** Once `/opt/sourcing-crm` is a git checkout (it is if it was cloned in step 3b;
 if it was extracted from an archive, run `sudo bash /opt/sourcing-crm/deploy/switch-to-git.sh` once,
 with git installed and a GitHub token for the private repository), every update is:

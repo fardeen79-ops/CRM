@@ -5,7 +5,7 @@
 # Run as root:  sudo bash /opt/sourcing-crm/deploy/switch-to-git.sh [git-url]
 set -euo pipefail
 APP=${APP:-/opt/sourcing-crm}
-BRANCH=claude/sales-sourcing-crm-workflow-rdlw4h
+BRANCH=${BRANCH:-production}   # the branch the server follows; development happens on claude/sales-sourcing-crm-workflow-rdlw4h
 URL=${1:-https://github.com/fardeen79-ops/crm.git}
 command -v git >/dev/null || { echo "git is not installed: apt-get install -y git"; exit 1; }
 [ -d "$APP" ] || { echo "$APP not found"; exit 1; }

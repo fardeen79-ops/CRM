@@ -2,8 +2,9 @@
 
 Sales-sourcing CRM for Derby Group's Emirates NBD business. Zero-dependency Node 22 (`node:sqlite`),
 ESM, vanilla-JS single-page app. Development happens on the branch
-`claude/sales-sourcing-crm-workflow-rdlw4h`; the production server pulls that branch with
-`deploy/update.sh`. README.md is the functional spec and is kept in step with every change.
+`claude/sales-sourcing-crm-workflow-rdlw4h`. The server follows the `production` branch
+(`deploy/update.sh`), which is fast-forwarded from the development branch only when the user says a
+change is ready for the server. README.md is the functional spec and is kept in step with every change.
 
 ## Layout
 - `src/server.js` routes (`['GET', /^\/api\/x$/, async ({ user, params, query, body }) => …]`); `src/cases.js`
