@@ -407,6 +407,7 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 
 **User rows**
 - Choose the role by name (`Sales`, `Team Leader`…).
+- A sales person needs a sales code and a team leader to source a file; the sales manager is optional. In the case upload, a name repeated in the first, middle and last name columns is kept once.
 - A cell that says `-`, `NA`, `N/A`, `none`, `nil` or `null` counts as empty in every upload (names excepted), so a sheet filled that way for a missing sales manager or ASM loads without errors.
 - Sales staff name their team leader and sales manager by **email**. These can be existing users or ones anywhere in the same file, because rows are added in hierarchy order (sales managers, ASMs, team leaders, then sales staff). On a team leader's or ASM's own row, the sales manager (and ASM) email is their reporting line; the team leader column is ignored on every non-sales row.
 - Leave *Temporary password* blank and one is generated. **Download sign-in details** right after the upload to get the generated passwords. They aren't shown again; a team leader can reset a password later.

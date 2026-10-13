@@ -816,7 +816,8 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
     const name = (f) => (f in out ? out[f] : current?.[f] ?? null);
     if (!name('first_name')) throw new WorkflowError(400, 'Customer first name is required');
     if (!name('last_name')) throw new WorkflowError(400, 'Customer last name is required');
-    out.customer_name = [name('first_name'), name('middle_name'), name('last_name')].filter(Boolean).join(' ');
+    // A sheet that carries the full name in every name column would repeat it: identical parts count once.
+    out.customer_name = [name('first_name'), name('middle_name'), name('last_name')].filter(Boolean).filter((part, i, all) => all.findIndex((x) => x.toLowerCase() === part.toLowerCase()) === i).join(' ');
   }
 
   for (const field of ['phone', 'alt_phone']) {
@@ -862,9 +863,11 @@ function salesStaffSnapshot(db, staffId) {
   if (!staff || staff.role !== 'sales' || !staff.active) {
     throw new WorkflowError(400, 'Choose the sales staff member who sourced this file');
   }
-  const missing = [!staff.sales_code && 'sales code', !staff.team_leader_name && 'team leader', !staff.sales_manager_name && 'sales manager'].filter(Boolean);
+  // A sales code and a team leader are needed; the sales manager is optional (a team can report to
+  // the business head directly), so a file is sourced without one.
+  const missing = [!staff.sales_code && 'sales code', !staff.team_leader_name && 'team leader'].filter(Boolean);
   if (missing.length) {
-    throw new WorkflowError(400, `${staff.name}'s profile has no ${missing.join(', ')}. A team leader can add it on the Users page.`);
+    throw new WorkflowError(400, `${staff.name}'s profile has no ${missing.join(' or ')}. MIS or a business head can add it on the Staff page.`);
   }
   return {
     sales_staff_id: staff.id,

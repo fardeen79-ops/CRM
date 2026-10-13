@@ -1305,7 +1305,7 @@ async function viewCaseForm(id, leadId = null) {
   const staffNow = id
     ? { id: c.sales_staff_id, name: c.sales_staff_name, sales_code: c.sales_code, team_leader_name: c.team_leader_name, sales_manager_name: c.sales_manager_name }
     : r === 'sales' ? me : null;
-  const profileGap = r === 'sales' && !id && (!me.sales_code || !me.team_leader_name || !me.sales_manager_name);
+  const profileGap = r === 'sales' && !id && (!me.sales_code || !me.team_leader_name);
   const bundled = new Set(String(c.bundle_products || '').split(',').filter(Boolean));
   const listedBanks = state.meta.banks.flatMap((g) => g.banks);
   // Fields this viewer may not read; they can still type a replacement without seeing the old value.
@@ -1342,7 +1342,7 @@ async function viewCaseForm(id, leadId = null) {
 
       <section>
         <h2>Sales staff</h2>
-        ${profileGap ? html`<div class="callout warn"><strong>Your sales profile is incomplete.</strong>Ask a team leader to add your sales code, team leader and sales manager on the Users page before you submit files.</div>` : ''}
+        ${profileGap ? html`<div class="callout warn"><strong>Your sales profile is incomplete.</strong>Ask MIS or a business head to add your sales code and team leader on the Staff page before you submit files.</div>` : ''}
         <div class="form-grid four">
           <div>
             <label for="f-sales_staff_id">Sales staff full name ${pickStaff ? raw('<span class="req">*</span>') : ''}</label>

@@ -515,6 +515,7 @@ test('staff master shapes from the real list: a manager leading a team, a team w
   assert.equal(direct.sales_manager_id, praveen.id);
   assert.equal(users.find((u) => u.sales_code === 'R-1').sales_manager_id, null); // "N/A" in the sheet is an empty cell
   assert.equal(users.find((u) => u.sales_code === 'R-1').asm_id, null); // and so is "-"
+
   // The manager sees the file of the staff member they lead directly, through either field.
   const as = async (email, password) => {
     const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
@@ -525,6 +526,12 @@ test('staff master shapes from the real list: a manager leading a team, a team w
   const praveenLogin = await as('praveen.lead@t.local', up.rows[2].temp_password);
   const sold = (await (await as('7001', up.rows[3].temp_password))('POST', '/cases', { ...file('Direct customer'), region: 'AUH' })).data.case;
   assert.equal((await praveenLogin('GET', `/cases/${sold.id}`)).status, 200);
+  // A sales person with no sales manager still sources files, and a sheet that repeats the full name in every name column keeps it once.
+  const noMgr = await as('7002', up.rows[4].temp_password);
+  const sourced = await noMgr('POST', '/cases', { ...file('x'), customer_name: undefined, first_name: 'Anand Kumar Mishra', middle_name: 'Anand Kumar Mishra', last_name: 'ANAND KUMAR MISHRA', region: 'DXB' });
+  assert.equal(sourced.status, 201, JSON.stringify(sourced.data));
+  assert.equal(sourced.data.case.customer_name, 'Anand Kumar Mishra');
+  assert.equal(sourced.data.case.sales_manager_name, null);
   // Targets follow the core product: one product per staff member, every product for multi-product staff.
   const bands = ['Product,Salary from (AED),Salary to (AED),Target', 'Credit Card,4000,4499,5850', 'Credit Card,4500,4999,6650', 'Credit Card,5000,5499,7450', 'Credit Card,6000,6499,9050',
     'Personal Loan,6000,6499,700000', 'Auto Loan,4500,4999,3200', 'Auto Loan,6000,6499,5600'].join('\n');
