@@ -1,0 +1,15 @@
+# Optional nightly auto-update, 03:10 Gulf time (23:10 UTC), when nobody is sourcing.
+#   sudo cp deploy/sourcing-crm-update.service deploy/sourcing-crm-update.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now sourcing-crm-update.timer
+#   systemctl list-timers sourcing-crm-update.timer     # next run
+#   journalctl -u sourcing-crm-update                    # what each run did
+# It only restarts the service when there is something new to pull.
+[Unit]
+Description=Nightly update of the sourcing CRM from git
+
+[Timer]
+OnCalendar=*-*-* 23:10:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

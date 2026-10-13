@@ -1,0 +1,9 @@
+# Optional: pulls the latest commit on the branch and restarts the CRM (deploy/update.sh).
+# Enable the timer to do it unattended every night: see deploy/sourcing-crm-update.timer.
+[Unit]
+Description=Update the sourcing CRM from git
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/sourcing-crm/deploy/update.sh

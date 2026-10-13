@@ -165,6 +165,14 @@ It pulls the branch, refreshes packages only if `package.json` changed, restarts
 its status. The database and the environment file are never touched. Changes are developed and tested
 in Claude Code first and pushed to the branch; the server only ever pulls.
 
+To pull unattended every night instead, install the timer (`deploy/sourcing-crm-update.timer`, 03:10
+Gulf time; it restarts the service only when something new was pulled):
+
+```bash
+sudo cp /opt/sourcing-crm/deploy/sourcing-crm-update.service /opt/sourcing-crm/deploy/sourcing-crm-update.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now sourcing-crm-update.timer
+```
+
 - `deploy/backup.sh` makes a consistent copy of the database; run it nightly from cron and keep the
   copies off the server. Restore = stop the service, replace the file, start the service.
 - Docker route: `git pull`, then `docker compose up -d --build`. Database changes apply themselves on start.
