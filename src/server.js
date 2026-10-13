@@ -372,6 +372,9 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
     ['POST', /^\/api\/leads\/(\d+)\/follow-up$/, async ({ user, params, body }) => ({ lead: leads.setFollowUp(db, user, Number(params[0]), body) })],
     ['POST', /^\/api\/leads\/(\d+)\/status$/, async ({ user, params, body }) => ({ lead: leads.setLeadStatus(db, user, Number(params[0]), body) })],
 
+    // Files entered by mistake or as tests: MIS and business heads delete them with a reason; governance sees what went.
+    ['POST', /^\/api\/cases\/delete$/, async ({ user, body }) => cases.deleteCases(db, user, body.ids, body.reason)],
+    ['GET', /^\/api\/deleted-cases$/, async ({ user, query }) => cases.listDeletedCases(db, user, Object.fromEntries(query))],
     ['GET', /^\/api\/cases\/(\d+)$/, async ({ user, params }) => {
       const result = cases.getCase(db, user, Number(params[0]));
       cases.logAccess(db, user, Number(params[0]), 'view');

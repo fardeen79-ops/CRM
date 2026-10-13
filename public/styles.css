@@ -1001,8 +1001,8 @@ table.pnl.tree td.gain { color: var(--s-done); }
 :root[data-theme="dark"] .ceo-down, :root[data-theme="dark"] .bad-num { color: #f08c84; }
 .btn.danger { color: var(--s-incomplete); border-color: var(--s-incomplete); background: var(--s-incomplete-bg); }
 .btn.danger:hover { filter: brightness(.97); }
-.users-table .pick { width: 28px; padding-right: 0; }
-.users-table .pick input { margin: 0; }
+.users-table .pick, table .pick { width: 28px; padding-right: 0; }
+.users-table .pick input, table .pick input { margin: 0; }
 
 .loan-kind-row { display: grid; grid-template-columns: minmax(200px, 1fr) 2fr; gap: 16px; align-items: end; margin-bottom: 8px; }
 .loan-kind-row .field-row { margin: 0; }

@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v76';
+const DB_KEY = 'sourcing-crm-demo-db-v77';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -488,6 +488,8 @@ function handle(method, pathname, query, body) {
     if (query.get('format') === 'csv') return { csv: toCsv(report), filename: report.key + '-' + report.from + '-to-' + report.to + (report.region ? '-' + report.region : '') + '.csv' };
     return report;
   }
+  if (method === 'POST' && pathname === '/api/cases/delete') return deleteCases(db, user, body.ids, body.reason);
+  if (pathname === '/api/deleted-cases') return listDeletedCases(db, user, Object.fromEntries(query));
   if (pathname === '/api/cases') {
     if (method === 'GET') return { cases: listCases(db, user, Object.fromEntries(query)) };
     if (method === 'POST') { if (body.lead_id) getLead(db, user, Number(body.lead_id)); const created = createCase(db, user, body); if (body.lead_id) convertLead(db, user, body.lead_id, created.id); persist(); return [201, { case: created }]; }

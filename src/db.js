@@ -271,6 +271,22 @@ CREATE TABLE IF NOT EXISTS card_products (
 
 -- The TAT switch: while on, files past their verification TAT show as verified (completed); when
 -- switched off they go back to the stage they were at. One row per switch, newest is current.
+-- Files deleted by MIS or a business head (wrong entries, test files): what was removed, by whom and why.
+CREATE TABLE IF NOT EXISTS deleted_cases (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id          INTEGER NOT NULL,
+  ref              TEXT NOT NULL,
+  customer_name    TEXT,
+  sales_staff_name TEXT,
+  product_label    TEXT,
+  status           TEXT,
+  case_status      TEXT,
+  sourcing_date    TEXT,
+  reason           TEXT NOT NULL,
+  deleted_by       INTEGER REFERENCES users(id),
+  deleted_at       TEXT NOT NULL,
+  snapshot         TEXT NOT NULL -- the file's row as JSON, for governance
+);
 CREATE TABLE IF NOT EXISTS tat_switch_log (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   switched_on INTEGER NOT NULL,

@@ -318,3 +318,24 @@ test('the build the server runs is public, for the sign-in page footer', async (
   const v = await r.json();
   assert.ok('commit' in v && 'updated_at' in v);
 });
+
+test('MIS or a business head deletes files entered by mistake, with a reason; the deletion is on the access log', async () => {
+  const mis = await login('mis@t.local');
+  const sally = await login('sally@t.local');
+  const gov = await login('governance@t.local').catch(() => null);
+  const mk = async (name) => { const r = await sally('POST', '/cases', { customer_name: name, region: 'DXB', phone: '+971 50 999 1234', city: 'Dubai', product: 'credit_card', core_product: 'credit_card', credit_card: 'Mastercard Platinum', card_fee_type: 'fyf', salary: 15000, company_name: 'Co', source: 'Cold call', customer_type: 'salaried' }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.case; };
+  const a = await mk('Test Entry One');
+  const b = await mk('Test Entry Two');
+  const keep = await mk('Real Customer');
+  // A reason is required; a sales person may not delete.
+  assert.equal((await sally('POST', '/cases/delete', { ids: [a.id], reason: 'test file' })).status, 403);
+  assert.equal((await mis('POST', '/cases/delete', { ids: [a.id], reason: 'x' })).status, 400);
+  const r = (await mis('POST', '/cases/delete', { ids: [a.id, b.id, 999999], reason: 'Entered as test files during training' })).data;
+  assert.deepEqual(r.deleted.map((d) => d.customer_name), ['Test Entry One', 'Test Entry Two']);
+  assert.equal(r.skipped.length, 1);
+  assert.equal((await mis('GET', `/cases/${a.id}`)).status, 404);
+  assert.equal((await mis('GET', `/cases/${keep.id}`)).status, 200);
+  const log = (await mis('GET', '/deleted-cases')).data.items;
+  assert.ok(log.some((d) => d.ref === a.ref && d.reason === 'Entered as test files during training' && d.deleted_by_name === 'Mira'), JSON.stringify(log[0]));
+  assert.equal((await sally('GET', '/deleted-cases')).status, 403);
+});

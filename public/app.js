@@ -1198,11 +1198,11 @@ function timingChips(c, pendingOnly = false) {
   return html`${flags.map((f) => html` <span class="${cls}" title="${state.meta.timing_flags?.[f] || f}${c.timing_approved_at ? `, approved by ${c.timing_approved_by_name}` : ''}">${f === 'sunday' ? 'Sunday' : 'After 6 pm'}</span>`)}`;
 }
 
-function caseTable(cases, { cols, empty = 'No cases found' }) {
+function caseTable(cases, { cols, empty = 'No cases found', pick = false }) {
   if (!cases.length) return html`<div class="empty">${empty}</div>`;
   return html`<div class="table-wrap"><table>
-    <thead><tr>${cols.map((k) => html`<th>${COLS[k][0]}</th>`)}</tr></thead>
-    <tbody>${cases.map((c) => html`<tr data-href="#/cases/${c.id}">${cols.map((k) => html`<td>${COLS[k][1](c)}</td>`)}</tr>`)}</tbody>
+    <thead><tr>${pick ? html`<th class="pick"><input type="checkbox" id="case-pick-all" aria-label="Select every file shown" title="Select every file shown"></th>` : ''}${cols.map((k) => html`<th>${COLS[k][0]}</th>`)}</tr></thead>
+    <tbody>${cases.map((c) => html`<tr data-href="#/cases/${c.id}">${pick ? html`<td class="pick"><input type="checkbox" data-pick-case="${c.id}" aria-label="Select ${c.ref}"></td>` : ''}${cols.map((k) => html`<td>${COLS[k][1](c)}</td>`)}</tr>`)}</tbody>
   </table></div>`;
 }
 
@@ -1249,6 +1249,8 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
       ${[['', 'All verification'], ...Object.entries(STATUS_LABEL)].map(([s, l]) => html`<button data-status="${s}" class="${s === status ? 'active' : ''}">${l}</button>`)}
     </div>`;
 
+  // MIS and business heads can delete files entered by mistake or as tests, from the main list.
+  const canDelete = BULK_ROLES.includes(r) && !fixedStatus && !fixedCols;
   shell(html`
     <div class="page-head">
       <div><h1>${title}</h1>${subtitle ? html`<p class="muted" style="margin:0">${subtitle}</p>` : ''}</div>
@@ -1262,10 +1264,36 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
           <button>Search</button>
         </form>
         ${filters}
+        ${canDelete ? html`<button class="btn danger" id="cases-delete" hidden>Delete selected</button>` : ''}
       </div>
-      ${caseTable(cases, { cols, empty: empty || (fixedStatus === 'incomplete' ? 'Nothing needs your attention right now 🎉' : 'No cases found') })}
+      ${caseTable(cases, { cols, pick: canDelete, empty: empty || (fixedStatus === 'incomplete' ? 'Nothing needs your attention right now 🎉' : 'No cases found') })}
     </div>`);
   bindRows();
+  if (canDelete && cases.length) {
+    const picks = [...app.querySelectorAll('input[data-pick-case]')];
+    const pickAll = document.getElementById('case-pick-all');
+    const delBtn = document.getElementById('cases-delete');
+    const chosen = () => picks.filter((p) => p.checked).map((p) => Number(p.dataset.pickCase));
+    const sync = () => { const n = chosen().length; delBtn.hidden = !n; delBtn.textContent = `Delete selected (${n})`; pickAll.checked = n === picks.length; pickAll.indeterminate = n > 0 && n < picks.length; };
+    // A click on the box must not open the file.
+    app.querySelectorAll('td.pick, th.pick').forEach((td) => (td.onclick = (e) => e.stopPropagation()));
+    picks.forEach((p) => (p.onchange = sync));
+    pickAll.onchange = () => { picks.forEach((p) => { p.checked = pickAll.checked; }); sync(); };
+    delBtn.onclick = async () => {
+      const ids = chosen();
+      const refs = cases.filter((c) => ids.includes(c.id)).map((c) => `${c.ref} ${c.customer_name}`);
+      const list = refs.length > 5 ? `${refs.slice(0, 5).join(', ')} and ${refs.length - 5} more` : refs.join(', ');
+      if (!await askConfirm(`Delete ${ids.length === 1 ? 'this file' : `these ${ids.length} files`} for good? ${list}. The file, its history and discussion go; a record of the deletion stays on the Access log page.`, { ok: 'Delete', danger: true })) return;
+      const reason = prompt('Why are these files being deleted? (for the record)', '');
+      if (reason == null) return;
+      delBtn.disabled = true;
+      try {
+        const res = await api('/cases/delete', { method: 'POST', body: { ids, reason } });
+        toast(`${res.deleted.length} ${res.deleted.length === 1 ? 'file' : 'files'} deleted${res.skipped.length ? `; ${res.skipped.length} skipped` : ''}.`);
+        viewCases({ title, subtitle, params, fixedStatus, fixed, cols: fixedCols, empty });
+      } catch (ex) { toast(ex.message, true); delBtn.disabled = false; }
+    };
+  }
 
   const setParam = (key, val) => {
     const p = new URLSearchParams(params);
@@ -3297,6 +3325,21 @@ async function viewAccessLog(params) {
   const shown = q ? items.filter((e) => [e.user_name, e.customer_name, e.ref, e.sales_staff_name].some((v) => String(v || '').toLowerCase().includes(q))) : items;
   const reveals = items.filter((e) => e.what.startsWith('reveal:')).length;
   const powerLog = await powerLogCard();
+  const deleted = (await api('/deleted-cases?limit=500').catch(() => ({ items: [] }))).items;
+  const deletedCard = deleted.length ? html`<div class="card">
+      <div class="card-head"><h2>Deleted files</h2><span class="muted small">${deleted.length} file${deleted.length === 1 ? '' : 's'} deleted by MIS or a business head, with the reason given</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>When</th><th>Who</th><th>File</th><th>Product</th><th>Was</th><th>Reason</th></tr></thead>
+        <tbody>${deleted.map((d) => html`<tr>
+          <td class="small nowrap">${fmtDate(d.deleted_at)}</td>
+          <td>${d.deleted_by_name || '—'}<div class="muted small">${ROLE_LABEL[d.deleted_by_role] || d.deleted_by_role || ''}</div></td>
+          <td><strong class="mono">${d.ref}</strong> ${d.customer_name || ''}<div class="muted small">${d.sales_staff_name ? `Sourced by ${d.sales_staff_name}` : ''}${d.sourcing_date ? ` on ${fmtDay(d.sourcing_date)}` : ''}</div></td>
+          <td class="small">${d.product_label || '—'}</td>
+          <td class="small">${CASE_STATUS_LABEL[d.case_status] || d.case_status || ''}${d.status ? html`<div class="muted">${STATUS_LABEL[d.status] || d.status}</div>` : ''}</td>
+          <td class="small">${d.reason}</td>
+        </tr>`)}</tbody>
+      </table></div>
+    </div>` : '';
   shell(html`
     <div class="page-head">
       <div><h1>Access log</h1><p class="muted lede">Who opened each customer's file and which personal details they revealed. Phone numbers and salaries are masked on every screen until someone chooses to reveal them, and every reveal is recorded here. Each screen also carries a faint watermark of the signed-in user, so a photo or screenshot can be traced.</p></div>
@@ -3322,6 +3365,7 @@ async function viewAccessLog(params) {
         </tr>`)}</tbody>
       </table></div>` : html`<div class="empty">No access recorded yet</div>`}
     </div>
+    ${deletedCard}
     ${powerLog}`);
   bindRows();
   document.getElementById('log-search').onsubmit = (e) => {

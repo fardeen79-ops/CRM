@@ -1055,6 +1055,43 @@ export function revealFields(db, user, id, fields) {
 }
 
 const ACCESS_LOG_VIEWERS = ['governance', 'business_head', 'mis'];
+export const CASE_DELETERS = ['mis', 'business_head'];
+
+/**
+ * Deletes files entered by mistake or as tests, for good: the file, its history, discussion,
+ * notifications and access log go; a lead that became the file is kept and unlinked. Each deletion
+ * is recorded with the file's details, who deleted it and why, for the Access log page.
+ */
+export function deleteCases(db, user, ids, reason) {
+  if (!CASE_DELETERS.includes(user.role)) throw new WorkflowError(403, 'Only MIS and business heads can delete files');
+  const why = String(reason || '').trim();
+  if (why.length < 5) throw new WorkflowError(400, 'Say why the files are being deleted (at least 5 characters)');
+  const wanted = [...new Set((Array.isArray(ids) ? ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (!wanted.length) throw new WorkflowError(400, 'Choose at least one file to delete');
+  if (wanted.length > 200) throw new WorkflowError(400, 'Delete at most 200 files at a time');
+  const deleted = []; const skipped = [];
+  const ts = now();
+  transaction(db, () => {
+    for (const id of wanted) {
+      const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
+      if (!row) { skipped.push({ id, ref: caseRef(id), reason: 'no such file' }); continue; }
+      const label = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank, row.personal_loan_kind);
+      db.prepare(`INSERT INTO deleted_cases (case_id, ref, customer_name, sales_staff_name, product_label, status, case_status, sourcing_date, reason, deleted_by, deleted_at, snapshot)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, caseRef(id), row.customer_name, row.sales_staff_name, label, row.status, row.case_status, row.sourcing_date, why, user.id, ts, JSON.stringify(row));
+      db.prepare('UPDATE leads SET case_id = NULL WHERE case_id = ?').run(id);
+      db.prepare('DELETE FROM cases WHERE id = ?').run(id);
+      deleted.push({ id, ref: caseRef(id), customer_name: row.customer_name });
+    }
+  });
+  return { deleted, skipped };
+}
+
+/** The deleted files, newest first, for governance, MIS and business heads. */
+export function listDeletedCases(db, user, { limit = 300 } = {}) {
+  if (!ACCESS_LOG_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Only governance, MIS and business heads can see deleted files');
+  return { items: db.prepare(`SELECT d.id, d.case_id, d.ref, d.customer_name, d.sales_staff_name, d.product_label, d.status, d.case_status, d.sourcing_date, d.reason, d.deleted_at, u.name AS deleted_by_name, u.role AS deleted_by_role
+    FROM deleted_cases d LEFT JOIN users u ON u.id = d.deleted_by ORDER BY d.id DESC LIMIT ?`).all(Math.min(Number(limit) || 300, 2000)) };
+}
 /** Who looked at personal data: for one case (?case=) or everyone, newest first. */
 export function listAccessLog(db, user, { case: caseId, limit = 300 } = {}) {
   if (!ACCESS_LOG_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Only governance, MIS and business heads can see the access log');

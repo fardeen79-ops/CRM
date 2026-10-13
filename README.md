@@ -458,6 +458,10 @@ The case form groups the customer's details:
 
 First name, last name and mobile are required. An Emirates ID must be 15 digits starting with 784, and it is stored as `784-YYYY-NNNNNNN-C`. Passport numbers are stored in upper case. Search matches names, mobile, company, Emirates ID (with or without dashes), passport number, Bidaya ID, App ID, credit card and buy-out bank.
 
+### Deleting files entered by mistake
+
+**MIS and business heads** delete files entered wrongly or as tests from the **All cases** list: tick the files (the header box takes every file shown, so search first), press **Delete selected**, confirm, and give a reason. The file goes for good with its history, discussion, notifications and access log entries; a lead that became the file is kept and unlinked. Every deletion is recorded (reference, customer, sales person, product, status, who deleted it, when and why) in the **Deleted files** card on the Access log page, for governance, MIS and business heads. Nobody else can delete a file. API: `POST /api/cases/delete {ids, reason}` (at most 200 at a time), `GET /api/deleted-cases`.
+
 ### Case status
 
 Case status is separate from verification:
