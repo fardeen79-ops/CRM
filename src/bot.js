@@ -143,7 +143,7 @@ export async function practice(user, { playbook, sample = {}, answers = [] } = {
 /** The file's details by FIELDS key; the product lists the ways a customer may name it. */
 export function fieldValues(row) {
   const full = [row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ') || row.customer_name;
-  const label = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank);
+  const label = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank, row.personal_loan_kind);
   const names = caseProducts(row).map((p) => PRODUCTS[p] || p).filter(Boolean);
   const product = label ? [names.join(' and '), label, ...(row.credit_card ? [row.credit_card] : [])].filter(Boolean) : null;
   return {
@@ -482,7 +482,7 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
     const lead = user.role === 'processing' && user.role_key === 'processing_lead';
     if (!lead && !BOT_APPROVERS.includes(user.role)) throw new WorkflowError(403, 'Only governance, business heads and the verification team leader see bot calls');
     const rows = db.prepare(`SELECT b.id, b.case_id, b.status, b.requested_at, b.recording_url IS NOT NULL AS has_recording, b.request_note, b.gov_at, b.bh_at, b.placed_at, b.finished_at, b.outcome, b.decision_note,
-        c.customer_name, c.status AS verification_status, c.bot_approvals, c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.region,
+        c.customer_name, c.status AS verification_status, c.bot_approvals, c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.personal_loan_kind, c.buyout_bank, c.region,
         u.name AS requested_by_name, g.name AS gov_by_name, h.name AS bh_by_name, d.name AS decided_by_name
       FROM bot_calls b JOIN cases c ON c.id = b.case_id JOIN users u ON u.id = b.requested_by
         LEFT JOIN users g ON g.id = b.gov_by LEFT JOIN users h ON h.id = b.bh_by LEFT JOIN users d ON d.id = b.decided_by
@@ -490,10 +490,10 @@ export function makeCallBot(db, { url = process.env.CALL_BOT_URL, secret = proce
       ORDER BY (b.status = 'awaiting_approval') DESC, (b.status = 'approved') DESC, b.id DESC LIMIT 200`).all(new Date(Date.now() - 30 * 864e5).toISOString());
     return {
       calling_hours: (({ call_from, call_to, call_sunday }) => ({ call_from, call_to, call_sunday }))(getPlaybook(db).rules),
-      calls: rows.map(({ product, bundle_products, credit_card, personal_loan_type, buyout_bank, bot_approvals, ...r }) => ({
+      calls: rows.map(({ product, bundle_products, credit_card, personal_loan_type, personal_loan_kind, buyout_bank, bot_approvals, ...r }) => ({
         ...r,
         ref: caseRef(r.case_id),
-        product_label: productLabel(product, bundle_products, credit_card, personal_loan_type, buyout_bank),
+        product_label: productLabel(product, bundle_products, credit_card, personal_loan_type, buyout_bank, personal_loan_kind),
         // Can this person approve it right here?
         can_decide: r.status === 'awaiting_approval' && OPEN.includes(r.verification_status) && BOT_APPROVERS.includes(user.role) && !String(bot_approvals || '').split(',').includes(user.role),
         can_withdraw: lead && ['awaiting_approval', 'approved'].includes(r.status),

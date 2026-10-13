@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS cases (
   bundle_products    TEXT,
   credit_card        TEXT,
   personal_loan_type TEXT,
+  personal_loan_kind TEXT,
   buyout_bank        TEXT,
   loan_amount        REAL,
   interest_rate      REAL,
@@ -512,7 +513,7 @@ export function openDb(file = process.env.DB_FILE || 'data/crm.db') {
 
 // Columns added after the first release; ALTER existing databases in place.
 const ADDED_COLUMNS = {
-  bundle_products: 'TEXT', credit_card: 'TEXT', personal_loan_type: 'TEXT', buyout_bank: 'TEXT',
+  bundle_products: 'TEXT', credit_card: 'TEXT', personal_loan_type: 'TEXT', personal_loan_kind: 'TEXT', buyout_bank: 'TEXT',
   salutation: 'TEXT', first_name: 'TEXT', middle_name: 'TEXT', last_name: 'TEXT', company_name: 'TEXT', salary: 'REAL', customer_type: 'TEXT', sourcing_type: 'TEXT', tat_override_from: 'TEXT', tat_held_at: 'TEXT',
   eid_number: 'TEXT', passport_number: 'TEXT', bidaya_id: 'TEXT', app_id: 'TEXT',
   loan_amount: 'REAL', interest_rate: 'REAL', full_loan_amount: 'REAL', incremental_amount: 'REAL',

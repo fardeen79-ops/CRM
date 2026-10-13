@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CORE_PRODUCTS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -70,6 +70,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'bundle_products', header: 'Bundle products', example: '', help: 'For Bundle: two or more products separated by ; e.g. Personal Loan; Credit Card' },
   { key: 'credit_card', header: 'Credit card', example: '', help: 'Card name exactly as in the New case form' },
   { key: 'card_fee_type', header: 'Card sourced type', example: '', help: 'For credit cards', allowed: ['FYF', 'Full fee', 'FFL'] },
+  { key: 'personal_loan_kind', header: 'Personal loan kind', example: 'Personal Loan', allowed: Object.values(PERSONAL_LOAN_KINDS), help: 'Personal Loan (the default when blank) or Personal Cash Loan. The top-up and Emirates Islamic buy-out rules are the same for both' },
   { key: 'personal_loan_type', header: 'Personal loan type', example: 'Top Up', allowed: Object.values(PERSONAL_LOAN_TYPES) },
   { key: 'fpd', header: 'FPD', example: '05/11/2026', help: 'Personal loan first payment date, DD/MM/YYYY' },
   { key: 'buyout_bank', header: 'Buy-out bank', example: '', help: 'For Buy Out: the primary buyout bank when Buyouts is left blank' },
@@ -273,6 +274,7 @@ function caseInput(v) {
     region: choose(regionKey, REGION_NAMES, 'Region'),
     core_product: choose(v.core_product, CORE_PRODUCTS, 'Core product'),
     product,
+    personal_loan_kind: choose(v.personal_loan_kind, PERSONAL_LOAN_KINDS, 'Personal loan kind') || null,
     personal_loan_type: choose(v.personal_loan_type, PERSONAL_LOAN_TYPES, 'Personal loan type'),
     card_fee_type: choose({ firstyearfree: 'fyf', freeforlife: 'ffl', fullannualfee: 'full_fee' }[norm(v.card_fee_type)] || v.card_fee_type, { fyf: 'FYF', full_fee: 'Full fee', ffl: 'FFL' }, 'Card sourced type'),
     fpd: v.fpd ? parseDate(v.fpd, 'FPD') : '',

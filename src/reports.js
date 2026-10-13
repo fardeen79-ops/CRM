@@ -156,7 +156,7 @@ function personal_loans(db, user, { period, region }) {
   const cycle = period.cycle || cycleOf(period.to);
   const rows = loanFiles(db, user, region, period, 'personal_loan').map((c) => {
     const loan = countedLoan(c, cycle);
-    return { ...staffVals(c), sold_as: !c.staff_core || c.staff_core === 'personal_loan' || c.staff_core === 'multi_product' ? 'Core' : 'Cross-sell', loan_type: loanTypeLabel[c.personal_loan_type] || c.personal_loan_type || '', loan_amount: c.loan_amount ?? 0, disbursed: c.pl_disbursed_amount ?? 0, counted: loan ? loan.counted : 0, eib: loan?.kind === 'eib' ? 'Yes' : '', top_up_incremental: c.personal_loan_type === 'top_up' ? c.incremental_amount ?? 0 : null, fpd: c.fpd || '', tenure: c.pl_tenure ?? null, completed_on: c.case_status_at ? c.case_status_at.slice(0, 10) : '' };
+    return { ...staffVals(c), sold_as: !c.staff_core || c.staff_core === 'personal_loan' || c.staff_core === 'multi_product' ? 'Core' : 'Cross-sell', loan_type: `${c.personal_loan_kind === 'personal_cash_loan' ? 'Personal Cash Loan · ' : ''}${loanTypeLabel[c.personal_loan_type] || c.personal_loan_type || ''}`, loan_amount: c.loan_amount ?? 0, disbursed: c.pl_disbursed_amount ?? 0, counted: loan ? loan.counted : 0, eib: loan?.kind === 'eib' ? 'Yes' : '', top_up_incremental: c.personal_loan_type === 'top_up' ? c.incremental_amount ?? 0 : null, fpd: c.fpd || '', tenure: c.pl_tenure ?? null, completed_on: c.case_status_at ? c.case_status_at.slice(0, 10) : '' };
   });
   return {
     columns: [...staffCols(), col('loan_type', 'Loan type', 'text'), col('loan_amount', 'Loan amount (AED)', 'aed'), col('disbursed', 'Disbursed (AED)', 'aed'), col('counted', 'Counted (AED)', 'aed'), col('eib', 'Emirates Islamic buy-out', 'text'), col('top_up_incremental', 'Top-up incremental (AED)', 'aed'), col('fpd', 'FPD', 'date'), col('tenure', 'Tenure (months)'), col('completed_on', 'Completed on', 'date')],
@@ -467,7 +467,7 @@ function register(db, user, { period, region }) {
     const c = present(user, raw); // hides and masks personal details exactly as on screen
     return {
       ref: caseRef(c.id), ...payoutCols(user, raw), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '',
-      product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
+      product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.personal_loan_kind), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
       card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? c.al_interest_rate ?? null, tenure: c.pl_tenure ?? c.al_tenure ?? null, fpd: c.fpd || '',
       auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',

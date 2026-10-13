@@ -409,6 +409,14 @@ test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
 
   r = await sales('PUT', `/cases/${id}`, { personal_loan_type: 'fresh' });
   assert.equal(r.data.case.personal_loan_type, 'fresh');
+  // A Personal Cash Loan is the same product with its own name: fresh, top up or buy out, same rules.
+  r = await sales('PUT', `/cases/${id}`, { personal_loan_kind: 'personal_cash_loan', personal_loan_type: 'top_up', full_loan_amount: 200000, incremental_amount: 50000 });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.case.personal_loan_kind, 'personal_cash_loan');
+  assert.equal(r.data.case.product_label, 'Personal Cash Loan (Top Up)');
+  assert.equal((await sales('PUT', `/cases/${id}`, { personal_loan_kind: 'overdraft' })).status, 400);
+  r = await sales('PUT', `/cases/${id}`, { personal_loan_kind: 'personal_loan', personal_loan_type: 'fresh' });
+  assert.equal(r.data.case.product_label, 'Personal Loan (Fresh)');
 
   // Bundle with both a personal loan and a credit card needs both details
   assert.equal((await sales('PUT', `/cases/${id}`, { product: 'bundle', bundle_products: ['personal_loan', 'credit_card'] })).status, 400);

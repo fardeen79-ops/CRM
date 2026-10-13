@@ -83,7 +83,12 @@ export const PRODUCT_TYPES = [...Object.keys(PRODUCTS), 'bundle'];
 export const SOURCING_TYPES = { regular: 'Regular', fixed_deposit: 'Fixed Deposit' };
 export const FIXED_DEPOSIT_PRODUCTS = ['credit_card', 'personal_loan'];
 
-export const PERSONAL_LOAN_TYPES = { top_up: 'Top Up', buy_out: 'Buy Out', fresh: 'Fresh' };
+export const PERSONAL_LOAN_TYPES = { fresh: 'Fresh', top_up: 'Top Up', buy_out: 'Buy Out' };
+// A personal loan is a Personal Loan or a Personal Cash Loan; each comes as Fresh, Top Up or Buy Out.
+// The kind changes nothing in the rules: top-ups and Emirates Islamic buy-outs count the same way.
+export const PERSONAL_LOAN_KINDS = { personal_loan: 'Personal Loan', personal_cash_loan: 'Personal Cash Loan' };
+export const PERSONAL_LOAN_OPTIONS = Object.entries(PERSONAL_LOAN_KINDS).flatMap(([kind, kl]) => ['fresh', 'top_up', 'buy_out'].map((type) => ({ kind, type, label: `${kl} - ${PERSONAL_LOAN_TYPES[type]}` })));
+export const loanKindLabel = (kind) => PERSONAL_LOAN_KINDS[kind] || PERSONAL_LOAN_KINDS.personal_loan;
 // How a credit card was sold: first year free, full annual fee, or free for life.
 export const CARD_FEE_TYPES = { fyf: 'FYF (first year free)', full_fee: 'Full fee', ffl: 'FFL (free for life)' };
 // A personal loan's FPD (first payment date) can be this far after the sourcing date.
@@ -259,7 +264,7 @@ export const isDncr = (row) => row.incomplete_reason === 'customer_in_dncr' && [
  */
 export const DNCR_SENDERS = { processing: 'Verification Team', team_leader: 'Team Leader' };
 export function dncrEmail(row, user) {
-  const product = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank) || 'product';
+  const product = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank, row.personal_loan_kind) || 'product';
   // Addressed by salutation and surname when the file has one (Dear Mr Mehta), else by first name.
   const first = row.salutation && row.last_name ? `${row.salutation} ${row.last_name}` : row.first_name || String(row.customer_name || '').split(' ')[0] || 'Customer';
   const subject = `Your permission to contact you about your Emirates NBD ${product} application`;
@@ -314,11 +319,11 @@ const GOVERNANCE_FIELDS = [
   'qc_score', 'qc_score_note', 'qc_scored_by', 'qc_scored_at', 'qc_scored_by_name',
 ];
 
-export function productLabel(product, bundleProducts, creditCard, loanType, buyoutBank) {
+export function productLabel(product, bundleProducts, creditCard, loanType, buyoutBank, loanKind = null) {
   const name = (p) => {
     if (p === 'credit_card' && creditCard) return `Credit Card (${creditCard})`;
-    if (p === 'personal_loan' && loanType === 'buy_out' && buyoutBank) return `Personal Loan (Buy Out from ${buyoutBank})`;
-    if (p === 'personal_loan' && PERSONAL_LOAN_TYPES[loanType]) return `Personal Loan (${PERSONAL_LOAN_TYPES[loanType]})`;
+    if (p === 'personal_loan' && loanType === 'buy_out' && buyoutBank) return `${loanKindLabel(loanKind)} (Buy Out from ${buyoutBank})`;
+    if (p === 'personal_loan' && PERSONAL_LOAN_TYPES[loanType]) return `${loanKindLabel(loanKind)} (${PERSONAL_LOAN_TYPES[loanType]})`;
     return PRODUCTS[p] || p;
   };
   if (product === 'bundle') {
@@ -565,7 +570,7 @@ const TEXT_FIELDS = {
   bidaya_id: 50, app_id: 50,
 };
 const PRODUCT_FIELDS = [
-  'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank',
+  'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_kind', 'personal_loan_type', 'buyout_bank',
   'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
   'pl_buyouts', 'secondary_buyout', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure',
 ];
@@ -573,10 +578,10 @@ const PRODUCT_FIELDS = [
 const SALES_STAFF_FIELDS = ['sales_staff_id', 'sales_staff_name', 'sales_code', 'team_leader_name', 'sales_manager_name', 'team_leader_id', 'sales_manager_id', 'asm_id'];
 // Details the processor confirmed with the customer. Changing any of them after verification is
 // completed sends the file back for a fresh verification.
-export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
+export const VERIFIED_FIELDS = ['product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_kind', 'personal_loan_type', 'buyout_bank', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd',
   'pl_buyouts', 'secondary_buyout', 'pl_tenure', 'amount', 'auto_loan_type', 'car_make', 'car_model', 'car_year', 'al_interest_rate', 'al_tenure'];
 const VERIFIED_FIELD_LABELS = {
-  product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', card_fee_type: 'card sourced type', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
+  product: 'product', bundle_products: 'bundle products', credit_card: 'credit card', card_fee_type: 'card sourced type', personal_loan_kind: 'loan kind', personal_loan_type: 'loan type', buyout_bank: 'buy-out bank',
   loan_amount: 'loan amount', interest_rate: 'interest rate', full_loan_amount: 'full loan amount', incremental_amount: 'incremental amount', fpd: 'FPD',
   pl_buyouts: 'buyout details', secondary_buyout: 'secondary buyout', pl_tenure: 'personal loan tenure', amount: 'auto loan amount', auto_loan_type: 'auto loan type', car_make: 'car make', car_model: 'car model', car_year: 'car year', al_interest_rate: 'auto loan ROI', al_tenure: 'auto loan tenure',
 };
@@ -694,11 +699,14 @@ function validateProduct(input, current, out) {
   const includes = (p) => product === p || String(out.bundle_products).split(',').includes(p);
 
   Object.assign(out, {
-    personal_loan_type: null, buyout_bank: null,
+    personal_loan_kind: null, personal_loan_type: null, buyout_bank: null,
     loan_amount: null, interest_rate: null, full_loan_amount: null, incremental_amount: null, fpd: null,
     pl_tenure: null, pl_buyouts: null, secondary_buyout: null, auto_loan_type: null, al_payout_class: null, car_make: null, car_model: null, car_year: null, dealer_details: null, al_lead_source: null, al_interest_rate: null, al_tenure: null,
   });
   if (includes('personal_loan')) {
+    const kind = clean(pick('personal_loan_kind')) || 'personal_loan';
+    if (!PERSONAL_LOAN_KINDS[kind]) throw new WorkflowError(400, 'Choose Personal Loan or Personal Cash Loan');
+    out.personal_loan_kind = kind;
     const type = clean(pick('personal_loan_type'));
     if (!PERSONAL_LOAN_TYPES[type]) throw new WorkflowError(400, 'Choose the personal loan type: Top Up, Buy Out or Fresh');
     out.personal_loan_type = type;
@@ -949,7 +957,7 @@ const CASE_SELECT = `
   LEFT JOIN users tab ON tab.id = c.timing_approved_by
   LEFT JOIN users cdb ON cdb.id = c.complaint_decided_by`;
 
-const withRef = (row) => row && { ...row, ...(row.tat_override_from && !row.verified_at && { verified_at: row.tat_held_at }), tat: verificationTat(row), ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
+const withRef = (row) => row && { ...row, ...(row.tat_override_from && !row.verified_at && { verified_at: row.tat_held_at }), tat: verificationTat(row), ref: caseRef(row.id), product_label: productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank, row.personal_loan_kind), pl_buyouts: parseStoredBuyouts(row.pl_buyouts) };
 const parseStoredBuyouts = (text) => { if (!text) return []; try { return JSON.parse(text); } catch { return []; } };
 
 // Personal details that only some people may see once a file is submitted.

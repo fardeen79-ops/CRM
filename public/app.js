@@ -1447,9 +1447,10 @@ async function viewCaseForm(id, leadId = null) {
           <fieldset class="full product-detail" id="loan-type-field" hidden>
             <legend>Personal loan</legend>
             <div class="sub-label">Loan type <span class="req">*</span></div>
-            <div class="segmented">
-              ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" required disabled ${c.personal_loan_type === k ? raw('checked') : ''}><span>${l}</span></label>`)}
-            </div>
+            ${Object.entries(state.meta.personal_loan_kinds || { personal_loan: 'Personal Loan' }).map(([kind, kl]) => html`<div class="loan-kind-row"><span class="loan-kind">${kl}</span><div class="segmented">
+              ${Object.entries(state.meta.personal_loan_types).map(([k, l]) => html`<label><input type="radio" name="personal_loan_type" value="${k}" data-kind="${kind}" required disabled ${c.personal_loan_type === k && (c.personal_loan_kind || 'personal_loan') === kind ? raw('checked') : ''}><span>${l}</span></label>`)}
+            </div></div>`)}
+            <input type="hidden" name="personal_loan_kind" id="f-personal_loan_kind" value="${c.personal_loan_kind || 'personal_loan'}">
             <div class="form-grid three">
               ${field('loan_amount', 'Loan amount (AED)', { type: 'number', required: true, attrs: money + ' disabled data-pl' })}
               ${field('interest_rate', 'Interest rate (%)', { type: 'number', required: true, placeholder: 'e.g. 5.99', attrs: 'inputmode="decimal" min="0" max="100" step="0.01" disabled data-pl' })}
@@ -1696,7 +1697,7 @@ async function viewCaseForm(id, leadId = null) {
     };
   }
   boxes.forEach((b) => (b.onchange = updateProductFields));
-  loanRadios.forEach((r) => (r.onchange = updateProductFields));
+  loanRadios.forEach((r) => (r.onchange = () => { $('#f-personal_loan_kind').value = r.dataset.kind || 'personal_loan'; updateProductFields(); }));
   secondaryRadios.forEach((r) => (r.onchange = updateProductFields));
   const salaryBank = $('#f-salary_bank');
   // A self-employed customer has an average balance and a bank they bank with, not a salary.
@@ -1850,7 +1851,7 @@ async function viewCaseForm(id, leadId = null) {
       const body = formData(form);
       if (check?.dataset.state === 'below' && !('card_salary_exception' in body)) body.card_salary_exception = '';
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
-      for (const f of ['credit_card', 'card_fee_type', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;
+      for (const f of ['credit_card', 'card_fee_type', 'personal_loan_kind', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;
       // Leave hidden values untouched unless a replacement was typed.
       form.querySelectorAll('[data-masked]').forEach((i) => { if (!i.value.trim()) delete body[i.name]; });
       body.pl_buyouts = collectBuyouts();
@@ -2333,7 +2334,7 @@ async function viewCase(id) {
             <dt>Product</dt><dd>${c.product === 'bundle'
               ? html`<strong>Bundle</strong><ul class="bundle-list">${c.bundle_products.split(',').map((p) => html`<li>${state.meta.products[p] || p}</li>`)}</ul>`
               : state.meta.products[c.product] || c.product || '—'}</dd>
-            ${c.personal_loan_type ? html`<dt>Personal loan type</dt><dd><strong>${state.meta.personal_loan_types[c.personal_loan_type]}</strong></dd>` : ''}
+            ${c.personal_loan_type ? html`<dt>Personal loan type</dt><dd><strong>${(state.meta.personal_loan_kinds || {})[c.personal_loan_kind] || 'Personal Loan'} - ${state.meta.personal_loan_types[c.personal_loan_type]}</strong></dd>` : ''}
             ${c.fpd ? html`<dt>FPD</dt><dd><strong>${fmtDay(c.fpd)}</strong><div class="muted small">First payment date</div></dd>` : ''}
             ${c.loan_amount != null ? html`<dt>Loan amount</dt><dd><strong>AED ${fmtAmount(c.loan_amount)}</strong></dd>` : ''}
             ${c.interest_rate != null ? html`<dt>Interest rate</dt><dd><strong>${c.interest_rate}%</strong></dd>` : ''}

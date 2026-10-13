@@ -1003,3 +1003,6 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .btn.danger:hover { filter: brightness(.97); }
 .users-table .pick { width: 28px; padding-right: 0; }
 .users-table .pick input { margin: 0; }
+
+.loan-kind-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.loan-kind { font-size: 13px; font-weight: 600; min-width: 150px; }

@@ -184,6 +184,10 @@ Columns: staff, sourced in the cycle, awaiting verification and verification pen
 
 API: `GET /api/hierarchy?cycle=&region=`, `GET /api/reports` (the list for the role), `GET /api/reports/:key?cycle=|from=&to=&region=&format=csv`. `region=` is also accepted by `/api/cases`, `/api/stats` and `/api/targets`.
 
+### Personal Loan and Personal Cash Loan
+
+A personal loan file is sourced as one of six: **Personal Loan - Fresh / Top Up / Buy Out** or **Personal Cash Loan - Fresh / Top Up / Buy Out** (two labelled rows on the sourcing form; the file, the register and the reports show the full name). The kind is a name only: a top-up counts its share of the incremental amount and an Emirates Islamic buy-out counts at 50% whether it is a Personal Loan or a Personal Cash Loan, and targets, incentives, yield and the bank payout treat both the same. The case upload has a *Personal loan kind* column (Personal Loan when blank). API field: `personal_loan_kind` (`personal_loan`, `personal_cash_loan`) next to `personal_loan_type`.
+
 ### Buyouts on a personal loan
 
 A **fresh** loan (and a **top-up**) asks the sales person to confirm whether there are any **secondary buyouts**, Yes or No. A **buy-out** loan first asks for the **primary buyout**: the **personal loan being bought out** (bank and outstanding amount) is mandatory, and other liabilities the loan also clears can be added; then the same secondary question follows. Each buyout entry is a credit card, a non-STL loan, an auto loan or a mortgage with the bank it is held at and the amount: for credit cards the form asks how many cards and takes each card's bank and limit; for loans and mortgages the bank and the outstanding amount. The case page lists the primary and secondary buyouts with a total, and the sales person's No is recorded as confirmed.
