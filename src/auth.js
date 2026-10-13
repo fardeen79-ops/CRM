@@ -3,6 +3,8 @@ import { resolveRole, withRole } from './roles.js';
 import { contactDetails, findUser, salesProfile, leaderProfile, LEADER_LINE_ROLES, regionOf, salaryOf } from './users.js';
 
 const SESSION_DAYS = 7;
+/** Minutes without using the CRM after which a session ends (IDLE_TIMEOUT_MINUTES; 0 turns it off). */
+export const IDLE_MINUTES = process.env.IDLE_TIMEOUT_MINUTES === undefined ? 1 : Math.max(0, Number(process.env.IDLE_TIMEOUT_MINUTES) || 0);
 export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'accounts', 'governance', 'it', 'staff'];
 
 export function hashPassword(password) {
@@ -67,20 +69,34 @@ export function login(db, email, password) {
   if (user.role === NO_ACCESS_ROLE) return { no_access: true };
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
-  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, user.id, expires);
+  db.prepare('INSERT INTO sessions (token, user_id, expires_at, active_at) VALUES (?, ?, ?, ?)').run(token, user.id, expires, new Date().toISOString());
   return { token, maxAge: SESSION_DAYS * 86400, user: getUser(db, user.id) };
 }
 
-export function userForToken(db, token) {
+/**
+ * The signed-in user for a session cookie. A session ends after IDLE_MINUTES without the person using
+ * the CRM: the browser marks the requests that follow a click or keystroke (`active`), and only those
+ * keep the session alive, so background refreshes do not. `info.idle` says the session was ended here.
+ */
+export function userForToken(db, token, { active = false, info = {} } = {}) {
   if (!token) return null;
+  const now = new Date();
   const row = db
     .prepare(
-      `SELECT u.id, u.name, u.email, u.role, u.role_key, u.active, u.region FROM sessions s
+      `SELECT u.id, u.name, u.email, u.role, u.role_key, u.active, u.region, s.active_at FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`
     )
-    .get(token, new Date().toISOString());
-  return row ? withRole(row) : null;
+    .get(token, now.toISOString());
+  if (!row) return null;
+  if (IDLE_MINUTES > 0 && row.active_at && now - new Date(row.active_at) > IDLE_MINUTES * 60e3) {
+    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    info.idle = true;
+    return null;
+  }
+  if (active || !row.active_at) db.prepare('UPDATE sessions SET active_at = ? WHERE token = ?').run(now.toISOString(), token);
+  const { active_at, ...user } = row;
+  return withRole(user);
 }
 
 export function logout(db, token) {

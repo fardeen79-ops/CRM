@@ -8,10 +8,10 @@ import { createServer } from '../src/server.js';
 import { createUser } from '../src/auth.js';
 
 const PASSWORD = 'password123';
-let server, base, ids;
+let server, base, ids, db;
 
 before(async () => {
-  const db = openDb(':memory:');
+  db = openDb(':memory:');
   ids = {};
   const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm@t.local', 'sales_manager', { region: 'DXB', hrms_code: 'EN1' });
@@ -284,4 +284,30 @@ test('the users upload updates existing people when asked: matched by email or H
   // A preview changes nothing.
   (await mis('POST', '/import/users', { update: true, dry_run: true, csv: [HEADER, 'Sally Again,,sally@t.local,,,,,,,,,,,,,'].join('\n') }));
   assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'sally@t.local').name, 'Sally Renamed');
+});
+
+test('a session ends after the idle limit without the person using the CRM; background refreshes do not keep it alive', async () => {
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'mis@t.local', password: PASSWORD }) });
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  const token = cookie.split('=')[1];
+  const me = (headers = {}) => fetch(`${base}/api/me`, { headers: { cookie, ...headers } });
+  assert.equal((await (await me()).json()).meta.idle_minutes, 1);
+  // Mark the session as last used two minutes ago. A background refresh (no x-active) does not refresh it,
+  // and a request after that finds it gone with a message saying why.
+  const old = new Date(Date.now() - 2 * 60e3).toISOString();
+  db.prepare('UPDATE sessions SET active_at = ? WHERE token = ?').run(old, token);
+  const gone = await me();
+  assert.equal(gone.status, 401);
+  assert.match((await gone.json()).error, /signed out after 1 minute/);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE token = ?').get(token).n, 0);
+  // A session the person keeps using stays alive: an active request refreshes the stamp.
+  const res2 = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'mis@t.local', password: PASSWORD }) });
+  const cookie2 = res2.headers.get('set-cookie').split(';')[0];
+  const token2 = cookie2.split('=')[1];
+  const recent = new Date(Date.now() - 50e3).toISOString();
+  db.prepare('UPDATE sessions SET active_at = ? WHERE token = ?').run(recent, token2);
+  assert.equal((await fetch(`${base}/api/me`, { headers: { cookie: cookie2 } })).status, 200);          // background: allowed, not refreshed
+  assert.equal(db.prepare('SELECT active_at FROM sessions WHERE token = ?').get(token2).active_at, recent);
+  assert.equal((await fetch(`${base}/api/me`, { headers: { cookie: cookie2, 'x-active': '1' } })).status, 200); // the person used it
+  assert.notEqual(db.prepare('SELECT active_at FROM sessions WHERE token = ?').get(token2).active_at, recent);
 });

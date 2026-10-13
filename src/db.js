@@ -549,6 +549,7 @@ function migrate(db) {
     if (!botCols.includes(name)) db.exec(`ALTER TABLE bot_calls ADD COLUMN ${name} ${type}`);
   }
   if (!db.prepare('PRAGMA table_info(notifications)').all().some((c) => c.name === 'link')) db.exec('ALTER TABLE notifications ADD COLUMN link TEXT');
+  if (!db.prepare('PRAGMA table_info(sessions)').all().some((c) => c.name === 'active_at')) db.exec('ALTER TABLE sessions ADD COLUMN active_at TEXT');
   if (!db.prepare('PRAGMA table_info(target_rules)').all().some((c) => c.name === 'bonus')) db.exec('ALTER TABLE target_rules ADD COLUMN bonus REAL');
   const cols = db.prepare('PRAGMA table_info(cases)').all().map((c) => c.name);
   for (const [name, type] of Object.entries(ADDED_COLUMNS)) {

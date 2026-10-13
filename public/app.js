@@ -186,19 +186,34 @@ function ago(iso) {
   return hrs < 48 ? `${hrs}h ago` : `${Math.round(hrs / 24)}d ago`;
 }
 
+// Idle sign-out. The last click, keystroke, touch or scroll is remembered; requests that follow one
+// within the idle limit carry `x-active`, which is what keeps the session alive on the server, so
+// the background refreshes on their own do not. When the limit passes the browser signs out itself.
+let lastActivity = Date.now();
+const idleMs = () => (state.meta?.idle_minutes || 0) * 60e3;
+const recentlyActive = () => !idleMs() || Date.now() - lastActivity < idleMs();
+for (const ev of ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll']) window.addEventListener(ev, () => { lastActivity = Date.now(); }, { passive: true, capture: true });
+setInterval(() => {
+  if (!state.user || recentlyActive()) return;
+  const minutes = state.meta.idle_minutes;
+  fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+  state.user = null;
+  renderLogin(`You were signed out after ${minutes} minute${minutes === 1 ? '' : 's'} without using the CRM. Sign in again.`);
+}, 5000);
+
 async function api(path, { method = 'GET', body } = {}) {
   if (method !== 'GET') body ??= {};
   if (method === 'GET' && state.region && canPickRegion() && REGION_PATHS.test(path) && !/[?&]region=/.test(path)) path += `${path.includes('?') ? '&' : '?'}region=${state.region}`;
   const res = await fetch(`/api${path}`, {
     method,
-    headers: body ? { 'content-type': 'application/json' } : {},
+    headers: { ...(body && { 'content-type': 'application/json' }), ...(recentlyActive() && { 'x-active': '1' }) },
     body: body ? JSON.stringify(body) : undefined,
     credentials: 'same-origin',
   });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && path !== '/login') {
     state.user = null;
-    renderLogin();
+    renderLogin(/signed out/i.test(data.error || '') ? data.error : '');
     throw new Error(data.error || 'Please sign in');
   }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -233,12 +248,13 @@ function siteFooter() {
   </footer>`;
 }
 
-function renderLogin() {
+function renderLogin(note = '') {
   app.innerHTML = html`
     <div class="login-wrap">
       <form class="card" id="login-form">
         <div class="brand" style="margin-bottom:16px"><span class="logo">✓</span> Sourcing CRM</div>
         <h1>Sign in</h1>
+        ${note ? html`<div class="callout warn" role="status">${note}</div>` : ''}
         <p class="muted">Sign in with your HRMS code (or work email). Your role decides what you see.</p>
         <div class="field-row"><label for="email">HRMS code or email</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required autofocus></div>
         <div class="field-row"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>

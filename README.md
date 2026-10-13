@@ -261,6 +261,7 @@ The recording server is set on the CRM server, never in the browser: the credent
 
 Without either, the card still shows the bot's calls and says the server is not connected.
 
+- **Idle sign-out.** A person who has not used the CRM for **1 minute** (no click, keystroke, touch or scroll) is signed out and sees why on the sign-in page. The browser's own background refreshes (notifications, chat, counters) do not count as using it: only requests that follow a real action keep the session alive on the server, so the sign-out holds even if the tab stays open. `IDLE_TIMEOUT_MINUTES` changes the limit (`0` turns it off). Signed-in sessions otherwise last 7 days.
 - **My profile.** Their name in the sidebar opens every user's own profile: the details on file (name, email, HRMS code, role, region, reporting line, salary, dates), their **mobile and WhatsApp numbers**, which they change themselves, and **Reset my password**. Everything else is kept by MIS on the Staff page.
 
 - **Passwords.** Everyone resets their own password from their profile (current password required, at least 8 characters; their other signed-in devices are signed out). MIS and business heads reset anyone's from the Staff page (**Reset password** on the row). The first business head's password is the `ADMIN_PASSWORD` in force at the very first start only; later changes to that setting do nothing once users exist.
@@ -748,6 +749,7 @@ See [`deploy/DEPLOY.md`](deploy/DEPLOY.md): Docker (`deploy/Dockerfile`, `deploy
 | `RECORDING_API_MAP` | – | JSON naming the fields in the API's answer: `{"list":"data","id":"id","started_at":"start_time","duration":"duration","direction":"direction","extension":"extension","agent":"agent","url":"recording_url"}` (the defaults) |
 | `RECORDING_LABEL` | – | How the server is named on screen (default: "the recordings folder" or the API's host) |
 | `COOKIE_SECURE` | – | Set to `1` when serving over HTTPS |
+| `IDLE_TIMEOUT_MINUTES` | `1` | Minutes without using the CRM after which the person is signed out; `0` turns it off |
 
 ## Project layout
 

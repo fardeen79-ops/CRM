@@ -296,7 +296,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
         card_statuses: cases.CARD_STATES,
         card_range_days: cases.CARD_RANGE_DAYS,
         card_mappers: cases.CARD_MAPPERS,
-        current_cycle: cycleOf(uaeDay()),
+        current_cycle: cycleOf(uaeDay()), idle_minutes: auth.IDLE_MINUTES,
         reports: reports.reportsFor(user),
         hierarchy_levels: performance.LEVEL_LABELS,
         import_max_rows: imports.MAX_ROWS,
@@ -668,8 +668,9 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
       if (matched === null) throw new HttpError(405, 'Method not allowed');
 
       const token = parseCookies(req.headers.cookie).sid;
-      const user = auth.userForToken(db, token);
-      if (!matched.opts.public && !user) throw new HttpError(401, 'Please sign in');
+      const info = {};
+      const user = auth.userForToken(db, token, { active: req.headers['x-active'] === '1', info });
+      if (!matched.opts.public && !user) throw new HttpError(401, info.idle ? `You were signed out after ${auth.IDLE_MINUTES} minute${auth.IDLE_MINUTES === 1 ? '' : 's'} without using the CRM. Sign in again.` : 'Please sign in');
       if (user) bot.seen(originOf(req));
       // The IT department works the asset register only: no files, chat, targets or staff changes.
       if (user?.role === 'it' && !IT_PATHS.test(url.pathname)) throw new HttpError(403, 'IT accounts manage assets only');
