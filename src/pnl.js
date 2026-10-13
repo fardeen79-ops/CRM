@@ -112,6 +112,7 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
   // A team leader's manager: from their own profile, else the manager most of their SEs report to.
   const leaderManager = (tl) => {
     if (tl.sales_manager_id) return byId.get(tl.sales_manager_id) || null;
+    if (tl.asm_id) return byId.get(tl.asm_id) || null;
     const counts = new Map();
     for (const p of people) if (p.role === 'sales' && p.team_leader_id === tl.id && p.sales_manager_id) counts.set(p.sales_manager_id, (counts.get(p.sales_manager_id) || 0) + 1);
     const best = [...counts].sort((a, b) => b[1] - a[1])[0];
@@ -135,7 +136,7 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
   };
   const managerNode = (reg, sm) => {
     const k = sm ? sm.id : 0;
-    if (!reg.managers.has(k)) reg.managers.set(k, node(`sm:${k}`, sm ? sm.name : 'No sales manager', 'manager', { leaders: new Map(), person: sm ? { id: sm.id, role: sm.role } : null }));
+    if (!reg.managers.has(k)) reg.managers.set(k, node(`sm:${k}`, sm ? `${sm.name}${sm.role === 'asm' ? ' (ASM)' : ''}` : 'No sales manager', 'manager', { leaders: new Map(), person: sm ? { id: sm.id, role: sm.role } : null }));
     return reg.managers.get(k);
   };
   const leaderNode = (mgr, tl) => {
@@ -146,7 +147,9 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
   // Sales staff sit under their team leader and sales manager, in their own region.
   for (const p of people.filter((x) => x.role === 'sales')) {
     if (region && regionKey(p.region) !== r) continue;
-    const tl = byId.get(p.team_leader_id) || null; const sm = byId.get(p.sales_manager_id) || (tl && byId.get(tl.sales_manager_id)) || null;
+    const tl = byId.get(p.team_leader_id) || null;
+    // The manager level: the sales manager, else the ASM (the staff member's, or the team leader's).
+    const sm = byId.get(p.sales_manager_id) || (tl && byId.get(tl.sales_manager_id)) || byId.get(p.asm_id) || (tl && byId.get(tl.asm_id)) || null;
     const reg = regionNode(regionKey(p.region));
     const ldr = leaderNode(managerNode(reg, sm), tl);
     const s = node(`u:${p.id}`, p.name, 'staff', { person: { id: p.id, role: p.role, sales_code: p.sales_code } });
@@ -167,7 +170,7 @@ export function profitAndLossTree(db, user, { cycle, region } = {}) {
   for (const { row: c, total: amount } of revenueIn(db, start, end, region ? { where: 'c.region = ?', params: [r] } : {})) {
     const staffId = c.sales_staff_id || c.created_by;
     const p = byId.get(staffId);
-    const tl = byId.get(c.team_leader_id ?? p?.team_leader_id) || null; const sm = byId.get(c.sales_manager_id ?? p?.sales_manager_id) || (tl && byId.get(tl.sales_manager_id)) || null;
+    const tl = byId.get(c.team_leader_id ?? p?.team_leader_id) || null; const sm = byId.get(c.sales_manager_id ?? p?.sales_manager_id) || (tl && byId.get(tl.sales_manager_id)) || byId.get(c.asm_id ?? p?.asm_id) || (tl && byId.get(tl.asm_id)) || null;
     const reg = regionNode(String(c.region || p?.region || '').toUpperCase());
     const mgr = managerNode(reg, sm); const ldr = leaderNode(mgr, tl);
     if (!ldr.staff.has(staffId)) ldr.staff.set(staffId, node(`u:${staffId}`, p ? p.name : c.sales_staff_name || 'Unknown', 'staff', { person: p ? { id: p.id, role: p.role, sales_code: p.sales_code } : null, left: !p }));

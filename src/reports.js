@@ -200,7 +200,7 @@ function sourcing(db, user, { period, region }) {
     // One row per sales person per team they filed under, so a team change keeps old files with the old team.
     const id = `${c.sales_staff_id ?? c.created_by}|${c.team_leader_id ?? 0}|${c.sales_manager_id ?? 0}`;
     const s = staff.get(c.sales_staff_id ?? c.created_by) || { name: c.sales_staff_name || 'Unknown' };
-    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '', asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, revenue_aed: 0, revenue_pending_aed: 0, temp_ends: 0, cards_active: 0, loans: 0, deviations: 0, promotions: 0, below_eligibility: 0 });
+    if (!by.has(id)) by.set(id, { staff: s.name, sales_code: s.sales_code || c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || (c.asm_name ? `${c.asm_name} (ASM)` : ''), asm: c.asm_name || '', sourced: 0, approval: 0, awaiting: 0, verified: 0, verification_pending: 0, verification_rejected: 0, returned: 0, sent_to_check: 0, applicant_review: 0, completed: 0, rejected: 0, disbursed_aed: 0, revenue_aed: 0, revenue_pending_aed: 0, temp_ends: 0, cards_active: 0, loans: 0, deviations: 0, promotions: 0, below_eligibility: 0 });
     const r = by.get(id);
     r.sourced++;
     if ([STATUS.PENDING, STATUS.IN_VERIFICATION].includes(c.status)) r.awaiting++;
@@ -316,7 +316,7 @@ function targets(db, user, { period, region }) {
   const rep = targetReport(db, user, period.cycle, { region });
   const products = Object.entries(TARGET_PRODUCTS);
   const rows = rep.staff.map((s) => {
-    const r = { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader_name || '', sales_manager: s.sales_manager_name || '' };
+    const r = { staff: s.name, sales_code: s.sales_code || '', team_leader: s.team_leader_name || '', sales_manager: s.sales_manager_name || (s.asm_name ? `${s.asm_name} (ASM)` : '') };
     for (const [k] of products) {
       r[`${k}_target`] = s.target[k] ?? null;
       r[`${k}_achieved`] = s.achieved[k];

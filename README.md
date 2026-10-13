@@ -153,7 +153,7 @@ The **Scan Emirates ID** button on the entry form fills in the customer's **firs
 
 **Region view.** Business heads, MIS and governance see every file. A switch in the top bar narrows the whole app to one region, DXB or AUH: the dashboard, case lists, targets, the team view and reports all follow it until it is set back to All regions. The choice is remembered in the browser.
 
-**Team view** (`#/team`) is the dashboard for every level of the hierarchy. It shows the sales cycle's numbers rolled up at each level the viewer oversees, region → sales manager → team leader → sales staff, with groups that expand and collapse. Files count under the team stored on them, so a sales person who changed team appears under the old team too for the files sourced there:
+**Team view** (`#/team`) is the dashboard for every level of the hierarchy. A team with no sales manager sits under its **ASM** at the sales manager level, shown as *Name (ASM)*; the same rule applies to the dashboard breakdowns, the profit and loss tree and the report subtotals, so "No sales manager" appears only for teams with neither. It shows the sales cycle's numbers rolled up at each level the viewer oversees, region → sales manager → team leader → sales staff, with groups that expand and collapse. Files count under the team stored on them, so a sales person who changed team appears under the old team too for the files sourced there:
 
 | Viewer | Sees |
 |--------|------|

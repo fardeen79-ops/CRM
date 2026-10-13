@@ -108,10 +108,10 @@ export function zeroStaff(db, user, cycle, { region } = {}) {
   const field = TEAM_FIELDS[user.role];
   const where = field ? `u.${field} = ?` : REGIONS[String(region || '').toUpperCase()] ? 'u.region = ?' : '1 = 1';
   const args = field ? [user.id] : REGIONS[String(region || '').toUpperCase()] ? [String(region).toUpperCase()] : [];
-  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager,
+  const staff = db.prepare(`SELECT u.id, u.name, u.sales_code, u.region, u.core_product, tl.name AS team_leader, sm.name AS sales_manager, asm.name AS asm,
       (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND COALESCE(c.sourcing_date, date(c.created_at, '+4 hours')) BETWEEN ? AND ?) AS sourced,
       (SELECT COUNT(*) FROM cases c WHERE COALESCE(c.sales_staff_id, c.created_by) = u.id AND ${COMPLETED_IN_SQL}) AS completed
-    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id
+    FROM users u LEFT JOIN users tl ON tl.id = u.team_leader_id LEFT JOIN users sm ON sm.id = u.sales_manager_id LEFT JOIN users asm ON asm.id = u.asm_id
     WHERE u.role = 'sales' AND u.active = 1 AND ${where} ORDER BY u.name`).all(start, end, start, end, ...args);
   const pick = (list, of = staff.length) => ({ count: list.length, pct: of ? Math.round((list.length / of) * 1000) / 10 : null, staff: list.map(({ id, name, sales_code, region, team_leader, sourced, completed }) => ({ id, name, sales_code, region, team_leader, sourced, completed })) });
   // The same two measures for a slice of the staff: a product's people, or a team in the hierarchy.
@@ -127,13 +127,15 @@ export function zeroStaff(db, user, cycle, { region } = {}) {
   const groups = [];
   const add = (level, label, list, key) => groups.push({ level, label, key, ...slice(list) });
   const uniq = (list, f) => [...new Set(list.map(f))].sort((a, b) => String(a ?? '').localeCompare(String(b ?? '')));
+  // The name at the sales manager level: the sales manager, or the ASM (marked) for a team with none.
+  const managerOf = (s) => s.sales_manager || (s.asm ? `${s.asm} (ASM)` : null);
   if (user.role === 'team_leader') { /* one team: the product split is the breakdown */ }
   else if (field) for (const tl of uniq(staff, (s) => s.team_leader)) add('team_leader', tl || 'No team leader', staff.filter((s) => s.team_leader === tl), `tl:${tl}`);
   else for (const reg of uniq(staff, (s) => s.region)) {
     const inRegion = staff.filter((s) => s.region === reg);
     add('region', reg || 'No region set', inRegion, `r:${reg}`);
-    for (const sm of uniq(inRegion, (s) => s.sales_manager)) {
-      const inSm = inRegion.filter((s) => s.sales_manager === sm);
+    for (const sm of uniq(inRegion, managerOf)) {
+      const inSm = inRegion.filter((s) => managerOf(s) === sm);
       add('sales_manager', sm || 'No sales manager', inSm, `sm:${reg}:${sm}`);
       for (const tl of uniq(inSm, (s) => s.team_leader)) add('team_leader', tl || 'No team leader', inSm.filter((s) => s.team_leader === tl), `tl:${reg}:${sm}:${tl}`);
     }
@@ -164,6 +166,8 @@ export function incentiveEarners(db, user, cycle, { region } = {}) {
     return { team: list.length, earning: yes.length, not_earning: list.length - yes.length, pct: list.length ? Math.round((yes.length / list.length) * 1000) / 10 : null, incentive_aed: Math.round(yes.reduce((n, s) => n + s.incentive_aed, 0) * 100) / 100 };
   };
   const uniq = (list, f) => [...new Set(list.map(f))].sort((a, b) => String(a ?? '').localeCompare(String(b ?? '')));
+  // The name at the sales manager level: the sales manager, or the ASM (marked) for a team with none.
+  const managerOf = (s) => s.sales_manager || (s.asm ? `${s.asm} (ASM)` : null);
   const groups = [];
   const add = (level, label, list, key) => groups.push({ level, label, key, ...slice(list) });
   const teamLeaders = (list, prefix) => { for (const tl of uniq(list, (s) => s.team_leader)) add('team_leader', tl || 'No team leader', list.filter((s) => s.team_leader === tl), `${prefix}:tl:${tl}`); };
@@ -182,10 +186,11 @@ export function incentiveEarners(db, user, cycle, { region } = {}) {
   else for (const reg of uniq(staff, (s) => s.region)) {
     const inRegion = staff.filter((s) => s.region === reg);
     add('region', reg || 'No region set', inRegion, `r:${reg}`);
-    for (const sm of uniq(inRegion, (s) => s.sales_manager)) {
-      const inSm = inRegion.filter((s) => s.sales_manager === sm);
+    for (const sm of uniq(inRegion, managerOf)) {
+      const inSm = inRegion.filter((s) => managerOf(s) === sm);
       add('sales_manager', sm || 'No sales manager', inSm, `r:${reg}:sm:${sm}`);
-      asmsThen(inSm, `r:${reg}:sm:${sm}`);
+      // A group headed by an ASM (no sales manager) goes straight to its team leaders.
+      if (inSm.length && !inSm[0].sales_manager && inSm[0].asm) teamLeaders(inSm, `r:${reg}:sm:${sm}`); else asmsThen(inSm, `r:${reg}:sm:${sm}`);
     }
   }
   const names = (list) => list.map(({ id, name, sales_code, team_leader, incentive_aed, core_product }) => ({ id, name, sales_code, team_leader, incentive_aed, core_product }));

@@ -207,7 +207,7 @@ export function hierarchy(db, user, { cycle, region } = {}) {
     const key = `${s.id}|${s.team_leader_id ?? 0}|${s.sales_manager_id ?? 0}|${s.asm_id ?? 0}`;
     used.add(key);
     const k = agg.get(key) || emptyKpis();
-    leaves.push({ level: 'staff', id: s.id, name: s.name, sales_code: s.sales_code, core_product: s.core_product, active: s.active, asm: s.asm_name, region: s.region, team_leader_id: s.team_leader_id, sales_manager_id: s.sales_manager_id,
+    leaves.push({ level: 'staff', id: s.id, name: s.name, sales_code: s.sales_code, core_product: s.core_product, active: s.active, asm: s.asm_name, region: s.region, team_leader_id: s.team_leader_id, sales_manager_id: s.sales_manager_id, asm_id: s.asm_id,
       kpis: { ...k, staff: 1, target: { ...s.target }, achieved: { ...k.achieved }, cards: { ...k.cards }, ids: undefined, name: undefined } });
   }
   const people = new Map(db.prepare('SELECT id, name, region FROM users').all().map((u) => [u.id, u]));
@@ -215,7 +215,7 @@ export function hierarchy(db, user, { cycle, region } = {}) {
     if (used.has(key) || !k.ids.sales_staff_id) continue;
     const who = people.get(k.ids.sales_staff_id);
     if (region && who?.region !== region) continue;
-    leaves.push({ level: 'staff', id: k.ids.sales_staff_id, name: who?.name || k.name, previous_team: true, region: who?.region ?? null, team_leader_id: k.ids.team_leader_id, sales_manager_id: k.ids.sales_manager_id,
+    leaves.push({ level: 'staff', id: k.ids.sales_staff_id, name: who?.name || k.name, previous_team: true, region: who?.region ?? null, team_leader_id: k.ids.team_leader_id, sales_manager_id: k.ids.sales_manager_id, asm_id: k.ids.asm_id,
       kpis: { ...k, staff: 0, achieved: { ...k.achieved }, cards: { ...k.cards }, ids: undefined, name: undefined } });
   }
 
@@ -225,9 +225,12 @@ export function hierarchy(db, user, { cycle, region } = {}) {
     if (level === 'staff') return list.sort((a, b) => (a.previous_team ? 1 : 0) - (b.previous_team ? 1 : 0) || a.name.localeCompare(b.name));
     const groups = new Map();
     for (const leaf of list) {
-      const id = leaf[field] ?? 0;
-      if (!groups.has(id)) groups.set(id, { level, id, name: level === 'region' ? (id || 'No region') : people.get(id)?.name || `No ${LEVEL_LABELS[level].toLowerCase()}`, kpis: emptyKpis(), children: [] });
-      groups.get(id).children.push(leaf);
+      // A team with no sales manager sits under its ASM at the sales manager level, when it has one.
+      const viaAsm = level === 'sales_manager' && !leaf[field] && leaf.asm_id;
+      const id = viaAsm ? leaf.asm_id : leaf[field] ?? 0;
+      const key = viaAsm ? `asm:${id}` : id;
+      if (!groups.has(key)) groups.set(key, { level, id, ...(viaAsm && { role: 'asm' }), name: level === 'region' ? (id || 'No region') : viaAsm ? `${people.get(id)?.name || 'ASM'} (ASM)` : people.get(id)?.name || `No ${LEVEL_LABELS[level].toLowerCase()}`, kpis: emptyKpis(), children: [] });
+      groups.get(key).children.push(leaf);
     }
     return [...groups.values()].map((g) => {
       g.children = build(g.children, depth + 1);

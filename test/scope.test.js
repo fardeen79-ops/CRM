@@ -775,3 +775,27 @@ test('sales manager incentives: per-card slabs for card managers, a banded perce
   const x = (await sm1('GET', `/incentives/me?cycle=${cycle}`)).data.teams.find((t) => t.type === 'cc_sales_manager').incentive;
   assert.deepEqual([x.team_size, x.cards_sold, x.cross_sell_cards, x.points, x.achievement_pct, x.incentive_aed], [1, 4, 1, 2750, 275, 200]);
 });
+
+test('a team with no sales manager sits under its ASM at the sales manager level: team view, dashboard groups, reports', async () => {
+  const mis = await login('mis@t.local');
+  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, region: 'DXB', mobile_number: '0501234599', ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.user; };
+  const asm = await add({ name: 'Asma ASM', email: 'asma@t.local', role: 'asm', hrms_code: 'ASM9' });
+  const tl = await add({ name: 'Lone TL', email: 'lone.tl@t.local', role: 'team_leader', hrms_code: 'TL9', asm_id: asm.id });
+  const solo = await add({ name: 'Solo Seller', email: 'solo@t.local', role: 'sales', hrms_code: 'S9', sales_code: 'D-9', core_product: 'credit_card', team_leader_id: tl.id, asm_id: asm.id, mobile_number: '0501234598' });
+  assert.equal(solo.sales_manager_id, null);
+  // Team view: the ASM heads the group at the sales manager level, marked as an ASM.
+  const h = (await mis('GET', '/hierarchy?region=DXB')).data;
+  const viaAsm = h.nodes[0].children.find((n) => n.name === 'Asma ASM (ASM)');
+  assert.ok(viaAsm, JSON.stringify(h.nodes[0].children.map((n) => n.name)));
+  assert.equal(viaAsm.level, 'sales_manager'); assert.equal(viaAsm.role, 'asm'); assert.equal(viaAsm.id, asm.id);
+  assert.deepEqual(viaAsm.children.map((n) => n.name), ['Lone TL']);
+  // Nobody with an ASM lands under "No sales manager" (staff with neither still do).
+  const none = h.nodes[0].children.find((n) => n.name === 'No sales manager');
+  assert.ok(!none || !none.children.some((t) => t.name === 'Lone TL'));
+  // Dashboard breakdowns: the same name at the sales manager level, then the team leader.
+  const d = (await mis('GET', '/dashboard?region=DXB')).data;
+  const labels = d.zero.groups.map((g) => [g.level, g.label]);
+  assert.ok(labels.some(([l, n]) => l === 'sales_manager' && n === 'Asma ASM (ASM)'), JSON.stringify(labels));
+  const e = d.earners.groups.map((g) => [g.level, g.label]);
+  assert.ok(e.some(([l, n]) => l === 'sales_manager' && n === 'Asma ASM (ASM)'), JSON.stringify(e));
+});
