@@ -3357,7 +3357,7 @@ const BULK = {
   card_products: {
     tab: 'Card products',
     title: 'Upload the credit card product list',
-    lede: 'Replace the list of credit cards offered on the New case form with the bank\'s product list: one row per card with its family, card category and, when known, points. Cards left out of the file are retired: they stay on existing files but are no longer offered. The category fills in on the form when a card is chosen and is saved on each file.',
+    lede: 'Replace the list of credit cards offered on the New case form with the bank\'s product list: one row per card with its family, card category and, when known, points, plus the pitch headline and features when the bank\'s website cannot be read from this server. Cards left out of the file are retired: they stay on existing files but are no longer offered. The category fills in on the form when a card is chosen and is saved on each file.',
     template: 'card-products-template.csv',
     done: ['#/cases/new', 'Open the New case form'],
   },
@@ -3761,7 +3761,9 @@ async function showCardPitch({ current, suggested, income, inc, customer, onSwit
   if (!modal.isConnected) return;
   const amount = `AED ${income.toLocaleString()}`;
   const when = p.fetched_at ? new Date(p.fetched_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
-  const source = p.source === 'live'
+  const source = p.source === 'uploaded'
+    ? html`From the card list loaded on ${when}. <a href="${p.url}" target="_blank" rel="noopener">The card's page</a> has the full terms.`
+    : p.source === 'live'
     ? html`Read just now from <a href="${p.url}" target="_blank" rel="noopener">the card's page on emiratesnbd.com</a>.`
     : p.source === 'saved'
       ? html`Couldn't read the website now (${p.problem}). Showing the copy saved on ${when}; <a href="${p.url}" target="_blank" rel="noopener">check the card's page</a> before quoting it.`

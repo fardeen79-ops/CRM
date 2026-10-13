@@ -63,3 +63,7 @@ The sheet's target column (points for CC and AL, AED for PL) follows the salary 
 - Nothing further on incentives: a manager of a mixed team gets one card calculation and one loan calculation, auto loan leaders and managers have no incentive, there is no AUH-specific treatment, and one loan grid applies to every manager (all confirmed).
 - The ASM distinction: the salary sheets name nine ASMs (above); confirm who is paid under the manager scheme before changing their role.
 - An **IT department account** (role IT) to keep the tab register, and the list of tabs issued (serial, tab number, accessories, network, SIM, Entra ID, registered mobile) to enter or upload.
+
+## Card list with pitches
+
+`card-products.csv` is the bank's built-in card list (34 cards: name, family, category, points, minimum salary) with two empty columns, **Pitch headline** and **Pitch features**. Fill them in for each card (features separated by `;`) and load the file through **Bulk upload → Card products**. A card with a pitch in the file is pitched from that text; the server never reads the bank's website for it, which matters where the site's bot protection refuses the server.

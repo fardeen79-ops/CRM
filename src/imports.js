@@ -8,7 +8,7 @@ import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, AUTO_LOAN_TYPES, AU
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
-import { isBankPage } from './card-pitch.js';
+import { isBankPage, saveUploadedPitch } from './card-pitch.js';
 import { BANKS } from './banks.js';
 import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
 import { TEAM_LEADER_ROLES, LEADER_LINE_ROLES, hrmsCodeOf, contactDetails, salesProfile, leaderProfile, salaryOf, regionOf, canSeeSalary, sweepLeavers } from './users.js';
@@ -109,6 +109,8 @@ export const CARD_PRODUCT_IMPORT_COLUMNS = [
   { key: 'points', header: 'Points', example: '', help: 'Optional. Points the card earns the sales person; a number' },
   { key: 'min_salary', header: 'Minimum salary (AED)', example: '5000', help: 'Monthly salary the customer needs for this card. A lower salary needs a product deviation or promotion, or team approval' },
   { key: 'page_url', header: 'Website page', example: 'https://www.emiratesnbd.com/en/cards/credit-cards/skywards-signature-credit-card', help: "Optional. The card's page on the Emirates NBD website, read for the sales pitch. Left empty, the usual address for the card's name is used" },
+  { key: 'headline', header: 'Pitch headline', example: 'Earn Skywards Miles on every spend', help: 'Optional. One line that opens the sales pitch. With Pitch features, the pitch is shown from here and the website is not read for this card' },
+  { key: 'features', header: 'Pitch features', example: 'Up to 2 Skywards Miles per AED 1; Free airport lounge access; No annual fee in year one', help: 'Optional. The benefit lines of the pitch, separated by ; (semicolon). Left blank with the headline, the pitch is read from the website as before' },
 ];
 
 export const TARGET_RULE_IMPORT_COLUMNS = [
@@ -365,7 +367,8 @@ export function importCardProducts(db, user, csv, { dryRun = false } = {}) {
       db.prepare(`INSERT INTO card_products (name, family, category, points, min_salary, page_url, active, updated_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
         ON CONFLICT (name) DO UPDATE SET family = excluded.family, category = excluded.category, points = excluded.points, min_salary = excluded.min_salary, page_url = excluded.page_url, active = 1, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
         .run(name, family, category, points, minSalary, pageUrl, user.id, ts);
-      return { label: `${name} · ${category}`, email: `${family}${points != null ? ` · ${points} points` : ''}${minSalary != null ? ` · min salary AED ${minSalary.toLocaleString('en-US')}` : ''}` };
+      const pitch = saveUploadedPitch(db, name, { headline: String(v.headline ?? '').trim(), features: String(v.features ?? '').split(';'), url: pageUrl });
+      return { label: `${name} · ${category}`, email: `${family}${points != null ? ` · ${points} points` : ''}${minSalary != null ? ` · min salary AED ${minSalary.toLocaleString('en-US')}` : ''}${pitch ? ` · pitch: ${pitch.features.length} feature${pitch.features.length === 1 ? '' : 's'}` : ''}` };
     })));
     // Only a file with at least one good row replaces the list; cards it leaves out are retired.
     if (out.some((r) => r.ok)) {

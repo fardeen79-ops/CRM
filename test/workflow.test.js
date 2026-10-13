@@ -1443,7 +1443,7 @@ test('a card\'s category is filled from the product list and the list can be rep
   assert.equal(me.card_list_source, 'built_in');
   assert.equal(me.credit_cards.find((f) => f.family === 'Skywards').cards.find((c) => c.name === 'Skywards Signature Credit Card').category, 'Premium');
   // MIS uploads the bank's final list: two cards with their categories and points.
-  const csv = 'Card name,Family,Category,Points\nSkywards Signature Credit Card,Skywards,Premium Travel,120\nNew Cashback Credit Card,Cashback,Everyday,40\n,Oops,,\n';
+  const csv = 'Card name,Family,Category,Points,Pitch headline,Pitch features\nSkywards Signature Credit Card,Skywards,Premium Travel,120,Miles on every spend,Up to 2 Skywards Miles per AED 1; Free lounge access\nNew Cashback Credit Card,Cashback,Everyday,40,,\n,Oops,,,,\n';
   assert.equal((await lead('POST', '/import/card_products', { csv })).status, 403);
   const preview = (await mis('POST', '/import/card_products', { csv, dry_run: true })).data;
   assert.deepEqual(preview.rows.map((x) => x.ok), [true, true, false]);
@@ -1454,6 +1454,11 @@ test('a card\'s category is filled from the product list and the list can be rep
   const after = (await sales('GET', '/me')).data.meta;
   assert.equal(after.card_list_source, 'uploaded');
   assert.deepEqual(after.credit_cards.map((f) => f.family).sort(), ['Cashback', 'Skywards']);
+  // The pitch loaded with the list is what the sales person sees; the bank's site is not read for it.
+  const pitch = (await sales('GET', '/cards/pitch?name=Skywards%20Signature%20Credit%20Card')).data;
+  assert.equal(pitch.source, 'uploaded');
+  assert.deepEqual(pitch.features, ['Up to 2 Skywards Miles per AED 1', 'Free lounge access']);
+  assert.equal(pitch.headline, 'Miles on every spend');
   // A new file with an uploaded card gets its category and points; a retired card is refused.
   r = await sales('POST', '/cases', { ...card, credit_card: 'new cashback credit card' });
   assert.equal(r.status, 201, JSON.stringify(r.data));

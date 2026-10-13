@@ -295,7 +295,8 @@ CREATE TABLE IF NOT EXISTS card_pitch_cache (
   title      TEXT,
   headline   TEXT,
   features   TEXT NOT NULL, -- JSON list of feature lines
-  fetched_at TEXT NOT NULL
+  fetched_at TEXT NOT NULL,
+  source     TEXT NOT NULL DEFAULT 'live' -- live: read from the bank's page; uploaded: from the card list
 );
 
 -- Salary-based target rules: a sales person whose salary falls in a band gets that target for the
@@ -563,6 +564,7 @@ function migrate(db) {
     WHERE team_leader_id IS NULL AND sales_staff_id IS NOT NULL`);
   if (!db.prepare('PRAGMA table_info(card_products)').all().some((c) => c.name === 'min_salary')) db.exec('ALTER TABLE card_products ADD COLUMN min_salary REAL');
   if (!db.prepare('PRAGMA table_info(card_products)').all().some((c) => c.name === 'page_url')) db.exec('ALTER TABLE card_products ADD COLUMN page_url TEXT');
+  if (!db.prepare('PRAGMA table_info(card_pitch_cache)').all().some((c) => c.name === 'source')) db.exec("ALTER TABLE card_pitch_cache ADD COLUMN source TEXT NOT NULL DEFAULT 'live'");
   // Cases created before the sourcing date existed were sourced on the day they were entered.
   db.exec("UPDATE cases SET sourcing_date = substr(created_at, 1, 10) WHERE sourcing_date IS NULL");
   // Loans completed before disbursed amounts were recorded: assume the amount on the file.

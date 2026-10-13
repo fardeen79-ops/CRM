@@ -72,3 +72,23 @@ test('live reading is saved, and the saved copy is used when the site fails', as
 
   assert.equal(await cardPitch(db, 'No Such Card', { fetcher: page(PAGE) }), null);
 });
+
+test('a pitch loaded with the card list is shown as it is; the website is not asked for that card', async () => {
+  const { saveUploadedPitch } = await import('../src/card-pitch.js');
+  const db = openDb(':memory:');
+  loadCardProducts(db);
+  const name = 'Darna Visa Infinite Credit Card';
+  saveUploadedPitch(db, name, { headline: 'Up to 10% back across Aldar', features: ['10% back as Darna Points on Aldar spend', ' 1.5% back on everything else ', ''] });
+  let calls = 0;
+  const p = await cardPitch(db, name, { fetcher: async () => { calls++; return { ok: false, status: 403, text: async () => '' }; } });
+  assert.equal(calls, 0);
+  assert.equal(p.source, 'uploaded');
+  assert.equal(p.problem, null);
+  assert.deepEqual(p.features, ['10% back as Darna Points on Aldar spend', '1.5% back on everything else']);
+  assert.equal(p.headline, 'Up to 10% back across Aldar');
+  // Blank headline and features in a later upload remove it, and the website is read again.
+  saveUploadedPitch(db, name, { headline: '', features: [''] });
+  const again = await cardPitch(db, name, { fetcher: page('', { status: 403 }) });
+  assert.equal(again.source, 'none');
+  assert.match(again.problem, /bot protection/);
+});

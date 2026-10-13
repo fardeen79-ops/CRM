@@ -92,8 +92,27 @@ async function readCardPage(url, fetcher) {
 
 /** The last good reading of a card's page, or null. */
 export function savedPitch(db, name) {
-  const row = db.prepare('SELECT card_name, url, title, headline, features, fetched_at FROM card_pitch_cache WHERE card_name = ? COLLATE NOCASE').get(name);
+  const row = db.prepare('SELECT card_name, url, title, headline, features, fetched_at, source FROM card_pitch_cache WHERE card_name = ? COLLATE NOCASE').get(name);
   return row ? { ...row, features: JSON.parse(row.features) } : null;
+}
+
+/**
+ * Saves a pitch loaded with the card list (Bulk upload → Card products: Headline and Features columns).
+ * An uploaded pitch is shown as it is and the bank's website is not read for that card, which is the
+ * way to keep pitches when the site blocks the server. Blank headline and features remove it.
+ */
+export function saveUploadedPitch(db, name, { headline = '', features = [], url = null } = {}) {
+  const lines = features.map((f) => String(f).trim()).filter(Boolean);
+  if (!headline && !lines.length) {
+    db.prepare("DELETE FROM card_pitch_cache WHERE card_name = ? COLLATE NOCASE AND source = 'uploaded'").run(name);
+    return null;
+  }
+  const card = cardProduct(name);
+  const pageUrl = url || (card ? cardPageUrl(card) : cardPageUrl({ name }));
+  db.prepare(`INSERT INTO card_pitch_cache (card_name, url, title, headline, features, fetched_at, source) VALUES (?, ?, ?, ?, ?, ?, 'uploaded')
+    ON CONFLICT (card_name) DO UPDATE SET url = excluded.url, title = excluded.title, headline = excluded.headline, features = excluded.features, fetched_at = excluded.fetched_at, source = 'uploaded'`)
+    .run(name, pageUrl, name, headline, JSON.stringify(lines), new Date().toISOString());
+  return { headline, features: lines };
 }
 
 /** Pitch details for a card from saved readings only (no website), as the in-browser demo serves it. */
@@ -108,9 +127,9 @@ export function savedCardPitch(db, name, { reason = 'the website is not read her
     title: saved?.title || card.name,
     headline: saved?.headline || '',
     features: saved?.features || [],
-    source: saved ? 'saved' : 'none',
+    source: saved ? (saved.source === 'uploaded' ? 'uploaded' : 'saved') : 'none',
     fetched_at: saved?.fetched_at || null,
-    problem: reason,
+    problem: saved?.source === 'uploaded' ? null : reason,
   };
 }
 
@@ -121,14 +140,16 @@ export function savedCardPitch(db, name, { reason = 'the website is not read her
 export async function cardPitch(db, name, { fetcher = globalThis.fetch, now = () => new Date().toISOString() } = {}) {
   const card = cardProduct(name);
   if (!card) return null;
+  // A pitch loaded with the card list is the one to show; the website is not asked.
+  if (savedPitch(db, card.name)?.source === 'uploaded') return savedCardPitch(db, card.name);
   const url = cardPageUrl(card);
   let problem;
   try {
     const page = parseCardPage(await readCardPage(url, fetcher));
     if (page.features.length < 2 && !page.headline) throw new Error('the page had no features the CRM could read');
     const fetched_at = now();
-    db.prepare(`INSERT INTO card_pitch_cache (card_name, url, title, headline, features, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT (card_name) DO UPDATE SET url = excluded.url, title = excluded.title, headline = excluded.headline, features = excluded.features, fetched_at = excluded.fetched_at`)
+    db.prepare(`INSERT INTO card_pitch_cache (card_name, url, title, headline, features, fetched_at, source) VALUES (?, ?, ?, ?, ?, ?, 'live')
+      ON CONFLICT (card_name) DO UPDATE SET url = excluded.url, title = excluded.title, headline = excluded.headline, features = excluded.features, fetched_at = excluded.fetched_at, source = 'live'`)
       .run(card.name, url, page.title || card.name, page.headline, JSON.stringify(page.features), fetched_at);
     return { card: { name: card.name, family: card.family, category: card.category, min_salary: card.min_salary }, url, title: page.title || card.name, headline: page.headline, features: page.features, source: 'live', fetched_at, problem: null };
   } catch (err) {
