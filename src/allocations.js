@@ -18,9 +18,13 @@ export function listAllocations(db, user, { region = null } = {}) {
   const prWhere = region ? ' AND (UPPER(COALESCE(u.region, \'\')) = ? OR u.region IS NULL OR u.region = \'\')' : '';
   const rows = db.prepare(`SELECT a.team_leader_id, a.product, a.processor_id, p.name AS processor_name, a.set_at, s.name AS set_by_name
     FROM processor_allocations a JOIN users p ON p.id = a.processor_id LEFT JOIN users s ON s.id = a.set_by`).all();
-  const team_leaders = db.prepare(`SELECT u.id, u.name, u.region,
+  // Every team leader, plus any sales manager or ASM who leads a team directly (sales staff name them
+  // as team leader), since their staff's files carry them as the team leader.
+  const team_leaders = db.prepare(`SELECT u.id, u.name, u.region, u.role,
       (SELECT COUNT(*) FROM users x WHERE x.team_leader_id = u.id AND x.active = 1 AND x.role = 'sales') AS staff
-    FROM users u WHERE u.role = 'team_leader' AND u.active = 1${tlWhere} ORDER BY u.region, u.name`).all(...(region ? [r] : []))
+    FROM users u WHERE u.active = 1 AND (u.role = 'team_leader' OR (u.role IN ('sales_manager', 'asm')
+      AND EXISTS (SELECT 1 FROM users x WHERE x.team_leader_id = u.id AND x.active = 1 AND x.role = 'sales')))${tlWhere}
+    ORDER BY u.region, u.name`).all(...(region ? [r] : []))
     .map((t) => ({ ...t, products: Object.fromEntries(Object.keys(ALLOCATION_PRODUCTS).map((p) => { const a = rows.find((r) => r.team_leader_id === t.id && r.product === p); return [p, a ? { processor_id: a.processor_id, processor_name: a.processor_name, set_at: a.set_at, set_by_name: a.set_by_name } : null]; })) }));
   const processors = db.prepare(`SELECT u.id, u.name, u.region, u.role_key,
       (SELECT COUNT(DISTINCT a.team_leader_id) FROM processor_allocations a WHERE a.processor_id = u.id) AS team_leaders,
@@ -32,7 +36,8 @@ export function listAllocations(db, user, { region = null } = {}) {
 /** Sets who verifies a team leader's files for one product, or for 'all' of them; a null processor clears it. */
 export function setAllocation(db, user, teamLeaderId, { product = 'all', processor_id } = {}) {
   requireAllocator(user);
-  const tl = db.prepare("SELECT id, name FROM users WHERE id = ? AND role = 'team_leader' AND active = 1").get(Number(teamLeaderId));
+  const tl = db.prepare(`SELECT id, name FROM users u WHERE u.id = ? AND u.active = 1 AND (u.role = 'team_leader' OR (u.role IN ('sales_manager', 'asm')
+    AND EXISTS (SELECT 1 FROM users x WHERE x.team_leader_id = u.id AND x.active = 1 AND x.role = 'sales')))`).get(Number(teamLeaderId));
   if (!tl) throw new WorkflowError(404, 'Team leader not found');
   const products = product === 'all' || product == null ? Object.keys(ALLOCATION_PRODUCTS) : [String(product)];
   if (products.some((p) => !ALLOCATION_PRODUCTS[p])) throw new WorkflowError(400, 'Product must be credit cards, personal loans, auto loans or all');

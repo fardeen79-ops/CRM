@@ -4111,7 +4111,7 @@ async function viewAllocation(params = new URLSearchParams()) {
           const ids = prodKeys.map((k) => t.products[k]?.processor_id ?? null);
           const same = ids.every((v) => v === ids[0]) ? ids[0] : undefined;
           return html`<tr>
-            <td><strong>${t.name}</strong></td><td>${t.region || html`<span class="muted">—</span>`}</td><td>${t.staff}</td>
+            <td><strong>${t.name}</strong>${t.role && t.role !== 'team_leader' ? html` <span class="chip" title="Leads a team directly">${ROLE_LABEL[t.role] || t.role}</span>` : ''}</td><td>${t.region || html`<span class="muted">—</span>`}</td><td>${t.staff}</td>
             <td><select data-tl="${t.id}" data-product="all" aria-label="All products for ${t.name}">
               ${same === undefined ? html`<option value="__mixed" selected>Mixed (see products)</option>` : ''}${options(same ?? null)}
             </select></td>

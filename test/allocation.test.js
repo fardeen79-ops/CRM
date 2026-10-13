@@ -16,6 +16,8 @@ before(async () => {
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
   add('TL Two', 'tl2@t.local', 'team_leader', { region: 'DXB' });
   add('TL Abu Dhabi', 'tl3@t.local', 'team_leader', { region: 'AUH' });
+  add('SM Direct', 'sm2@t.local', 'sales_manager', { region: 'DXB' });
+  add('Nour', 'nour@t.local', 'sales', { region: 'DXB', sales_code: 'D-9', core_product: 'credit_card', team_leader_id: ids['sm2@t.local'], sales_manager_id: ids['sm2@t.local'] });
   add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'personal_loan', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Cara', 'cara@t.local', 'sales', { region: 'DXB', sales_code: 'D-2', core_product: 'credit_card', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm1@t.local'] });
   add('Lina', 'lina@t.local', 'sales', { region: 'DXB', sales_code: 'D-3', core_product: 'personal_loan', team_leader_id: ids['tl2@t.local'], sales_manager_id: ids['sm1@t.local'] });
@@ -80,6 +82,12 @@ test('the verification team leader allocates processors to sales team leaders; t
   assert.equal((await pat('GET', '/allocations')).status, 403);
   const list = (await vera('GET', '/allocations')).data;
   assert.ok(list.team_leaders.some((t) => t.id === ids['tl2@t.local']) && list.processors.some((p) => p.id === ids['pat@t.local']));
+  // A sales manager who leads a team directly is listed too, with their role; one who does not is not.
+  const smRow = list.team_leaders.find((t) => t.id === ids['sm2@t.local']);
+  assert.equal(smRow?.role, 'sales_manager'); assert.equal(smRow.staff, 1);
+  assert.ok(!list.team_leaders.some((t) => t.id === ids['sm1@t.local']));
+  assert.equal((await vera('PUT', `/allocations/${ids['sm2@t.local']}`, { product: 'all', processor_id: ids['omar@t.local'] })).status, 200);
+  assert.equal((await vera('PUT', `/allocations/${ids['sm1@t.local']}`, { product: 'all', processor_id: ids['omar@t.local'] })).status, 404);
   assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'all', processor_id: ids['dana@t.local'] })).status, 400);
   assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'mortgage', processor_id: ids['pat@t.local'] })).status, 400);
   // All products of TL Two's team go to Pat.
@@ -119,10 +127,10 @@ test('the verification team leader allocates processors to sales team leaders; t
 test('the allocation list can be narrowed to one region: its team leaders, and its processors plus those with no region', async () => {
   const lead = await login('vlead@t.local');
   const all = (await lead('GET', '/allocations')).data;
-  assert.deepEqual([all.region, all.team_leaders.length, all.processors.length], [null, 3, 4]);
+  assert.deepEqual([all.region, all.team_leaders.length, all.processors.length], [null, 4, 4]);
   const dxb = (await lead('GET', '/allocations?region=DXB')).data;
   assert.equal(dxb.region, 'DXB');
-  assert.deepEqual(dxb.team_leaders.map((t) => t.name).sort(), ['TL Dubai', 'TL Two']);
+  assert.deepEqual(dxb.team_leaders.map((t) => t.name).sort(), ['SM Direct', 'TL Dubai', 'TL Two']);
   assert.deepEqual(dxb.processors.map((p) => p.name).sort(), ['Omar', 'Pat', 'Vera']);
   const auh = (await lead('GET', '/allocations?region=auh')).data;
   assert.deepEqual([auh.team_leaders.map((t) => t.name), auh.processors.map((p) => p.name)], [['TL Abu Dhabi'], ['Aziz']]);
