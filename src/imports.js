@@ -73,7 +73,6 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'salary', header: 'Salary', example: '25000', help: 'Monthly, AED' },
   { key: 'bidaya_id', header: 'Bidaya ID', example: '' },
   { key: 'app_id', header: 'App ID', example: '', help: 'An App ID already on the CRM is treated as a duplicate' },
-  { key: 'application_number', header: 'Application number', example: '', help: "The bank's application number, as on the bank MIS; one already on the CRM is treated as a duplicate" },
   { key: 'product', header: 'Product', required: true, example: 'Personal Loan', allowed: [...Object.values(PRODUCTS), 'Bundle'] },
   { key: 'bundle_products', header: 'Bundle products', example: '', help: 'For Bundle: two or more products separated by ; e.g. Personal Loan; Credit Card' },
   { key: 'credit_card', header: 'Credit card', example: '', help: 'Card name exactly as in the New case form' },
@@ -105,13 +104,13 @@ export const CASE_IMPORT_COLUMNS = [
 ];
 
 export const CARD_IMPORT_COLUMNS = [
-  { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference, App ID or application number of a completed credit card case' },
+  { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference, App ID or Emirates ID of a completed credit card case' },
   { key: 'card_status', header: 'Card status', required: true, example: 'Active', allowed: Object.values(CARD_STATUS) },
   { key: 'activation_date', header: 'Status date', example: '15/06/2026', help: 'Date activated (Active) or inactive since (Inactive). DD/MM/YYYY or YYYY-MM-DD; blank means today' },
 ];
 
 export const CASE_STATUS_IMPORT_COLUMNS = [
-  { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference, App ID or application number of the file' },
+  { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference or App ID of the file' },
   { key: 'bank_status', header: 'Bank status', example: 'AO_COMPLETED_WAITING_FOR_SALARY_TRANSFER', help: "The bank's application status or stage for the file's product, as on the bank's report; the case status follows from it" },
   { key: 'case_status', header: 'Case status', example: '', help: 'Applicant review, Completed or Rejected, when setting the case status directly (leave blank when a bank status is given)', allowed: SETTABLE_CASE_STATUSES.map((k) => CASE_STATUS[k]) },
   { key: 'note', header: 'Note', example: '', help: 'Why the file is in Applicant review or Rejected (required for those two); optional for Completed' },
@@ -686,11 +685,6 @@ export function importCases(db, user, csv, { dryRun = false } = {}) {
     if (!staff) throw new Error(`No sales staff member has the sales code ${v.sales_code}`);
     const staffId = staff.id;
     const input = caseInput(v);
-    if (input.application_number) {
-      const key = `APP#${String(input.application_number).toUpperCase()}`;
-      if (appIds.has(key)) throw new Error(`Application number ${input.application_number} is also on line ${appIds.get(key)} of this file`);
-      appIds.set(key, record.line);
-    }
     if (input.app_id) {
       const key = input.app_id.toUpperCase();
       if (appIds.has(key)) throw new Error(`App ID ${input.app_id} is also on line ${appIds.get(key)} of this file`);
@@ -721,7 +715,7 @@ export function importCards(db, user, csv, { dryRun = false } = {}) {
     const idMatch = ref.match(/^crm-?0*(\d+)$/i);
     const matches = idMatch
       ? db.prepare('SELECT * FROM cases WHERE id = ?').all(Number(idMatch[1]))
-      : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE OR application_number = ? COLLATE NOCASE').all(ref, ref);
+      : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE').all(ref);
     const cards = matches.filter((c) => c.case_status === 'completed' && includesCard(c));
     if (!matches.length) throw new Error(`No case found for ${ref}`);
     if (!cards.length) throw new Error(`${ref} is not a completed credit card case (${matches.map((c) => caseRef(c.id)).join(', ')})`);
@@ -746,7 +740,7 @@ function caseByReference(db, ref) {
   const idMatch = ref.match(/^crm-?0*(\d+)$/i);
   const matches = idMatch
     ? db.prepare('SELECT * FROM cases WHERE id = ?').all(Number(idMatch[1]))
-    : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE OR application_number = ? COLLATE NOCASE').all(ref, ref);
+    : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE').all(ref);
   if (!matches.length) throw new Error(`No case found for ${ref}`);
   if (matches.length > 1) throw new Error(`${ref} matches more than one file: ${matches.map((c) => caseRef(c.id)).join(', ')}. Use the CRM reference`);
   return matches[0];

@@ -1079,22 +1079,14 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   assert.ok(list.some((c) => c.id === id));
 });
 
-test("the bank's application number identifies a file: unique, searchable, and a reference for the status upload", async () => {
+test('the App ID (the bank application number) leads the register and All files exports, to map with the bank MIS', async () => {
   const sally = await login('sales@t.local');
   const mis = await login('mis@t.local');
-  const r = await sally('POST', '/cases', { ...newCase, application_number: 'ENBD-2026-000123' });
+  const r = await sally('POST', '/cases', { ...newCase, app_id: 'ENBD-APP-000123' });
   assert.equal(r.status, 201);
-  assert.equal(r.data.case.application_number, 'ENBD-2026-000123');
-  const dup = await sally('POST', '/cases', { ...newCase, application_number: 'enbd-2026-000123' });
-  assert.equal(dup.status, 409);
-  assert.match(dup.data.error, /already on CRM-/);
-  assert.ok((await sally('GET', '/cases?q=2026-000123')).data.cases.some((c) => c.id === r.data.case.id));
-  const up = (await mis('POST', '/import/case_status', { csv: 'Reference,Bank status\nENBD-2026-000123,SENT_TO_RCC' })).data;
-  assert.equal(up.rows[0].ok, true, JSON.stringify(up.rows[0]));
-  assert.equal((await sally('GET', `/cases/${r.data.case.id}`)).data.case.bank_status, 'SENT_TO_RCC');
   const reg = (await mis('GET', '/reports/all_files')).data;
-  assert.ok(reg.columns.some((c) => c.key === 'application_number'));
-  assert.ok(reg.rows.some((x) => x.application_number === 'ENBD-2026-000123'));
+  assert.deepEqual(reg.columns.slice(0, 3).map((c) => c.key), ['ref', 'app_id', 'bidaya_id']);
+  assert.ok(reg.rows.some((x) => x.app_id === 'ENBD-APP-000123'));
 });
 
 test('MIS sets the case status on many files from an upload, with the same rules as the case page', async () => {

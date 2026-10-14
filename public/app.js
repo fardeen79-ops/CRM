@@ -1289,7 +1289,7 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     <div class="card">
       <div class="toolbar">
         <form id="search-form" style="display:flex;gap:8px;flex:1;min-width:240px">
-          <input type="search" name="q" placeholder="Search name, mobile, application number, Bidaya / App ID, sales code or ref…" value="${q}">
+          <input type="search" name="q" placeholder="Search name, mobile, Bidaya / App ID, sales code or ref…" value="${q}">
           <button>Search</button>
         </form>
         ${filters}
@@ -1473,7 +1473,6 @@ async function viewCaseForm(id, leadId = null) {
           </div>
           ${field('bidaya_id', 'Bidaya ID')}
           ${field('app_id', 'App ID')}
-          ${field('application_number', 'Application number', { hint: "The bank's application number, as on the bank MIS", attrs: 'autocomplete="off"' })}
         </div>
       </section>
 
@@ -2415,7 +2414,6 @@ async function viewCase(id) {
             ${c.salary_bank ? html`<dt>${incomeLabelsFor(c.customer_type).bank}</dt><dd><strong>${c.salary_bank}</strong></dd>` : ''}
             ${row('Bidaya ID', c.bidaya_id, true)}
             ${row('App ID', c.app_id, true)}
-            ${row('Application number', c.application_number, true)}
             ${row('Email', c.email)}
             ${row('Address', [c.address, c.city].filter(Boolean).join(', '))}
           </dl>
@@ -3162,7 +3160,7 @@ async function viewCards(params) {
       ${shown.length ? html`<div class="table-wrap"><table>
         <thead><tr><th>Ref</th><th>Customer</th><th>Sales staff</th><th>Temp end</th><th>Card status</th><th>Ageing <span class="muted">(days since temp end)</span></th>${canMap ? html`<th>Change status <span class="muted">(date, then status)</span></th>` : ''}</tr></thead>
         <tbody>${shown.map((c) => html`<tr data-href="#/cases/${c.id}" data-case="${c.id}">
-          <td><strong>${c.ref}</strong>${c.application_number ? html`<div class="muted small mono">${c.application_number}</div>` : c.app_id ? html`<div class="muted small mono">${c.app_id}</div>` : ''}</td>
+          <td><strong>${c.ref}</strong>${c.app_id ? html`<div class="muted small mono">${c.app_id}</div>` : ''}</td>
           <td>${c.customer_name}<div class="muted small">${c.credit_card || ''}</div></td>
           <td>${c.sales_staff_name || '—'}<div class="muted small"><span class="mono">${c.sales_code || ''}</span>${c.team_leader_name ? ` · TL ${c.team_leader_name}` : ''}</div></td>
           <td class="small nowrap">${fmtIsoDay(c.case_status_at)}<div class="muted">${cycleName(cycleOfIso(c.case_status_at))} cycle</div></td>
