@@ -962,6 +962,12 @@ export function notify(db, userIds, caseId, message, link = null) {
 
 const activeUserIds = (db, role) =>
   db.prepare('SELECT id FROM users WHERE role = ? AND active = 1').all(role).map((r) => r.id);
+/** The leaders over a file: its team leader, ASM and sales manager as recorded on it, while they are active. Nobody else's team is told. */
+const leadersOf = (db, row) => {
+  const ids = [...new Set([row.team_leader_id, row.asm_id, row.sales_manager_id].filter(Boolean))];
+  if (!ids.length) return [];
+  return db.prepare(`SELECT id FROM users WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids).map((r) => r.id);
+};
 /** The processors a file can reach: the one allocated to its team leader, else every active processor. */
 export const processorsFor = (db, row) => {
   if (!row.team_leader_id) return activeUserIds(db, 'processing');
@@ -1421,7 +1427,7 @@ export function updateCase(db, user, id, input) {
       const ref = caseRef(id);
       notify(db, [row.verified_by, ...processorsFor(db, row)], id,
         `Re-verification needed: ${ref} (${row.customer_name}) — ${what} changed by ${user.name} after verification`);
-      notify(db, [ownerId(row), ...activeUserIds(db, 'team_leader')].filter((u) => u !== user.id), id,
+      notify(db, [ownerId(row), ...leadersOf(db, row)].filter((u) => u !== user.id), id,
         `${ref} (${row.customer_name}) goes back for verification: ${what} changed by ${user.name}`);
     }
     return getCase(db, user, id);
@@ -1599,7 +1605,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         // Verification failing does not change the case status; that stays a separate decision.
         Object.assign(set, { assigned_to: row.assigned_to ?? user.id, incomplete_reason: reason || null, incomplete_note: note, incomplete_at: ts, urgent_flag: 0, callback_at: null, callback_notified_at: null });
         detail = reason || null;
-        notify(db, [ownerId(row), ...activeUserIds(db, 'team_leader')], id,
+        notify(db, [ownerId(row), ...leadersOf(db, row)], id,
           `${ref} (${row.customer_name}) verification rejected by ${user.name}: ${note}`);
         break;
       case 'mark_incomplete':
@@ -1618,7 +1624,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         detail = reason;
         notify(
           db,
-          activeUserIds(db, 'team_leader'),
+          leadersOf(db, row),
           id,
           `Action required: ${ref} (${row.customer_name}) verification pending, marked by ${user.name} — ${reason.replace(/_/g, ' ')}`
         );
@@ -1799,7 +1805,7 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       const label = CASE_STATUS[case_status];
       notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) case status changed to ${label} by ${who}${note ? `: ${note}` : ''}`);
       if (case_status === 'applicant_review') {
-        notify(db, activeUserIds(db, 'team_leader').filter((u) => u !== user.id), id,
+        notify(db, leadersOf(db, row).filter((u) => u !== user.id), id,
           `Applicant review: ${ref} (${row.customer_name}) set by ${who}${note ? ` — ${note}` : ''}`);
       }
     } else if (action === 'request_edit') {
@@ -1808,7 +1814,11 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       db.prepare('UPDATE cases SET edit_request_to = ?, edit_request_note = ?, edit_request_by = ?, edit_request_at = ?, updated_at = ? WHERE id = ?')
         .run(to, note, user.id, ts, ts, id);
       addEvent(db, id, user.id, 'request_edit', { detail: to, note });
-      notify(db, activeUserIds(db, to), id, `Edit request: ${ref} (${row.customer_name}) from ${who} — ${note}`);
+      // The request goes to the file's own leader in that queue (the team leader, or the sales manager and
+      // ASM), not to everyone with the role; a file with nobody in that line falls back to the whole role.
+      const queueIds = to === 'team_leader' ? [row.team_leader_id] : [row.sales_manager_id, row.asm_id];
+      const own = leadersOf(db, row).filter((u) => queueIds.includes(u));
+      notify(db, own.length ? own : activeUserIds(db, to), id, `Edit request: ${ref} (${row.customer_name}) from ${who} — ${note}`);
     } else if (action === 'resolve_edit_request') {
       db.prepare('UPDATE cases SET edit_request_to = NULL, edit_request_note = NULL, edit_request_by = NULL, edit_request_at = NULL, updated_at = ? WHERE id = ?')
         .run(ts, id);
@@ -1819,9 +1829,9 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       db.prepare('UPDATE cases SET urgent_flag = 1, urgent_note = ?, urgent_by = ?, urgent_at = ?, updated_at = ? WHERE id = ?')
         .run(note, user.id, ts, ts, id);
       addEvent(db, id, user.id, 'flag_urgent', { note });
-      // The processor on the file (or every processor if nobody has it), plus team leaders who own Pending files.
+      // The processor on the file (or every processor if nobody has it), plus the file's own leaders.
       const processors = row.assigned_to ? [row.assigned_to] : processorsFor(db, row);
-      notify(db, [...processors, ...activeUserIds(db, 'team_leader')], id,
+      notify(db, [...processors, ...leadersOf(db, row)], id,
         `URGENT verification: ${ref} (${row.customer_name}) flagged by ${who} — ${note}`);
     } else if (action === 'clear_urgent') {
       db.prepare('UPDATE cases SET urgent_flag = 0, updated_at = ? WHERE id = ?').run(ts, id);

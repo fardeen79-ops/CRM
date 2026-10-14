@@ -833,6 +833,12 @@ test('an ASM or sales manager who leads a team directly sees it everywhere, even
   assert.equal((await proc('POST', `/cases/${f.id}/actions`, { action: 'mark_incomplete', reason: 'customer_unreachable', note: 'No answer on three calls' })).status, 200);
   const pending = (await asm('GET', `/cases/${f.id}`)).data.case;
   assert.equal(pending.status, 'incomplete');
+  // Only the file's own leader is told, not every team leader.
+  const otherTl = await login('upriya.tl@t.local');
+  assert.ok((await asm('GET', '/notifications')).data.items.some((n) => /Action required/.test(n.message) && n.case_id === f.id));
+  assert.ok(!(await otherTl('GET', '/notifications')).data.items.some((n) => n.case_id === f.id));
+  const dxbTl = await login('tl-dxb@t.local');
+  assert.ok(!(await dxbTl('GET', '/notifications')).data.items.some((n) => n.case_id === f.id));
   for (const a of ['return_to_sales', 'reverify', 'reject']) assert.ok(pending.allowed_actions.includes(a), a);
   assert.ok((await asm('GET', '/cases?status=incomplete')).data.cases.some((c) => c.id === f.id));
   const back = await asm('POST', `/cases/${f.id}/actions`, { action: 'reverify' });

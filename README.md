@@ -104,7 +104,7 @@ Once a processor has marked verification **Completed**, the details they confirm
 
 - the processor's assignment and call count are cleared, so it rejoins the verification queue as a fresh request;
 - the case timeline records *Sent back for re-verification* with what changed;
-- the processor who verified it, every processor, the sales person and the team leaders are notified;
+- the processor who verified it, every processor, the sales person and the file's own leaders (its team leader, ASM and sales manager) are notified;
 - the case status (Sent to checker, Applicant review…) is not changed.
 
 Changes to anything else (contact details, address, notes, sales staff) leave the completed verification as it is. The edit form warns before saving on a verified file.
@@ -477,11 +477,13 @@ Case status is separate from verification:
 - **Verification** is the processing team's calls: pending, in verification, completed, or incomplete, after which the team leader decides.
 - **Case status** is the outcome of the file.
 
-Each file starts as **Sent to checker** when the sales person submits it. After that only a team leader, ASM, sales manager, MIS or business head can change it. Processors can't. MIS and business heads can also change many at once with the **Case status** bulk upload (see Bulk upload). They choose **Applicant review**, **Completed** or **Rejected**, and Applicant review and Rejected need a note. Every change is logged and the sales person is notified. Team leaders are also alerted when a file moves to Applicant review.
+Each file starts as **Sent to checker** when the sales person submits it. After that only a team leader, ASM, sales manager, MIS or business head can change it. Processors can't. MIS and business heads can also change many at once with the **Case status** bulk upload (see Bulk upload). They choose **Applicant review**, **Completed** or **Rejected**, and Applicant review and Rejected need a note. Every change is logged and the sales person is notified. The file's own team leader, ASM and sales manager are also alerted when it moves to Applicant review.
 
-While a file is in **Applicant review**, the sales person who sourced it can't edit it. Instead they send an **edit request** to the **Team Leader** or **Sales Manager** queue, describing the changes. The team leader or sales manager makes the edits and clicks **Mark changes done**, and the sales person is told.
+While a file is in **Applicant review**, the sales person who sourced it can't edit it. Instead they send an **edit request** to the **Team Leader** or **Sales Manager** queue, describing the changes; it reaches the file's own team leader, or its own sales manager and ASM, not everyone with that role. The team leader or sales manager makes the edits and clicks **Mark changes done**, and the sales person is told.
 
 Each file also has a **sourcing date**, which defaults to today and can't be in the future.
+
+**Who is told.** Notifications about a file go to the people on that file: the sales person who sourced it and the leaders recorded on it (its team leader, ASM and sales manager), never to every team leader or every manager. That covers verification pending (Action required), verification rejected, re-verification after changes, urgent flags, Applicant review and edit requests. Only approvals that belong to a whole role still go to that role: bot call approvals to governance and business heads, recording approvals to business heads.
 
 ### Chat: case discussions, direct messages and groups
 
@@ -535,7 +537,7 @@ The **Governance** role sees every file (but cannot edit it or change its status
 - **Mark a file for quality check**, with an optional note, and remove the mark later. Marked files appear in the **Quality check** queue.
 - **Add a complaint number** to any file. It is searchable.
 - **Score the verification call** from **0 to 10**, with one decimal allowed, plus comments. This is only available once the processor has recorded a verification result. The processor is notified, and team dashboards show each processor's average score.
-- **Flag a file for urgent verification**, with a reason, while verification is still awaiting, in progress, Pending or returned to sales. The processor on the file (or all processors if nobody has picked it up) and team leaders are alerted. Urgent files go to the top of the queues with an **Urgent** tag and an **Urgent** menu item. The flag clears automatically when the verification is completed or rejected.
+- **Flag a file for urgent verification**, with a reason, while verification is still awaiting, in progress, Pending or returned to sales. The processor on the file (or all processors if nobody has picked it up) and the file's own leaders are alerted. Urgent files go to the top of the queues with an **Urgent** tag and an **Urgent** menu item. The flag clears automatically when the verification is completed or rejected.
 - **Request the call recording**, only once verification is **Completed** or **Rejected**, and with a reason. While it is still pending, the recording can't be retrieved; flag the file for urgent verification instead. The business head can't approve a request either until verification has a final result.
   1. The request goes to the **business head**, in their **Recording approvals** queue.
   2. The business head **approves** it, or **declines** it with a reason.
