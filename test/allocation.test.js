@@ -137,6 +137,26 @@ test('the allocation list can be narrowed to one region: its team leaders, and i
   assert.equal((await lead('GET', '/allocations?region=XYZ')).status, 400);
 });
 
+test('MIS downloads every file ever sourced with the All files report; it needs no period and others do not get it', async () => {
+  const mis = await login('mis@t.local');
+  const dana = await login('dana@t.local');
+  const vera = await login('vlead@t.local');
+  assert.ok((await mis('GET', '/reports')).data.reports.some((r) => r.key === 'all_files'));
+  assert.ok(!(await vera('GET', '/reports')).data.reports.some((r) => r.key === 'all_files'));
+  assert.equal((await vera('GET', '/reports/all_files')).status, 404);
+  const oldR = await dana('POST', '/cases', loan({ customer_name: 'Old File', phone: '+971 50 222 8888', sourcing_date: '2024-01-15', fpd: '2024-03-01' }));
+  assert.equal(oldR.status, 201, JSON.stringify(oldR.data));
+  const old = oldR.data.case;
+  const rep = (await mis('GET', '/reports/all_files')).data;
+  assert.ok(rep.rows.some((r) => r.ref === `CRM-${String(old.id).padStart(6, '0')}` && r.customer === 'Old File'), 'a file sourced long before the current cycle is in it');
+  assert.ok(rep.columns.some((c) => c.key === 'bank_status') && rep.columns.some((c) => c.key === 'case_status'));
+  assert.equal(rep.truncated, false);
+  assert.match(rep.totals.ref, /files$/);
+  // The dated register is still limited to its period
+  const reg = (await mis('GET', '/reports/register?from=2026-10-01&to=2026-10-31')).data;
+  assert.ok(!reg.rows.some((r) => r.customer === 'Old File'));
+});
+
 test('the verification team leader runs the Files in process report: every open file, who it waits on, calls and TAT', async () => {
   const vera = await login('vlead@t.local');
   const pat = await login('pat@t.local');

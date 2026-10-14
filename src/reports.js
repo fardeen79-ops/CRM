@@ -50,6 +50,7 @@ export const REPORTS = {
   pnl_hierarchy: { name: 'Profit and loss by region and team', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'The profit and loss broken down by region, sales manager, team leader and sales staff: each level\'s revenue (files completed by its staff), salaries and incentives (its people, leaders included at their level), net and margin. Overheads (business heads, processing, MIS, governance, IT) sit at region level.' },
   open_files: { name: 'Files in process', roles: [...ALL, 'governance', 'processing'], only: (user) => user.role !== 'processing' || isProcessingLead(user), period: 'every open file as it stands now, whenever it was sourced', description: 'Every file that is neither completed nor rejected: where it stands, who it is waiting on, the processor, calls made, the last call, days since sourcing and since the last action, the verification TAT and any call-back due. Sourced in any period; the period filter does not apply.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
+  all_files: { name: 'All files (export)', roles: ALL, period: 'every file ever sourced, whatever its status', description: 'The whole case register in one download, the same columns as the Case register, without a period: for MIS and business heads to reconcile against the bank. Personal details stay masked.' },
 };
 
 /** The report keys a built-in role can run at all (before a custom role narrows them). */
@@ -461,6 +462,7 @@ function access(db, user, { period, region }) {
 
 const VERIFICATION_LABELS = { awaiting_approval: 'With team leader', pending_verification: 'Awaiting verification', in_verification: 'In verification', completed: 'Verified', incomplete: 'Verification pending', returned_to_sales: 'Returned to sales', rejected: 'Verification rejected' };
 const REGISTER_LIMIT = 5000;
+const ALL_FILES_LIMIT = 100000; // the whole register in one download
 const CALL_OUTCOME_LABELS = { connected: 'Connected', no_answer: 'No answer', busy: 'Busy', switched_off: 'Switched off', wrong_number: 'Wrong number', call_back_later: 'Call back later', not_reachable: 'Not reachable' };
 /** Every file still in process: not completed, not rejected, whenever it was sourced. */
 function open_files(db, user, { region }) {
@@ -505,11 +507,18 @@ function open_files(db, user, { region }) {
 }
 
 function register(db, user, { period, region }) {
+  return registerRows(db, user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to], REGISTER_LIMIT);
+}
+/** Every file in the viewer's scope, whenever sourced: the register without a period, for reconciling with the bank. */
+function all_files(db, user, { region }) {
+  return registerRows(db, user, region, [], [], ALL_FILES_LIMIT);
+}
+function registerRows(db, user, region, where, whereParams, limit) {
   sweepCardAgeing(db);
-  const { sql, params } = caseWhere(user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to]);
-  const rows = db.prepare(`SELECT c.*, at.name AS assigned_to_name FROM cases c LEFT JOIN users at ON at.id = c.assigned_to ${sql} ORDER BY c.id DESC LIMIT ?`).all(...params, REGISTER_LIMIT + 1);
-  const truncated = rows.length > REGISTER_LIMIT;
-  const out = rows.slice(0, REGISTER_LIMIT).map((raw) => {
+  const { sql, params } = caseWhere(user, region, where, whereParams);
+  const rows = db.prepare(`SELECT c.*, at.name AS assigned_to_name FROM cases c LEFT JOIN users at ON at.id = c.assigned_to ${sql} ORDER BY c.id DESC LIMIT ?`).all(...params, limit + 1);
+  const truncated = rows.length > limit;
+  const out = rows.slice(0, limit).map((raw) => {
     const c = present(user, raw); // hides and masks personal details exactly as on screen
     return {
       ref: caseRef(c.id), ...payoutCols(user, raw), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '', designation: c.designation || '', department: c.department || '', customer_doj: c.customer_doj || '', journey_type: JOURNEY_TYPES[c.journey_type] || '', sourcing_type: SOURCING_TYPES[c.sourcing_type || 'regular'] || c.sourcing_type, fd_amount: c.fd_amount ?? null,
@@ -772,7 +781,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { open_files, pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { open_files, all_files, pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
@@ -783,7 +792,9 @@ export function runReport(db, user, key, filters = {}) {
   const region = reportRegion(filters.region);
   const result = RUNNERS[key](db, user, { period, region });
   db.prepare('INSERT INTO report_runs (user_id, report, filters, at) VALUES (?, ?, ?, ?)').run(user.id, key, JSON.stringify({ period: period.label, region }), new Date().toISOString());
-  return { key, name: def.name, description: def.description, period: period.label, cycle: period.cycle, from: period.from, to: period.to, region, scope: scopeLabel(user), ...result };
+  // Reports that ignore the period (every open file, every file) say so instead of naming a cycle.
+  const timeless = ['open_files', 'all_files'].includes(key);
+  return { key, name: def.name, description: def.description, period: timeless ? def.period : period.label, cycle: timeless ? null : period.cycle, from: period.from, to: period.to, region, scope: scopeLabel(user), ...result };
 }
 
 function scopeLabel(user) {
