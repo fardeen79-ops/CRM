@@ -190,7 +190,7 @@ test('team leader can send back for re-verification or reject', async () => {
   await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'customer_denied', note: 'Says never applied' });
   r = await lead('POST', `/cases/${id}/actions`, { action: 'reject', note: 'Fake lead' });
   assert.equal(r.data.case.status, 'rejected');
-  assert.deepEqual(r.data.case.allowed_actions, ['set_case_status']); // verification is over; case status can still change
+  assert.deepEqual(r.data.case.allowed_actions, ['set_case_status', 'set_bank_status']); // verification is over; the case and bank status can still change
 });
 
 test('sales staff only see their own cases and input is validated', async () => {

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { bankStatusesFor, matchBankStatus, caseStatusOf, bankStatusLabel } from './bank-status.js';
 import { transaction } from './db.js';
 import { cardNames, cardProduct, higherCards } from './credit-cards.js';
 import { findUser } from './users.js';
@@ -312,7 +313,7 @@ export function recordingEmail(row) {
 
 // Call-quality scores are out of 10, with at most one decimal place.
 export const SCORE_MAX = 10;
-const CASE_ACTIONS = ['set_case_status', 'set_disbursal', 'request_edit', 'resolve_edit_request', 'set_card_status', ...GOVERNANCE_ACTIONS];
+const CASE_ACTIONS = ['set_case_status', 'set_bank_status', 'set_disbursal', 'request_edit', 'resolve_edit_request', 'set_card_status', ...GOVERNANCE_ACTIONS];
 // Internal quality information that sales staff never see.
 const GOVERNANCE_FIELDS = [
   'qc_flag', 'qc_note', 'qc_by', 'qc_at', 'qc_by_name',
@@ -980,7 +981,7 @@ export const processorsFor = (db, row) => {
 const CASE_SELECT = `
   SELECT c.*, cb.name AS created_by_name, at.name AS assigned_to_name,
          vb.name AS verified_by_name, tb.name AS tl_actioned_by_name,
-         sb.name AS case_status_by_name, rb.name AS edit_request_by_name,
+         sb.name AS case_status_by_name, bsb.name AS bank_status_by_name, rb.name AS edit_request_by_name,
          qb.name AS qc_by_name, rqb.name AS recording_requested_by_name, rpb.name AS recording_provided_by_name, rdb.name AS recording_decided_by_name, ub.name AS urgent_by_name,
          cpb.name AS complaint_by_name, scb.name AS qc_scored_by_name, csb.name AS card_status_by_name, cbb.name AS callback_by_name, ceb.name AS card_exception_by_name, tab.name AS timing_approved_by_name, cdb.name AS complaint_decided_by_name
   FROM cases c
@@ -989,6 +990,7 @@ const CASE_SELECT = `
   LEFT JOIN users vb ON vb.id = c.verified_by
   LEFT JOIN users tb ON tb.id = c.tl_actioned_by
   LEFT JOIN users sb ON sb.id = c.case_status_by
+  LEFT JOIN users bsb ON bsb.id = c.bank_status_by
   LEFT JOIN users rb ON rb.id = c.edit_request_by
   LEFT JOIN users qb ON qb.id = c.qc_by
   LEFT JOIN users rqb ON rqb.id = c.recording_requested_by
@@ -1169,7 +1171,8 @@ export function getCase(db, user, id) {
     )
     .all(id);
   const shown = presentEvents(row, events);
-  const out = { ...present(user, row), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row) };
+  const out = { ...present(user, row), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row),
+    bank_status_label: bankStatusLabel(row.bank_status), bank_status_options: bankStatusesFor(caseProducts(row)).map((s) => ({ value: s, label: bankStatusLabel(s), case_status: caseStatusOf(s) })) };
   if (user.role !== 'sales' && row.bot_call_status) {
     // The recording itself is played through the CRM (bot.js), only to those allowed to listen.
     const { recording_url, ...call } = latestBotCall(db, id);
@@ -1443,6 +1446,7 @@ function allowedCaseActions(user, row) {
     if (BOT_CALL_WAITING.includes(row.bot_call_status) && isVerificationLead(user)) out.push('withdraw_bot_call');
   }
   if (CASE_STATUS_ROLES.includes(user.role)) out.push('set_case_status');
+  if (CASE_STATUS_ROLES.includes(user.role) && bankStatusesFor(caseProducts(row)).length) out.push('set_bank_status');
   const hasLoan = Object.keys(DISBURSAL_FIELDS).some((p) => caseProducts(row).includes(p));
   if (CASE_STATUS_ROLES.includes(user.role) && row.case_status === 'completed' && hasLoan) out.push('set_disbursal');
   if (user.role === 'sales' && isOwner(user, row) && row.case_status === 'applicant_review') out.push('request_edit');
@@ -1771,6 +1775,26 @@ export function setCardStatus(db, user, row, { card_status, activation_date } = 
   });
 }
 
+/** Moves a file to a case status (Sent to checker, Applicant review, Completed or Rejected), with the disbursal on a completed loan, the timeline entry and the notifications. */
+function changeCaseStatus(db, user, row, case_status, note, extra, ts) {
+  const id = row.id;
+  const ref = caseRef(id);
+  const who = `${user.name}`;
+  // Completing a loan records how much was disbursed; leaving Completed clears it.
+  const amounts = case_status === 'completed' ? disbursals(row, extra, { required: true }) : {};
+  db.prepare(`UPDATE cases SET case_status = ?, case_status_note = ?, case_status_by = ?, case_status_at = ?, updated_at = ?,
+      pl_disbursed_amount = ?, al_disbursed_amount = ?, al_payout_class = COALESCE(?, al_payout_class) WHERE id = ?`)
+    .run(case_status, note, user.id, ts, ts, amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, amounts.al_payout_class ?? null, id);
+  addEvent(db, id, user.id, 'case_status', { detail: case_status, note });
+  if (Object.keys(amounts).length) addEvent(db, id, user.id, 'disbursal', { detail: disbursalText(amounts) });
+  const label = CASE_STATUS[case_status];
+  notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) case status changed to ${label} by ${who}${note ? `: ${note}` : ''}`);
+  if (case_status === 'applicant_review') {
+    notify(db, leadersOf(db, row).filter((u) => u !== user.id), id,
+      `Applicant review: ${ref} (${row.customer_name}) set by ${who}${note ? ` — ${note}` : ''}`);
+  }
+}
+
 function applyCaseAction(db, user, id, { action, note, case_status, to, recording_ref, complaint_number, score, card_status, activation_date, ...extra }) {
   const triggers = [];
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
@@ -1795,18 +1819,19 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
       }
       if (case_status === row.case_status) throw new WorkflowError(409, `The case is already ${CASE_STATUS[case_status]}`);
       if (case_status !== 'completed' && !note) throw new WorkflowError(400, `Add a note explaining why the case is ${CASE_STATUS[case_status]}`);
-      // Completing a loan records how much was disbursed; leaving Completed clears it.
-      const amounts = case_status === 'completed' ? disbursals(row, extra, { required: true }) : {};
-      db.prepare(`UPDATE cases SET case_status = ?, case_status_note = ?, case_status_by = ?, case_status_at = ?, updated_at = ?,
-          pl_disbursed_amount = ?, al_disbursed_amount = ?, al_payout_class = COALESCE(?, al_payout_class) WHERE id = ?`)
-        .run(case_status, note, user.id, ts, ts, amounts.pl_disbursed_amount ?? null, amounts.al_disbursed_amount ?? null, amounts.al_payout_class ?? null, id);
-      addEvent(db, id, user.id, 'case_status', { detail: case_status, note });
-      if (Object.keys(amounts).length) addEvent(db, id, user.id, 'disbursal', { detail: disbursalText(amounts) });
-      const label = CASE_STATUS[case_status];
-      notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) case status changed to ${label} by ${who}${note ? `: ${note}` : ''}`);
-      if (case_status === 'applicant_review') {
-        notify(db, leadersOf(db, row).filter((u) => u !== user.id), id,
-          `Applicant review: ${ref} (${row.customer_name}) set by ${who}${note ? ` — ${note}` : ''}`);
+      changeCaseStatus(db, user, row, case_status, note, extra, ts);
+    } else if (action === 'set_bank_status') {
+      // The bank's own status on the file; the CRM's case status follows from it.
+      const products = caseProducts(row);
+      const status = matchBankStatus(extra.bank_status, products);
+      if (!status) throw new WorkflowError(400, `Choose the bank's status for this ${products.map((p) => PRODUCTS[p] || p).join(' / ')} file`);
+      if (status === row.bank_status) throw new WorkflowError(409, `The bank status is already ${bankStatusLabel(status)}`);
+      db.prepare('UPDATE cases SET bank_status = ?, bank_status_by = ?, bank_status_at = ?, updated_at = ? WHERE id = ?').run(status, user.id, ts, ts, id);
+      addEvent(db, id, user.id, 'bank_status', { detail: status, note });
+      const derived = caseStatusOf(status);
+      if (derived && derived !== row.case_status) {
+        // A derived Applicant review or Rejected carries the bank status as its note when none is given.
+        changeCaseStatus(db, user, row, derived, note || `Bank status: ${bankStatusLabel(status)}`, extra, ts);
       }
     } else if (action === 'request_edit') {
       if (!EDIT_QUEUES[to]) throw new WorkflowError(400, 'Send the request to the Team Leader or Sales Manager queue');

@@ -3,6 +3,7 @@
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
 import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, JOURNEY_TYPES, SOURCING_TYPES, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents, verificationTat } from './cases.js';
+import { bankStatusLabel } from './bank-status.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { isProcessingLead } from './roles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
@@ -483,7 +484,7 @@ function open_files(db, user, { region }) {
       ref: caseRef(c.id), sourcing_date: c.sourcing_date, days_open: days(c.sourcing_date || c.created_at), region: c.region || '', customer: c.customer_name, phone: c.phone || '',
       product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.personal_loan_kind),
       sales_staff: c.sales_staff_name || '', team_leader: c.team_leader_name || '',
-      verification: VERIFICATION_LABELS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status, waiting_on: waitingOn(raw),
+      verification: VERIFICATION_LABELS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status, bank_status: bankStatusLabel(c.bank_status), waiting_on: waitingOn(raw),
       processor: c.assigned_to_name || '', calls: raw.calls, last_call: CALL_OUTCOME_LABELS[raw.last_call] || raw.last_call || '', last_call_at: raw.last_call_at || '',
       last_action_at: raw.last_action_at || c.updated_at || '', days_idle: days(raw.last_action_at || c.updated_at),
       tat: tat ? ({ overdue: `Overdue by ${tat.days_over} working day${tat.days_over === 1 ? '' : 's'}`, met: 'Met', missed: 'Missed', held: 'Held', closed: '' }[tat.state] || (tat.due ? `Due ${tat.due}` : '')) : '',
@@ -494,7 +495,7 @@ function open_files(db, user, { region }) {
   for (const r of out) byStatus[r.verification] = (byStatus[r.verification] || 0) + 1;
   return {
     columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('days_open', 'Days open'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'),
-      col('product', 'Product', 'text'), col('sales_staff', 'Sales staff', 'text'), col('team_leader', 'Team leader', 'text'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text'),
+      col('product', 'Product', 'text'), col('sales_staff', 'Sales staff', 'text'), col('team_leader', 'Team leader', 'text'), col('verification', 'Verification', 'text'), col('case_status', 'Case status', 'text'), col('bank_status', 'Bank status', 'text'),
       col('waiting_on', 'Waiting on', 'text'), col('processor', 'Processor', 'text'), col('calls', 'Calls'), col('last_call', 'Last call', 'text'), col('last_call_at', 'Last call at', 'datetime'),
       col('last_action_at', 'Last action', 'datetime'), col('days_idle', 'Days idle'), col('tat', 'Verification TAT', 'text'), col('callback_at', 'Call-back due', 'datetime'), col('urgent', 'Urgent', 'text'), col('reason', 'Pending reason', 'text')],
     rows: out,
@@ -517,7 +518,7 @@ function register(db, user, { period, region }) {
       auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',
       verification: VERIFICATION_LABELS[c.status] || c.status, verification_reason: c.incomplete_reason || '', processor: c.assigned_to_name || '', verified_at: c.verified_at || c.tat_held_at || '',
-      case_status: CASE_STATUS[c.case_status] || c.case_status, case_status_at: c.case_status_at || '', disbursed_aed: (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0) || null,
+      case_status: CASE_STATUS[c.case_status] || c.case_status, bank_status: bankStatusLabel(c.bank_status), case_status_at: c.case_status_at || '', disbursed_aed: (c.pl_disbursed_amount || 0) + (c.al_disbursed_amount || 0) || null,
       card_reason: c.card_salary_exception ? CARD_EXCEPTIONS[c.card_salary_exception] : (c.status === 'awaiting_approval' && c.credit_card && c.card_min_salary != null && (c.salary == null || c.salary < c.card_min_salary) ? 'Awaiting approval' : ''), eligible_category: c.card_higher_options > 0 ? c.card_eligible_category : '',
       card_status: c.card_status ? CARD_STATES[c.card_status] : (c.case_status === 'completed' && includesCard(c) ? 'Not mapped' : ''), card_date: c.card_activation_date || '',
       qc_score: c.qc_score ?? null, complaint: c.complaint_number || '', source: c.source || '',
@@ -526,7 +527,7 @@ function register(db, user, { period, region }) {
   return {
     columns: [col('ref', 'Ref', 'text'), col('sourcing_date', 'Sourced', 'date'), col('region', 'Region', 'text'), col('customer', 'Customer', 'text'), col('phone', 'Phone', 'text'), col('city', 'City', 'text'), col('salary_bank', 'Salary bank', 'text'), col('designation', 'Designation', 'text'), col('department', 'Department', 'text'), col('customer_doj', 'Date of joining', 'date'), col('journey_type', 'Journey type', 'text'), col('sourcing_type', 'Sourcing type', 'text'), col('fd_amount', 'Fixed deposit (AED)', 'aed'), col('product', 'Product', 'text'), col('core_product', 'Core product', 'text'),
       col('card_fee_type', 'Card sourced type', 'text'), col('card_reason', 'Card sold as', 'text'), col('eligible_category', 'Eligible for higher', 'text'), col('loan_amount', 'Loan / amount (AED)', 'aed'), col('interest_rate', 'Interest / ROI %', 'rate'), col('tenure', 'Tenure (months)'), col('fpd', 'FPD', 'date'), col('auto_loan_type', 'Auto loan type', 'text'), col('car', 'Car', 'text'), col('dealer', 'Dealer', 'text'), col('sales_staff', 'Sales staff', 'text'), col('sales_code', 'Code', 'text'), col('team_leader', 'Team leader', 'text'), col('sales_manager', 'Sales manager', 'text'),
-      col('verification', 'Verification', 'text'), col('verification_reason', 'Reason', 'text'), col('processor', 'Processor', 'text'), col('verified_at', 'Verified at', 'datetime'), col('case_status', 'Case status', 'text'), col('case_status_at', 'Case status at', 'datetime'), col('disbursed_aed', 'Disbursed (AED)', 'aed'),
+      col('verification', 'Verification', 'text'), col('verification_reason', 'Reason', 'text'), col('processor', 'Processor', 'text'), col('verified_at', 'Verified at', 'datetime'), col('case_status', 'Case status', 'text'), col('bank_status', 'Bank status', 'text'), col('case_status_at', 'Case status at', 'datetime'), col('disbursed_aed', 'Disbursed (AED)', 'aed'),
       col('card_status', 'Card status', 'text'), col('card_date', 'Card status date', 'date'), col('qc_score', 'QC score', 'score'), col('complaint', 'Complaint no.', 'text'), col('source', 'Source', 'text'), ...(canSeePayout(user) ? [col('payout_aed', 'Payout (AED)', 'aed'), col('payout_paid_aed', 'Payout paid (AED)', 'aed'), col('payout_status', 'Payout status', 'text')] : [])],
     rows: out,
     totals: { ref: `${out.length} files`, disbursed_aed: sum(out, 'disbursed_aed') },

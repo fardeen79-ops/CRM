@@ -3,8 +3,9 @@
 // and rolls it back; a real import keeps the good rows and reports the rest so they can be fixed
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
+import { matchBankStatus, caseStatusOf, bankStatusLabel } from './bank-status.js';
 import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, CASE_STATUS, SETTABLE_CASE_STATUSES, applyAction, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, CASE_STATUS, SETTABLE_CASE_STATUSES, applyAction, caseProducts, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -110,7 +111,8 @@ export const CARD_IMPORT_COLUMNS = [
 
 export const CASE_STATUS_IMPORT_COLUMNS = [
   { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference or App ID of the file' },
-  { key: 'case_status', header: 'Case status', required: true, example: 'Completed', allowed: SETTABLE_CASE_STATUSES.map((k) => CASE_STATUS[k]) },
+  { key: 'bank_status', header: 'Bank status', example: 'AO_COMPLETED_WAITING_FOR_SALARY_TRANSFER', help: "The bank's application status or stage for the file's product, as on the bank's report; the case status follows from it" },
+  { key: 'case_status', header: 'Case status', example: '', help: 'Applicant review, Completed or Rejected, when setting the case status directly (leave blank when a bank status is given)', allowed: SETTABLE_CASE_STATUSES.map((k) => CASE_STATUS[k]) },
   { key: 'note', header: 'Note', example: '', help: 'Why the file is in Applicant review or Rejected (required for those two); optional for Completed' },
   { key: 'pl_disbursed_amount', header: 'Personal loan disbursed (AED)', example: '', help: 'Completed personal loans: the amount disbursed; blank takes the loan amount on the file' },
   { key: 'al_disbursed_amount', header: 'Auto loan disbursed (AED)', example: '', help: 'Completed auto loans: the amount disbursed; blank takes the amount on the file' },
@@ -761,16 +763,25 @@ export function importCaseStatus(db, user, csv, { dryRun = false } = {}) {
     const row = caseByReference(db, ref);
     if (seen.has(row.id)) throw new Error(`${caseRef(row.id)} is also on line ${seen.get(row.id)} of this file`);
     seen.set(row.id, record.line);
-    const status = choose(v.case_status, Object.fromEntries(SETTABLE_CASE_STATUSES.map((k) => [k, CASE_STATUS[k]])), 'Case status');
-    if (!status) throw new Error('Case status is required');
-    applyAction(db, user, row.id, {
-      action: 'set_case_status', case_status: status, note: v.note,
+    const amounts = {
       pl_disbursed_amount: v.pl_disbursed_amount, al_disbursed_amount: v.al_disbursed_amount,
       al_payout_class: v.al_payout_class ? choose(v.al_payout_class, AUTO_LOAN_CLASSES, 'Auto loan payout class') : '',
-    });
+    };
+    let label;
+    if (String(v.bank_status || '').trim()) {
+      const bank = matchBankStatus(v.bank_status, caseProducts(row));
+      if (!bank) throw new Error(`"${v.bank_status}" is not a bank status for a ${caseProducts(row).map((p) => PRODUCTS[p] || p).join(' / ')} file`);
+      applyAction(db, user, row.id, { action: 'set_bank_status', bank_status: bank, note: v.note, ...amounts });
+      label = `${bankStatusLabel(bank)} → ${CASE_STATUS[caseStatusOf(bank)]}`;
+    } else {
+      const status = choose(v.case_status, Object.fromEntries(SETTABLE_CASE_STATUSES.map((k) => [k, CASE_STATUS[k]])), 'Case status');
+      if (!status) throw new Error('Give a bank status or a case status');
+      applyAction(db, user, row.id, { action: 'set_case_status', case_status: status, note: v.note, ...amounts });
+      label = CASE_STATUS[status];
+    }
     return {
       id: row.id, ref: caseRef(row.id),
-      label: `${row.customer_name} · ${CASE_STATUS[status]}`,
+      label: `${row.customer_name} · ${label}`,
       email: row.sales_staff_name ? `Sales: ${row.sales_staff_name} (${row.sales_code})` : '',
     };
   }))));

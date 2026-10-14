@@ -54,6 +54,8 @@ const ACTION_LABEL = {
   resubmit: 'Resubmitted for verification',
   case_status: 'Case status changed',
   set_case_status: 'Case status updated',
+  bank_status: 'Bank status changed',
+  set_bank_status: 'Bank status updated',
   request_edit: 'Edit request sent',
   resolve_edit_request: 'Requested changes made',
   flag_urgent: 'Flagged for urgent verification',
@@ -1136,7 +1138,7 @@ const COLS = {
   customer: ['Customer', (c) => html`${c.customer_name}<div class="muted small">${[c.product_label, c.company_name || c.city].filter(Boolean).join(' · ')}</div>`],
   phone: ['Phone', (c) => (c.phone == null && c.hidden_fields?.includes('phone') ? html`<span class="lock">Hidden</span>` : c.phone)],
   status: ['Verification', (c) => html`${badge(c.status)}${c.verified_basis === 'deviation' ? html` <span class="chip warn" title="Completed based on deviation, without a verification call">Deviation</span>` : ''}${isUrgent(c) ? html` <span class="chip bad">Urgent</span>` : ''}${isDncr(c) ? html` <span class="chip bad" title="Customer is on the Do Not Call Register">DNCR</span>` : ''}${c.callback_at && state.user.role === 'processing' ? html` ${callbackChip(c)}` : ''}`],
-  case_status: ['Case status', (c) => html`${caseBadge(c.case_status)}${c.case_status === 'completed' && completionLabel(c) ? html`<div class="muted small">${completionLabel(c)}</div>` : ''}`],
+  case_status: ['Case status', (c) => html`${caseBadge(c.case_status)}${c.case_status === 'completed' && completionLabel(c) ? html`<div class="muted small">${completionLabel(c)}</div>` : ''}${c.bank_status ? html`<div class="muted small bank-status">${state.meta.bank_status_labels?.[c.bank_status] || c.bank_status}</div>` : ''}`],
   sourced: ['Sourced', (c) => html`<span class="small nowrap">${fmtDay(c.sourcing_date)}</span>`],
   cs_note: ['Status note', (c) => html`${c.case_status_note || ''}<div class="muted small">${c.case_status_by_name || ''}</div>`],
   request: ['Edit request', (c) => (c.edit_request_to
@@ -1943,6 +1945,7 @@ function eventDetail(e) {
   if (e.type === 'log_call' && e.detail?.startsWith('call_back_later ')) return `Call back later · ${fmtWhen(e.detail.slice(16))}`;
   if (e.type === 'callback_due') return `customer asked for ${e.detail}`;
   if (e.type === 'created' || e.type === 'case_status') return CASE_STATUS_LABEL[e.detail] || label(e.detail);
+  if (e.type === 'bank_status') return state.meta.bank_status_labels?.[e.detail] || e.detail;
   if (e.type === 'request_edit' || e.type === 'resolve_edit_request') return `${state.meta.edit_queues[e.detail] || label(e.detail)} queue`;
   if (e.type === 'score_quality') return `${e.detail}/10`;
   if (e.type === 'complaint_decision') return e.detail === 'valid' ? 'Valid · removed from incentive' : 'Invalid · counts for incentive';
@@ -2305,6 +2308,27 @@ async function viewCase(id) {
         <button class="btn-primary">Save decision</button>
       </form>` : ''}`);
   }
+  if (a.has('set_bank_status')) {
+    const options = c.bank_status_options || [];
+    panel.push(html`${sep()}<h3>Bank status</h3>
+      <p class="small">Now: ${c.bank_status ? html`<strong>${c.bank_status_label}</strong>${c.bank_status_by_name ? html` <span class="muted">· ${c.bank_status_by_name}, ${fmtDate(c.bank_status_at)}</span>` : ''}` : html`<span class="muted">not set</span>`}</p>
+      <form data-form="set_bank_status">
+        <div class="field-row"><label for="bs-select" class="sr-only">Bank status</label>
+          <select id="bs-select" name="bank_status" required>
+            <option value="">Bank status…</option>
+            ${options.filter((o) => o.value !== c.bank_status).map((o) => html`<option value="${o.value}" data-case-status="${o.case_status}">${o.label}</option>`)}
+          </select></div>
+        <p class="muted small" id="bs-hint">The case status follows the bank status: Completed, Rejected, Applicant review (with the customer or sourcing) or Sent to checker (in process at the bank).</p>
+        ${c.case_status !== 'completed' && loansIn(c).length ? html`<fieldset class="disbursal-fields" id="bs-disbursal" hidden>
+          <legend>Disbursed amount <span class="muted">(COMPLETED)</span></legend>
+          ${loansIn(c).map((p) => html`<div class="field-row"><label for="bs-${p}">${LOAN_DISBURSAL[p][1]} (AED)</label>
+            <input id="bs-${p}" name="${LOAN_DISBURSAL[p][0]}" inputmode="decimal" value="${suggestedDisbursal(c, p)}" placeholder="Amount paid out"></div>`)}
+          ${payoutClassField(c, 'bs')}
+        </fieldset>` : ''}
+        <div class="field-row"><textarea name="note" placeholder="Note (optional)"></textarea></div>
+        <div class="actions"><button class="btn-primary">Update bank status</button></div>
+      </form>`);
+  }
   if (a.has('set_case_status')) {
     const choices = state.meta.settable_case_statuses.filter((k) => k !== c.case_status);
     panel.push(html`${panel.length ? raw('<hr>') : ''}<h3>Case status</h3>
@@ -2431,6 +2455,7 @@ async function viewCase(id) {
           <h2 class="sub">Case</h2>
           <dl class="details">
             <dt>Case status</dt><dd>${caseBadge(c.case_status)}${c.case_status_by_name ? html`<div class="muted small">${c.case_status_by_name} · ${fmtDate(c.case_status_at)}</div>` : ''}${c.case_status_note ? html`<div>${c.case_status_note}</div>` : ''}</dd>
+            ${c.bank_status ? html`<dt>Bank status</dt><dd><strong>${c.bank_status_label}</strong>${c.bank_status_by_name ? html`<div class="muted small">${c.bank_status_by_name} · ${fmtDate(c.bank_status_at)}</div>` : ''}</dd>` : ''}
             ${c.case_status === 'completed' ? html`<dt>Completed as</dt><dd><strong>${completionLabel(c) || 'Completed'}</strong>${disbursedText(c) ? html`<div>${disbursedText(c)}</div>` : ''}<div class="muted small">${fmtIsoDay(c.case_status_at)} · ${cycleName(cycleOfIso(c.case_status_at))} cycle</div></dd>` : ''}
             ${c.case_status === 'completed' && hasCard(c) ? html`<dt>Card activation</dt><dd>${cardChip(c.card_status)}${c.card_status ? html`<div class="small">${cardDateText(c)}</div>${cardAgeDays(c) != null ? html`<div class="age-line">Ageing ${ageChip(c)} <span class="muted small">since the temp end on ${fmtIsoDay(c.case_status_at)}</span></div>` : ''}<div class="muted small">${c.card_status_by_name ? `Mapped by ${c.card_status_by_name}` : (c.card_status === 'inactive' ? 'Inactive by default until activation is confirmed' : `Moved automatically after ${state.meta.card_range_days} days`)} · ${fmtDate(c.card_status_at)}</div>` : ''}</dd>` : ''}
             <dt>Sourcing date</dt><dd>${fmtDay(c.sourcing_date)}</dd>
@@ -2581,6 +2606,16 @@ async function viewCase(id) {
   if (cardForm) {
     const dateLabel = cardForm.querySelector('#card-date-label');
     cardForm.querySelectorAll('input[name=card_status]').forEach((r) => (r.onchange = () => { dateLabel.textContent = r.value === 'inactive' ? 'Inactive since' : 'Activated on'; }));
+  }
+  // The bank status select shows which case status the choice leads to, and asks for the disbursal when it completes a loan.
+  const bsSelect = document.getElementById('bs-select');
+  if (bsSelect) {
+    bsSelect.onchange = () => {
+      const to = bsSelect.selectedOptions[0]?.dataset.caseStatus;
+      const hint = document.getElementById('bs-hint');
+      hint.textContent = to ? `This moves the case status to ${CASE_STATUS_LABEL[to]}${to === c.case_status ? ' (unchanged)' : ''}.` : 'The case status follows the bank status.';
+      const d = document.getElementById('bs-disbursal'); if (d) d.hidden = to !== 'completed';
+    };
   }
   app.querySelectorAll('form[data-form]').forEach((f) => {
     const kind = f.dataset.form;

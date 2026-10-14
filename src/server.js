@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as auth from './auth.js';
 import * as cases from './cases.js';
+import { BANK_STATUSES, bankStatusLabel } from './bank-status.js';
 import * as allocations from './allocations.js';
 import * as boosters from './boosters.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
@@ -307,6 +308,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
         manager_roles: cases.MANAGER_ROLES,
         core_products: cases.CORE_PRODUCTS,
         settable_case_statuses: cases.SETTABLE_CASE_STATUSES,
+        bank_statuses: BANK_STATUSES, bank_status_labels: Object.fromEntries(Object.values(BANK_STATUSES).flat().map((x) => [x, bankStatusLabel(x)])),
         edit_queues: cases.EDIT_QUEUES,
         recording_statuses: cases.RECORDING_STATUS,
         score_max: cases.SCORE_MAX,
