@@ -575,7 +575,7 @@ export const ACTIONS = {
 const TEXT_FIELDS = {
   salutation: 10, first_name: 100, middle_name: 100, last_name: 100, company_name: 200, designation: 100, department: 100, salary_bank: 200, customer_type: 20, sourcing_type: 20, journey_type: 20,
   phone: 30, alt_phone: 30, email: 200, address: 2000, city: 100, source: 200, sales_notes: 2000,
-  bidaya_id: 50, app_id: 50,
+  bidaya_id: 50, app_id: 50, application_number: 50,
 };
 const PRODUCT_FIELDS = [
   'product', 'bundle_products', 'credit_card', 'card_fee_type', 'personal_loan_kind', 'personal_loan_type', 'buyout_bank',
@@ -1280,8 +1280,8 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
     }
     // Sales staff cannot search by phone number or complaint number: neither is shown to them.
     where.push(`(c.customer_name LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?
-      OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${user.role === 'sales' ? '' : ' OR c.phone LIKE ? OR c.complaint_number LIKE ?'}${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
-    params.push(...Array(user.role === 'sales' ? 9 : 11).fill(term));
+      OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.application_number LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${user.role === 'sales' ? '' : ' OR c.phone LIKE ? OR c.complaint_number LIKE ?'}${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
+    params.push(...Array(user.role === 'sales' ? 10 : 12).fill(term));
     if (user.role === 'processing') params.push(...PROCESSOR_SENSITIVE_STATUSES);
     if (sensitiveClause) params.push(term);
     if (idMatch) params.push(Number(idMatch[1]));
@@ -1304,6 +1304,13 @@ export function createCase(db, user, input) {
 }
 
 /** Validates and inserts a new file, returning its id. The caller runs it inside a transaction. */
+/** The bank's application number identifies one file: a second file with the same number is refused. */
+function checkApplicationNumber(db, value, exceptId) {
+  if (!value) return;
+  const other = db.prepare('SELECT id FROM cases WHERE application_number = ? COLLATE NOCASE AND id != ?').get(value, exceptId ?? -1);
+  if (other) throw new WorkflowError(409, `Application number ${value} is already on ${caseRef(other.id)}`);
+}
+
 export function insertCase(db, user, input, { bulk = false } = {}) {
   // MIS and business heads add files only by bulk upload (see imports.js), naming the sales person.
   const canAdd = ['sales', 'team_leader', ...MANAGER_ROLES].includes(user.role) || (bulk && ['mis', 'business_head'].includes(user.role));
@@ -1314,6 +1321,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
     if (staffRegion) input = { ...input, region: staffRegion };
   }
   const data = validateCaseInput(input);
+  checkApplicationNumber(db, data.application_number, null);
   Object.assign(data, cardSnapshot(data));
   Object.assign(data, cardEligibility(data));
   if (data.credit_card && data.card_min_salary != null && data.salary == null) throw new WorkflowError(400, `Enter the customer's ${incomeNeed(data)}: ${data.credit_card} needs AED ${data.card_min_salary.toLocaleString('en-US')}`);
@@ -1377,6 +1385,7 @@ export function updateCase(db, user, id, input) {
   if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   if (!canEdit(user, row)) throw new WorkflowError(403, 'This case can no longer be edited');
   const data = validateCaseInput(input, { partial: true, current: row });
+  if ('application_number' in data) checkApplicationNumber(db, data.application_number, id);
   Object.assign(data, cardSnapshot(data));
   if ('credit_card' in data || 'salary' in data) Object.assign(data, cardEligibility({ ...row, ...data }));
   if ('sales_staff_id' in input && Number(input.sales_staff_id) !== row.sales_staff_id) {
