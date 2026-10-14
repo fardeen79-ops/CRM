@@ -34,6 +34,10 @@ before(async () => {
 });
 after(() => server.close());
 
+async function loginCookie(email) {
+  const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  return r.headers.get('set-cookie').split(';')[0];
+}
 async function login(email) {
   const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
   assert.equal(res.status, 200);
@@ -135,6 +139,40 @@ test('the allocation list can be narrowed to one region: its team leaders, and i
   const auh = (await lead('GET', '/allocations?region=auh')).data;
   assert.deepEqual([auh.team_leaders.map((t) => t.name), auh.processors.map((p) => p.name)], [['TL Abu Dhabi'], ['Aziz']]);
   assert.equal((await lead('GET', '/allocations?region=XYZ')).status, 400);
+});
+
+test('the Daily MIS dashboard: headcount, submissions, ends by category, disbursals in millions, productivity and yield by region', async () => {
+  const mis = await login('mis@t.local');
+  const dana = await login('dana@t.local');
+  const cara = await login('cara@t.local');
+  const head = await login('head@t.local');
+  // A completed Premium card, a completed loan with its rate, a completed auto loan; one card still open.
+  const card = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', customer_name: 'MIS Card', phone: '+971 50 333 1111', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-02' })).data.case;
+  const open = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', customer_name: 'MIS Card Open', phone: '+971 50 333 1112', city: 'Dubai', salary: 32000, source: 'Walk-in', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', sourcing_date: '2026-10-03' })).data.case;
+  const pl = (await dana('POST', '/cases', loan({ customer_name: 'MIS Loan', phone: '+971 50 333 2222', loan_amount: 2600000, interest_rate: 8 }))).data.case;
+  const al = (await cara('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', customer_name: 'MIS Auto', phone: '+971 50 333 3333', city: 'Dubai', salary: 20000, source: 'Walk-in', product: 'auto_loan', auto_loan_type: 'new', amount: 550000, car_make: 'Toyota', car_model: 'Camry', car_year: 2025, dealer_details: 'Al Futtaim', al_lead_source: 'Walk-in', al_interest_rate: 3.5, al_tenure: 48 })).data.case;
+  assert.ok(card.id && open.id && pl.id && al.id);
+  for (const c of [card, pl, al]) assert.equal((await head('POST', `/cases/${c.id}/actions`, { action: 'set_case_status', case_status: 'completed' })).status, 200, c.customer_name);
+  const rep = (await mis('GET', '/reports/daily_mis?cycle=2026-10')).data;
+  assert.equal(rep.dashboard, true);
+  assert.equal(rep.as_of, '2026-10-20');
+  const cc = rep.tables.find((t) => t.key === 'cc');
+  const dxb = cc.rows.find((r) => r.region === 'DXB');
+  assert.equal(dxb.hc, 2); // Nour and Cara are core card staff in DXB
+  assert.ok(dxb.submissions >= 2);
+  assert.equal(dxb.premium, 1); assert.equal(dxb.total_end, 1); assert.equal(dxb.prod, 0.5);
+  assert.equal(cc.total.total_end, 1);
+  const plT = rep.tables.find((t) => t.key === 'pl');
+  const plDxb = plT.rows.find((r) => r.region === 'DXB');
+  assert.deepEqual([plDxb.hc, plDxb.disb_m, plDxb.prod, plDxb.yield_pct], [2, 2.6, 1.3, 8]); // Dana and one more core loan seller in DXB
+  const alT = rep.tables.find((t) => t.key === 'al');
+  assert.equal(alT.rows.find((r) => r.region === 'DXB').disb_m, 0.6);
+  assert.equal(alT.total.disb_m, 0.6);
+  // The spreadsheet download stacks the three tables, one column naming the table.
+  assert.deepEqual(rep.columns.slice(0, 2).map((c) => c.key), ['table', 'region']);
+  assert.ok(rep.rows.some((r) => r.table === 'PL report' && r.region === 'Total'));
+  const csv = await fetch(`${base}/api/reports/daily_mis?cycle=2026-10&format=csv`, { headers: { cookie: (await loginCookie('mis@t.local')) } });
+  assert.equal(csv.status, 200);
 });
 
 test('MIS downloads every file ever sourced with the All files report; it needs no period and others do not get it', async () => {

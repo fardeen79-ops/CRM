@@ -1026,3 +1026,24 @@ table.pnl.tree td.gain { color: var(--s-done); }
 .loan-kind-row .field-row { margin: 0; }
 .loan-kind-row .sub-label { display: block; margin-bottom: 6px; }
 @media (max-width: 640px) { .loan-kind-row { grid-template-columns: 1fr; } }
+
+/* Daily MIS dashboard: the bank's three summary tables. */
+.mis-dashboard { display: grid; gap: 18px; justify-items: start; overflow-x: auto; max-width: 100%; }
+.mis-table { border-collapse: separate; border-spacing: 2px; font-size: 14px; }
+.mis-table th, .mis-table td { padding: 5px 10px; text-align: center; border: 1px solid #1f3a6e; white-space: nowrap; }
+.mis-table .mis-title th { background: #0b2a5b; color: #fff; font-size: 18px; font-weight: 700; padding: 8px 14px; }
+.mis-table .mis-group th { background: #3b6fb6; color: #fff; font-weight: 700; }
+.mis-table .mis-group th.group { background: #a9cc8d; color: #0b2a5b; }
+.mis-table .mis-head th { background: #3b6fb6; color: #fff; font-weight: 700; }
+.mis-table tbody td.region { background: #a9cc8d; color: #0b2a5b; font-weight: 700; }
+.mis-table tbody td.num { background: #fff; color: #111; font-variant-numeric: tabular-nums; }
+.mis-table tbody td.strong { font-weight: 700; }
+.mis-table tfoot td { background: #3b6fb6; color: #fff; font-weight: 700; border-top: none; }
+.mis-note { max-width: 720px; }
+@media print {
+  body.print-dashboard .sidebar, body.print-dashboard .topbar, body.print-dashboard .page-head, body.print-dashboard .report-form, body.print-dashboard .mis-actions,
+  body.print-dashboard .card-head, body.print-dashboard .recent-runs, body.print-dashboard .site-foot, body.print-dashboard .watermark, body.print-dashboard #update-bar { display: none !important; }
+  body.print-dashboard .report-grid { display: block; }
+  body.print-dashboard .report-result { border: none; box-shadow: none; padding: 0; }
+  body.print-dashboard .mis-table th, body.print-dashboard .mis-table td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

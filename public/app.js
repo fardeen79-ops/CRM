@@ -3826,6 +3826,7 @@ const fmtCell = (v, unit) => {
   if (v == null || v === '') return html`<span class="muted">—</span>`;
   if (unit === 'aed') return fmtAed(v);
   if (unit === 'pct') return `${v}%`;
+  if (unit === 'ratio') return Number(v).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
   if (unit === 'hours') return `${v} h`;
   if (unit === 'days') return `${v} d`;
   if (unit === 'date') return fmtDay(v);
@@ -3852,6 +3853,20 @@ async function viewReports(params) {
   if (run) {
     try { rep = await api(`/reports/${key}?${query}`); } catch (ex) { error = ex.message; }
   }
+  // The daily MIS dashboard: three bank-style tables with a date, printable or saved as PDF from the browser.
+  const dashboard = rep?.dashboard && html`<div class="mis-dashboard" id="mis-dashboard">
+    ${rep.tables.map((t) => html`<table class="mis-table mis-${t.key}">
+      <thead>
+        <tr class="mis-title"><th colspan="${t.columns.length - 1}">Emirates NBD ${t.title}</th><th>${new Date(`${rep.as_of}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</th></tr>
+        ${t.group ? html`<tr class="mis-group">${t.columns.map((c) => c.key === t.group.from ? html`<th colspan="${t.columns.findIndex((x) => x.key === t.group.to) - t.columns.findIndex((x) => x.key === t.group.from) + 1}" class="group">${t.group.label}</th>` : (t.columns.findIndex((x) => x.key === c.key) > t.columns.findIndex((x) => x.key === t.group.from) && t.columns.findIndex((x) => x.key === c.key) <= t.columns.findIndex((x) => x.key === t.group.to)) ? '' : html`<th rowspan="2">${c.label}</th>`)}</tr>
+          <tr class="mis-head">${t.columns.filter((c) => t.columns.findIndex((x) => x.key === c.key) >= t.columns.findIndex((x) => x.key === t.group.from) && t.columns.findIndex((x) => x.key === c.key) <= t.columns.findIndex((x) => x.key === t.group.to)).map((c) => html`<th>${c.label}</th>`)}</tr>`
+          : html`<tr class="mis-head">${t.columns.map((c) => html`<th>${c.label}</th>`)}</tr>`}
+      </thead>
+      <tbody>${t.rows.map((row) => html`<tr>${t.columns.map((c) => html`<td class="${c.key === 'region' ? 'region' : 'num'}${['total_end', 'prod'].includes(c.key) ? ' strong' : ''}">${c.key === 'region' ? state.meta.regions[row.region]?.split(' ')[0] || row.region : fmtCell(row[c.key], c.unit)}</td>`)}</tr>`)}</tbody>
+      <tfoot><tr>${t.columns.map((c) => html`<td class="${c.key === 'region' ? 'region' : 'num'}">${c.key === 'region' ? 'Total' : fmtCell(t.total[c.key], c.unit)}</td>`)}</tr></tfoot>
+    </table>`)}
+    <p class="muted small mis-note">HC: active sales staff whose core product is the table's product, by their region. Submissions: card files sourced in the period. Ends: card files completed in the period, by card category (Noon cards shown apart). Disb amount: loans disbursed on files completed in the period, in AED millions. Prod: ends, or millions, per head. Yield: interest rate weighted by amount.</p>
+  </div>`;
   const table = rep && html`<div class="table-wrap"><table class="report-table">
     <thead><tr>${rep.columns.map((c) => html`<th class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${c.label}</th>`)}</tr></thead>
     <tbody>${rep.rows.map((row) => html`<tr class="${row._group ? `subtotal subtotal-${row._group}` : ''}">${rep.columns.map((c) => html`<td class="${['text', 'role', 'date', 'datetime'].includes(c.unit) ? '' : 'num'}">${fmtCell(row[c.key], c.unit)}</td>`)}</tr>`)}</tbody>
@@ -3881,10 +3896,12 @@ async function viewReports(params) {
       <div class="card report-result">
         ${error ? html`<p class="error">${error}</p>` : ''}
         ${rep ? html`<div class="card-head"><div><h2>${rep.name}</h2><p class="muted small" style="margin:0">${rep.period}${rep.region ? ` · ${rep.region}` : ''} · ${rep.rows.length} ${rep.rows.length === 1 ? 'row' : 'rows'}${rep.truncated ? ' (first 5,000 shown)' : ''} · ${rep.scope}</p></div></div>
-          ${rep.rows.length ? table : html`<div class="empty">Nothing in this period</div>`}` : html`<div class="empty">Choose a report and press Run</div>`}
+          ${rep.dashboard ? html`<div class="actions mis-actions"><button type="button" class="btn" id="mis-print">Print / save as PDF</button></div>${dashboard}` : rep.rows.length ? table : html`<div class="empty">Nothing in this period</div>`}` : html`<div class="empty">Choose a report and press Run</div>`}
       </div>
     </div>
     ${(await recentRuns())}`);
+  const printBtn = document.getElementById('mis-print');
+  if (printBtn) printBtn.onclick = () => { document.body.classList.add('print-dashboard'); window.print(); setTimeout(() => document.body.classList.remove('print-dashboard'), 1000); };
   const form = document.getElementById('report-form');
   const sync = () => {
     const d = list.find((r) => r.key === form.report.value);

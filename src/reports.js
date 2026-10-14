@@ -2,7 +2,7 @@
 // columns, filtered by a period (a sales cycle or two dates), a region, and the viewer's own
 // scope: a team leader's report covers their team, a regional processor's their region, and MIS,
 // business heads and governance see everything. Every run is recorded in report_runs.
-import { caseScope, caseProducts, includesCard, REGIONS, STATUS, CASE_STATUS, JOURNEY_TYPES, SOURCING_TYPES, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents, verificationTat } from './cases.js';
+import { caseScope, caseProducts, includesCard, CARD_SQL, REGIONS, STATUS, CASE_STATUS, JOURNEY_TYPES, SOURCING_TYPES, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents, verificationTat } from './cases.js';
 import { bankStatusLabel } from './bank-status.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { isProcessingLead } from './roles.js';
@@ -49,6 +49,7 @@ export const REPORTS = {
   pnl: { name: 'Profit and loss', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'Revenue (the bank\'s payout on files completed in the cycle) less the salaries actually paid and the incentives earned, by role: sales staff, team leaders, ASMs, sales managers, business heads, processing, MIS. Salaries come from the Salaries paid upload; anyone without one is estimated from their profile salary.' },
   pnl_hierarchy: { name: 'Profit and loss by region and team', roles: PNL_VIEWERS, period: 'the sales cycle', description: 'The profit and loss broken down by region, sales manager, team leader and sales staff: each level\'s revenue (files completed by its staff), salaries and incentives (its people, leaders included at their level), net and margin. Overheads (business heads, processing, MIS, governance, IT) sit at region level.' },
   open_files: { name: 'Files in process', roles: [...ALL, 'governance', 'processing'], only: (user) => user.role !== 'processing' || isProcessingLead(user), period: 'every open file as it stands now, whenever it was sourced', description: 'Every file that is neither completed nor rejected: where it stands, who it is waiting on, the processor, calls made, the last call, days since sourcing and since the last action, the verification TAT and any call-back due. Sourced in any period; the period filter does not apply.' },
+  daily_mis: { name: 'Daily MIS dashboard', roles: [...ALL, 'governance'], period: 'files sourced and completed in the period, as of its last day', description: 'The bank-style daily summary by region: credit cards (headcount, submissions, ends by Mass, Noon, Premium and Super Premium, productivity), personal loans and auto loans (headcount, disbursed amount in millions, productivity, loan yield). Three tables with totals, printable or saved as PDF, and downloadable as a spreadsheet.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
   all_files: { name: 'All files (export)', roles: ALL, period: 'every file ever sourced, whatever its status', description: 'The whole case register in one download, the same columns as the Case register, without a period: for MIS and business heads to reconcile against the bank. Personal details stay masked.' },
 };
@@ -506,6 +507,60 @@ function open_files(db, user, { region }) {
   };
 }
 
+/**
+ * The daily MIS dashboard: per region, headcount of core staff, submissions and ends by card category,
+ * disbursed loan amounts in millions, productivity (ends or millions per head) and the loan yield.
+ */
+function daily_mis(db, user, { period, region }) {
+  sweepCardAgeing(db);
+  const regions = region ? [region] : Object.keys(REGIONS);
+  const hc = (product, r) => db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'sales' AND active = 1 AND core_product = ? AND region = ?").get(product, r).n;
+  const sourced = (r) => {
+    const { sql, params } = caseWhere(user, r, ['c.sourcing_date BETWEEN ? AND ?', CARD_SQL], [period.from, period.to]);
+    return db.prepare(`SELECT COUNT(*) AS n FROM cases c ${sql}`).get(...params).n;
+  };
+  const ends = (r) => {
+    const { sql, params } = caseWhere(user, r, [COMPLETED_IN_SQL, CARD_SQL], [period.from, period.to]);
+    const out = { Mass: 0, noon: 0, Premium: 0, 'Super Premium': 0 };
+    for (const c of db.prepare(`SELECT c.credit_card, c.card_category FROM cases c ${sql}`).all(...params)) {
+      if (/\bnoon\b/i.test(c.credit_card || '')) out.noon++;
+      else if (out[c.card_category] !== undefined) out[c.card_category]++;
+      else out.Mass++;
+    }
+    return out;
+  };
+  const loans = (r, product, field) => {
+    const { sql, params } = caseWhere(user, r, [COMPLETED_IN_SQL, `(c.product = ? OR (c.product = 'bundle' AND ',' || c.bundle_products || ',' LIKE ?))`, `c.${field} > 0`], [period.from, period.to, product, `%,${product},%`]);
+    return db.prepare(`SELECT c.${field} AS amount, c.interest_rate FROM cases c ${sql}`).all(...params);
+  };
+  const m = (aed) => Math.round((aed / 1e6) * 10) / 10;
+  const ratio = (a, b) => (b ? Math.round((a / b) * 100) / 100 : null);
+  const yieldPct = (rows) => {
+    const rated = rows.filter((x) => x.interest_rate != null);
+    const amt = rated.reduce((n, x) => n + x.amount, 0);
+    return amt ? Math.round((rated.reduce((n, x) => n + (x.amount * x.interest_rate) / 100, 0) / amt) * 1000) / 10 : null;
+  };
+  const cc = regions.map((r) => { const e = ends(r); const total = e.Mass + e.noon + e.Premium + e['Super Premium']; const h = hc('credit_card', r); return { region: r, hc: h, submissions: sourced(r), mass: e.Mass, noon: e.noon, premium: e.Premium, super_premium: e['Super Premium'], total_end: total, prod: ratio(total, h) }; });
+  const ccTotal = { region: 'Total', hc: sum(cc, 'hc'), submissions: sum(cc, 'submissions'), mass: sum(cc, 'mass'), noon: sum(cc, 'noon'), premium: sum(cc, 'premium'), super_premium: sum(cc, 'super_premium'), total_end: sum(cc, 'total_end') };
+  ccTotal.prod = ratio(ccTotal.total_end, ccTotal.hc);
+  const plRows = regions.map((r) => loans(r, 'personal_loan', 'pl_disbursed_amount'));
+  const pl = regions.map((r, i) => { const amount = plRows[i].reduce((n, x) => n + x.amount, 0); const h = hc('personal_loan', r); return { region: r, hc: h, disbursed_aed: amount, disb_m: m(amount), prod: ratio(m(amount), h), yield_pct: yieldPct(plRows[i]) }; });
+  const plAmount = sum(pl, 'disbursed_aed');
+  const plTotal = { region: 'Total', hc: sum(pl, 'hc'), disbursed_aed: plAmount, disb_m: m(plAmount), prod: ratio(m(plAmount), sum(pl, 'hc')), yield_pct: yieldPct(plRows.flat()) };
+  const al = regions.map((r) => { const rows = loans(r, 'auto_loan', 'al_disbursed_amount'); const amount = rows.reduce((n, x) => n + x.amount, 0); const h = hc('auto_loan', r); return { region: r, hc: h, disbursed_aed: amount, disb_m: m(amount), prod: ratio(m(amount), h) }; });
+  const alAmount = sum(al, 'disbursed_aed');
+  const alTotal = { region: 'Total', hc: sum(al, 'hc'), disbursed_aed: alAmount, disb_m: m(alAmount), prod: ratio(m(alAmount), sum(al, 'hc')) };
+  const tables = [
+    { key: 'cc', title: 'Credit card report', columns: [col('region', 'Region', 'text'), col('hc', 'HC'), col('submissions', 'Total submission'), col('mass', 'Mass'), col('noon', 'Noon'), col('premium', 'Premium'), col('super_premium', 'Super Premium'), col('total_end', 'Total end'), col('prod', 'Prod', 'ratio')], group: { label: 'Ends', from: 'mass', to: 'super_premium' }, rows: cc, total: ccTotal },
+    { key: 'pl', title: 'PL report', columns: [col('region', 'Region', 'text'), col('hc', 'HC'), col('disb_m', 'Disb amount (M)', 'ratio'), col('prod', 'Prod', 'ratio'), col('yield_pct', 'Yield %', 'pct')], rows: pl, total: plTotal },
+    { key: 'al', title: 'AL report', columns: [col('region', 'Region', 'text'), col('hc', 'HC'), col('disb_m', 'Disb amount (M)', 'ratio'), col('prod', 'Prod', 'ratio')], rows: al, total: alTotal },
+  ];
+  // The spreadsheet download: the three tables stacked, each row naming its table.
+  const columns = [col('table', 'Report', 'text'), col('region', 'Region', 'text'), col('hc', 'HC'), col('submissions', 'Total submission'), col('mass', 'Mass'), col('noon', 'Noon'), col('premium', 'Premium'), col('super_premium', 'Super Premium'), col('total_end', 'Total end'), col('disb_m', 'Disb amount (M)', 'ratio'), col('disbursed_aed', 'Disbursed (AED)', 'aed'), col('prod', 'Prod', 'ratio'), col('yield_pct', 'Yield %', 'pct')];
+  const rows = tables.flatMap((t) => [...t.rows, t.total].map((r) => ({ table: t.title, ...r })));
+  return { columns, rows, tables, as_of: period.to, dashboard: true };
+}
+
 function register(db, user, { period, region }) {
   return registerRows(db, user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to], REGISTER_LIMIT);
 }
@@ -781,7 +836,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { open_files, all_files, pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { open_files, all_files, daily_mis, pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
