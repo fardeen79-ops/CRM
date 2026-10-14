@@ -647,6 +647,15 @@ function migrate(db) {
   db.exec(`UPDATE cases SET sales_staff_id = created_by,
              sales_staff_name = (SELECT name FROM users WHERE users.id = cases.created_by)
            WHERE sales_staff_id IS NULL AND created_by IN (SELECT id FROM users WHERE role = 'sales')`);
+  // A file belongs to its sales person's region: files given another region before this rule move
+  // to the sales person's region, with a timeline entry saying so.
+  const misplaced = db.prepare(`SELECT c.id, c.region, u.region AS staff_region FROM cases c JOIN users u ON u.id = c.sales_staff_id
+    WHERE u.region IS NOT NULL AND u.region != '' AND (c.region IS NULL OR c.region != u.region)`).all();
+  for (const m of misplaced) {
+    db.prepare('UPDATE cases SET region = ? WHERE id = ?').run(m.staff_region, m.id);
+    db.prepare("INSERT INTO case_events (case_id, user_id, type, detail, created_at) VALUES (?, NULL, 'region_change', ?, ?)")
+      .run(m.id, `Moved to ${m.staff_region}, the sales person's region (was ${m.region || 'not set'})`, new Date().toISOString());
+  }
 }
 
 /**

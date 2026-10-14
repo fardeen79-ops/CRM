@@ -55,6 +55,7 @@ const ACTION_LABEL = {
   case_status: 'Case status changed',
   set_case_status: 'Case status updated',
   bank_status: 'Bank status changed',
+  region_change: 'Region set to the sales person\'s region',
   set_bank_status: 'Bank status updated',
   request_edit: 'Edit request sent',
   resolve_edit_request: 'Requested changes made',

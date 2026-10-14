@@ -37,3 +37,22 @@ test('Emirates ID and passport numbers stored before are wiped when the database
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM access_log WHERE what LIKE 'reveal:eid%'").get().n, 0);
   db.close();
 });
+
+test("a file given another region before the rule moves to its sales person's region when the database opens", () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'crm-region-')), 'old.db');
+  let db = openDb(file);
+  db.exec("INSERT INTO users (name, email, role, password_hash, region) VALUES ('Dubai Sales', 'ds@x.local', 'sales', 'x', 'DXB')");
+  db.exec("INSERT INTO cases (customer_name, phone, product, status, created_by, sales_staff_id, region) VALUES ('AUH customer', '0501234567', 'credit_card', 'pending_verification', 1, 1, 'AUH')");
+  db.exec("INSERT INTO cases (customer_name, phone, product, status, created_by, sales_staff_id, region) VALUES ('DXB customer', '0501234568', 'credit_card', 'pending_verification', 1, 1, 'DXB')");
+  db.close();
+  db = openDb(file);
+  assert.deepEqual(db.prepare('SELECT region FROM cases ORDER BY id').all().map((r) => r.region), ['DXB', 'DXB']);
+  const events = db.prepare("SELECT case_id, detail FROM case_events WHERE type = 'region_change'").all();
+  assert.equal(events.length, 1);
+  assert.deepEqual([events[0].case_id, events[0].detail], [1, "Moved to DXB, the sales person's region (was AUH)"]);
+  db.close();
+  // Opening again changes nothing more.
+  db = openDb(file);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM case_events WHERE type = 'region_change'").get().n, 1);
+  db.close();
+});
