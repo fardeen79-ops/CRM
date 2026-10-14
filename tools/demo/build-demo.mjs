@@ -22,7 +22,7 @@ function botSrc() {
 const css = read('public/styles.css');
 // The app's ES-module imports (mrz.js, eid-scan.js) are inlined into one module for the demo.
 const stripModule = (src) => src.replace(/^import .*$/gm, '').replace(/^export /gm, '');
-const appJs = stripModule(read('public/mrz.js')) + stripModule(read('public/eid-front.js')) + stripModule(read('public/eid-scan.js')) + stripModule(read('public/lead-scan.js')) + stripModule(read('public/speech.js')) + stripModule(read('public/app.js'));
+const appJs = stripModule(read('public/mrz.js')) + stripModule(read('public/eid-front.js')) + stripModule(read('public/eid-scan.js')) + stripModule(read('public/lead-scan.js')) + stripModule(read('public/form-scan.js')) + stripModule(read('public/speech.js')) + stripModule(read('public/app.js'));
 const sqlJs = fs.readFileSync(path.join(sqljsDist, 'sql-wasm.js'), 'utf8');
 const wasm = fs.readFileSync(path.join(sqljsDist, 'sql-wasm.wasm')).toString('base64');
 
@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v85';
+const DB_KEY = 'sourcing-crm-demo-db-v86';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';

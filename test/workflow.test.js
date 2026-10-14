@@ -1087,6 +1087,10 @@ test('a file filled from an Emirates ID scan records the scan, naming only the c
   assert.ok(scan);
   assert.equal(scan.detail, "front of the card: the customer's name");
   assert.equal(r.data.case.eid_number ?? null, null); // the number is read to confirm the scan, never kept
+  // A file filled from the application form records that scan too.
+  const f = await sally('POST', '/cases', { ...newCase, app_id: 'SCAN-APP-2', form_scanned: true });
+  assert.equal(f.status, 201);
+  assert.equal(f.data.case.events.find((e) => e.type === 'form_scan')?.detail, 'customer details read from the application form');
 });
 
 test('MIS sets the case status on many files from an upload, with the same rules as the case page', async () => {
