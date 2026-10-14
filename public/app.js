@@ -244,10 +244,37 @@ function strideMark() {
 // The build this server runs, shown in the footer so anyone can tell whether an update has landed.
 let buildLabel = '';
 const buildText = (v) => (v?.commit ? `Build ${v.commit}${v.updated_at ? ` · ${new Date(v.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}` : '');
+// The build this page was loaded with (the ?v= on the script tag), to notice when the server moves on.
+const servedBuild = (() => { try { return new URL(document.querySelector('script[src*="app.js"]').src).searchParams.get('v'); } catch { return null; } })();
+let newBuild = null;
+/** Tells everyone on the page that the server runs a newer build: sign out, refresh the browser and check the footer. */
+function showUpdateBar(v) {
+  if (newBuild === v.commit) return;
+  newBuild = v.commit;
+  const bar = document.getElementById('update-bar');
+  document.getElementById('update-text').textContent = `The CRM has been updated to build ${v.commit}. Sign out and refresh your browser to get the new version, then check the build in the footer.`;
+  const btn = document.getElementById('update-btn');
+  btn.textContent = state.user ? 'Sign out and refresh' : 'Refresh';
+  btn.onclick = async () => {
+    if (state.user) await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+    location.reload();
+  };
+  bar.hidden = false;
+}
+async function checkForUpdate() {
+  if (document.visibilityState !== 'visible') return;
+  try {
+    const v = await (await fetch('/api/version', { credentials: 'same-origin', cache: 'no-store' })).json();
+    if (v?.commit && servedBuild && v.commit !== servedBuild) showUpdateBar(v);
+  } catch { /* offline: try again later */ }
+}
+setInterval(checkForUpdate, 60000);
+document.addEventListener('visibilitychange', checkForUpdate);
 async function loadBuild() {
   if (buildLabel) return;
   try {
     const v = await (await fetch('/api/version', { credentials: 'same-origin' })).json();
+    if (v?.commit && servedBuild && v.commit !== servedBuild) showUpdateBar(v);
     buildLabel = buildText(v);
     document.querySelectorAll('.foot-build').forEach((el) => { el.textContent = buildLabel; });
   } catch { /* no build to show */ }

@@ -323,6 +323,9 @@ test('the build the server runs is public, for the sign-in page footer', async (
   assert.match(page, /href="\/styles\.css\?v=[^"]+"/);
   const js = await fetch(`${base}/app.js?v=x`);
   assert.equal(js.status, 200); assert.ok(js.headers.get('etag'));
+  // The page carries the update bar that tells staff to sign out and refresh once the server moves to a newer build.
+  assert.match(page, /id="update-bar"/);
+  assert.match(await js.text(), /checkForUpdate/);
 });
 
 test('MIS or a business head deletes files entered by mistake, with a reason; the deletion is on the access log', async () => {
