@@ -40,7 +40,7 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'whatsapp_number', header: 'WhatsApp number', example: '+971 50 123 4567', help: 'With country code; a UAE number without one gets +971' },
   { key: 'doj', header: 'Date of joining', example: '01/03/2024', help: 'DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'dol', header: 'Date of leaving', example: '', help: 'Only for staff who have resigned. The account is disabled from that day' },
-  { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: 'DXB or AUH. Processors then see only that region\'s files; sales staff\'s files default to it' },
+  { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: 'DXB or AUH. Processors then see only that region\'s files; a sales person\'s files belong to it' },
   { key: 'sales_code', header: 'Sales code', example: 'DXB-S-021', help: 'Sales staff only. Must be unique' },
   { key: 'team_leader_email', header: 'Team leader email', example: 'tara@yourbank.ae', help: 'Sales staff only; leave blank on every other row. An active team leader (or a sales manager or ASM who leads the team directly), or one in this file' },
   { key: 'sales_manager_email', header: 'Sales manager email', example: 'sana@yourbank.ae', help: 'Optional, for sales staff, team leaders and ASMs: the active sales manager they report to, or one in this file. Blank when the team reports to the business head directly' },
@@ -53,7 +53,7 @@ export const USER_IMPORT_COLUMNS = [
 export const CASE_IMPORT_COLUMNS = [
   { key: 'sales_code', header: 'Sales code', required: true, example: 'DXB-S-014', help: 'The sales person who sourced the file' },
   { key: 'sourcing_date', header: 'Sourcing date', required: true, example: '06/10/2026', help: 'DD/MM/YYYY or YYYY-MM-DD' },
-  { key: 'region', header: 'Region', required: true, example: 'DXB', allowed: Object.keys(REGIONS) },
+  { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: "Only for a sales person whose profile has no region; otherwise the file takes the sales person's region" },
   { key: 'core_product', header: 'Core product', example: '', help: 'Ignored: the core product comes from the sales person\'s profile' },
   { key: 'salutation', header: 'Salutation', example: 'Mr' },
   { key: 'first_name', header: 'First name', required: true, example: 'Mohammed' },

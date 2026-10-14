@@ -1466,10 +1466,11 @@ async function viewCaseForm(id, leadId = null) {
           ${field('sourcing_date', 'Sourcing date', { type: 'date', required: true, attrs: `max="${todayLocal()}"` })}
           <div>
             <label for="f-region">Region <span class="req">*</span></label>
-            <select id="f-region" name="region" required>
+            <select id="f-region" name="region" required ${(id ? c.sales_staff_region : staffNow?.region) ? raw('disabled') : ''}>
               <option value="">Choose…</option>
-              ${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${(c.region || (!id && staffNow?.region)) === k ? raw('selected') : ''}>${l}</option>`)}
+              ${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${(id ? c.sales_staff_region || c.region : staffNow?.region || c.region) === k ? raw('selected') : ''}>${l}</option>`)}
             </select>
+            <div class="muted small" id="region-hint" ${(id ? c.sales_staff_region : staffNow?.region) ? '' : raw('hidden')}>The sales person's region: the file is verified and listed there.</div>
           </div>
           ${field('bidaya_id', 'Bidaya ID')}
           ${field('app_id', 'App ID')}
@@ -1758,7 +1759,7 @@ async function viewCaseForm(id, leadId = null) {
       $('#f-sales_code').value = st.sales_code || '';
       $('#f-team_leader_name').value = st.team_leader_name || '';
       $('#f-sales_manager_name').value = st.sales_manager_name || '';
-      if (!id && st.region) $('#f-region').value = st.region;
+      const regionSel = $('#f-region'); if (st.region) regionSel.value = st.region; regionSel.disabled = Boolean(st.region); $('#region-hint').hidden = !st.region;
       $('#f-core_product').value = coreLabel(st.core_product);
     };
   }

@@ -1172,6 +1172,7 @@ export function getCase(db, user, id) {
     .all(id);
   const shown = presentEvents(row, events);
   const out = { ...present(user, row), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row),
+    sales_staff_region: findUser(db, row.sales_staff_id)?.region || null,
     bank_status_label: bankStatusLabel(row.bank_status), bank_status_options: bankStatusesFor(caseProducts(row)).map((s) => ({ value: s, label: bankStatusLabel(s), case_status: caseStatusOf(s) })) };
   if (user.role !== 'sales' && row.bot_call_status) {
     // The recording itself is played through the CRM (bot.js), only to those allowed to listen.
@@ -1308,11 +1309,10 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   // MIS and business heads add files only by bulk upload (see imports.js), naming the sales person.
   const canAdd = ['sales', 'team_leader', ...MANAGER_ROLES].includes(user.role) || (bulk && ['mis', 'business_head'].includes(user.role));
   if (!canAdd) throw new WorkflowError(403, 'Only sales staff can add sourcing data');
-  // A file's region defaults to the sales person's own region; any region can still be chosen.
-  if (!String(input.region ?? '').trim()) {
-    const staffRegion = findUser(db, Number(user.role === 'sales' ? user.id : input.sales_staff_id))?.region;
-    if (staffRegion) input = { ...input, region: staffRegion };
-  }
+  // A file belongs to the sales person's region: their verification queue, lists and reports follow the
+  // staff member's location, whoever the customer is. A sales person without a region names the region.
+  const staffRegion = findUser(db, Number(user.role === 'sales' ? user.id : input.sales_staff_id))?.region;
+  if (staffRegion) input = { ...input, region: staffRegion };
   const data = validateCaseInput(input);
   Object.assign(data, cardSnapshot(data));
   Object.assign(data, cardEligibility(data));
@@ -1384,6 +1384,9 @@ export function updateCase(db, user, id, input) {
     if (!inTeam(db, user, input.sales_staff_id)) throw new WorkflowError(403, 'You can only move a file to sales staff in your own team');
     Object.assign(data, salesStaffSnapshot(db, input.sales_staff_id));
   }
+  // The region follows the sales person on the file; it can only be edited for a sales person without one.
+  const staffRegion = findUser(db, data.sales_staff_id ?? row.sales_staff_id)?.region;
+  if (staffRegion) data.region = staffRegion; else if (!('region' in data)) { /* keeps the file's region */ }
   // A reason for a card below the salary requirement can be given (or changed) while the file is still with sales.
   const merged = { ...row, ...data };
   if (merged.credit_card && merged.card_min_salary != null && merged.salary == null) throw new WorkflowError(400, `Enter the customer's ${incomeNeed(merged)}: ${merged.credit_card} needs AED ${merged.card_min_salary.toLocaleString('en-US')}`);

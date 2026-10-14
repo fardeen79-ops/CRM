@@ -54,7 +54,7 @@ async function tlOk(id, who = 'tl@t.local') {
 const file = (name, region = 'DXB') => ({ journey_type: 'emirates_id', customer_name: name, region, phone: '+971 50 111 2222', city: 'Dubai', product: 'auto_loan', amount: 50000, core_product: 'auto_loan', auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 4, al_tenure: 48 });
 const names = (list) => list.map((c) => c.customer_name).sort();
 
-test('a file starts in the sales person\'s region but can name any region', async () => {
+test('a file belongs to the sales person\'s region, whoever the customer is', async () => {
   const dana = await login('dana@t.local');
   const amal = await login('amal@t.local');
   const d = await dana('POST', '/cases', file('Dubai customer'));
@@ -65,8 +65,9 @@ test('a file starts in the sales person\'s region but can name any region', asyn
   const d2 = await amal('POST', '/cases', { journey_type: 'emirates_id', ...file('Default region'), region: '' });
   assert.equal(d2.data.case.region, 'AUH');
   ids.defaultCase = d2.data.case.id;
+  // Amal is Abu Dhabi staff: a Dubai customer's file is still an AUH file, however the form names it.
   const x = await amal('POST', '/cases', file('Abu Dhabi staff, Dubai customer'));
-  assert.equal(x.data.case.region, 'DXB');
+  assert.equal(x.data.case.region, 'AUH');
   ids.dubaiCase = d.data.case.id;
   ids.auhCase = a.data.case.id;
 });
@@ -75,16 +76,16 @@ test('processors with a region see only that region\'s files; one without sees a
   const dxb = await login('proc-dxb@t.local');
   const auh = await login('proc-auh@t.local');
   const all = await login('proc-all@t.local');
-  assert.deepEqual(names((await dxb('GET', '/cases')).data.cases), ['Abu Dhabi staff, Dubai customer', 'Dubai customer']);
-  assert.deepEqual(names((await auh('GET', '/cases')).data.cases), ['Abu Dhabi customer', 'Default region']);
+  assert.deepEqual(names((await dxb('GET', '/cases')).data.cases), ['Dubai customer']);
+  assert.deepEqual(names((await auh('GET', '/cases')).data.cases), ['Abu Dhabi customer', 'Abu Dhabi staff, Dubai customer', 'Default region']);
   assert.equal((await all('GET', '/cases')).data.cases.length, 4);
   // Direct access, the dashboard and the case discussion follow the same rule.
   assert.equal((await auh('GET', `/cases/${ids.dubaiCase}`)).status, 404);
   assert.equal((await auh('POST', `/cases/${ids.dubaiCase}/assign`, {})).status, 404);
   assert.equal((await auh('GET', `/cases/${ids.dubaiCase}/messages`)).status, 404);
   assert.equal((await dxb('GET', `/cases/${ids.dubaiCase}`)).status, 200);
-  assert.equal((await auh('GET', '/stats')).data.total, 2);
-  assert.equal((await dxb('GET', '/stats')).data.total, 2);
+  assert.equal((await auh('GET', '/stats')).data.total, 3);
+  assert.equal((await dxb('GET', '/stats')).data.total, 1);
 });
 
 test('team leaders, sales managers and assistant sales managers see only their teams', async () => {
@@ -122,7 +123,7 @@ test('MIS and governance see every file; the region is saved and editable on a u
   assert.equal((await staffAdmin('PATCH', `/users/${proc}`, { region: 'SHJ' })).status, 400);
   assert.equal((await staffAdmin('PATCH', `/users/${proc}`, { region: 'auh' })).data.user.region, 'AUH');
   const nowAuh = await login('proc-all@t.local');
-  assert.equal((await nowAuh('GET', '/cases')).data.cases.length, 2);
+  assert.equal((await nowAuh('GET', '/cases')).data.cases.length, 3);
   const users = (await staffAdmin('GET', '/users')).data.users;
   assert.equal(users.find((u) => u.email === 'dana@t.local').asm_name, 'ASM One');
 });
@@ -133,8 +134,8 @@ test('region view, hierarchy and reports follow the viewer\'s scope', async () =
   const gov = await login('gov@t.local');
   const sales = await login('dana@t.local');
   // A business head or MIS can narrow lists and counts to one region.
-  assert.equal((await bh('GET', '/cases?region=AUH')).data.cases.length, 2);
-  assert.equal((await bh('GET', '/stats?region=AUH')).data.total, 2);
+  assert.equal((await bh('GET', '/cases?region=AUH')).data.cases.length, 3);
+  assert.equal((await bh('GET', '/stats?region=AUH')).data.total, 3);
   assert.equal((await bh('GET', '/stats')).data.total, 5);
   // The hierarchy: region → sales manager → team leader → staff for MIS; staff only for a team leader.
   const h = (await bh('GET', '/hierarchy')).data;
@@ -162,7 +163,7 @@ test('region view, hierarchy and reports follow the viewer\'s scope', async () =
   const mine = (await tl('GET', '/reports/sourcing')).data;
   assert.deepEqual(mine.rows.map((r) => r.staff), ['Dana']);
   const auh = (await bh('GET', '/reports/pipeline?region=AUH')).data;
-  assert.equal(auh.totals.files, 2);
+  assert.equal(auh.totals.files, 3);
   assert.equal((await bh('GET', '/reports/pipeline?region=SHJ')).status, 400);
   assert.equal((await bh('GET', '/reports/targets?from=2026-01-01&to=2026-01-31')).status, 400);
   const dated = (await bh('GET', '/reports/register?from=2026-01-01&to=2026-12-31')).data;
