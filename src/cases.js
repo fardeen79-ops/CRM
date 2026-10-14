@@ -553,9 +553,11 @@ export const ACTIONS = {
   // "Verification pending" in the UI: the processor could not finish and a team leader must decide.
   mark_incomplete: { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.INCOMPLETE, noteRequired: true },
   reject_verification: { roles: ['processing'], from: OPEN_FOR_PROCESSING, to: STATUS.REJECTED, noteRequired: true },
-  return_to_sales: { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.RETURNED, noteRequired: true },
-  reverify:        { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.PENDING },
-  reject:          { roles: ['team_leader'], from: [STATUS.INCOMPLETE],   to: STATUS.REJECTED, noteRequired: true },
+  // The team decides on a file the processors could not finish: the team leader, or the sales manager
+  // or ASM over the team (one leading a team directly is its team leader).
+  return_to_sales: { roles: APPROVERS,       from: [STATUS.INCOMPLETE],   to: STATUS.RETURNED, noteRequired: true },
+  reverify:        { roles: APPROVERS,       from: [STATUS.INCOMPLETE],   to: STATUS.PENDING },
+  reject:          { roles: APPROVERS,       from: [STATUS.INCOMPLETE],   to: STATUS.REJECTED, noteRequired: true },
   resubmit:        { roles: ['sales'],       from: [STATUS.RETURNED],     to: STATUS.APPROVAL },
   // Card sold below its salary requirement: the team decides the reason, or sends it back.
   approve_card:    { roles: APPROVERS,       from: [STATUS.APPROVAL],     to: STATUS.PENDING },

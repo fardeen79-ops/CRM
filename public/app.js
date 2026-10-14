@@ -410,7 +410,7 @@ function navGroups() {
   const work = [['#/', isCeo ? 'CEO dashboard' : 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
   if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
-  if (r === 'sales_manager') work.push(editRequests, cardApprovals);
+  if (r === 'sales_manager') work.push(['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
   if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings]);
   if (r === 'governance') {
     work.push(urgent, ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc], ['#/recordings', 'Recordings', 'mic', 'data-rec-count', state.recordings]);
@@ -939,7 +939,7 @@ async function viewDashboard() {
   const oversight = ['team_leader', 'sales_manager', 'mis', 'business_head', 'governance'].includes(r);
 
   const verifyTiles = [];
-  if (r === 'team_leader') verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
+  if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Action required', by.incomplete, '#/action-required', by.incomplete > 0]);
   if (['team_leader', 'sales_manager'].includes(r)) verifyTiles.push(['Edit requests', s.edit_requests, '#/edit-requests', s.edit_requests > 0], ['Approvals', s.card_approvals, '#/card-approvals', s.card_approvals > 0]);
   else if (r !== 'sales' && r !== 'processing') verifyTiles.push(['Awaiting TL/SM approval', by.awaiting_approval, '#/cases?status=awaiting_approval']);
   if (['processing', 'team_leader'].includes(r)) verifyTiles.unshift(['Urgent verification', s.governance.urgent, '#/urgent', s.governance.urgent > 0]);
