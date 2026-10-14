@@ -1045,7 +1045,9 @@ table.pnl.tree td.gain { color: var(--s-done); }
 @media print {
   body.print-dashboard .sidebar, body.print-dashboard .topbar, body.print-dashboard .page-head, body.print-dashboard .report-form, body.print-dashboard .mis-actions,
   body.print-dashboard .card-head, body.print-dashboard .recent-runs, body.print-dashboard .site-foot, body.print-dashboard .watermark, body.print-dashboard #update-bar { display: none !important; }
+  body.print-dashboard main > :not(.report-grid), body.print-dashboard .report-grid > :not(.report-result) { display: none !important; }
   body.print-dashboard .report-grid { display: block; }
+  body.print-dashboard .mis-dashboard { page-break-inside: avoid; }
   body.print-dashboard .report-result { border: none; box-shadow: none; padding: 0; }
   body.print-dashboard .mis-table th, body.print-dashboard .mis-table td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

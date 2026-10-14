@@ -3928,7 +3928,7 @@ async function viewReports(params) {
     if (!['governance', 'business_head', 'mis'].includes(state.user.role)) return '';
     const { recent } = await api('/reports');
     if (!recent.length) return '';
-    return html`<div class="card"><h2>Recent report runs</h2><p class="muted small">Who ran which report; also in the Access and reveals report.</p>
+    return html`<div class="card recent-runs"><h2>Recent report runs</h2><p class="muted small">Who ran which report; also in the Access and reveals report.</p>
       ${miniTable(['When', 'Who', 'Report', 'Period'], recent.slice(0, 15).map((r) => [fmtDate(r.at), `${r.user_name} (${ROLE_LABEL[r.user_role] || r.user_role})`, r.name, `${r.filters.period || ''}${r.filters.region ? ` · ${r.filters.region}` : ''}`]))}</div>`;
   }
 }
