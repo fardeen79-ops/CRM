@@ -3876,7 +3876,7 @@ async function viewReports(params) {
 
   shell(html`
     <div class="page-head"><div><h1>Reports</h1><p class="muted lede">Pick a report and a period, run it on screen, then download it as a spreadsheet. Customer phone numbers never go into a download. Reports cover ${{ team_leader: 'your team', sales_manager: 'your teams' }[effRole()] || (state.region ? `the ${state.region} region` : 'all regions')}; personal details stay masked.</p></div></div>
-    <div class="grid report-grid">
+    <div class="grid report-grid ${rep?.dashboard ? 'wide' : ''}">
       <form class="card report-form" id="report-form">
         <div class="field-row"><label for="rp-report">Report</label>
           <select id="rp-report" name="report">${list.map((r) => html`<option value="${r.key}" ${r.key === key ? raw('selected') : ''}>${r.name}</option>`)}</select>

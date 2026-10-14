@@ -688,6 +688,8 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .team-card .team-table .tree-toggle { display: none; }
 .team-kpis { grid-template-columns: repeat(4, 1fr); }
 .report-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+.report-grid.wide { grid-template-columns: minmax(0, 1fr); }
+.report-grid.wide .report-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; align-items: end; }
 @media (max-width: 960px) { .report-grid { grid-template-columns: 1fr; } }
 .report-form .field-row { margin-bottom: 12px; }
 .report-result { min-width: 0; }
