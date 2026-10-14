@@ -363,6 +363,14 @@ test('the build the server runs is public, for the sign-in page footer', async (
   assert.equal(js.status, 200); assert.ok(js.headers.get('etag'));
   // The page carries the update bar that tells staff to sign out and refresh once the server moves to a newer build.
   assert.match(page, /id="update-bar"/);
+  // Add to Home Screen: a manifest and an Apple touch icon, both served with their own types.
+  assert.match(page, /rel="manifest" href="\/manifest\.webmanifest"/);
+  assert.match(page, /rel="apple-touch-icon"[^>]*href="\/icons\/apple-touch-icon\.png"/);
+  const manifest = await fetch(`${base}/manifest.webmanifest`);
+  assert.equal(manifest.headers.get('content-type'), 'application/manifest+json');
+  assert.equal((await manifest.json()).short_name, 'STRIDE');
+  const icon = await fetch(`${base}/icons/icon-512.png`);
+  assert.equal(icon.status, 200); assert.equal(icon.headers.get('content-type'), 'image/png');
   assert.match(await js.text(), /checkForUpdate/);
 });
 

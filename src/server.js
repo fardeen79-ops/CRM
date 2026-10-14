@@ -38,6 +38,8 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json',
   '.wasm': 'application/wasm',
   '.gz': 'application/gzip',
 };
