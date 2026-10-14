@@ -4,7 +4,8 @@ import { transaction } from './db.js';
 
 export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.role_key, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj, u.dol, u.core_product,
   u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
-  tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name`;
+  tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name,
+  (SELECT MAX(r.requested_at) FROM password_resets r WHERE r.user_id = u.id AND r.resolved_at IS NULL) AS reset_requested_at`;
 export const USER_FROM = `users u
   LEFT JOIN users tl ON tl.id = u.team_leader_id
   LEFT JOIN users sm ON sm.id = u.sales_manager_id

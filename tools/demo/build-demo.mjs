@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v97';
+const DB_KEY = 'sourcing-crm-demo-db-v98';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -422,6 +422,7 @@ function currentUser() {
 
 function handle(method, pathname, query, body) {
   let m;
+  if (method === 'POST' && pathname === '/api/password/forgot') return { ok: true, message: 'If that HRMS code or email belongs to an account, MIS has been asked to reset the password and will pass the new one to you. (In the demo every account uses password123.)' };
   if (method === 'POST' && pathname === '/api/login') {
     const who = String(body.email || '').trim();
     const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE OR (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE)').get(who, who);

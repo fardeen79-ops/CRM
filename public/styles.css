@@ -1055,3 +1055,8 @@ label.check.remember-me { display: flex; gap: 10px; align-items: flex-start; mar
 .remember-me input { margin-top: 3px; }
 .remember-me > span { display: block; }
 .remember-me .muted { display: block; font-size: 12px; font-weight: 400; margin-top: 2px; }
+.forgot-row { text-align: center; margin: 10px 0 0; }
+.forgot-panel { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.forgot-panel .actions { display: flex; gap: 8px; }
+.forgot-panel input { flex: 1; min-width: 0; }
+.reset-ask { margin-left: 6px; }

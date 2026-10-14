@@ -286,6 +286,29 @@ test('the users upload updates existing people when asked: matched by email or H
   assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'sally@t.local').name, 'Sally Renamed');
 });
 
+test('Forgot password asks MIS to reset it; the answer never says whether the account exists', async () => {
+  const forgot = (email) => fetch(`${base}/api/password/forgot`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) }).then(async (r) => ({ status: r.status, data: await r.json() }));
+  const mis = await login('mis@t.local');
+  const before = (await mis('GET', '/notifications')).data.items.length;
+  const known = await forgot('en6'); // Sally's HRMS code, any case
+  const unknown = await forgot('nobody@t.local');
+  assert.equal(known.status, 200); assert.equal(unknown.status, 200);
+  assert.equal(known.data.message, unknown.data.message);
+  const notes = (await mis('GET', '/notifications')).data.items;
+  assert.equal(notes.length, before + 1);
+  assert.match(notes[0].message, /Password reset requested by Sally.* \(EN6\)/); // an earlier test renames her
+  assert.match(notes[0].link, /#\/users\?q=EN6/);
+  // The Staff page row says a reset was asked; a repeat within minutes adds nothing
+  await forgot('sally@t.local');
+  assert.equal((await mis('GET', '/notifications')).data.items.length, before + 1);
+  assert.ok((await mis('GET', '/users')).data.users.find((u) => u.email === 'sally@t.local').reset_requested_at);
+  // MIS resets the password from the Staff page: the request is cleared
+  assert.equal((await mis('PATCH', `/users/${ids['sally@t.local']}`, { password: 'newpassword1' })).status, 200);
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'sally@t.local').reset_requested_at, null);
+  assert.equal((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sally@t.local', password: 'newpassword1' }) })).status, 200);
+  await mis('PATCH', `/users/${ids['sally@t.local']}`, { password: PASSWORD }); // back to the fixture's password for the tests that follow
+});
+
 test('Remember me keeps the device signed in for 30 days; without it the cookie ends with the browser', async () => {
   const signIn = (remember) => fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sally@t.local', password: PASSWORD, remember }) });
   const plain = await signIn(false);

@@ -517,6 +517,14 @@ CREATE TABLE IF NOT EXISTS bot_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_bot_calls_case ON bot_calls(case_id);
 
+-- "Forgot password" requests from the sign-in page, cleared when MIS or a business head resets the password.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requested_at TEXT NOT NULL,
+  resolved_at  TEXT,
+  resolved_by  INTEGER REFERENCES users(id)
+);
 -- Settings kept as JSON by key, such as the verification bot's playbook.
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,

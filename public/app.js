@@ -306,10 +306,31 @@ function renderLogin(note = '') {
         <label class="check small remember-me"><input type="checkbox" name="remember" id="remember" ${remembered() ? raw('checked') : ''}><span>Remember me on this device<span class="muted">Stays signed in for 30 days and keeps your HRMS code here. The idle sign-out still applies.</span></span></label>
         <button class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
         <p class="error" id="login-error" hidden></p>
+        <p class="small forgot-row"><button type="button" class="btn-link" id="forgot-link">Forgot password?</button></p>
+        <div id="forgot-panel" class="forgot-panel" hidden>
+          <p class="small">Type your HRMS code or email and MIS will be asked to reset your password and pass the new one to you.</p>
+          <div class="actions"><input id="forgot-id" placeholder="HRMS code or email" aria-label="HRMS code or email" autocapitalize="characters"><button type="button" class="btn-primary" id="forgot-send">Ask for a reset</button></div>
+          <p class="muted small" id="forgot-note" hidden></p>
+        </div>
       </form>
       ${siteFooter()}
     </div>`.s;
   if (remembered()) document.getElementById('password').focus();
+  const forgotPanel = document.getElementById('forgot-panel');
+  document.getElementById('forgot-link').onclick = () => {
+    forgotPanel.hidden = !forgotPanel.hidden;
+    if (!forgotPanel.hidden) { const box = document.getElementById('forgot-id'); box.value ||= document.getElementById('email').value; box.focus(); }
+  };
+  document.getElementById('forgot-send').onclick = async () => {
+    const id = document.getElementById('forgot-id').value.trim();
+    const note = document.getElementById('forgot-note');
+    if (!id) { note.textContent = 'Type your HRMS code or email first.'; note.hidden = false; return; }
+    try {
+      const r = await api('/password/forgot', { method: 'POST', body: { email: id } });
+      note.textContent = r.message; note.hidden = false;
+      document.getElementById('forgot-send').disabled = true;
+    } catch (ex) { note.textContent = ex.message; note.hidden = false; }
+  };
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = document.getElementById('login-error');
@@ -5143,7 +5164,7 @@ async function viewUsers() {
             : html`<span class="muted">—</span>`}${u.role === 'sales' && u.active ? (tabOf(u.id) ? html`<div class="muted">Tab <a href="#/assets?q=${encodeURIComponent(tabOf(u.id).tab_no)}" class="mono">${tabOf(u.id).tab_no}</a></div>` : html`<div class="lock">No tab issued</div>`) : ''}</td>
           <td><div class="actions">
             <button class="btn-link" data-profile="${u.id}">Edit</button>
-            <button class="btn-link" data-reset="${u.id}">Reset password</button>
+            <button class="btn-link" data-reset="${u.id}">Reset password</button>${u.reset_requested_at ? html`<span class="chip warn reset-ask" title="Asked from the sign-in page">Reset asked ${fmtDate(u.reset_requested_at)}</span>` : ''}
             ${u.id !== state.user.id ? html`<button class="btn-link" data-toggle="${u.id}" data-active="${u.active}">${u.active ? 'Disable' : 'Enable'}</button>` : ''}
           </div></td></tr>`)}</tbody>
       </table></div></div>

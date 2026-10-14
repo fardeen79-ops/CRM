@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as auth from './auth.js';
 import * as cases from './cases.js';
 import { BANK_STATUSES, bankStatusLabel } from './bank-status.js';
+import { requestPasswordReset, resolvePasswordResets } from './password-reset.js';
 import * as allocations from './allocations.js';
 import * as boosters from './boosters.js';
 import { cardFamilies, cardProductSource, loadCardProducts, backfillCardCategories } from './credit-cards.js';
@@ -256,6 +257,15 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
       for (const [field, value] of Object.entries(contact)) db.prepare(`UPDATE users SET ${field} = ? WHERE id = ?`).run(value, user.id);
       return { user: findUser(db, user.id) };
     }],
+    // Forgot password: the account's MIS and business heads are told and reset it from the Staff page.
+    // The answer is the same whether or not the account exists.
+    ['POST', /^\/api\/password\/forgot$/, async ({ body }) => {
+      const r = requestPasswordReset(db, body.email);
+      if (r && !r.repeated) {
+        cases.notify(db, r.handlers, null, `Password reset requested by ${r.user.name}${r.user.hrms_code ? ` (${r.user.hrms_code})` : ''}: reset it on the Staff page and pass it on`, `#/users?q=${encodeURIComponent(r.user.hrms_code || r.user.name)}`);
+      }
+      return { ok: true, message: 'If that HRMS code or email belongs to an account, MIS has been asked to reset the password and will pass the new one to you.' };
+    }, { public: true }],
     // Anyone changes their own password, with the current one; other sessions of theirs are signed out.
     ['POST', /^\/api\/password$/, async ({ user, body, token }) => {
       const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id);
@@ -639,6 +649,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
       if (body.password) {
         if (String(body.password).length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
         db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(auth.hashPassword(String(body.password)), id);
+        resolvePasswordResets(db, id, user.id);
       }
       return { user: auth.getUser(db, id), moved_cases: moved };
     }],
