@@ -4211,54 +4211,63 @@ async function viewCeo(params = new URLSearchParams()) {
   const bar = (p) => html`<div class="ceo-bar-row"><div class="ceo-bar-head"><strong>${p.label}</strong><span class="muted small">${amount(p)} of ${amountT(p)} · ${p.files} files</span><span class="ceo-bar-pct ${p.pct == null ? 'muted' : p.pct >= 100 ? 'good-num' : p.pct >= 70 ? '' : 'bad-num'}">${pctOf(p.pct)}</span></div>
     <div class="ceo-bar"><div class="ceo-bar-fill ${p.pct >= 100 ? 'full' : p.pct >= 70 ? 'near' : 'low'}" style="width:${Math.min(100, p.pct || 0)}%"></div></div></div>`;
   const yieldTile = d.yield ? html`<a class="kpi ${d.yield.yield_pct == null ? '' : d.yield.below_min ? 'kpi-alert' : 'kpi-good'}" href="#/reports?report=pl_yield&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}"><span class="kpi-label">Personal loan yield</span><span class="kpi-value">${d.yield.yield_pct == null ? '—' : `${d.yield.yield_pct.toFixed(2)}%`}</span><span class="kpi-sub">${d.yield.yield_pct == null ? 'no loan disbursed yet' : `${d.yield.vs_min >= 0 ? '+' : ''}${d.yield.vs_min.toFixed(2)} vs ${d.yield.min}% minimum · ${d.yield.below} of ${d.yield.members} team leaders below`}</span></a>` : '';
+  const pct = (v) => (v == null ? '—' : `${v}%`);
+  const chip = (c, money = true) => (c.before == null || (c.before === 0 && c.now === 0) ? html`<span class="muted small">no previous cycle</span>`
+    : html`<span class="ceo-delta ${c.delta > 0 ? 'ceo-up' : c.delta < 0 ? 'ceo-down' : 'muted'}">${c.delta > 0 ? '▲' : c.delta < 0 ? '▼' : '='} ${c.pct != null ? `${Math.abs(c.pct)}%` : money ? fmtAedShort(Math.abs(c.delta)) : fmtAmount(Math.abs(c.delta))} vs ${d.previous.label}</span>`);
+  // The watch list: one line per thing worth a look, red only when it needs attention.
+  const watch = [
+    { label: 'Payout lost to wrong sourcing', value: aed(d.loss.payout_lost), sub: `${d.loss.files} ${d.loss.files === 1 ? 'card' : 'cards'} below eligibility`, bad: d.loss.payout_lost > 0, href: `#/reports?report=card_downsell&run=1&cycle=${cycle}` },
+    d.yield ? { label: 'Personal loan yield', value: pct(d.yield.yield_pct), sub: `${d.yield.yield_pct == null ? 'no loans yet' : `${d.yield.vs_min >= 0 ? '+' : ''}${d.yield.vs_min} vs ${d.yield.min}% minimum`}`, bad: d.yield.below_min, href: `#/reports?report=pl_yield&run=1&cycle=${cycle}${region ? `&region=${region}` : ''}` } : null,
+    d.earners ? { label: 'Sales staff earning an incentive', value: pct(d.earners.pct), sub: `${d.earners.earning} of ${d.earners.team}`, bad: d.earners.pct != null && d.earners.pct < 50, href: '#/dashboard' } : null,
+    { label: 'Staff on zero ends', value: pct(d.zero.zero_ends.pct), sub: `${d.zero.zero_ends.count} of ${d.zero.team} · ${pct(d.zero.zero_submissions.pct)} with no submission`, bad: d.zero.zero_ends.pct > 30, href: '#/dashboard' },
+    { label: 'Awaiting approval', value: d.pipeline.awaiting_approval, sub: 'flagged files waiting on a manager', bad: false, href: '#/cases?status=awaiting_approval' },
+    { label: 'In verification', value: d.pipeline.in_verification, sub: `${d.pipeline.verification_pending} pending · ${d.pipeline.returned} returned to sales`, bad: false, href: '#/cases?status=in_verification' },
+    { label: 'Open files', value: d.pipeline.open, sub: `${d.pipeline.rejected} rejected this cycle · ${d.pipeline.dncr} on the Do Not Call Register`, bad: false, href: '#/cases' },
+    { label: 'Complaints', value: d.governance.complaints, sub: `${d.governance.valid_complaints} found valid · ${d.governance.deviations} card deviations`, bad: d.governance.valid_complaints > 0, href: `#/reports?report=governance&run=1&cycle=${cycle}` },
+  ].filter(Boolean);
   shell(html`
-    <div class="page-head"><div><h1>CEO dashboard</h1><p class="muted lede">${d.label} cycle${d.region ? ` · ${state.meta.regions[d.region]}` : ' · all regions'}${d.is_current && d.days_left != null ? ` · ${d.days_left} ${d.days_left === 1 ? 'day' : 'days'} left` : ''}. The bank's payout, what it cost, what the teams produced against target, and what to watch.</p></div>
-      <div class="actions"><a class="btn" href="#/pnl?cycle=${cycle}${region ? `&region=${region}` : ''}">Profit &amp; loss</a><a class="btn" href="#/reports">Reports</a></div></div>
-    <form class="toolbar" id="ceo-filters">
-      <select name="cycle" aria-label="Cycle">${cycles.map((c) => html`<option value="${c}" ${c === cycle ? raw('selected') : ''}>${cycleName(c)} (${cycleSpan(c)})</option>`)}</select>
-      <button class="btn">Show</button>
-    </form>
-    <h2 class="tiles-head">Money</h2>
-    <div class="kpis">
-      <a class="kpi" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Revenue from the bank</span><span class="kpi-value">${aed(d.money.revenue.now)}</span><span class="kpi-sub">${delta(d.money.revenue)}</span></a>
-      <a class="kpi" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Costs</span><span class="kpi-value">${aed(d.money.costs.now)}</span><span class="kpi-sub">salaries ${fmtAedShort(d.money.salaries)} · incentives ${fmtAedShort(d.money.incentives)}</span></a>
-      <a class="kpi ${d.money.net.now >= 0 ? 'kpi-good' : 'kpi-alert'}" href="#/pnl?cycle=${cycle}"><span class="kpi-label">Net</span><span class="kpi-value">${signed(d.money.net.now)}</span><span class="kpi-sub">${d.money.margin_pct == null ? 'no revenue in the cycle' : `${d.money.margin_pct}% margin`} · ${delta(d.money.net)}</span></a>
-      <a class="kpi ${d.loss.payout_lost ? 'kpi-alert' : ''}" href="#/reports?report=card_downsell&run=1&cycle=${cycle}"><span class="kpi-label">Payout lost to wrong sourcing</span><span class="kpi-value">${aed(d.loss.payout_lost)}</span><span class="kpi-sub">${d.loss.files} ${d.loss.files === 1 ? 'card' : 'cards'} sold below eligibility · ${fmtAmount(d.loss.points_lost)} points lost</span></a>
+    <div class="page-head ceo-head"><div><h1>CEO dashboard</h1><p class="muted lede">${d.label} cycle${d.region ? ` · ${state.meta.regions[d.region]}` : ' · all regions'}${d.is_current && d.days_left != null ? ` · ${d.days_left} ${d.days_left === 1 ? 'day' : 'days'} left` : ''}</p></div>
+      <form class="toolbar ceo-filters" id="ceo-filters">
+        <select name="cycle" aria-label="Cycle">${cycles.map((c) => html`<option value="${c}" ${c === cycle ? raw('selected') : ''}>${cycleName(c)} (${cycleSpan(c)})</option>`)}</select>
+        <button class="btn">Show</button>
+        <a class="btn" href="#/pnl?cycle=${cycle}${region ? `&region=${region}` : ''}">Profit &amp; loss</a>
+      </form></div>
+
+    <div class="ceo-hero">
+      <a class="hero" href="#/pnl?cycle=${cycle}"><span class="hero-label">Revenue from the bank</span><span class="hero-value">${aed(d.money.revenue.now)}</span>${chip(d.money.revenue)}</a>
+      <a class="hero ${d.money.net.now < 0 ? 'hero-bad' : 'hero-good'}" href="#/pnl?cycle=${cycle}"><span class="hero-label">Net after salaries and incentives</span><span class="hero-value">${signed(d.money.net.now)}</span><span class="hero-sub">${d.money.margin_pct == null ? 'no revenue yet' : `${d.money.margin_pct}% margin`} · costs ${fmtAedShort(d.money.costs.now)}</span></a>
+      <a class="hero" href="#/cases?cycle=${cycle}&case_status=completed"><span class="hero-label">Files completed</span><span class="hero-value">${fmtAmount(d.money.files.now)}</span>${chip(d.money.files, false)}</a>
+      <a class="hero" href="#/cases?cycle=${cycle}"><span class="hero-label">Files sourced</span><span class="hero-value">${fmtAmount(d.pipeline.sourced.now)}</span><span class="hero-sub">${pct(d.pipeline.conversion_pct)} completed so far</span></a>
     </div>
-    <h2 class="tiles-head">Production</h2>
-    <div class="kpis">
-      <a class="kpi" href="#/cases?cycle=${cycle}&case_status=completed"><span class="kpi-label">Files completed</span><span class="kpi-value">${fmtAmount(d.money.files.now)}</span><span class="kpi-sub">${delta(d.money.files, false)}</span></a>
-      <a class="kpi" href="#/cases?cycle=${cycle}"><span class="kpi-label">Files sourced</span><span class="kpi-value">${fmtAmount(d.pipeline.sourced.now)}</span><span class="kpi-sub">${pctOf(d.pipeline.conversion_pct)} completed so far · ${delta(d.pipeline.sourced, false)}</span></a>
-      ${yieldTile}
-      ${d.earners ? html`<a class="kpi ${d.earners.pct != null && d.earners.pct < 50 ? 'kpi-alert' : ''}" href="#/dashboard"><span class="kpi-label">Earning an incentive</span><span class="kpi-value">${pctOf(d.earners.pct)}</span><span class="kpi-sub">${d.earners.earning} of ${d.earners.team} sales staff · ${d.earners.not_earning} not earning</span></a>` : ''}
-      <a class="kpi ${d.zero.zero_ends.pct > 30 ? 'kpi-alert' : ''}" href="#/dashboard"><span class="kpi-label">Staff on zero ends</span><span class="kpi-value">${pctOf(d.zero.zero_ends.pct)}</span><span class="kpi-sub">${d.zero.zero_ends.count} of ${d.zero.team} sales staff · ${pctOf(d.zero.zero_submissions.pct)} with no submission</span></a>
-    </div>
+
     <div class="grid two-col dash-row">
-      <div class="card"><div class="card-head"><h2>Against target · ${d.label}</h2><a class="tiles-link" href="#/targets?cycle=${cycle}">Targets →</a></div>
+      <div class="card"><div class="card-head"><h2>Against target</h2><a class="tiles-link" href="#/targets?cycle=${cycle}">Targets →</a></div>
         ${d.production.length ? d.production.map(bar) : html`<p class="muted small">No targets set for this cycle.</p>`}
-        ${d.cards?.temp_end ? html`<p class="muted small">Cards: ${d.cards.temp_end} completed, ${d.cards.active || 0} active, ${d.cards.inactive || 0} inactive, ${d.cards.unmapped || 0} not yet mapped.</p>` : ''}
+        ${d.cards?.temp_end ? html`<p class="muted small">Cards: ${d.cards.temp_end} completed · ${d.cards.active || 0} active · ${d.cards.inactive || 0} inactive · ${d.cards.unmapped || 0} not yet mapped</p>` : ''}
       </div>
       ${trendCard(d.trend, 'business_head')}
     </div>
-    ${d.regions.length ? html`<div class="card"><div class="card-head"><h2>Regions side by side</h2></div>
-      <div class="table-wrap"><table class="ceo-regions">
-        <thead><tr><th>Region</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Costs</th><th class="num">Net</th><th class="num">Margin</th><th class="num">PL yield</th><th class="num">Sales staff</th><th class="num">Zero ends</th><th class="num">No submission</th><th>Target achievement</th></tr></thead>
-        <tbody>${d.regions.map((x) => html`<tr><td><strong>${x.label}</strong></td><td class="num">${x.files}</td><td class="num">${aed(x.revenue)}</td><td class="num">${aed(x.costs)}</td><td class="num ${x.net < 0 ? 'bad-num' : 'good-num'}">${signed(x.net)}</td><td class="num">${pctOf(x.margin_pct)}</td><td class="num ${x.yield_pct == null ? '' : x.yield_below_min ? 'bad-num' : 'good-num'}">${x.yield_pct == null ? '—' : `${x.yield_pct.toFixed(2)}%`}</td><td class="num">${x.staff}</td><td class="num ${x.zero_ends_pct > 30 ? 'bad-num' : ''}">${pctOf(x.zero_ends_pct)}</td><td class="num">${pctOf(x.zero_submissions_pct)}</td><td>${x.achievement.map((a) => html`<span class="chip ${a.pct >= 100 ? 'chip-good' : a.pct < 70 ? 'chip-bad' : ''}">${state.meta.products?.[a.product] || a.product} ${a.pct}%</span> `)}</td></tr>`)}</tbody>
-      </table></div></div>` : ''}
-    ${d.earners?.groups?.length ? html`<div class="card"><div class="card-head"><h2>Earning an incentive · by region, sales manager, ASM and team leader</h2></div>
+
+    <div class="grid two-col dash-row ceo-lower">
+      ${d.regions.length ? html`<div class="card"><div class="card-head"><h2>Regions</h2></div>
+        <div class="table-wrap"><table class="ceo-regions compact">
+          <thead><tr><th>Region</th><th class="num">Files</th><th class="num">Revenue</th><th class="num">Net</th><th class="num">Yield</th><th class="num">Staff</th><th class="num">Zero ends</th></tr></thead>
+          <tbody>${d.regions.map((x) => html`<tr><td><strong>${x.label.split(' ')[0]}</strong></td><td class="num">${x.files}</td><td class="num">${fmtAedShort(x.revenue)}</td><td class="num ${x.net < 0 ? 'bad-num' : 'good-num'}" title="${pct(x.margin_pct)} margin">${x.net < 0 ? '−' : ''}${fmtAedShort(Math.abs(x.net))}</td><td class="num ${x.yield_below_min ? 'bad-num' : ''}">${pct(x.yield_pct)}</td><td class="num">${x.staff}</td><td class="num ${x.zero_ends_pct > 30 ? 'bad-num' : ''}">${pct(x.zero_ends_pct)}</td></tr>`)}</tbody>
+        </table></div>
+        <div class="ceo-region-targets small">${d.regions.map((x) => html`<div><strong>${x.label.split(' ')[0]}</strong> ${(x.achievement || []).map((t) => html`<span class="chip ${t.pct >= 100 ? 'chip-good' : t.pct != null && t.pct < 70 ? 'chip-bad' : ''}">${state.meta.products?.[t.product] || t.product} ${pct(t.pct)}</span>`)}</div>`)}</div>
+      </div>` : ''}
+      <div class="card"><div class="card-head"><h2>Watch list</h2><span class="muted small">today</span></div>
+        <div class="stat-list">${watch.map((w) => html`<a class="stat ${w.bad ? 'stat-bad' : ''}" href="${w.href}"><span class="stat-label">${w.label}<span class="muted small">${w.sub}</span></span><span class="stat-value">${w.value}</span></a>`)}</div>
+      </div>
+    </div>
+
+    ${d.earners?.groups?.length ? html`<details class="card ceo-more"><summary><h2>Earning an incentive · by region, sales manager, ASM and team leader</h2><span class="muted small">${pct(d.earners.pct)} of sales staff · open to see each team</span></summary>
       <div class="table-wrap"><table class="zero-table earners-table">
         <thead><tr><th>Team</th><th>Staff</th><th>Earning</th><th>%</th><th>Not earning</th><th>Incentive so far</th></tr></thead>
-        <tbody>${d.earners.groups.map((x) => html`<tr class="lvl-${x.level} ${x.not_earning ? 'has-zero' : ''}"><td>${{ sales_manager: 'SM ', asm: 'ASM ', team_leader: 'TL ' }[x.level] ? html`<span class="muted">${{ sales_manager: 'SM', asm: 'ASM', team_leader: 'TL' }[x.level]}</span> ` : ''}${x.label}</td><td>${x.team}</td><td class="${x.earning ? 'good-num' : ''}">${x.earning}</td><td>${x.pct == null ? '—' : `${x.pct}%`}</td><td class="${x.not_earning ? 'bad-num' : ''}">${x.not_earning}</td><td>AED ${fmtAmount(x.incentive_aed)}</td></tr>`)}</tbody>
-      </table></div></div>` : ''}
-    ${contributionCard(d.contribution, d.label)}
-    <h2 class="tiles-head">Pipeline and governance · today</h2>
-    <div class="kpis">
-      <a class="kpi" href="#/cases?status=awaiting_approval"><span class="kpi-label">Awaiting approval</span><span class="kpi-value">${d.pipeline.awaiting_approval}</span><span class="kpi-sub">flagged files waiting on a manager</span></a>
-      <a class="kpi" href="#/cases?status=in_verification"><span class="kpi-label">In verification</span><span class="kpi-value">${d.pipeline.in_verification}</span><span class="kpi-sub">${d.pipeline.verification_pending} verification pending · ${d.pipeline.returned} returned to sales</span></a>
-      <a class="kpi" href="#/cases"><span class="kpi-label">Open files</span><span class="kpi-value">${d.pipeline.open}</span><span class="kpi-sub">${d.pipeline.rejected} rejected this cycle · ${d.pipeline.dncr} on the Do Not Call Register</span></a>
-      <a class="kpi ${d.governance.valid_complaints ? 'kpi-alert' : ''}" href="#/reports?report=governance&run=1&cycle=${cycle}"><span class="kpi-label">Complaints</span><span class="kpi-value">${d.governance.complaints}</span><span class="kpi-sub">${d.governance.valid_complaints} found valid · ${d.governance.deviations} card deviations or promotions</span></a>
-    </div>
-    <p class="muted small">People in scope: ${d.people.sales} sales staff, ${d.people.leaders} team leaders and managers, ${d.people.processing} processing, ${d.people.other} others. Money follows the profit and loss: revenue at the bank's payout rates on files completed in the cycle; every person's costs sit in their own region.</p>`);
+        <tbody>${d.earners.groups.map((x) => html`<tr class="lvl-${x.level} ${x.not_earning ? 'has-zero' : ''}"><td>${{ sales_manager: 'SM ', asm: 'ASM ', team_leader: 'TL ' }[x.level] ? html`<span class="muted">${{ sales_manager: 'SM', asm: 'ASM', team_leader: 'TL' }[x.level]}</span> ` : ''}${x.label}</td><td>${x.staff}</td><td>${x.earning}</td><td>${pct(x.pct)}</td><td class="${x.not_earning ? 'bad-num' : ''}">${x.not_earning}</td><td>${aed(x.incentive_aed)}</td></tr>`)}</tbody>
+      </table></div></details>` : ''}
+    ${d.contribution?.length ? html`<details class="card ceo-more"><summary><h2>Core team vs cross-sell</h2><span class="muted small">what each core team sold outside its product · open to see the bars</span></summary>${contributionCard(d.contribution, d.label)}</details>` : ''}
+    <p class="muted small ceo-foot">In scope: ${d.people.sales} sales staff, ${d.people.leaders} team leaders and managers, ${d.people.processing} processing, ${d.people.other} others. Revenue is the bank's payout on files completed in the cycle; every person's costs sit in their own region.</p>`);
   document.getElementById('ceo-filters').onsubmit = (e) => { e.preventDefault(); const f = new FormData(e.target); location.hash = `#/ceo?cycle=${f.get('cycle')}${region ? `&region=${region}` : ''}`; };
   // Tiles and links lead to the page behind them only when the profile has it (the CEO profile has the P&L and reports only).
   for (const a of document.querySelectorAll('main a[href^="#/"]')) {
