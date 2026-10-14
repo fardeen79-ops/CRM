@@ -664,6 +664,20 @@ export function savepoint(db, fn) {
 }
 
 export function transaction(db, fn) {
+  // Inside another transaction (a bulk upload running an action per row) it becomes a savepoint, so a
+  // failure undoes only this piece and the caller decides the rest.
+  if (db.isTransaction) {
+    db.exec('SAVEPOINT txn');
+    try {
+      const result = fn();
+      db.exec('RELEASE txn');
+      return result;
+    } catch (err) {
+      db.exec('ROLLBACK TO txn');
+      db.exec('RELEASE txn');
+      throw err;
+    }
+  }
   db.exec('BEGIN');
   try {
     const result = fn();

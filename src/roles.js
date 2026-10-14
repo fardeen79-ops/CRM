@@ -24,7 +24,7 @@ export const PAGES = {
   allocation: { label: 'Processor allocation', help: 'Which processor verifies each sales team leader\'s files (the verification team leader)', paths: /^\/api\/allocations(\/|$)/ },
 };
 /** The uploads a role can be given. */
-export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', cards: 'Card activation', card_products: 'Card products', target_rules: 'Salary targets', targets: 'Targets', payout_rules: 'Payout rules', assets: 'Tab register' };
+export const UPLOAD_KINDS = { cases: 'Files', users: 'Staff', case_status: 'Case status', cards: 'Card activation', card_products: 'Card products', target_rules: 'Salary targets', targets: 'Targets', payout_rules: 'Payout rules', assets: 'Tab register' };
 
 /** The built-in roles: what each one sees, which a custom role based on it can only narrow. */
 const MANAGE = ['cases', 'targets', 'team', 'cards', 'reports', 'uploads', 'staff', 'access_log', 'assets', 'chat', 'roles', 'boosters'];

@@ -599,7 +599,7 @@ async function route() {
     }
     if (path === '/users') return await viewUsers();
     if (path === '/password' || path === '/profile') return await viewProfile();
-    if ((m = path.match(/^\/import\/(users|cases|cards|targets|card_products|target_rules|payout_rules|assets)$/))) return viewBulkUpload(m[1]);
+    if ((m = path.match(/^\/import\/(users|cases|case_status|cards|targets|card_products|target_rules|payout_rules|assets)$/))) return viewBulkUpload(m[1]);
     if (path === '/access-log') return await viewAccessLog(params);
     if ((m = path.match(/^\/messages(?:\/(\d+))?$/))) return await viewMessages(m[1] ? Number(m[1]) : null, params);
     if (path === '/targets') return await viewTargets(params.get('cycle'));
@@ -3403,6 +3403,13 @@ const BULK = {
     lede: 'Add many users at once from a spreadsheet. Team leaders and sales managers in the file are added first, so sales staff in the same file can name them.',
     template: 'users-upload-template.csv',
   },
+  case_status: {
+    tab: 'Case status',
+    title: 'Upload case status',
+    lede: 'Set the case status on many files at once. Each row names a file by CRM reference or App ID and the status it moves to: Applicant review, Completed or Rejected. Every row follows the same rules as the action on the case page, including the note and the disbursed amount on a completed loan, and the sales person is notified.',
+    template: 'case-status-template.csv',
+    done: ['#/cases', 'View cases'],
+  },
   cards: {
     tab: 'Card activation',
     title: 'Upload card activation',
@@ -3451,6 +3458,7 @@ const BULK = {
 const BULK_WORDS = {
   cases: { one: 'file', many: 'files', verb: 'Added', who: 'Customer', names: ['firstname', 'middlename', 'lastname'], sep: ' ', after: 'They are in the verification queue as Sent to checker.', excel: 'phone, Emirates ID and App ID' },
   users: { one: 'user', many: 'users', verb: 'Added', who: 'User', names: ['fullname', 'email'], sep: ' · ', after: 'They can sign in now.', excel: 'phone' },
+  case_status: { one: 'file', many: 'files', verb: 'Updated', who: 'Case', names: ['reference'], sep: ' ', after: 'The new status shows on each case; the sales staff have been notified.', excel: 'Reference (App ID)' },
   cards: { one: 'card', many: 'cards', verb: 'Mapped', who: 'Case', names: ['reference'], sep: ' ', after: 'Activation now shows on each case and in the sales staff\'s numbers.', excel: 'Reference (App ID and Emirates ID)' },
   targets: { one: 'target row', many: 'target rows', verb: 'Saved', who: 'Sales staff', names: ['salescode', 'cycle'], sep: ' · ', after: 'Staff see them on their Targets page.', excel: '' },
   card_products: { one: 'card', many: 'cards', verb: 'Listed', who: 'Card', names: ['cardname'], sep: ' ', after: 'The New case form now offers exactly these cards.', excel: '' },

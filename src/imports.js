@@ -4,7 +4,7 @@
 // and uploaded again.
 import { transaction, savepoint } from './db.js';
 import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, CASE_STATUS, SETTABLE_CASE_STATUSES, applyAction, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -106,6 +106,15 @@ export const CARD_IMPORT_COLUMNS = [
   { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference, App ID or Emirates ID of a completed credit card case' },
   { key: 'card_status', header: 'Card status', required: true, example: 'Active', allowed: Object.values(CARD_STATUS) },
   { key: 'activation_date', header: 'Status date', example: '15/06/2026', help: 'Date activated (Active) or inactive since (Inactive). DD/MM/YYYY or YYYY-MM-DD; blank means today' },
+];
+
+export const CASE_STATUS_IMPORT_COLUMNS = [
+  { key: 'reference', header: 'Reference', required: true, example: 'CRM-000012', help: 'The CRM reference or App ID of the file' },
+  { key: 'case_status', header: 'Case status', required: true, example: 'Completed', allowed: SETTABLE_CASE_STATUSES.map((k) => CASE_STATUS[k]) },
+  { key: 'note', header: 'Note', example: '', help: 'Why the file is in Applicant review or Rejected (required for those two); optional for Completed' },
+  { key: 'pl_disbursed_amount', header: 'Personal loan disbursed (AED)', example: '', help: 'Completed personal loans: the amount disbursed; blank takes the loan amount on the file' },
+  { key: 'al_disbursed_amount', header: 'Auto loan disbursed (AED)', example: '', help: 'Completed auto loans: the amount disbursed; blank takes the amount on the file' },
+  { key: 'al_payout_class', header: 'Auto loan payout class', example: '', help: 'Completed auto loans, if the bank reclassified it: Full payout, Algo loan or Low-payout non-algo', allowed: Object.values(AUTO_LOAN_CLASSES) },
 ];
 
 export const CARD_PRODUCT_IMPORT_COLUMNS = [
@@ -718,6 +727,50 @@ export function importCards(db, user, csv, { dryRun = false } = {}) {
     return {
       id: row.id, ref: caseRef(row.id),
       label: `${row.customer_name} · ${CARD_STATUS[status]}`,
+      email: row.sales_staff_name ? `Sales: ${row.sales_staff_name} (${row.sales_code})` : '',
+    };
+  }))));
+  return summarize(header, unknown, results, dryRun);
+}
+
+/** Finds the one file a reference names: the CRM reference, or an App ID. */
+function caseByReference(db, ref) {
+  const idMatch = ref.match(/^crm-?0*(\d+)$/i);
+  const matches = idMatch
+    ? db.prepare('SELECT * FROM cases WHERE id = ?').all(Number(idMatch[1]))
+    : db.prepare('SELECT * FROM cases WHERE app_id = ? COLLATE NOCASE').all(ref);
+  if (!matches.length) throw new Error(`No case found for ${ref}`);
+  if (matches.length > 1) throw new Error(`${ref} matches more than one file: ${matches.map((c) => caseRef(c.id)).join(', ')}. Use the CRM reference`);
+  return matches[0];
+}
+
+/**
+ * Sets the case status on many files at once, each row going through the same rules as the action on
+ * the case page: a note for Applicant review and Rejected, disbursed amounts when a loan is completed,
+ * the timeline entry and the notifications to the sales person.
+ */
+export function importCaseStatus(db, user, csv, { dryRun = false } = {}) {
+  requireBulkRole(user, 'case_status');
+  const { header, records, unknown } = readFile(csv, CASE_STATUS_IMPORT_COLUMNS);
+  const seen = new Map();
+  const results = run(db, dryRun, () => records.map((record) => rowResult(record, () => savepoint(db, () => {
+    const v = record.values;
+    noScientific(v);
+    const ref = v.reference.trim();
+    if (!ref) throw new Error('Reference is required');
+    const row = caseByReference(db, ref);
+    if (seen.has(row.id)) throw new Error(`${caseRef(row.id)} is also on line ${seen.get(row.id)} of this file`);
+    seen.set(row.id, record.line);
+    const status = choose(v.case_status, Object.fromEntries(SETTABLE_CASE_STATUSES.map((k) => [k, CASE_STATUS[k]])), 'Case status');
+    if (!status) throw new Error('Case status is required');
+    applyAction(db, user, row.id, {
+      action: 'set_case_status', case_status: status, note: v.note,
+      pl_disbursed_amount: v.pl_disbursed_amount, al_disbursed_amount: v.al_disbursed_amount,
+      al_payout_class: v.al_payout_class ? choose(v.al_payout_class, AUTO_LOAN_CLASSES, 'Auto loan payout class') : '',
+    });
+    return {
+      id: row.id, ref: caseRef(row.id),
+      label: `${row.customer_name} · ${CASE_STATUS[status]}`,
       email: row.sales_staff_name ? `Sales: ${row.sales_staff_name} (${row.sales_code})` : '',
     };
   }))));

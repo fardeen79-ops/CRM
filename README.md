@@ -399,7 +399,7 @@ The **Staff** page (MIS and business heads only; team leaders no longer add user
 
 ### Bulk upload
 
-Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** in the top bar (or on their dashboard) and switch between the **Cases** and **Users** tabs. Everyone else adds users and files one at a time, and MIS and business heads can't use the single New case form.
+Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** in the top bar (or on their dashboard) and switch between the tabs (**Cases**, **Users**, **Case status**, **Card activation** and the rest). Everyone else adds users and files one at a time, and MIS and business heads can't use the single New case form.
 
 1. **Download the template** (a CSV file that Excel, Numbers and Google Sheets open). **Download with example row** gives the same file with one filled-in row to copy. The **Column guide** on the page lists every column, whether it is required, and the accepted values.
 2. Fill in one row per user or file, save as CSV (in Excel: *File → Save As → CSV UTF-8*) and upload it.
@@ -422,6 +422,12 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 - Sourcing dates are `DD/MM/YYYY` or `YYYY-MM-DD`; Excel date cells are converted too.
 - Each file starts as *Sent to checker* and is marked "Added from a bulk upload file" in its timeline.
 - An App ID already in the CRM, or repeated in the file, counts as a duplicate. Re-uploading the same file adds nothing twice.
+
+**Case status rows** (the *Case status* tab, MIS and business heads)
+- Name the file by **CRM reference** (`CRM-000012`) or **App ID**, and give the **case status** it moves to: `Applicant review`, `Completed` or `Rejected`.
+- Applicant review and Rejected need a **note**, exactly as on the case page. A file already in that status is reported as an error and left alone.
+- Completing a loan records the **disbursed amount**: the *Personal loan disbursed (AED)* and *Auto loan disbursed (AED)* columns, blank meaning the amount on the file; an auto loan can also carry the bank's **payout class**.
+- Each row is logged on the file's timeline as the uploader's action and the sales person is notified, the same as a one-by-one change.
 
 **Limits and Excel**
 - Up to 1,000 rows per file.
@@ -471,7 +477,7 @@ Case status is separate from verification:
 - **Verification** is the processing team's calls: pending, in verification, completed, or incomplete, after which the team leader decides.
 - **Case status** is the outcome of the file.
 
-Each file starts as **Sent to checker** when the sales person submits it. After that only a team leader, MIS, sales manager or business head can change it. Processors can't. They choose **Applicant review**, **Completed** or **Rejected**, and Applicant review and Rejected need a note. Every change is logged and the sales person is notified. Team leaders are also alerted when a file moves to Applicant review.
+Each file starts as **Sent to checker** when the sales person submits it. After that only a team leader, ASM, sales manager, MIS or business head can change it. Processors can't. MIS and business heads can also change many at once with the **Case status** bulk upload (see Bulk upload). They choose **Applicant review**, **Completed** or **Rejected**, and Applicant review and Rejected need a note. Every change is logged and the sales person is notified. Team leaders are also alerted when a file moves to Applicant review.
 
 While a file is in **Applicant review**, the sales person who sourced it can't edit it. Instead they send an **edit request** to the **Team Leader** or **Sales Manager** queue, describing the changes. The team leader or sales manager makes the edits and clicks **Mark changes done**, and the sales person is told.
 

@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v84';
+const DB_KEY = 'sourcing-crm-demo-db-v85';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -83,6 +83,11 @@ function tempPassword() {
 }
 
 function transaction(db, fn) {
+  // Inside another transaction (a bulk upload running an action per row) it becomes a savepoint, as on the server.
+  if (db.inTransaction) {
+    db.exec('SAVEPOINT txn');
+    try { const r = fn(); db.exec('RELEASE txn'); return r; } catch (e) { db.exec('ROLLBACK TO txn'); db.exec('RELEASE txn'); throw e; }
+  }
   db.exec('BEGIN');
   try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
@@ -90,8 +95,14 @@ function transaction(db, fn) {
 // Minimal node:sqlite-style adapter over sql.js so src/cases.js runs unchanged.
 const normParams = (p) => p.map((v) => (v === undefined ? null : typeof v === 'boolean' ? +v : v));
 class Db {
-  constructor(raw) { this.raw = raw; raw.exec('PRAGMA foreign_keys = ON'); }
-  exec(sql) { this.raw.exec(sql); }
+  constructor(raw) { this.raw = raw; this.inTransaction = false; raw.exec('PRAGMA foreign_keys = ON'); }
+  exec(sql) {
+    this.raw.exec(sql);
+    // Tracks whether a transaction is open, as node:sqlite's isTransaction does.
+    const t = sql.trim().toUpperCase();
+    if (t.startsWith('BEGIN')) this.inTransaction = true;
+    else if (t.startsWith('COMMIT') || (t.startsWith('ROLLBACK') && !t.startsWith('ROLLBACK TO'))) this.inTransaction = false;
+  }
   prepare(sql) {
     const raw = this.raw;
     return {
@@ -476,7 +487,7 @@ function handle(method, pathname, query, body) {
     return { ok: true };
   }
   if (method === 'GET' && pathname === '/api/me') {
-    return { user: publicUser(user.id), meta: { pl_min_yield: PL_MIN_YIELD, statuses: Object.values(STATUS), call_outcomes: CALL_OUTCOMES, incomplete_reasons: INCOMPLETE_REASONS, regions: REGIONS, core_products: CORE_PRODUCTS, products: PRODUCTS, credit_cards: cardFamilies(), card_list_source: cardProductSource(), can_see_payout: canSeePayout(user), incentive_rules: INCENTIVE_RULES, ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}), personal_loan_types: PERSONAL_LOAN_TYPES, personal_loan_kinds: PERSONAL_LOAN_KINDS, personal_loan_options: PERSONAL_LOAN_OPTIONS, auto_loan_types: AUTO_LOAN_TYPES, role_labels: roleLabels(), assignable_roles: assignableLabels(), custom_roles: customRoles().map(({ key, label, base, description, status }) => ({ key, label, base, description, status })), perms: permissionsOf(user), can_manage_roles: canManageRoles(user), can_approve_roles: canApproveRoles(user), roles_pending: canApproveRoles(user) ? customRoles().filter((r) => r.status === 'pending').length : 0, lead_status: LEAD_STATUS, timing_flags: TIMING_FLAGS, salutations: SALUTATIONS, call_bot: false, can_teach_bot: canTeachBot(user), customer_types: CUSTOMER_TYPES, sourcing_types: SOURCING_TYPES, journey_types: JOURNEY_TYPES, verify_tat_days: VERIFY_TAT_DAYS, can_use_tat_switch: canUseTatSwitch(user), ...(canUseTatSwitch(user) && { power_button: tatSwitchStatus(db, user) }), can_see_power_log: POWER_LOG_VIEWERS.includes(user.role), fixed_deposit_products: FIXED_DEPOSIT_PRODUCTS, booster_products: BOOSTER_PRODUCTS, booster_audience: BOOSTER_AUDIENCE, can_manage_boosters: canManageBoosters(user), calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: canAllocate(user), complaint_status: COMPLAINT_STATUS, complaint_remark: COMPLAINT_REMARK, asset_status: ASSET_STATUS, networks: NETWORKS, accessories: ACCESSORIES, asset_admins: ASSET_ADMINS, auto_loan_classes: AUTO_LOAN_CLASSES, al_incentive_rules: AL_INCENTIVE_RULES, buyout_kinds: BUYOUT_KINDS, secondary_buyout_kinds: SECONDARY_BUYOUT_KINDS, tenure_max: { personal_loan: PL_TENURE_MAX, auto_loan: AL_TENURE_MAX }, card_fee_types: CARD_FEE_TYPES, card_exceptions: CARD_EXCEPTIONS, masked_fields: MASKED_FIELDS, chat_overseers: CHAT_OVERSEERS, chat_edit_minutes: EDIT_WINDOW_MINUTES, banks: BANKS, case_statuses: CASE_STATUS, settable_case_statuses: SETTABLE_CASE_STATUSES, edit_queues: EDIT_QUEUES, recording_statuses: RECORDING_STATUS, score_max: SCORE_MAX, callback_max_days: CALLBACK_MAX_DAYS, it_email: config.itEmail, ocr: DEMO_OCR, import_columns: { users: USER_IMPORT_COLUMNS, cases: CASE_IMPORT_COLUMNS, cards: CARD_IMPORT_COLUMNS, targets: TARGET_IMPORT_COLUMNS, card_products: CARD_PRODUCT_IMPORT_COLUMNS, target_rules: TARGET_RULE_IMPORT_COLUMNS, payout_rules: PAYOUT_RULE_IMPORT_COLUMNS, assets: ASSET_IMPORT_COLUMNS }, import_max_rows: MAX_ROWS, card_statuses: CARD_STATES, card_range_days: CARD_RANGE_DAYS, card_mappers: CARD_MAPPERS, current_cycle: cycleOf(uaeDay()), reports: reportsFor(user), hierarchy_levels: LEVEL_LABELS, staff_core_products: STAFF_CORE_PRODUCTS } };
+    return { user: publicUser(user.id), meta: { pl_min_yield: PL_MIN_YIELD, statuses: Object.values(STATUS), call_outcomes: CALL_OUTCOMES, incomplete_reasons: INCOMPLETE_REASONS, regions: REGIONS, core_products: CORE_PRODUCTS, products: PRODUCTS, credit_cards: cardFamilies(), card_list_source: cardProductSource(), can_see_payout: canSeePayout(user), incentive_rules: INCENTIVE_RULES, ...(canSeePayout(user) ? { payout_rates: payoutRules(), payout_labels: PAYOUT_LABELS, payout_source: payoutSource() } : {}), personal_loan_types: PERSONAL_LOAN_TYPES, personal_loan_kinds: PERSONAL_LOAN_KINDS, personal_loan_options: PERSONAL_LOAN_OPTIONS, auto_loan_types: AUTO_LOAN_TYPES, role_labels: roleLabels(), assignable_roles: assignableLabels(), custom_roles: customRoles().map(({ key, label, base, description, status }) => ({ key, label, base, description, status })), perms: permissionsOf(user), can_manage_roles: canManageRoles(user), can_approve_roles: canApproveRoles(user), roles_pending: canApproveRoles(user) ? customRoles().filter((r) => r.status === 'pending').length : 0, lead_status: LEAD_STATUS, timing_flags: TIMING_FLAGS, salutations: SALUTATIONS, call_bot: false, can_teach_bot: canTeachBot(user), customer_types: CUSTOMER_TYPES, sourcing_types: SOURCING_TYPES, journey_types: JOURNEY_TYPES, verify_tat_days: VERIFY_TAT_DAYS, can_use_tat_switch: canUseTatSwitch(user), ...(canUseTatSwitch(user) && { power_button: tatSwitchStatus(db, user) }), can_see_power_log: POWER_LOG_VIEWERS.includes(user.role), fixed_deposit_products: FIXED_DEPOSIT_PRODUCTS, booster_products: BOOSTER_PRODUCTS, booster_audience: BOOSTER_AUDIENCE, can_manage_boosters: canManageBoosters(user), calendar_green_pct: CALENDAR_GREEN_PCT, calendar_orange_pct: CALENDAR_ORANGE_PCT, can_allocate: canAllocate(user), complaint_status: COMPLAINT_STATUS, complaint_remark: COMPLAINT_REMARK, asset_status: ASSET_STATUS, networks: NETWORKS, accessories: ACCESSORIES, asset_admins: ASSET_ADMINS, auto_loan_classes: AUTO_LOAN_CLASSES, al_incentive_rules: AL_INCENTIVE_RULES, buyout_kinds: BUYOUT_KINDS, secondary_buyout_kinds: SECONDARY_BUYOUT_KINDS, tenure_max: { personal_loan: PL_TENURE_MAX, auto_loan: AL_TENURE_MAX }, card_fee_types: CARD_FEE_TYPES, card_exceptions: CARD_EXCEPTIONS, masked_fields: MASKED_FIELDS, chat_overseers: CHAT_OVERSEERS, chat_edit_minutes: EDIT_WINDOW_MINUTES, banks: BANKS, case_statuses: CASE_STATUS, settable_case_statuses: SETTABLE_CASE_STATUSES, edit_queues: EDIT_QUEUES, recording_statuses: RECORDING_STATUS, score_max: SCORE_MAX, callback_max_days: CALLBACK_MAX_DAYS, it_email: config.itEmail, ocr: DEMO_OCR, import_columns: { users: USER_IMPORT_COLUMNS, cases: CASE_IMPORT_COLUMNS, case_status: CASE_STATUS_IMPORT_COLUMNS, cards: CARD_IMPORT_COLUMNS, targets: TARGET_IMPORT_COLUMNS, card_products: CARD_PRODUCT_IMPORT_COLUMNS, target_rules: TARGET_RULE_IMPORT_COLUMNS, payout_rules: PAYOUT_RULE_IMPORT_COLUMNS, assets: ASSET_IMPORT_COLUMNS }, import_max_rows: MAX_ROWS, card_statuses: CARD_STATES, card_range_days: CARD_RANGE_DAYS, card_mappers: CARD_MAPPERS, current_cycle: cycleOf(uaeDay()), reports: reportsFor(user), hierarchy_levels: LEVEL_LABELS, staff_core_products: STAFF_CORE_PRODUCTS } };
   }
   if (method === 'GET' && pathname === '/api/stats') return stats(db, user, { region: query.get('region') });
   if (method === 'GET' && pathname === '/api/dashboard') return dashboardFor(db, user, { region: query.get('region') });
@@ -565,6 +576,7 @@ function handle(method, pathname, query, body) {
     return importUsers(db, user, body.csv, { dryRun: Boolean(body.dry_run), update: Boolean(body.update) });
   }
   if (method === 'POST' && pathname === '/api/import/cases') return importCases(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
+  if (method === 'POST' && pathname === '/api/import/case_status') return importCaseStatus(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
   if (method === 'POST' && pathname === '/api/import/cards') return importCards(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
   if (method === 'POST' && pathname === '/api/import/targets') return importTargets(db, user, body.csv, { dryRun: Boolean(body.dry_run) });
   if (method === 'POST' && pathname === '/api/targets/generate') { const r = generateTargets(db, user, body.cycle); persist(); return r; }

@@ -1079,6 +1079,46 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   assert.ok(list.some((c) => c.id === id));
 });
 
+test('MIS sets the case status on many files from an upload, with the same rules as the case page', async () => {
+  const mis = await login('mis@t.local');
+  const sally = await login('sales@t.local');
+  const lead = await login('lead@t.local');
+  const proc = await login('proc@t.local');
+  const loanA = (await sally('POST', '/cases', { ...newCase, app_id: 'CSU-APP-1', loan_amount: 90000 })).data.case.id;
+  const loanB = (await sally('POST', '/cases', { ...newCase, app_id: 'CSU-APP-2', loan_amount: 70000 })).data.case.id;
+  const loanC = (await sally('POST', '/cases', { ...newCase, app_id: 'CSU-APP-4' })).data.case.id;
+  const card = (await sally('POST', '/cases', { journey_type: 'emirates_id', ...newCase, product: 'credit_card', credit_card: 'Infinite Credit Card', app_id: 'CSU-APP-3' })).data.case.id;
+  const ref = (id) => `CRM-${String(id).padStart(6, '0')}`;
+  const csv = ['Reference,Case status,Note,Personal loan disbursed (AED),Auto loan disbursed (AED),Auto loan payout class',
+    `${ref(loanA)},Completed,,85000,,`,
+    `CSU-APP-2,completed,,,,`,
+    `CSU-APP-3,Applicant review,Salary certificate missing,,,`,
+    `${ref(loanC)},Rejected,,,,`,
+    `${ref(loanA)},Rejected,Again,,,`,
+    `NOPE-9,Completed,,,,`,
+  ].join('\n');
+  assert.equal((await lead('POST', '/import/case_status', { csv })).status, 403);
+  assert.equal((await proc('POST', '/import/case_status', { csv })).status, 403);
+  // Check file saves nothing
+  const dry = (await mis('POST', '/import/case_status', { csv, dry_run: true })).data;
+  assert.deepEqual(dry.rows.map((x) => x.ok), [true, true, true, false, false, false], JSON.stringify(dry.rows.map((x) => x.error)));
+  assert.equal((await sally('GET', `/cases/${loanA}`)).data.case.case_status, 'sent_to_check');
+  const done = (await mis('POST', '/import/case_status', { csv })).data;
+  assert.deepEqual(done.rows.map((x) => x.ok), [true, true, true, false, false, false]);
+  assert.match(done.rows[3].error, /note/i);
+  assert.match(done.rows[4].error, /also on line 2/);
+  assert.match(done.rows[5].error, /No case found/);
+  const a = (await sally('GET', `/cases/${loanA}`)).data.case;
+  assert.deepEqual([a.case_status, a.pl_disbursed_amount], ['completed', 85000]);
+  assert.equal((await sally('GET', `/cases/${loanB}`)).data.case.pl_disbursed_amount, 70000); // blank takes the loan amount
+  const c = (await sally('GET', `/cases/${card}`)).data.case;
+  assert.deepEqual([c.case_status, c.case_status_note], ['applicant_review', 'Salary certificate missing']);
+  assert.ok(c.events.some((e) => e.type === 'case_status' && e.user_name === 'Mira'));
+  // A file already in the status is reported, not changed twice
+  const again = (await mis('POST', '/import/case_status', { csv: `Reference,Case status\n${ref(loanA)},Completed` })).data;
+  assert.match(again.rows[0].error, /already Completed/);
+});
+
 test('card activation is mapped on completed card cases, one by one or from a bank report', async () => {
   const mis = await login('mis@t.local');
   const head = await login('bh@t.local');
