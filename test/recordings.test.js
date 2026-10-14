@@ -13,6 +13,7 @@ import { makeRecordingLookup, numberForms, timeFromName, wavSeconds } from '../s
 
 const PASSWORD = 'password123';
 let dir, server, base, ids, pbx, pbxBase, apiServer, apiBase;
+const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
 
 /** A small PCM WAV file: 8 kHz mono 16-bit, `seconds` long. */
 function wav(seconds) {
@@ -32,7 +33,7 @@ before(async () => {
   fs.writeFileSync(path.join(dir, 'notes-0503334444.txt'), 'not audio');
   const db = openDb(':memory:');
   ids = {};
-  const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
+  const add = (name, email, role, extra = {}) => (HRMS[email] = extra.hrms_code || null, ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm@t.local', 'sales_manager', { region: 'DXB' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
   add('Sally', 'sally@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'credit_card', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm@t.local'], salary: 5000 });
@@ -67,7 +68,7 @@ before(async () => {
 after(() => { server.close(); pbx.close(); apiServer.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
 async function login(email, b = base) {
-  const res = await fetch(`${b}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${b}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   const call = async (method, p, body) => {

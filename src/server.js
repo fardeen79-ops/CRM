@@ -243,7 +243,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
 
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
       const result = auth.login(db, body.email, body.password, { remember: body.remember === true || body.remember === 'on' || body.remember === '1' });
-      if (!result) throw new HttpError(401, 'Invalid email or password');
+      if (!result) throw new HttpError(401, 'Invalid HRMS code or password');
       if (result.no_access) throw new HttpError(403, 'This account is on the staff list for the profit and loss only; it has no CRM access');
       send(res, 200, { user: result.user }, { 'set-cookie': sessionCookie(result.token, result.maxAge) });
     }, { public: true }],
@@ -264,7 +264,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
       if (r && !r.repeated) {
         cases.notify(db, r.handlers, null, `Password reset requested by ${r.user.name}${r.user.hrms_code ? ` (${r.user.hrms_code})` : ''}: reset it on the Staff page and pass it on`, `#/users?q=${encodeURIComponent(r.user.hrms_code || r.user.name)}`);
       }
-      return { ok: true, message: 'If that HRMS code or email belongs to an account, MIS has been asked to reset the password and will pass the new one to you.' };
+      return { ok: true, message: 'If that HRMS code belongs to an account, MIS has been asked to reset the password and will pass the new one to you.' };
     }, { public: true }],
     // Anyone changes their own password, with the current one; other sessions of theirs are signed out.
     ['POST', /^\/api\/password$/, async ({ user, body, token }) => {

@@ -65,7 +65,9 @@ export const getUser = findUser;
 export const NO_ACCESS_ROLE = 'staff';
 export function login(db, email, password, { remember = false } = {}) {
   const id = String(email || '').trim();
-  const user = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE OR (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE)').get(id, id);
+  // The HRMS code is the username. An account with no code on file yet (the first-run business head)
+  // signs in with its email until MIS gives it one.
+  const user = db.prepare("SELECT * FROM users WHERE (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR ((hrms_code IS NULL OR hrms_code = '') AND email = ? COLLATE NOCASE)").get(id, id);
   if (!user || !user.active || !verifyPassword(String(password || ''), user.password_hash)) return null;
   if (user.role === NO_ACCESS_ROLE) return { no_access: true };
   const token = crypto.randomBytes(32).toString('hex');

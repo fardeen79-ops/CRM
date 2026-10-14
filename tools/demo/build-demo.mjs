@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v98';
+const DB_KEY = 'sourcing-crm-demo-db-v99';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -425,8 +425,8 @@ function handle(method, pathname, query, body) {
   if (method === 'POST' && pathname === '/api/password/forgot') return { ok: true, message: 'If that HRMS code or email belongs to an account, MIS has been asked to reset the password and will pass the new one to you. (In the demo every account uses password123.)' };
   if (method === 'POST' && pathname === '/api/login') {
     const who = String(body.email || '').trim();
-    const row = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE OR (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE)').get(who, who);
-    if (!row) throw new ApiError(401, "There's no account for that HRMS code or email yet. Pick a demo account below, or sign in as Mira (MIS) and add yourself on the Staff page.");
+    const row = db.prepare("SELECT * FROM users WHERE (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR ((hrms_code IS NULL OR hrms_code = '') AND email = ? COLLATE NOCASE)").get(who, who);
+    if (!row) throw new ApiError(401, "There's no account for that HRMS code yet. Pick a demo account below, or sign in as Mira (MIS) and add yourself on the Staff page.");
     if (!row.active) throw new ApiError(401, 'This account has been disabled by a team leader.');
     if (row.password_hash !== 'demo:' + String(body.password || '')) throw new ApiError(401, 'Wrong password. The demo accounts all use password123.');
     setSession(row.id);

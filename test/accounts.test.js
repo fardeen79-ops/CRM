@@ -9,11 +9,12 @@ import { createUser } from '../src/auth.js';
 
 const PASSWORD = 'password123';
 let server, base, ids, db;
+const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
 
 before(async () => {
   db = openDb(':memory:');
   ids = {};
-  const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
+  const add = (name, email, role, extra = {}) => (HRMS[email] = extra.hrms_code || null, ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm@t.local', 'sales_manager', { region: 'DXB', hrms_code: 'EN1' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB', hrms_code: 'EN5' });
   add('Sally', 'sally@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'credit_card', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm@t.local'], salary: 5000, hrms_code: 'EN6' });
@@ -31,7 +32,7 @@ before(async () => {
 after(() => server.close());
 
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   const call = async (method, path, body) => {
@@ -170,7 +171,7 @@ test('the incentive sheets are split by region and hierarchy, with card types co
 });
 
 test('staff with no access are on the books for the profit and loss but cannot sign in', async () => {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'biker@t.local', password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'EN9', password: PASSWORD }) }); // by HRMS code
   assert.equal(res.status, 403);
   assert.match((await res.json()).error, /no CRM access/);
   const ceo = await login('ceo@t.local');
@@ -213,7 +214,7 @@ test('anyone changes their own password with the current one; other sessions of 
   assert.equal((await first('POST', '/password', { current: PASSWORD, password: 'newpassword1' })).status, 200);
   assert.equal((await second('GET', '/me')).status, 401, 'the other session is signed out');
   assert.equal((await first('GET', '/me')).status, 200, 'this one stays');
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sm@t.local', password: 'newpassword1' }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'EN1', password: 'newpassword1' }) });
   assert.equal(res.status, 200);
   assert.equal((await first('POST', '/password', { current: 'newpassword1', password: PASSWORD })).status, 200);
 });
@@ -248,7 +249,7 @@ test('users added by mistake can be deleted together; anyone with activity or st
   assert.ok(!left.includes('wrong1@t.local') && !left.includes('wrong2@t.local') && left.includes('tl@t.local'));
   // Only MIS and business heads may delete, and a deleted person can no longer sign in.
   assert.equal((await sally('POST', '/users/delete', { ids: [ids['tl@t.local']] })).status, 403);
-  const gone = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'wrong1@t.local', password: PASSWORD }) });
+  const gone = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'W1', password: PASSWORD }) });
   assert.equal(gone.status, 401);
 });
 
@@ -305,12 +306,12 @@ test('Forgot password asks MIS to reset it; the answer never says whether the ac
   // MIS resets the password from the Staff page: the request is cleared
   assert.equal((await mis('PATCH', `/users/${ids['sally@t.local']}`, { password: 'newpassword1' })).status, 200);
   assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'sally@t.local').reset_requested_at, null);
-  assert.equal((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sally@t.local', password: 'newpassword1' }) })).status, 200);
+  assert.equal((await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'EN6', password: 'newpassword1' }) })).status, 200);
   await mis('PATCH', `/users/${ids['sally@t.local']}`, { password: PASSWORD }); // back to the fixture's password for the tests that follow
 });
 
 test('Remember me keeps the device signed in for 30 days; without it the cookie ends with the browser', async () => {
-  const signIn = (remember) => fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sally@t.local', password: PASSWORD, remember }) });
+  const signIn = (remember) => fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'EN6', password: PASSWORD, remember }) });
   const plain = await signIn(false);
   assert.equal(plain.status, 200);
   assert.doesNotMatch(plain.headers.get('set-cookie'), /Max-Age/);
@@ -324,7 +325,7 @@ test('Remember me keeps the device signed in for 30 days; without it the cookie 
 });
 
 test('a session ends after the idle limit without the person using the CRM; background refreshes do not keep it alive', async () => {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'mis@t.local', password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'EN2', password: PASSWORD }) });
   const cookie = res.headers.get('set-cookie').split(';')[0];
   const token = cookie.split('=')[1];
   const me = (headers = {}) => fetch(`${base}/api/me`, { headers: { cookie, ...headers } });
@@ -338,7 +339,7 @@ test('a session ends after the idle limit without the person using the CRM; back
   assert.match((await gone.json()).error, /signed out after 5 minutes/);
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE token = ?').get(token).n, 0);
   // A session the person keeps using stays alive: an active request refreshes the stamp.
-  const res2 = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'mis@t.local', password: PASSWORD }) });
+  const res2 = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'EN2', password: PASSWORD }) });
   const cookie2 = res2.headers.get('set-cookie').split(';')[0];
   const token2 = cookie2.split('=')[1];
   const recent = new Date(Date.now() - 4 * 60e3).toISOString();

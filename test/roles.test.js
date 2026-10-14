@@ -8,11 +8,12 @@ import { createUser } from '../src/auth.js';
 
 const PASSWORD = 'password123';
 let server, base, ids;
+const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
 
 before(async () => {
   const db = openDb(':memory:');
   ids = {};
-  const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
+  const add = (name, email, role, extra = {}) => (HRMS[email] = extra.hrms_code || null, ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm1@t.local', 'sales_manager');
   add('TL Dubai', 'tl@t.local', 'team_leader');
   add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'] });
@@ -28,7 +29,7 @@ before(async () => {
 after(() => server.close());
 
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
@@ -79,7 +80,7 @@ test('a role based on MIS with fewer screens, two reports, no uploads, no downlo
   // A user on the role: created with the custom key, stored as its base, labelled by the role.
   const u = (await mis('POST', '/users', { name: 'Rita', email: 'rita@t.local', role: 'reporting_analyst', region: 'DXB', mobile_number: '0501112233', hrms_code: 'EN77001', password: PASSWORD })).data.user;
   assert.deepEqual([u.role, u.role_key], ['mis', 'reporting_analyst']);
-  const rita = await login('rita@t.local');
+  const rita = await login(u.hrms_code); // the HRMS code is the username
   const me = (await rita('GET', '/me')).data;
   assert.deepEqual([me.user.role, me.user.role_key, me.meta.perms.custom, me.meta.perms.pages, me.meta.perms.downloads, me.meta.perms.payout, me.meta.role_labels.reporting_analyst, me.meta.can_see_payout, me.meta.can_manage_roles], ['mis', 'reporting_analyst', true, ['cases', 'reports', 'uploads', 'roles'], false, false, 'Reporting Analyst', false, true]);
   // Screens she was not given are refused; the ones she has work as for MIS.
@@ -124,7 +125,7 @@ test('a role based on sales keeps the sales workflow and profile; the base canno
   assert.deepEqual([r.key, r.pages, r.uploads, r.status], ['senior_sales', ['cases', 'targets'], [], 'approved']);
   const u = (await mis('POST', '/users', { name: 'Sami', email: 'sami@t.local', role: 'Senior Sales', region: 'DXB', sales_code: 'D-9', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'], mobile_number: '0501112244', hrms_code: 'EN77003', password: PASSWORD })).data.user;
   assert.deepEqual([u.role, u.role_key, u.sales_code], ['sales', 'senior_sales', 'D-9']);
-  const sami = await login('sami@t.local');
+  const sami = await login(u.hrms_code);
   assert.equal((await sami('GET', '/cases')).status, 200);
   assert.equal((await sami('GET', '/conversations')).status, 403);
   assert.equal((await sami('GET', '/roles')).status, 403);
@@ -138,7 +139,7 @@ test('a custom sales role with My tab reaches its own tab but not the register',
   assert.equal((await head('POST', '/roles', { label: 'Tab Sales', base: 'sales', pages: ['cases', 'my_tab'] })).status, 201);
   const u = (await mis('POST', '/users', { name: 'Tess', email: 'tess@t.local', role: 'tab_sales', region: 'DXB', sales_code: 'D-8', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm1@t.local'], mobile_number: '0501112255', hrms_code: 'EN77004', password: PASSWORD })).data.user;
   const a = (await it('POST', '/assets', { tab_no: 'TAB-9', serial_no: 'SN9', holder_id: u.id })).data.asset;
-  const tess = await login('tess@t.local');
+  const tess = await login(u.hrms_code);
   assert.equal((await tess('GET', '/assets/mine')).data.asset.tab_no, 'TAB-9');
   assert.equal((await tess('GET', `/assets/${a.id}`)).status, 200);
   assert.equal((await tess('GET', '/assets')).status, 403);

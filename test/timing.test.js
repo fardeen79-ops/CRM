@@ -8,11 +8,12 @@ import { timing } from '../src/cases.js';
 
 const PASSWORD = 'password123';
 let server, base, ids;
+const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
 
 before(async () => {
   const db = openDb(':memory:');
   ids = {};
-  const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
+  const add = (name, email, role, extra = {}) => (HRMS[email] = extra.hrms_code || null, ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm1@t.local', 'sales_manager', { region: 'DXB' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
   add('TL Two', 'tl2@t.local', 'team_leader', { region: 'DXB' });
@@ -29,7 +30,7 @@ before(async () => {
 after(() => server.close());
 
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {

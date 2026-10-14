@@ -291,7 +291,7 @@ function siteFooter() {
   </footer>`;
 }
 
-/** The HRMS code or email kept on this device by "Remember me", if any. */
+/** The HRMS code kept on this device by "Remember me", if any. */
 const remembered = () => { try { return localStorage.getItem('crm.remember') || ''; } catch { return ''; } };
 function renderLogin(note = '') {
   app.innerHTML = html`
@@ -300,16 +300,16 @@ function renderLogin(note = '') {
         <div class="brand" style="margin-bottom:16px"><span class="logo">✓</span> Sourcing CRM</div>
         <h1>Sign in</h1>
         ${note ? html`<div class="callout warn" role="status">${note}</div>` : ''}
-        <p class="muted">Sign in with your HRMS code (or work email). Your role decides what you see.</p>
-        <div class="field-row"><label for="email">HRMS code or email</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required ${remembered() ? '' : raw('autofocus')} value="${remembered() || ''}"></div>
+        <p class="muted">Sign in with your HRMS code. Your role decides what you see.</p>
+        <div class="field-row"><label for="email">HRMS code</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required ${remembered() ? '' : raw('autofocus')} value="${remembered() || ''}"></div>
         <div class="field-row"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
         <label class="check small remember-me"><input type="checkbox" name="remember" id="remember" ${remembered() ? raw('checked') : ''}><span>Remember me on this device<span class="muted">Stays signed in for 30 days and keeps your HRMS code here. The idle sign-out still applies.</span></span></label>
         <button class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
         <p class="error" id="login-error" hidden></p>
         <p class="small forgot-row"><button type="button" class="btn-link" id="forgot-link">Forgot password?</button></p>
         <div id="forgot-panel" class="forgot-panel" hidden>
-          <p class="small">Type your HRMS code or email and MIS will be asked to reset your password and pass the new one to you.</p>
-          <div class="actions"><input id="forgot-id" placeholder="HRMS code or email" aria-label="HRMS code or email" autocapitalize="characters"><button type="button" class="btn-primary" id="forgot-send">Ask for a reset</button></div>
+          <p class="small">Type your HRMS code and MIS will be asked to reset your password and pass the new one to you.</p>
+          <div class="actions"><input id="forgot-id" placeholder="HRMS code" aria-label="HRMS code" autocapitalize="characters"><button type="button" class="btn-primary" id="forgot-send">Ask for a reset</button></div>
           <p class="muted small" id="forgot-note" hidden></p>
         </div>
       </form>
@@ -324,7 +324,7 @@ function renderLogin(note = '') {
   document.getElementById('forgot-send').onclick = async () => {
     const id = document.getElementById('forgot-id').value.trim();
     const note = document.getElementById('forgot-note');
-    if (!id) { note.textContent = 'Type your HRMS code or email first.'; note.hidden = false; return; }
+    if (!id) { note.textContent = 'Type your HRMS code first.'; note.hidden = false; return; }
     try {
       const r = await api('/password/forgot', { method: 'POST', body: { email: id } });
       note.textContent = r.message; note.hidden = false;

@@ -8,7 +8,7 @@ export const RESET_HANDLERS = ['mis', 'business_head'];
 export function requestPasswordReset(db, identifier) {
   const id = String(identifier || '').trim();
   if (!id) return null;
-  const user = db.prepare("SELECT id, name, hrms_code, role FROM users WHERE active = 1 AND role != 'staff' AND (email = ? COLLATE NOCASE OR (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE))").get(id, id);
+  const user = db.prepare("SELECT id, name, hrms_code, role FROM users WHERE active = 1 AND role != 'staff' AND ((hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR ((hrms_code IS NULL OR hrms_code = '') AND email = ? COLLATE NOCASE))").get(id, id);
   if (!user) return null;
   const recent = db.prepare('SELECT id FROM password_resets WHERE user_id = ? AND resolved_at IS NULL AND requested_at > ?').get(user.id, new Date(Date.now() - REPEAT_MINUTES * 60e3).toISOString());
   if (recent) return { user, repeated: true };

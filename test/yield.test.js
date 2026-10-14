@@ -9,11 +9,12 @@ import { yieldOf, PL_MIN_YIELD } from '../src/yield.js';
 
 const PASSWORD = 'password123';
 let server, base, ids;
+const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
 
 before(async () => {
   const db = openDb(':memory:');
   ids = {};
-  const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
+  const add = (name, email, role, extra = {}) => (HRMS[email] = extra.hrms_code || null, ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM Dubai', 'sm@t.local', 'sales_manager', { region: 'DXB' });
   add('SM Abu Dhabi', 'sm2@t.local', 'sales_manager', { region: 'AUH' });
   add('TL Leena', 'tl@t.local', 'team_leader', { region: 'DXB' });
@@ -30,7 +31,7 @@ before(async () => {
 after(() => server.close());
 
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {

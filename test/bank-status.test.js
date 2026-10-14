@@ -8,11 +8,12 @@ import { BANK_STATUSES, caseStatusOf, bankStatusLabel, matchBankStatus } from '.
 
 const PASSWORD = 'password123';
 let server, base, ids;
+const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
 
 before(async () => {
   const db = openDb(':memory:');
   ids = {};
-  const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
+  const add = (name, email, role, extra = {}) => (HRMS[email] = extra.hrms_code || null, ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm@t.local', 'sales_manager', { region: 'DXB' });
   add('TL Dubai', 'tl@t.local', 'team_leader', { region: 'DXB' });
   add('Dana', 'dana@t.local', 'sales', { region: 'DXB', sales_code: 'D-1', core_product: 'personal_loan', team_leader_id: ids['tl@t.local'], sales_manager_id: ids['sm@t.local'] });
@@ -25,7 +26,7 @@ before(async () => {
 after(() => server.close());
 
 async function login(email) {
-  const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   const cookie = r.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
     const res = await fetch(`${base}/api${path}`, { method, headers: { 'content-type': 'application/json', cookie }, body: body ? JSON.stringify(body) : undefined });

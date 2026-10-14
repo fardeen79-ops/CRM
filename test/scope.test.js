@@ -8,11 +8,12 @@ import { createUser } from '../src/auth.js';
 
 const PASSWORD = 'password123';
 let server, base, ids;
+const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
 
 before(async () => {
   const db = openDb(':memory:');
   ids = {};
-  const add = (name, email, role, extra = {}) => (ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
+  const add = (name, email, role, extra = {}) => (HRMS[email] = extra.hrms_code || null, ids[email] = createUser(db, { name, email, role, password: PASSWORD, ...extra }).id);
   add('SM One', 'sm1@t.local', 'sales_manager');
   add('SM Two', 'sm2@t.local', 'sales_manager');
   add('ASM One', 'asm1@t.local', 'asm');
@@ -36,7 +37,7 @@ after(() => server.close());
 const staffAdmin = async (...args) => (await login('mis@t.local'))(...args);
 
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
@@ -215,7 +216,7 @@ test('a team change moves open files to the new team and leaves completed ones b
 });
 
 async function loginCookie(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
   return res.headers.get('set-cookie').split(';')[0];
 }
 
@@ -524,7 +525,7 @@ test('staff master shapes from the real list: a manager leading a team, a team w
     const cookie = res.headers.get('set-cookie').split(';')[0];
     return async (method, path, body) => { const r = await fetch(`${base}/api${path}`, { method, headers: { cookie, ...(body && { 'content-type': 'application/json' }) }, body: body && JSON.stringify(body) }); return { status: r.status, data: await r.json() }; };
   };
-  const praveenLogin = await as('praveen.lead@t.local', up.rows[2].temp_password);
+  const praveenLogin = await as('L7001', up.rows[2].temp_password); // by HRMS code
   const sold = (await (await as('7001', up.rows[3].temp_password))('POST', '/cases', { journey_type: 'emirates_id', ...file('Direct customer'), region: 'AUH' })).data.case;
   assert.equal((await praveenLogin('GET', `/cases/${sold.id}`)).status, 200);
   // A sales person with no sales manager still sources files, and a sheet that repeats the full name in every name column keeps it once.
@@ -779,7 +780,7 @@ test('sales manager incentives: per-card slabs for card managers, a banded perce
 
 test('a team with no sales manager sits under its ASM at the sales manager level: team view, dashboard groups, reports', async () => {
   const mis = await login('mis@t.local');
-  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, region: 'DXB', mobile_number: '0501234599', ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.user; };
+  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, region: 'DXB', mobile_number: '0501234599', ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); HRMS[body.email] = body.hrms_code || null; return r.data.user; };
   const asm = await add({ name: 'Asma ASM', email: 'asma@t.local', role: 'asm', hrms_code: 'ASM9' });
   const tl = await add({ name: 'Lone TL', email: 'lone.tl@t.local', role: 'team_leader', hrms_code: 'TL9', asm_id: asm.id });
   const solo = await add({ name: 'Solo Seller', email: 'solo@t.local', role: 'sales', hrms_code: 'S9', sales_code: 'D-9', core_product: 'credit_card', team_leader_id: tl.id, asm_id: asm.id, mobile_number: '0501234598' });
@@ -803,7 +804,7 @@ test('a team with no sales manager sits under its ASM at the sales manager level
 
 test('an ASM or sales manager who leads a team directly sees it everywhere, even when the staff name nobody in that role column', async () => {
   const mis = await login('mis@t.local');
-  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, region: 'DXB', ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.user; };
+  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, region: 'DXB', ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); HRMS[body.email] = body.hrms_code || null; return r.data.user; };
   // Priya is an ASM: two team leaders report to her as ASM, and she also leads Pia directly (Pia's ASM column is blank).
   const priya = await add({ name: 'Priya ASM', email: 'priya@t.local', role: 'asm', hrms_code: 'ASM7', mobile_number: '0501234571' });
   const tl = await add({ name: 'Under Priya TL', email: 'upriya.tl@t.local', role: 'team_leader', hrms_code: 'TL7', mobile_number: '0501234572', asm_id: priya.id });

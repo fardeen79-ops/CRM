@@ -968,7 +968,7 @@ test('bulk upload of users: preview saves nothing, import keeps good rows and re
   assert.ok((await users()).includes('bulk.seller@t.local'));
   const login2 = await fetch(`${base}/api/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'bulk.seller@t.local', password: done.data.rows[0].temp_password }),
+    body: JSON.stringify({ email: 'EN40001', password: done.data.rows[0].temp_password }), // the HRMS code is the username
   });
   assert.equal(login2.status, 200);
 
