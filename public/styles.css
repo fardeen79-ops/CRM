@@ -687,7 +687,7 @@ input.verified { border-color: var(--s-done); box-shadow: inset 0 0 0 1px var(--
 .team-row.level-staff strong { font-weight: 500; }
 .team-card .team-table .tree-toggle { display: none; }
 .team-kpis { grid-template-columns: repeat(4, 1fr); }
-.report-grid { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+.report-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 960px) { .report-grid { grid-template-columns: 1fr; } }
 .report-form .field-row { margin-bottom: 12px; }
 .report-result { min-width: 0; }
@@ -1029,9 +1029,9 @@ table.pnl.tree td.gain { color: var(--s-done); }
 
 /* Daily MIS dashboard: the bank's three summary tables. */
 .mis-dashboard { display: grid; gap: 18px; justify-items: start; overflow-x: auto; max-width: 100%; }
-.mis-table { border-collapse: separate; border-spacing: 2px; font-size: 14px; }
-.mis-table th, .mis-table td { padding: 5px 10px; text-align: center; border: 1px solid #1f3a6e; white-space: nowrap; }
-.mis-table .mis-title th { background: #0b2a5b; color: #fff; font-size: 18px; font-weight: 700; padding: 8px 14px; }
+.mis-table { border-collapse: separate; border-spacing: 2px; font-size: 13px; }
+.mis-table th, .mis-table td { padding: 4px 8px; text-align: center; border: 1px solid #1f3a6e; white-space: nowrap; }
+.mis-table .mis-title th { background: #0b2a5b; color: #fff; font-size: 16px; font-weight: 700; padding: 7px 12px; }
 .mis-table .mis-group th { background: #3b6fb6; color: #fff; font-weight: 700; }
 .mis-table .mis-group th.group { background: #a9cc8d; color: #0b2a5b; }
 .mis-table .mis-head th { background: #3b6fb6; color: #fff; font-weight: 700; }
