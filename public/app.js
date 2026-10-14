@@ -1,6 +1,5 @@
 // Sourcing CRM — single-page frontend (no build step).
 import { openLeadScanner } from './lead-scan.js';
-import { openEidScanner } from './eid-scan.js';
 import { openFormScanner } from './form-scan.js';
 import { speechSupported, listen, readBackMatches } from './speech.js';
 
@@ -60,7 +59,7 @@ const ACTION_LABEL = {
   resolve_edit_request: 'Requested changes made',
   flag_urgent: 'Flagged for urgent verification',
   clear_urgent: 'Urgent flag removed',
-  eid_scan: 'Details filled from Emirates ID scan',
+  eid_scan: 'Details filled from Emirates ID scan', // kept for the history of older files
   form_scan: 'Details filled from a scan of the application form',
   read_back: 'Number checked by read-back',
   mark_qc: 'Marked for quality check',
@@ -1427,10 +1426,6 @@ async function viewCaseForm(id, leadId = null) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M8 8h8M8 12h8M8 16h5"/></svg>
             Scan application form
           </button>
-          <button type="button" class="btn scan-btn" id="scan-eid">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="6" y="8" width="12" height="8" rx="1.5"/></svg>
-            Scan Emirates ID
-          </button>
           </div>
         </div>
         <div id="scan-result"></div>
@@ -1799,35 +1794,6 @@ async function viewCaseForm(id, leadId = null) {
     $('#f-first_name').focus();
     toast(filled.length ? `${filled.length} ${filled.length === 1 ? 'field' : 'fields'} filled from the application form` : 'Nothing recognised on that page');
   };
-  // Emirates ID scan: the camera reads the card live (no photo taken) and fills the customer's name,
-  // and the salutation from the card's back when it is still blank, for the sales person to check.
-  let scanned = false;
-  $('#scan-eid').onclick = async () => {
-    const result = await openEidScanner(state.meta.ocr);
-    if (!result) return;
-    const filled = [];
-    const fill = (name, value) => {
-      const input = $(`#f-${name}`);
-      if (!input || !value) return;
-      input.value = value;
-      input.classList.add('scanned');
-      input.addEventListener('input', () => input.classList.remove('scanned'), { once: true });
-      filled.push(input.labels?.[0]?.textContent.replace('*', '').trim() || name);
-    };
-    for (const name of ['first_name', 'middle_name', 'last_name']) fill(name, result.fields[name]);
-    if (result.sex && !$('#f-salutation').value) fill('salutation', { M: 'Mr', F: 'Ms' }[result.sex]);
-    scanned = result.side;
-    const warnings = [...result.notes];
-    const expired = result.expiryDate && result.expiryDate < todayLocal();
-    if (expired) warnings.unshift(`This Emirates ID expired on ${fmtDay(result.expiryDate)}.`);
-    $('#scan-result').innerHTML = html`<div class="callout ${expired || (result.side === 'back' && warnings.length) ? 'warn' : 'success'} scan-callout">
-      <strong>Filled from the ${result.side} of the Emirates ID: ${filled.join(', ') || 'nothing readable'}.</strong>
-      Check them against the card before submitting.${result.expiryDate && !expired ? html` <span class="muted">Card valid until ${fmtDay(result.expiryDate)}.</span>` : ''}
-      ${warnings.map((w) => html`<div class="scan-warning">${w}</div>`)}
-    </div>`.s;
-    $('#f-first_name').focus();
-    toast(`Details filled from the ${result.side} of the Emirates ID`);
-  };
   const staffSelect = pickStaff ? $('#f-sales_staff_id') : null;
   if (staffSelect) {
     staffSelect.onchange = () => {
@@ -1992,7 +1958,6 @@ async function viewCaseForm(id, leadId = null) {
     }
     try {
       const body = formData(form);
-      if (scanned) body.eid_scanned = scanned;
       if (formScanned) body.form_scanned = true;
       if (check?.dataset.state === 'below' && !('card_salary_exception' in body)) body.card_salary_exception = '';
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];

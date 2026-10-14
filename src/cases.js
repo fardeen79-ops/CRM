@@ -1336,7 +1336,6 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   if (needsTimingApproval(data)) sendForTimingApproval(db, id, user, data);
   if (status === STATUS.APPROVAL && !needsApproval(data)) sendForReview(db, id, user, data);
   if (bulk) addEvent(db, id, user.id, 'bulk_upload', { detail: 'Added from a bulk upload file' });
-  if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: the customer's name` });
   if (input.form_scanned) addEvent(db, id, user.id, 'form_scan', { detail: 'customer details read from the application form' });
   recordReadBack(db, id, user.id, input.read_back);
   return id;
@@ -1415,8 +1414,7 @@ export function updateCase(db, user, id, input) {
         addEvent(db, id, user.id, 'card_approval_cleared', { from: STATUS.APPROVAL, to: STATUS.PENDING, detail: after.card_salary_exception ? CARD_EXCEPTIONS[after.card_salary_exception] : `${incomeWord(after)} now meets the card requirement` });
       }
     }
-    if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: the customer's name` });
-    if (input.form_scanned) addEvent(db, id, user.id, 'form_scan', { detail: 'customer details read from the application form' });
+      if (input.form_scanned) addEvent(db, id, user.id, 'form_scan', { detail: 'customer details read from the application form' });
     recordReadBack(db, id, user.id, input.read_back);
     // Verified details changed after verification was completed: the customer must be called again.
     const reverify = row.status === STATUS.COMPLETED ? changed.filter((f) => VERIFIED_FIELDS.includes(f)) : [];
