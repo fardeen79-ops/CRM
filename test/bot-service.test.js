@@ -8,7 +8,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 import { createBotService, toE164, twilioSignature } from '../bot/server.js';
 
 const PASSWORD = 'password123';
@@ -68,7 +68,7 @@ before(async () => {
 after(() => { crm.close(); botService.close(); twilio.close(); });
 
 async function login(email) {
-  const res = await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: loginId(email), password: PASSWORD }) });
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
     const r = await fetch(`${crmBase}/api${path}`, { method, headers: { cookie, ...(body && { 'content-type': 'application/json' }) }, body: body && JSON.stringify(body) });
@@ -214,7 +214,7 @@ test('the bot calls, holds the conversation and completes the verification', asy
   // Governance listens through the CRM; the listen is logged. Processors cannot.
   const gina = await login('gov@t.local');
   assert.equal((await gina('GET', `/cases/${id}`)).data.case.bot_call.can_listen, true);
-  const cookieFor = async (email) => (await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) })).headers.get('set-cookie').split(';')[0];
+  const cookieFor = async (email) => (await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: loginId(email), password: PASSWORD }) })).headers.get('set-cookie').split(';')[0];
   let audio = await fetch(`${crmBase}/api/bot/calls/${c.bot_call.id}/recording`, { headers: { cookie: await cookieFor('gov@t.local') } });
   assert.equal(audio.status, 200);
   assert.equal(audio.headers.get('content-type'), 'audio/mpeg');

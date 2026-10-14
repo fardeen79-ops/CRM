@@ -5,7 +5,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 import { regionShares } from '../src/pnl.js';
 
 const PASSWORD = 'password123';
@@ -35,7 +35,7 @@ before(async () => {
 after(() => server.close());
 
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || loginId(email), password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {

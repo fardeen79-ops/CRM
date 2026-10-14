@@ -10,7 +10,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 import { sign } from '../bot/server.js';
 import { createSipBotService, audioFromEnv, sipFromEnv } from '../bot/sip-server.js';
 import { SipUA, SipError, parseMessage, serialize, digestAuthorization, parseChallenge, parseSdp, buildSdp, tagOf, uriOf } from '../bot/sip/sip.js';
@@ -77,7 +77,7 @@ async function startCrm() {
 }
 
 async function login(email) {
-  const res = await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: PASSWORD }) });
+  const res = await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: loginId(email), password: PASSWORD }) });
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
     const r = await fetch(`${crmBase}/api${path}`, { method, headers: { cookie, ...(body && { 'content-type': 'application/json' }) }, body: body && JSON.stringify(body) });
@@ -275,7 +275,7 @@ test('the bot registers with the line, dials with digest credentials, runs the p
   assert.ok(wav.pcm.length > 8000 * 5, `recording is ${wav.pcm.length / 8000}s`);
   assert.ok(Math.max(...wav.pcm.subarray(0, 8000)) > 5000, 'the bot\'s greeting is in the recording');
   const vera = await login('vlead@t.local');
-  const r = await fetch(`${crmBase}/api/bot/calls/${call.id}/recording`, { headers: { cookie: (await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'vlead@t.local', password: PASSWORD }) })).headers.get('set-cookie').split(';')[0] } });
+  const r = await fetch(`${crmBase}/api/bot/calls/${call.id}/recording`, { headers: { cookie: (await fetch(`${crmBase}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: loginId('vlead@t.local'), password: PASSWORD }) })).headers.get('set-cookie').split(';')[0] } });
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'audio/wav');
   assert.equal((await r.arrayBuffer()).byteLength, fs.statSync(file).size);

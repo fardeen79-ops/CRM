@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { resolveRole, withRole } from './roles.js';
 import { contactDetails, findUser, salesProfile, leaderProfile, LEADER_LINE_ROLES, regionOf, salaryOf } from './users.js';
 
+/** The account that signs in with its email: the business head the server creates on first run. */
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@crm.local';
 const SESSION_DAYS = 7; // a plain sign-in: the cookie ends with the browser, the session record a week later
 const REMEMBER_DAYS = 30; // "Remember me": the device stays signed in across browser restarts
 /** Minutes without using the CRM after which a session ends (IDLE_TIMEOUT_MINUTES; 0 turns it off). */
@@ -65,9 +67,9 @@ export const getUser = findUser;
 export const NO_ACCESS_ROLE = 'staff';
 export function login(db, email, password, { remember = false } = {}) {
   const id = String(email || '').trim();
-  // The HRMS code is the username. An account with no code on file yet (the first-run business head)
-  // signs in with its email until MIS gives it one.
-  const user = db.prepare("SELECT * FROM users WHERE (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR ((hrms_code IS NULL OR hrms_code = '') AND email = ? COLLATE NOCASE)").get(id, id);
+  // The HRMS code is the username. Only the admin account (ADMIN_EMAIL, the first-run business head)
+  // signs in with its email.
+  const user = db.prepare('SELECT * FROM users WHERE (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR (email = ? COLLATE NOCASE AND email = ? COLLATE NOCASE)').get(id, id, ADMIN_EMAIL);
   if (!user || !user.active || !verifyPassword(String(password || ''), user.password_hash)) return null;
   if (user.role === NO_ACCESS_ROLE) return { no_access: true };
   const token = crypto.randomBytes(32).toString('hex');

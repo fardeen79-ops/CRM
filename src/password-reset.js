@@ -1,6 +1,8 @@
 // "Forgot password" on the sign-in page. The CRM sends no email, so a request tells MIS and the
 // business heads, who reset the password from the Staff page and pass it on; the request is cleared
 // when they do. The sign-in page never says whether an account exists.
+import { ADMIN_EMAIL } from './auth.js';
+
 const REPEAT_MINUTES = 10;
 export const RESET_HANDLERS = ['mis', 'business_head'];
 
@@ -8,7 +10,7 @@ export const RESET_HANDLERS = ['mis', 'business_head'];
 export function requestPasswordReset(db, identifier) {
   const id = String(identifier || '').trim();
   if (!id) return null;
-  const user = db.prepare("SELECT id, name, hrms_code, role FROM users WHERE active = 1 AND role != 'staff' AND ((hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR ((hrms_code IS NULL OR hrms_code = '') AND email = ? COLLATE NOCASE))").get(id, id);
+  const user = db.prepare("SELECT id, name, hrms_code, role FROM users WHERE active = 1 AND role != 'staff' AND ((hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR (email = ? COLLATE NOCASE AND email = ? COLLATE NOCASE))").get(id, id, ADMIN_EMAIL);
   if (!user) return null;
   const recent = db.prepare('SELECT id FROM password_resets WHERE user_id = ? AND resolved_at IS NULL AND requested_at > ?').get(user.id, new Date(Date.now() - REPEAT_MINUTES * 60e3).toISOString());
   if (recent) return { user, repeated: true };

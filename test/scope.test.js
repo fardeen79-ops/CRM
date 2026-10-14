@@ -4,7 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 
 const PASSWORD = 'password123';
 let server, base, ids;
@@ -37,7 +37,7 @@ after(() => server.close());
 const staffAdmin = async (...args) => (await login('mis@t.local'))(...args);
 
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || loginId(email), password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
@@ -216,7 +216,7 @@ test('a team change moves open files to the new team and leaves completed ones b
 });
 
 async function loginCookie(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || loginId(email), password: PASSWORD }) });
   return res.headers.get('set-cookie').split(';')[0];
 }
 
@@ -521,7 +521,7 @@ test('staff master shapes from the real list: a manager leading a team, a team w
   // The manager sees the file of the staff member they lead directly, through either field.
   const as = async (email, password) => {
     const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
-    assert.equal(res.status, 200, email);
+    assert.equal(res.status, 200, email); // these sign in by the HRMS codes from the upload
     const cookie = res.headers.get('set-cookie').split(';')[0];
     return async (method, path, body) => { const r = await fetch(`${base}/api${path}`, { method, headers: { cookie, ...(body && { 'content-type': 'application/json' }) }, body: body && JSON.stringify(body) }); return { status: r.status, data: await r.json() }; };
   };

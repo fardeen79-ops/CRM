@@ -3,7 +3,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 
 const PASSWORD = 'password123';
 let server, base, ids;
@@ -36,11 +36,11 @@ before(async () => {
 after(() => server.close());
 
 async function loginCookie(email) {
-  const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
+  const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || loginId(email), password: PASSWORD }) });
   return r.headers.get('set-cookie').split(';')[0];
 }
 async function login(email) {
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || loginId(email), password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {
@@ -221,7 +221,7 @@ test('the verification team leader runs the Files in process report: every open 
   await head('POST', `/cases/${c.id}/actions`, { action: 'set_case_status', case_status: 'completed', pl_disbursed_amount: 100000 });
   assert.ok(!(await vera('GET', '/reports/open_files')).data.rows.some((r) => r.customer === 'Open Report File'));
   // The download leaves the phone out.
-  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'vlead@t.local', password: PASSWORD }) });
+  const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: loginId('vlead@t.local'), password: PASSWORD }) });
   const cookie = res.headers.get('set-cookie').split(';')[0];
   const csv = await fetch(`${base}/api/reports/open_files?format=csv`, { headers: { cookie } });
   assert.equal(csv.status, 200); assert.ok(!/Phone/.test((await csv.text()).split('\n')[0]));

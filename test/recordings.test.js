@@ -8,7 +8,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 import { makeRecordingLookup, numberForms, timeFromName, wavSeconds } from '../src/recordings.js';
 
 const PASSWORD = 'password123';
@@ -68,7 +68,7 @@ before(async () => {
 after(() => { server.close(); pbx.close(); apiServer.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
 async function login(email, b = base) {
-  const res = await fetch(`${b}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || email, password: PASSWORD }) });
+  const res = await fetch(`${b}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: HRMS[email] || loginId(email), password: PASSWORD }) });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
   const call = async (method, p, body) => {

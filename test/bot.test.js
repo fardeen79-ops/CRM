@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 import { sign } from '../src/bot.js';
 import { timing } from '../src/cases.js';
 
@@ -48,7 +48,7 @@ async function login(email) {
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: PASSWORD }),
+    body: JSON.stringify({ email: loginId(email), password: PASSWORD }),
   });
   const cookie = res.headers.get('set-cookie').split(';')[0];
   return async (method, path, body) => {

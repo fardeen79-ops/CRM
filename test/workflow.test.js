@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createServer, makeWebhookDispatcher } from '../src/server.js';
 import http from 'node:http';
-import { createUser } from '../src/auth.js';
+import { createUser, loginId } from './helpers/create-user.mjs';
 
 const PASSWORD = 'password123';
 let server, base, testDb;
@@ -40,7 +40,7 @@ async function login(email) {
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: PASSWORD }),
+    body: JSON.stringify({ email: loginId(email), password: PASSWORD }),
   });
   assert.equal(res.status, 200);
   const cookie = res.headers.get('set-cookie').split(';')[0];
@@ -86,7 +86,7 @@ test('rejects unauthenticated access and bad credentials', async () => {
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'sales@t.local', password: 'wrong' }),
+    body: JSON.stringify({ email: loginId('sales@t.local'), password: 'wrong' }),
   });
   assert.equal(res.status, 401);
 });
@@ -238,7 +238,7 @@ test('team leaders, MIS and business heads manage users', async () => {
   const res = await fetch(`${base}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: 'renamed@t.local', password: 'longenough' }),
+    body: JSON.stringify({ email: 'EN20001', password: 'longenough' }),
   });
   assert.equal(res.status, 401);
 });
