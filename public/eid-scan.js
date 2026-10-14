@@ -168,18 +168,17 @@ function toResult(side, r) {
       side,
       fields: { ...splitName(r.fullName), eid_number: r.eidNumber },
       expiryDate: r.expiryDate,
-      sex: null,
-      notes: ['The front of the card has no check digits, so compare the name with the card.'],
+      notes: ['The front of the card has no check digits, so compare the name and ID number with the card.'],
     };
   }
   const notes = [];
   if (r.nameTruncated) notes.push('The back of the card cuts long names short. Scan the front for the full name, or check it against the card.');
   if (!r.checks.composite) notes.push('One of the card’s check digits did not match. Compare the ID number with the card carefully.');
-  return { side, fields: toFormFields(r), expiryDate: r.expiryDate, sex: r.sex || null, notes };
+  return { side, fields: toFormFields(r), expiryDate: r.expiryDate, notes };
 }
 
 /**
- * Opens the scanner. Resolves with { side, fields, expiryDate, sex, notes } once a side is read,
+ * Opens the scanner. Resolves with { side, fields, expiryDate, notes } once a side is read,
  * or null if the user cancels.
  */
 export function openEidScanner(ocr) {

@@ -29,6 +29,10 @@ change is ready for the server. README.md is the functional spec and is kept in 
 - Never write to `/var/lib/sourcing-crm` or `/etc/sourcing-crm.env` from code or scripts; the database
   migrates itself on start.
 
+## Removed on request: do not rebuild unless the user explicitly asks
+- Camera scanning on the case form (Scan application form, Scan Emirates ID): built in f862176, 3772132 and
+  594e598, reverted in the commit after. It must never reach the server unless the user says to rebuild it.
+
 ## Working
 - Run tests per file: `node --disable-warning=ExperimentalWarning --import ./test/setup.mjs --test test/<f>.test.js`
   (the whole suite takes several minutes). One pre-existing date-sensitive failure in `test/leads.test.js`.

@@ -428,7 +428,6 @@ dl.details dd { margin: 0; word-break: break-word; }
 /* Emirates ID scanner */
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 .case-form .section-head h2 { margin: 0; }
-.scan-buttons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .scan-btn { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: var(--primary-soft); }
 .scan-btn svg { width: 18px; height: 18px; }
 .scan-callout { margin-bottom: 14px; }

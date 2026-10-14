@@ -1079,14 +1079,6 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   assert.ok(list.some((c) => c.id === id));
 });
 
-test('a file filled from a scan of the application form records the scan', async () => {
-  const sally = await login('sales@t.local');
-  // A file filled from the application form records that scan too.
-  const f = await sally('POST', '/cases', { ...newCase, app_id: 'SCAN-APP-2', form_scanned: true });
-  assert.equal(f.status, 201);
-  assert.equal(f.data.case.events.find((e) => e.type === 'form_scan')?.detail, 'customer details read from the application form');
-});
-
 test('MIS sets the case status on many files from an upload, with the same rules as the case page', async () => {
   const mis = await login('mis@t.local');
   const sally = await login('sales@t.local');

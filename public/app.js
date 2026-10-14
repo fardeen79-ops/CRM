@@ -1,6 +1,5 @@
 // Sourcing CRM — single-page frontend (no build step).
 import { openLeadScanner } from './lead-scan.js';
-import { openFormScanner } from './form-scan.js';
 import { speechSupported, listen, readBackMatches } from './speech.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
@@ -59,8 +58,7 @@ const ACTION_LABEL = {
   resolve_edit_request: 'Requested changes made',
   flag_urgent: 'Flagged for urgent verification',
   clear_urgent: 'Urgent flag removed',
-  eid_scan: 'Details filled from Emirates ID scan', // kept for the history of older files
-  form_scan: 'Details filled from a scan of the application form',
+  eid_scan: 'Details filled from Emirates ID scan',
   read_back: 'Number checked by read-back',
   mark_qc: 'Marked for quality check',
   clear_qc: 'Removed from quality check',
@@ -1421,14 +1419,7 @@ async function viewCaseForm(id, leadId = null) {
       <section>
         <div class="section-head">
           <h2>Customer</h2>
-          <div class="actions scan-buttons">
-          <button type="button" class="btn scan-btn" id="scan-form">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M8 8h8M8 12h8M8 16h5"/></svg>
-            Scan application form
-          </button>
-          </div>
         </div>
-        <div id="scan-result"></div>
         ${canSpeak ? html`<p class="muted small voice-hint">Tap a microphone to type by voice.</p>` : ''}
         <div class="form-grid three">
           <div class="field-row"><label for="f-salutation">Salutation</label><select id="f-salutation" name="salutation"><option value="">—</option>${state.meta.salutations.map((o) => html`<option value="${o}" ${c.salutation === o ? raw('selected') : ''}>${o}</option>`)}</select></div>
@@ -1758,42 +1749,6 @@ async function viewCaseForm(id, leadId = null) {
   };
   sourcingSelect.onchange = applySourcing;
   applySourcing();
-  // Application form scan: the camera reads the customer-details page and every detail it recognises
-  // fills the matching field (text boxes, and the salutation, customer type and salary bank lists).
-  let formScanned = false;
-  const FORM_LABELS = { salutation: 'salutation', first_name: 'first name', middle_name: 'middle name', last_name: 'last name', phone: 'mobile', alt_phone: 'alternate phone', email: 'email', customer_type: 'customer type', company_name: 'company', designation: 'designation', department: 'department', customer_doj: 'date of joining', salary: 'salary', salary_bank: 'salary bank', city: 'city', address: 'address', app_id: 'App ID', bidaya_id: 'Bidaya ID' };
-  $('#scan-form').onclick = async () => {
-    const result = await openFormScanner(state.meta.ocr);
-    if (!result) return;
-    const filled = []; const unmatched = [];
-    const mark = (input) => { input.classList.add('scanned'); input.addEventListener('input', () => input.classList.remove('scanned'), { once: true }); input.addEventListener('change', () => input.classList.remove('scanned'), { once: true }); };
-    for (const [name, value] of Object.entries(result.fields)) {
-      if (value === null || value === undefined || value === '') continue;
-      const input = $(`#f-${name}`);
-      if (!input) continue;
-      if (input.tagName === 'SELECT') {
-        const want = String(value).toLowerCase();
-        const option = [...input.options].find((o) => o.value && (o.value.toLowerCase() === want || o.textContent.trim().toLowerCase() === want));
-        if (option) { input.value = option.value; }
-        else if (name === 'salary_bank') { input.value = OTHER_BANK; input.dispatchEvent(new Event('change')); const other = $('#f-salary_bank_other'); other.value = value; mark(other); }
-        else { unmatched.push(`${FORM_LABELS[name] || name} "${value}"`); continue; }
-        input.dispatchEvent(new Event('change'));
-      } else {
-        input.value = value;
-        input.dispatchEvent(new Event('input'));
-      }
-      mark(input);
-      filled.push(FORM_LABELS[name] || name);
-    }
-    formScanned = true;
-    $('#scan-result').innerHTML = html`<div class="callout ${filled.length ? 'success' : 'warn'} scan-callout">
-      <strong>Filled from the application form: ${filled.join(', ') || 'nothing recognised'}.</strong>
-      Check every filled field against the form before submitting; what the page did not carry is left for you to type.
-      ${unmatched.length ? html`<div class="scan-warning">Not in the CRM's lists, left blank: ${unmatched.join(', ')}.</div>` : ''}
-    </div>`.s;
-    $('#f-first_name').focus();
-    toast(filled.length ? `${filled.length} ${filled.length === 1 ? 'field' : 'fields'} filled from the application form` : 'Nothing recognised on that page');
-  };
   const staffSelect = pickStaff ? $('#f-sales_staff_id') : null;
   if (staffSelect) {
     staffSelect.onchange = () => {
@@ -1958,7 +1913,6 @@ async function viewCaseForm(id, leadId = null) {
     }
     try {
       const body = formData(form);
-      if (formScanned) body.form_scanned = true;
       if (check?.dataset.state === 'below' && !('card_salary_exception' in body)) body.card_salary_exception = '';
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
       for (const f of ['credit_card', 'card_fee_type', 'personal_loan_kind', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;

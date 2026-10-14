@@ -113,18 +113,6 @@ async function readLeadSheet(worker, canvas) {
  * { fields, found, text } once a sheet is read, or null if the user cancels.
  */
 export function openLeadScanner(ocr) {
-  return openSheetScanner(ocr, {
-    title: 'Scan a lead sheet', hint: 'Fill the frame with the sheet, flat and well lit, then capture. The image stays on this device.',
-    read: readLeadSheet, nothing: 'No lead details were recognised. Try again closer, with the sheet flat and the text sharp, or type the lead in.',
-  });
-}
-
-/**
- * The page scanner behind the lead sheet and application form scans: the live camera with a Capture
- * button (a frame is read, no photo is taken or kept), or a photo. `read(worker, canvas)` turns the
- * page into { fields, found, lines }. Resolves with { fields, found, text } or null if cancelled.
- */
-export function openSheetScanner(ocr, { title, hint, read, nothing }) {
   return new Promise((resolve) => {
     const modal = document.createElement('div');
     modal.className = 'scan-modal';
@@ -132,7 +120,7 @@ export function openSheetScanner(ocr, { title, hint, read, nothing }) {
     modal.innerHTML = `
       <div class="scan-sheet">
         <div class="scan-head">
-          <div><h2 id="lead-scan-title"></h2><p class="muted small"></p></div>
+          <div><h2 id="lead-scan-title">Scan a lead sheet</h2><p class="muted small">Fill the frame with the sheet, flat and well lit, then capture. The image stays on this device.</p></div>
           <button type="button" class="btn-link" data-close aria-label="Close scanner">Close</button>
         </div>
         <div class="scan-view lead-scan-view" hidden><video playsinline muted autoplay></video></div>
@@ -145,8 +133,6 @@ export function openSheetScanner(ocr, { title, hint, read, nothing }) {
           <button type="button" data-close>Cancel</button>
         </div>
       </div>`;
-    modal.querySelector('#lead-scan-title').textContent = title;
-    modal.querySelector('.scan-head p').textContent = hint;
     document.body.append(modal);
     const video = modal.querySelector('video'); const view = modal.querySelector('.scan-view');
     const status = modal.querySelector('.scan-status'); const progress = modal.querySelector('.scan-progress'); const bar = progress.querySelector('span');
@@ -163,9 +149,9 @@ export function openSheetScanner(ocr, { title, hint, read, nothing }) {
       try {
         const worker = await getWorker(ocr, onProgress);
         say('Reading the sheet…');
-        const r = await read(worker, crop(source, 0, 0, w, h, 1800));
+        const r = await readLeadSheet(worker, crop(source, 0, 0, w, h, 1800));
         if (r.found.length) return finish({ ...r, text: r.lines.join('\n') });
-        say(nothing);
+        say('No lead details were recognised. Try again closer, with the sheet flat and the text sharp, or type the lead in.');
       } catch (err) { say(err.message || 'Could not read that image.'); }
       captureBtn.disabled = false;
     };
