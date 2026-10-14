@@ -1,5 +1,6 @@
 // Sourcing CRM — single-page frontend (no build step).
 import { openLeadScanner } from './lead-scan.js';
+import { openEidScanner } from './eid-scan.js';
 import { speechSupported, listen, readBackMatches } from './speech.js';
 
 // Verification status (the processing team's calls). Case status is separate; see CASE_STATUS_LABEL.
@@ -1419,7 +1420,12 @@ async function viewCaseForm(id, leadId = null) {
       <section>
         <div class="section-head">
           <h2>Customer</h2>
+          <button type="button" class="btn scan-btn" id="scan-eid">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="6" y="8" width="12" height="8" rx="1.5"/></svg>
+            Scan Emirates ID
+          </button>
         </div>
+        <div id="scan-result"></div>
         ${canSpeak ? html`<p class="muted small voice-hint">Tap a microphone to type by voice.</p>` : ''}
         <div class="form-grid three">
           <div class="field-row"><label for="f-salutation">Salutation</label><select id="f-salutation" name="salutation"><option value="">—</option>${state.meta.salutations.map((o) => html`<option value="${o}" ${c.salutation === o ? raw('selected') : ''}>${o}</option>`)}</select></div>
@@ -1749,6 +1755,35 @@ async function viewCaseForm(id, leadId = null) {
   };
   sourcingSelect.onchange = applySourcing;
   applySourcing();
+  // Emirates ID scan: the camera reads the card live (no photo taken) and fills the customer's name,
+  // and the salutation from the card's back when it is still blank, for the sales person to check.
+  let scanned = false;
+  $('#scan-eid').onclick = async () => {
+    const result = await openEidScanner(state.meta.ocr);
+    if (!result) return;
+    const filled = [];
+    const fill = (name, value) => {
+      const input = $(`#f-${name}`);
+      if (!input || !value) return;
+      input.value = value;
+      input.classList.add('scanned');
+      input.addEventListener('input', () => input.classList.remove('scanned'), { once: true });
+      filled.push(input.labels?.[0]?.textContent.replace('*', '').trim() || name);
+    };
+    for (const name of ['first_name', 'middle_name', 'last_name']) fill(name, result.fields[name]);
+    if (result.sex && !$('#f-salutation').value) fill('salutation', { M: 'Mr', F: 'Ms' }[result.sex]);
+    scanned = result.side;
+    const warnings = [...result.notes];
+    const expired = result.expiryDate && result.expiryDate < todayLocal();
+    if (expired) warnings.unshift(`This Emirates ID expired on ${fmtDay(result.expiryDate)}.`);
+    $('#scan-result').innerHTML = html`<div class="callout ${expired || (result.side === 'back' && warnings.length) ? 'warn' : 'success'} scan-callout">
+      <strong>Filled from the ${result.side} of the Emirates ID: ${filled.join(', ') || 'nothing readable'}.</strong>
+      Check them against the card before submitting.${result.expiryDate && !expired ? html` <span class="muted">Card valid until ${fmtDay(result.expiryDate)}.</span>` : ''}
+      ${warnings.map((w) => html`<div class="scan-warning">${w}</div>`)}
+    </div>`.s;
+    $('#f-first_name').focus();
+    toast(`Details filled from the ${result.side} of the Emirates ID`);
+  };
   const staffSelect = pickStaff ? $('#f-sales_staff_id') : null;
   if (staffSelect) {
     staffSelect.onchange = () => {
@@ -1913,6 +1948,7 @@ async function viewCaseForm(id, leadId = null) {
     }
     try {
       const body = formData(form);
+      if (scanned) body.eid_scanned = scanned;
       if (check?.dataset.state === 'below' && !('card_salary_exception' in body)) body.card_salary_exception = '';
       body.bundle_products = body.product === 'bundle' ? new FormData(form).getAll('bundle_products') : [];
       for (const f of ['credit_card', 'card_fee_type', 'personal_loan_kind', 'personal_loan_type', 'loan_amount', 'interest_rate', 'full_loan_amount', 'incremental_amount', 'fpd', 'pl_tenure', 'auto_loan_type', 'al_payout_class', 'car_make', 'car_model', 'car_year', 'dealer_details', 'al_lead_source', 'al_interest_rate', 'al_tenure', 'amount']) body[f] ??= null;

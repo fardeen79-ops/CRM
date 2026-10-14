@@ -1079,6 +1079,16 @@ test('targets per sales cycle: MIS sets them, completed cases count, TL and SM s
   assert.ok(list.some((c) => c.id === id));
 });
 
+test('a file filled from an Emirates ID scan records the scan, naming only the customer name', async () => {
+  const sally = await login('sales@t.local');
+  const r = await sally('POST', '/cases', { ...newCase, app_id: 'SCAN-APP-1', eid_scanned: 'front' });
+  assert.equal(r.status, 201);
+  const scan = r.data.case.events.find((e) => e.type === 'eid_scan');
+  assert.ok(scan);
+  assert.equal(scan.detail, "front of the card: the customer's name");
+  assert.equal(r.data.case.eid_number ?? null, null); // the number is read to confirm the scan, never kept
+});
+
 test('MIS sets the case status on many files from an upload, with the same rules as the case page', async () => {
   const mis = await login('mis@t.local');
   const sally = await login('sales@t.local');
