@@ -291,6 +291,8 @@ function siteFooter() {
   </footer>`;
 }
 
+/** The HRMS code or email kept on this device by "Remember me", if any. */
+const remembered = () => { try { return localStorage.getItem('crm.remember') || ''; } catch { return ''; } };
 function renderLogin(note = '') {
   app.innerHTML = html`
     <div class="login-wrap">
@@ -299,18 +301,23 @@ function renderLogin(note = '') {
         <h1>Sign in</h1>
         ${note ? html`<div class="callout warn" role="status">${note}</div>` : ''}
         <p class="muted">Sign in with your HRMS code (or work email). Your role decides what you see.</p>
-        <div class="field-row"><label for="email">HRMS code or email</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required autofocus></div>
+        <div class="field-row"><label for="email">HRMS code or email</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required ${remembered() ? '' : raw('autofocus')} value="${remembered() || ''}"></div>
         <div class="field-row"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+        <label class="check small remember-me"><input type="checkbox" name="remember" id="remember" ${remembered() ? raw('checked') : ''}><span>Remember me on this device<span class="muted">Stays signed in for 30 days and keeps your HRMS code here. The idle sign-out still applies.</span></span></label>
         <button class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
         <p class="error" id="login-error" hidden></p>
       </form>
       ${siteFooter()}
     </div>`.s;
+  if (remembered()) document.getElementById('password').focus();
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const err = document.getElementById('login-error');
     try {
-      await api('/login', { method: 'POST', body: formData(e.target) });
+      const body = formData(e.target);
+      await api('/login', { method: 'POST', body: { ...body, remember: Boolean(body.remember) } });
+      // The name typed is kept on this device only when "Remember me" is ticked, so the next sign-in needs just the password.
+      try { if (body.remember) localStorage.setItem('crm.remember', body.email.trim()); else localStorage.removeItem('crm.remember'); } catch { /* storage blocked */ }
       resetRoute();
       await boot();
     } catch (ex) {

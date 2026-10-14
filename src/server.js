@@ -147,7 +147,7 @@ function send(res, status, body, headers = {}) {
 
 function sessionCookie(token, maxAge) {
   const secure = process.env.COOKIE_SECURE === '1' ? '; Secure' : '';
-  return `sid=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
+  return `sid=${token}; HttpOnly; SameSite=Lax; Path=/${maxAge ? `; Max-Age=${maxAge}` : ''}${secure}`;
 }
 
 function requireRole(user, ...roles) {
@@ -241,7 +241,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
     ['GET', /^\/api\/version$/, async () => buildInfo(), { public: true }],
 
     ['POST', /^\/api\/login$/, async ({ body, res }) => {
-      const result = auth.login(db, body.email, body.password);
+      const result = auth.login(db, body.email, body.password, { remember: body.remember === true || body.remember === 'on' || body.remember === '1' });
       if (!result) throw new HttpError(401, 'Invalid email or password');
       if (result.no_access) throw new HttpError(403, 'This account is on the staff list for the profit and loss only; it has no CRM access');
       send(res, 200, { user: result.user }, { 'set-cookie': sessionCookie(result.token, result.maxAge) });

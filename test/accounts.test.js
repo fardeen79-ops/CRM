@@ -286,6 +286,20 @@ test('the users upload updates existing people when asked: matched by email or H
   assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'sally@t.local').name, 'Sally Renamed');
 });
 
+test('Remember me keeps the device signed in for 30 days; without it the cookie ends with the browser', async () => {
+  const signIn = (remember) => fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'sally@t.local', password: PASSWORD, remember }) });
+  const plain = await signIn(false);
+  assert.equal(plain.status, 200);
+  assert.doesNotMatch(plain.headers.get('set-cookie'), /Max-Age/);
+  const kept = await signIn(true);
+  assert.match(kept.headers.get('set-cookie'), /Max-Age=2592000/);
+  const token = kept.headers.get('set-cookie').match(/sid=([^;]+)/)[1];
+  const expires = db.prepare('SELECT expires_at FROM sessions WHERE token = ?').get(token).expires_at;
+  assert.ok(Date.parse(expires) - Date.now() > 29 * 864e5);
+  const me = await fetch(`${base}/api/me`, { headers: { cookie: `sid=${token}` } });
+  assert.equal(me.status, 200);
+});
+
 test('a session ends after the idle limit without the person using the CRM; background refreshes do not keep it alive', async () => {
   const res = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'mis@t.local', password: PASSWORD }) });
   const cookie = res.headers.get('set-cookie').split(';')[0];

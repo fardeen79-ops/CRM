@@ -1051,3 +1051,7 @@ table.pnl.tree td.gain { color: var(--s-done); }
   body.print-dashboard .report-result { border: none; box-shadow: none; padding: 0; }
   body.print-dashboard .mis-table th, body.print-dashboard .mis-table td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+.remember-me { display: flex; gap: 10px; align-items: flex-start; margin: -4px 0 14px; }
+.remember-me input { margin-top: 3px; }
+.remember-me > span { display: block; }
+.remember-me .muted { display: block; font-size: 12px; font-weight: 400; margin-top: 2px; }

@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import { resolveRole, withRole } from './roles.js';
 import { contactDetails, findUser, salesProfile, leaderProfile, LEADER_LINE_ROLES, regionOf, salaryOf } from './users.js';
 
-const SESSION_DAYS = 7;
+const SESSION_DAYS = 7; // a plain sign-in: the cookie ends with the browser, the session record a week later
+const REMEMBER_DAYS = 30; // "Remember me": the device stays signed in across browser restarts
 /** Minutes without using the CRM after which a session ends (IDLE_TIMEOUT_MINUTES; 0 turns it off). */
 export const IDLE_MINUTES = process.env.IDLE_TIMEOUT_MINUTES === undefined ? 5 : Math.max(0, Number(process.env.IDLE_TIMEOUT_MINUTES) || 0);
 export const ROLES = ['sales', 'processing', 'team_leader', 'asm', 'sales_manager', 'mis', 'business_head', 'accounts', 'governance', 'it', 'staff'];
@@ -62,15 +63,17 @@ export const getUser = findUser;
 /** Signs in with the HRMS code (the username) or the email address. */
 /** Staff who are on the books (for the profit and loss) but have no CRM access: settlement officers, bikers and the like. */
 export const NO_ACCESS_ROLE = 'staff';
-export function login(db, email, password) {
+export function login(db, email, password, { remember = false } = {}) {
   const id = String(email || '').trim();
   const user = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE OR (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE)').get(id, id);
   if (!user || !user.active || !verifyPassword(String(password || ''), user.password_hash)) return null;
   if (user.role === NO_ACCESS_ROLE) return { no_access: true };
   const token = crypto.randomBytes(32).toString('hex');
-  const expires = new Date(Date.now() + SESSION_DAYS * 864e5).toISOString();
+  const days = remember ? REMEMBER_DAYS : SESSION_DAYS;
+  const expires = new Date(Date.now() + days * 864e5).toISOString();
   db.prepare('INSERT INTO sessions (token, user_id, expires_at, active_at) VALUES (?, ?, ?, ?)').run(token, user.id, expires, new Date().toISOString());
-  return { token, maxAge: SESSION_DAYS * 86400, user: getUser(db, user.id) };
+  // Without "Remember me" the cookie has no Max-Age, so it ends when the browser closes.
+  return { token, maxAge: remember ? REMEMBER_DAYS * 86400 : null, remember: Boolean(remember), user: getUser(db, user.id) };
 }
 
 /**
