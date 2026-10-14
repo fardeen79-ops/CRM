@@ -625,6 +625,10 @@ main { position: relative; }
 .chat-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
 .conv-list { padding: 12px; display: grid; gap: 2px; max-height: calc(100vh - 220px); overflow-y: auto; }
 .conv-list .nav-title { color: var(--muted); opacity: 1; margin-top: 8px; }
+.group-picker { display: grid; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: var(--surface-2); }
+.group-picker .people { display: grid; gap: 4px; max-height: 220px; overflow-y: auto; padding: 4px 2px; }
+.group-picker .people .check { margin: 0; }
+.thread-head .group-picker { margin-top: 8px; max-width: 420px; }
 .conv { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; color: var(--text); }
 .conv:hover { background: var(--surface-2); text-decoration: none; }
 .conv.active { background: var(--primary-soft); }

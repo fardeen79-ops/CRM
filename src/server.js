@@ -408,6 +408,8 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
     ['GET', /^\/api\/conversations$/, async ({ user }) => chat.listConversations(db, user)],
     ['GET', /^\/api\/colleagues$/, async ({ user }) => chat.listColleagues(db, user)],
     ['POST', /^\/api\/conversations\/direct$/, async ({ user, body }) => ({ conversation: chat.openDirect(db, user, body.user_id) })],
+    ['POST', /^\/api\/conversations\/group$/, async ({ user, body, res }) => send(res, 201, { conversation: chat.createGroup(db, user, body) })],
+    ['POST', /^\/api\/conversations\/(\d+)\/members$/, async ({ user, params, body }) => ({ conversation: chat.addMembers(db, user, Number(params[0]), body) })],
     ['GET', /^\/api\/conversations\/(\d+)\/messages$/, async ({ user, params, query }) => chat.listMessages(db, user, Number(params[0]), Object.fromEntries(query))],
     ['POST', /^\/api\/conversations\/(\d+)\/messages$/, async ({ user, params, body, res }) => send(res, 201, { message: chat.postMessage(db, user, Number(params[0]), body.body) })],
     ['POST', /^\/api\/messages\/(\d+)\/edit$/, async ({ user, params, body }) => ({ message: chat.editMessage(db, user, Number(params[0]), body.body) })],

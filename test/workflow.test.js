@@ -1470,6 +1470,26 @@ test('chat: case discussions with @mentions, direct messages, team groups, overs
   assert.equal((await proc('GET', '/notifications')).data.unread_messages, 0);
   assert.equal((await sid('GET', `/conversations/${dm.id}/messages`)).status, 404); // not a member
 
+  // A group anyone starts: pick the people and name it; they are told, members can add people, outsiders see nothing.
+  const sidId = colleagues.find((u) => u.name === 'Sid').id;
+  assert.equal((await sales('POST', '/conversations/group', { name: 'G', user_ids: [pamId] })).status, 400); // name too short
+  assert.equal((await sales('POST', '/conversations/group', { name: 'Loan desk', user_ids: [] })).status, 400); // nobody chosen
+  const g = await sales('POST', '/conversations/group', { name: '  Loan desk  ', user_ids: [pamId, pamId, 999999] });
+  assert.equal(g.status, 201, JSON.stringify(g.data));
+  assert.deepEqual([g.data.conversation.kind, g.data.conversation.custom, g.data.conversation.name, g.data.conversation.members.map((m) => m.name).sort()], ['group', true, 'Loan desk', ['Pam', 'Sally']]);
+  assert.match((await proc('GET', '/notifications')).data.items[0].message, /Sally added you to the group Loan desk/);
+  assert.equal((await sid('GET', `/conversations/${g.data.conversation.id}/messages`)).status, 404);
+  assert.equal((await sid('POST', `/conversations/${g.data.conversation.id}/members`, { user_ids: [sidId] })).status, 404); // not a member, cannot add themselves
+  const added = await proc('POST', `/conversations/${g.data.conversation.id}/members`, { user_ids: [sidId] });
+  assert.equal(added.status, 200, JSON.stringify(added.data));
+  assert.deepEqual(added.data.conversation.members.map((m) => m.name).sort(), ['Pam', 'Sally', 'Sid']);
+  assert.equal((await proc('POST', `/conversations/${g.data.conversation.id}/members`, { user_ids: [sidId] })).status, 400); // already in
+  assert.equal((await sid('POST', `/conversations/${g.data.conversation.id}/messages`, { body: 'Hello group' })).status, 201);
+  // The automatic groups keep following the staff list and cannot have people added by hand.
+  const everyoneGroup = (await sales('GET', '/conversations')).data.items.find((c) => c.name === 'Everyone');
+  assert.equal((await sales('POST', `/conversations/${everyoneGroup.id}/members`, { user_ids: [pamId] })).status, 400);
+  assert.ok((await sales('GET', '/conversations')).data.items.some((c) => c.name === 'Loan desk' && c.custom)); // a started group survives the sync
+
   // Group mentions alert only the people named; the author can edit briefly.
   const everyone = mine.items.find((c) => c.name === 'Everyone');
   r = await lead('POST', `/conversations/${everyone.id}/messages`, { body: 'Targets updated. @Pam please check the queue.' });

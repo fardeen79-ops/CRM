@@ -491,11 +491,11 @@ Each file also has a **sourcing date**, which defaults to today and can't be in 
 ### Chat: case discussions, direct messages and groups
 
 - **Discussion on every case.** Everyone who can see a file can post in its *Discussion* panel (sales staff see only their own files). Type `@` and a colleague's name to alert them; they get a notification linking to the case. Messages update every few seconds while the page is open.
-- **Messages page.** Direct messages between any two colleagues (**New message**) and automatic groups: *Everyone*, *Processing team*, and one per team leader (the team leader, their sales staff and their sales managers). Groups follow the Users page, so membership updates itself. Direct messages notify the other person; in groups only the people `@mentioned` are notified. Unread counts show in the menu.
+- **Messages page.** Direct messages between any two colleagues (**New message**), groups anyone starts (**New group**: tick the colleagues, with a search box, and give the group a name; the people chosen are notified, and any member can **Add people** later), and automatic groups: *Everyone*, *Processing team*, and one per team leader (the team leader, their sales staff and their sales managers). Automatic groups follow the Users page, so their membership updates itself; a started group keeps the members its people chose. Direct messages notify the other person; in groups only the people `@mentioned` are notified. Unread counts show in the menu.
 - **Kept, not deleted.** A message can be edited by its author for 5 minutes (marked *edited*); nothing can be deleted.
 - **Oversight.** Governance and the business head can read every conversation, and can post only in the ones they belong to. The Messages page says so.
 - **Personal data stays on the file.** A message that looks like it holds an Emirates ID or phone number is posted but marked *Personal data*, so the habit is visible to governance. `CRM-000123` in a message becomes a link to the case.
-- API: `GET/POST /cases/:id/messages`, `GET /conversations`, `GET /colleagues`, `POST /conversations/direct {user_id}`, `GET/POST /conversations/:id/messages`, `POST /messages/:id/edit`.
+- API: `GET/POST /cases/:id/messages`, `GET /conversations`, `GET /colleagues`, `POST /conversations/direct {user_id}`, `POST /conversations/group {name, user_ids}`, `POST /conversations/:id/members {user_ids}`, `GET/POST /conversations/:id/messages`, `POST /messages/:id/edit`.
 
 ### Privacy controls: masking, watermark and access log
 

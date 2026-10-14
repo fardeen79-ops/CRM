@@ -118,7 +118,7 @@ function describe(db, user, conv) {
   // A direct message is named after the other person; an overseer reading it sees both names.
   const dmName = me ? (other ? other.name : 'Direct message') : members.map((m) => m.name).join(' ↔ ');
   return {
-    id: conv.id, kind: conv.kind, group_key: conv.group_key,
+    id: conv.id, kind: conv.kind, group_key: conv.group_key, custom: conv.kind === 'group' && !conv.group_key,
     name: conv.kind === 'dm' ? dmName : conv.name,
     other_user: other, members, member: Boolean(me),
     last_message: last && { body: last.body, user_name: last.user_name, created_at: last.created_at, flagged: last.flagged },
@@ -159,6 +159,37 @@ export function openDirect(db, user, otherId) {
     for (const uid of [user.id, other.id]) db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(id, uid);
   }
   return describe(db, user, db.prepare('SELECT * FROM conversations WHERE id = ?').get(id));
+}
+
+const GROUP_NAME_MAX = 60;
+const pickMembers = (db, user, userIds) => {
+  const ids = [...new Set((Array.isArray(userIds) ? userIds : []).map(Number).filter((n) => Number.isInteger(n) && n > 0 && n !== user.id))];
+  if (!ids.length) return [];
+  return db.prepare(`SELECT id, name FROM users WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+};
+
+/** Starts a named group with the colleagues chosen; the person who starts it is a member too. */
+export function createGroup(db, user, { name, user_ids } = {}) {
+  const title = String(name || '').replace(/\s+/g, ' ').trim().slice(0, GROUP_NAME_MAX);
+  if (title.length < 2) throw new WorkflowError(400, 'Give the group a name');
+  const people = pickMembers(db, user, user_ids);
+  if (!people.length) throw new WorkflowError(400, 'Choose at least one colleague for the group');
+  const id = Number(db.prepare("INSERT INTO conversations (kind, name, group_key, created_at) VALUES ('group', ?, NULL, ?)").run(title, nowIso()).lastInsertRowid);
+  for (const uid of [user.id, ...people.map((p) => p.id)]) db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(id, uid);
+  notify(db, people.map((p) => p.id), null, `${user.name} added you to the group ${title}`, `#/messages/${id}`);
+  return describe(db, user, db.prepare('SELECT * FROM conversations WHERE id = ?').get(id));
+}
+
+/** A member adds colleagues to a group they started or belong to; the automatic groups follow the staff list instead. */
+export function addMembers(db, user, conversationId, { user_ids } = {}) {
+  const { conv, member } = conversationFor(db, user, conversationId);
+  if (conv.kind !== 'group' || conv.group_key) throw new WorkflowError(400, 'People can only be added to a group someone started; the automatic groups follow the Users page');
+  if (!member) throw new WorkflowError(403, 'Only members can add people to this group');
+  const people = pickMembers(db, user, user_ids).filter((p) => !isMember(db, { id: p.id }, conv.id));
+  if (!people.length) throw new WorkflowError(400, 'Choose a colleague who is not in the group yet');
+  for (const p of people) db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(conv.id, p.id);
+  notify(db, people.map((p) => p.id), null, `${user.name} added you to the group ${conv.name}`, `#/messages/${conv.id}`);
+  return describe(db, user, conv);
 }
 
 export function listMessages(db, user, conversationId, { after = 0, limit = 200 } = {}) {

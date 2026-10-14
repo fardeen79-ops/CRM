@@ -3319,11 +3319,18 @@ async function viewMessages(conversationId, params) {
   shell(html`
     <div class="page-head">
       <div><h1>Messages</h1><p class="muted lede">Direct messages with colleagues and your team groups. ${overseer ? 'As governance or business head you can read every conversation; you can post only in your own.' : 'Governance and the business head can read all conversations, so keep them about work.'} Customers' ID and phone numbers belong on the file, not in chat.</p></div>
-      <button class="btn-primary" id="new-dm">New message</button>
+      <div class="actions"><button class="btn" id="new-group">New group</button><button class="btn-primary" id="new-dm">New message</button></div>
     </div>
     <div class="chat-layout ${current ? 'has-thread' : ''}">
       <aside class="card conv-list">
         <div id="dm-picker" hidden><label for="dm-user" class="small">Message a colleague</label><select id="dm-user"><option value="">Choose…</option></select></div>
+        <form id="group-picker" class="group-picker" hidden>
+          <label for="group-name" class="small">New group</label>
+          <input id="group-name" name="name" placeholder="Group name" maxlength="60" required>
+          <input id="group-search" type="search" placeholder="Find colleagues…" aria-label="Find colleagues">
+          <div class="people" id="group-people"><span class="muted small">Loading…</span></div>
+          <div class="actions"><button class="btn-primary">Create group</button><button type="button" class="btn" id="group-cancel">Cancel</button></div>
+        </form>
         ${groups.length ? html`<div class="nav-title">Groups</div>${groups.map(convRow)}` : ''}
         <div class="nav-title">Direct messages</div>
         ${dms.length ? dms.map(convRow) : html`<p class="muted small" style="padding:4px 10px">No direct messages yet. Use <b>New message</b>.</p>`}
@@ -3333,7 +3340,12 @@ async function viewMessages(conversationId, params) {
           <div class="thread-head">
             <a class="small back-to-list" href="#/messages">← All conversations</a>
             <h2>${current.name}</h2>
-            <div class="muted small">${current.kind === 'group' ? `${current.members.length} members: ${current.members.map((m) => m.name).join(', ')}` : `${ROLE_LABEL[current.other_user?.role] || ''}`}</div>
+            <div class="muted small">${current.kind === 'group' ? `${current.members.length} members: ${current.members.map((m) => m.name).join(', ')}` : `${ROLE_LABEL[current.other_user?.role] || ''}`}${current.custom && current.member ? html` <button type="button" class="btn-link" id="add-people">Add people</button>` : ''}</div>
+            ${current.custom && current.member ? html`<form id="add-picker" class="group-picker" hidden>
+              <input id="add-search" type="search" placeholder="Find colleagues…" aria-label="Find colleagues">
+              <div class="people" id="add-people-list"><span class="muted small">Loading…</span></div>
+              <div class="actions"><button class="btn-primary">Add to group</button><button type="button" class="btn" id="add-cancel">Cancel</button></div>
+            </form>` : ''}
           </div>
           <div class="thread" id="conv-thread"><div class="muted small">Loading…</div></div>
           ${current.member ? composer('conv-composer', `Message ${current.name}…`) : html`<p class="muted small">You can read this conversation but only its members can post in it.</p>`}`
@@ -3358,6 +3370,51 @@ async function viewMessages(conversationId, params) {
       go(`#/messages/${conversation.id}`);
     } catch (ex) { toast(ex.message, true); }
   };
+  // Groups: pick the people, name the group; a member of a started group can add more people later.
+  let colleagues = null;
+  const loadPeople = async (list, search, exclude = new Set()) => {
+    colleagues ||= (await api('/colleagues')).users;
+    const paint = () => {
+      const q = search.value.trim().toLowerCase();
+      const shown = colleagues.filter((u) => !exclude.has(u.id) && (!q || u.name.toLowerCase().includes(q)));
+      const picked = new Set([...list.querySelectorAll('input:checked')].map((i) => Number(i.value)));
+      list.innerHTML = shown.length ? shown.map((u) => html`<label class="check small"><input type="checkbox" name="user_ids" value="${u.id}" ${picked.has(u.id) ? raw('checked') : ''}> ${u.name} <span class="muted">· ${ROLE_LABEL[u.role_key || u.role] || u.role}</span></label>`).join('') : html`<span class="muted small">Nobody matches.</span>`.s;
+    };
+    search.oninput = paint;
+    paint();
+  };
+  const groupForm = document.getElementById('group-picker');
+  document.getElementById('new-group').onclick = async () => {
+    groupForm.hidden = !groupForm.hidden; picker.hidden = true;
+    if (!groupForm.hidden) { await loadPeople(document.getElementById('group-people'), document.getElementById('group-search')); document.getElementById('group-name').focus(); }
+  };
+  document.getElementById('group-cancel').onclick = () => { groupForm.hidden = true; };
+  groupForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const user_ids = [...groupForm.querySelectorAll('input[name=user_ids]:checked')].map((i) => Number(i.value));
+    try {
+      const { conversation } = await api('/conversations/group', { method: 'POST', body: { name: groupForm.name.value, user_ids } });
+      toast(`Group ${conversation.name} created`);
+      go(`#/messages/${conversation.id}`);
+    } catch (ex) { toast(ex.message, true); }
+  };
+  const addForm = document.getElementById('add-picker');
+  if (addForm) {
+    document.getElementById('add-people').onclick = async () => {
+      addForm.hidden = !addForm.hidden;
+      if (!addForm.hidden) await loadPeople(document.getElementById('add-people-list'), document.getElementById('add-search'), new Set(current.members.map((m) => m.id)));
+    };
+    document.getElementById('add-cancel').onclick = () => { addForm.hidden = true; };
+    addForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const user_ids = [...addForm.querySelectorAll('input[name=user_ids]:checked')].map((i) => Number(i.value));
+      try {
+        await api(`/conversations/${current.id}/members`, { method: 'POST', body: { user_ids } });
+        toast('Added to the group');
+        await viewMessages(conversationId, params);
+      } catch (ex) { toast(ex.message, true); }
+    };
+  }
   if (current) {
     const form = document.getElementById('conv-composer');
     mountThread({ list: document.getElementById('conv-thread'), form, url: `/conversations/${current.id}/messages`, onPosted: refreshCounters });

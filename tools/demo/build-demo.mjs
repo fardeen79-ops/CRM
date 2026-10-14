@@ -66,7 +66,7 @@ const crypto = {
 };
 const hashPassword = (p) => 'demo:' + p;
 const process = { env: {} };
-const DB_KEY = 'sourcing-crm-demo-db-v93';
+const DB_KEY = 'sourcing-crm-demo-db-v94';
 const STAFF_CSV = atob('${GO_LIVE.staff}');
 const TARGET_RULES_CSV = atob('${GO_LIVE.targets}');
 const SESSION_KEY = 'sourcing-crm-demo-user';
@@ -513,6 +513,8 @@ function handle(method, pathname, query, body) {
   if (method === 'GET' && pathname === '/api/conversations') return listConversations(db, user);
   if (method === 'GET' && pathname === '/api/colleagues') return listColleagues(db, user);
   if (method === 'POST' && pathname === '/api/conversations/direct') return { conversation: openDirect(db, user, body.user_id) };
+  if (method === 'POST' && pathname === '/api/conversations/group') return { conversation: createGroup(db, user, body) };
+  if ((m = pathname.match(/^\/api\/conversations\/(\d+)\/members$/)) && method === 'POST') return { conversation: addMembers(db, user, Number(m[1]), body) };
   if ((m = pathname.match(/^\/api\/conversations\/(\d+)\/messages$/))) {
     if (method === 'GET') { const r = listMessages(db, user, Number(m[1]), Object.fromEntries(query)); persist(); return r; }
     if (method === 'POST') return [201, { message: postMessage(db, user, Number(m[1]), body.body) }];
