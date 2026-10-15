@@ -1103,3 +1103,5 @@ label.check.remember-me { display: flex; gap: 10px; align-items: flex-start; mar
 /* Phone alerts prompt in the notification drop-down */
 .dropdown .push-row { padding: 8px 14px; border-bottom: 1px solid var(--border); }
 .dropdown .push-row .push-hint { margin: 0; }
+
+.error-text { color: var(--danger, #b42318); }

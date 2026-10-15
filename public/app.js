@@ -1607,6 +1607,7 @@ async function viewCaseForm(id, leadId = null) {
           </div>
           <div id="fd-amount-field" ${c.sourcing_type === 'fixed_deposit' ? '' : raw('hidden')}>
             ${field('fd_amount', 'Fixed deposit amount (AED)', { type: 'number', attrs: money + (c.sourcing_type === 'fixed_deposit' ? ' required' : ' disabled'), hint: 'The deposit the card or loan is sourced against' })}
+            <div class="muted small" id="fd-min-hint" hidden></div>
           </div>
           <div class="full">
             <label for="f-journey_type">Journey type <span class="req">*</span></label>
@@ -1749,12 +1750,28 @@ async function viewCaseForm(id, leadId = null) {
   const autoField = $('#auto-field');
   const cardSelect = $('#f-credit_card');
   // The category and points come from the product list for the card chosen; staff do not type them.
+  // A card on a fixed deposit needs the minimum deposit for its category; the form says so and refuses a smaller one.
+  const updateFdMinimum = () => {
+    const hint = $('#fd-min-hint'); const fdInput = $('#f-fd_amount');
+    const category = cardSelect.selectedOptions[0]?.dataset.category || '';
+    const min = $('#f-sourcing_type').value === 'fixed_deposit' && !cardSelect.disabled && !cardSelect.closest('[hidden]') ? state.meta.fd_card_minimum?.[category] : null;
+    hint.hidden = !min;
+    if (min) {
+      const amount = Number(String(fdInput.value).replace(/,/g, '')) || 0;
+      const low = amount > 0 && amount < min;
+      hint.textContent = low ? `Below the minimum: a ${category} card needs a fixed deposit of at least AED ${fmtAmount(min)}. The file cannot be submitted.` : `Minimum for a ${category} card: AED ${fmtAmount(min)}`;
+      hint.classList.toggle('error-text', low);
+      fdInput.setCustomValidity(low ? `A ${category} card needs a fixed deposit of at least AED ${fmtAmount(min)}` : '');
+    } else fdInput.setCustomValidity('');
+  };
   const syncCard = () => {
     const opt = cardSelect.selectedOptions[0];
     $('#f-card_category').value = opt?.dataset.category || '';
     $('#f-card_points').value = opt?.dataset.points || '';
     checkCardSalary();
+    updateFdMinimum();
   };
+  $('#f-fd_amount').addEventListener('input', () => updateFdMinimum());
   // The salary check: a card the customer earns too little for needs a reason or team approval; a
   // salary that qualifies for a higher card prompts the sales person to offer one.
   const salaryInput = $('#f-salary');
@@ -1868,6 +1885,7 @@ async function viewCaseForm(id, leadId = null) {
     if (productSelect.value && productSelect.value !== 'bundle' && !allowed(productSelect.value)) productSelect.value = '';
     boxes.forEach((b) => { b.disabled = !allowed(b.value); if (b.disabled) b.checked = false; b.closest('label').classList.toggle('muted', b.disabled); });
     updateProductFields();
+    updateFdMinimum();
   };
   sourcingSelect.onchange = applySourcing;
   applySourcing();

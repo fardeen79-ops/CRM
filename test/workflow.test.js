@@ -292,6 +292,21 @@ test('sourcing type: Regular by default; Fixed Deposit only for credit cards and
   // Fixed Deposit sourcing needs the deposit's amount.
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit' })).status, 400);
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit', fd_amount: 0 })).status, 400);
+  // A card on a fixed deposit needs the minimum deposit for its category: Mass 10,000, Premium 15,000, Super Premium 30,000.
+  const fdCard = (card, fd_amount) => sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'credit_card', credit_card: card, card_fee_type: 'fyf', salary: 40000, sourcing_type: 'fixed_deposit', fd_amount });
+  let low = await fdCard('Skywards Signature Credit Card', 14999); // Premium
+  assert.equal(low.status, 400);
+  assert.match(low.data.error, /Premium card .* at least AED 15,000; AED 14,999 is below it/);
+  assert.equal((await fdCard('Skywards Signature Credit Card', 15000)).status, 201);
+  low = await fdCard('Infinite Credit Card', 29999); // Super Premium
+  assert.match(low.data.error, /Super Premium card .* at least AED 30,000/);
+  assert.equal((await fdCard('Infinite Credit Card', 30000)).status, 201);
+  low = await fdCard('noon One Visa Credit Card', 9999); // Mass
+  assert.match(low.data.error, /Mass card .* at least AED 10,000/);
+  const okMass = await fdCard('noon One Visa Credit Card', 10000);
+  assert.equal(okMass.status, 201, JSON.stringify(okMass.data));
+  // Lowering the deposit on an edit is refused the same way; a loan has no card minimum.
+  assert.match((await sales('PUT', `/cases/${okMass.data.case.id}`, { fd_amount: 5000 })).data.error, /Mass card .* at least AED 10,000/);
   r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', ...pl, sourcing_type: 'fixed_deposit', fd_amount: '2,50,000' });
   assert.equal(r.status, 201, JSON.stringify(r.data));
   assert.equal(r.data.case.sourcing_type, 'fixed_deposit');

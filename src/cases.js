@@ -85,6 +85,8 @@ export const SOURCING_TYPES = { regular: 'Regular', fixed_deposit: 'Fixed Deposi
 // How the customer's application was made.
 export const JOURNEY_TYPES = { emirates_id: 'Emirates ID', uae_pass: 'UAE Pass' };
 export const FIXED_DEPOSIT_PRODUCTS = ['credit_card', 'personal_loan'];
+/** The smallest fixed deposit a card can be sourced against, by card category. A smaller deposit is not accepted. */
+export const FD_CARD_MINIMUM = { Mass: 10000, Premium: 15000, 'Super Premium': 30000 };
 
 export const PERSONAL_LOAN_TYPES = { fresh: 'Fresh', top_up: 'Top Up', buy_out: 'Buy Out' };
 // A personal loan is a Personal Loan or a Personal Cash Loan; each comes as Fresh, Top Up or Buy Out.
@@ -902,6 +904,13 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
   }
   // The core product is not entered on a file: it is copied from the sales person's profile (salesStaffSnapshot).
   if (!partial || PRODUCT_FIELDS.some((f) => f in input) || 'sourcing_type' in input || 'fd_amount' in input) validateProduct(input, current, out);
+  // A card on a fixed deposit needs a deposit of at least the minimum for its category.
+  const merged = { ...current, ...out };
+  if (merged.sourcing_type === 'fixed_deposit' && merged.fd_amount != null && merged.credit_card && caseProducts(merged).includes('credit_card')) {
+    const category = cardProduct(merged.credit_card)?.category;
+    const min = FD_CARD_MINIMUM[category];
+    if (min && merged.fd_amount < min) throw new WorkflowError(400, `A ${category} card on a fixed deposit needs a deposit of at least AED ${min.toLocaleString('en-US')}; AED ${Number(merged.fd_amount).toLocaleString('en-US')} is below it, so the file cannot be submitted`);
+  }
   return out;
 }
 
