@@ -5,6 +5,7 @@
 import { caseScope, caseProducts, includesCard, CARD_SQL, REGIONS, STATUS, CASE_STATUS, JOURNEY_TYPES, SOURCING_TYPES, CARD_STATES, CARD_EXCEPTIONS, CORE_PRODUCTS, AUTO_LOAN_CLASSES, COMPLETED_IN_SQL, present, caseRef, productLabel, sweepCardAgeing, WorkflowError, caseStages, CASE_STAGES, holdOverdueFiles, presentEvents, verificationTat } from './cases.js';
 import { bankStatusLabel } from './bank-status.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
+import { timing } from './cases.js';
 import { isProcessingLead } from './roles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
 import { cardProducts, cardProduct } from './credit-cards.js';
@@ -22,6 +23,9 @@ const MANAGERS = ['team_leader', 'sales_manager', 'asm'];
 // The incentive calculations: business heads, Dubai MIS and accounts, who pay them.
 const INCENTIVE_VIEWERS = ['business_head', 'mis', 'accounts'];
 const canSeeIncentives = (user) => user.role === 'accounts' || canSeePayout(user);
+
+/** Days after a cycle ends during which the bank month-end report shows full customer numbers. */
+export const MONTH_END_WINDOW_DAYS = 5;
 
 export const REPORTS = {
   sourcing: { name: 'Sourcing by sales staff', roles: [...ALL, ...MANAGERS], period: 'files sourced in the period', description: 'Files sourced per sales person and where each of those files stands now: verification, case status, amounts disbursed.' },
@@ -51,6 +55,7 @@ export const REPORTS = {
   open_files: { name: 'Files in process', roles: [...ALL, 'governance', 'processing'], only: (user) => user.role !== 'processing' || isProcessingLead(user), period: 'every open file as it stands now, whenever it was sourced', description: 'Every file that is neither completed nor rejected: where it stands, who it is waiting on, the processor, calls made, the last call, days since sourcing and since the last action, the verification TAT and any call-back due. Sourced in any period; the period filter does not apply.' },
   daily_mis: { name: 'Daily MIS dashboard', roles: [...ALL, 'governance'], period: 'files sourced and completed in the period, as of its last day', description: 'The bank-style daily summary by region: credit cards (headcount, submissions, ends by Mass, Noon, Premium and Super Premium, productivity), personal loans and auto loans (headcount, disbursed amount in millions, productivity, loan yield). Three tables with totals, printable or saved as PDF, and downloadable as a spreadsheet.' },
   register: { name: 'Case register (export)', roles: [...ALL, 'governance', ...MANAGERS], period: 'files sourced in the period', description: 'One row per file with its status, products, amounts and people. Personal details stay masked.' },
+  bank_month_end: { name: 'Bank month-end report', roles: ['mis'], only: (u) => String(u.region || '').toUpperCase() === 'DXB', period: 'files sourced in the sales cycle, split by product', description: `The cycle's files for the bank's month-end reconciliation, grouped by product, with every register column and the customer's full mobile numbers. Dubai MIS only, from the last day of the cycle; the numbers are shown in full for ${MONTH_END_WINDOW_DAYS} days after the cycle ends and masked after that.` },
   all_files: { name: 'All files (export)', roles: ALL, period: 'every file ever sourced, whatever its status', description: 'The whole case register in one download, the same columns as the Case register, without a period: for MIS and business heads to reconcile against the bank. Personal details stay masked.' },
 };
 
@@ -568,7 +573,33 @@ function register(db, user, { period, region }) {
 function all_files(db, user, { region }) {
   return registerRows(db, user, region, [], [], ALL_FILES_LIMIT);
 }
-function registerRows(db, user, region, where, whereParams, limit) {
+const addDays = (ymd, n) => new Date(Date.parse(ymd) + n * 864e5).toISOString().slice(0, 10);
+const PRODUCT_GROUP = { credit_card: 'Credit cards', personal_loan: 'Personal loans', auto_loan: 'Auto loans', bundle: 'Bundles' };
+/** Dubai MIS's month-end file for the bank: the cycle's register split by product, numbers in full for a few days after the cycle ends. */
+function bank_month_end(db, user, { period, region }) {
+  if (!period.cycle) throw new WorkflowError(400, 'The bank month-end report is per sales cycle: choose a cycle, not dates');
+  const today = uaeDay(timing.now());
+  const end = period.to;
+  const until = addDays(end, MONTH_END_WINDOW_DAYS);
+  if (today < end) throw new WorkflowError(400, `The ${cycleLabel(period.cycle)} cycle ends on ${end}: the bank month-end report can be pulled from that day`);
+  const full = today <= until;
+  const base = registerRows(db, user, region, ['c.sourcing_date BETWEEN ? AND ?'], [period.from, period.to], REGISTER_LIMIT, { fullPhones: full });
+  const order = Object.keys(PRODUCT_GROUP);
+  const groupOf = (r) => PRODUCT_GROUP[r.product_key] || 'Other';
+  const rows = base.rows.map((r) => ({ product_group: groupOf(r), ...r })).sort((a, b) => (order.indexOf(a.product_key) - order.indexOf(b.product_key)) || a.ref.localeCompare(b.ref));
+  const columns = [col('product_group', 'Product', 'text'), ...base.columns.filter((c) => c.key !== 'product_group')];
+  const phoneAt = columns.findIndex((c) => c.key === 'phone');
+  if (full && phoneAt >= 0) columns.splice(phoneAt + 1, 0, col('alt_phone', 'Alternate phone', 'text'));
+  const counts = order.map((k) => [PRODUCT_GROUP[k], rows.filter((r) => r.product_key === k).length]).filter(([, n]) => n).map(([l, n]) => `${l} ${n}`).join(' · ');
+  return {
+    ...base, columns, rows, full_phones: full,
+    totals: { ...base.totals, product_group: counts },
+    note: full
+      ? `Customer mobile numbers are shown and downloaded in full until ${until}, ${MONTH_END_WINDOW_DAYS} days after the cycle ended on ${end}. Handle the file as confidential and delete it once sent to the bank.`
+      : `The window for full customer numbers closed on ${until} (${MONTH_END_WINDOW_DAYS} days after the cycle ended on ${end}); the numbers are masked.`,
+  };
+}
+function registerRows(db, user, region, where, whereParams, limit, { fullPhones = false } = {}) {
   sweepCardAgeing(db);
   const { sql, params } = caseWhere(user, region, where, whereParams);
   const rows = db.prepare(`SELECT c.*, at.name AS assigned_to_name FROM cases c LEFT JOIN users at ON at.id = c.assigned_to ${sql} ORDER BY c.id DESC LIMIT ?`).all(...params, limit + 1);
@@ -576,8 +607,10 @@ function registerRows(db, user, region, where, whereParams, limit) {
   const out = rows.slice(0, limit).map((raw) => {
     const c = present(user, raw); // hides and masks personal details exactly as on screen
     return {
-      ref: caseRef(c.id), app_id: c.app_id || '', bidaya_id: c.bidaya_id || '', ...payoutCols(user, raw), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name, phone: c.phone || '', city: c.city || '', salary_bank: c.salary_bank || '', designation: c.designation || '', department: c.department || '', customer_doj: c.customer_doj || '', journey_type: JOURNEY_TYPES[c.journey_type] || '', sourcing_type: SOURCING_TYPES[c.sourcing_type || 'regular'] || c.sourcing_type, fd_amount: c.fd_amount ?? null,
-      product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.personal_loan_kind), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
+      ref: caseRef(c.id), app_id: c.app_id || '', bidaya_id: c.bidaya_id || '', ...payoutCols(user, raw), sourcing_date: c.sourcing_date, region: c.region || '', customer: c.customer_name,
+      // The bank month-end report alone carries the numbers in full, inside its window.
+      phone: (fullPhones ? raw.phone : c.phone) || '', ...(fullPhones && { alt_phone: raw.alt_phone || '' }), city: c.city || '', salary_bank: c.salary_bank || '', designation: c.designation || '', department: c.department || '', customer_doj: c.customer_doj || '', journey_type: JOURNEY_TYPES[c.journey_type] || '', sourcing_type: SOURCING_TYPES[c.sourcing_type || 'regular'] || c.sourcing_type, fd_amount: c.fd_amount ?? null,
+      product_key: c.product, product: productLabel(c.product, c.bundle_products, c.credit_card, c.personal_loan_type, c.buyout_bank, c.personal_loan_kind), core_product: CORE_PRODUCTS[c.core_product] || c.core_product || '',
       card_fee_type: c.card_fee_type || '', loan_amount: c.loan_amount ?? c.amount ?? null, interest_rate: c.interest_rate ?? c.al_interest_rate ?? null, tenure: c.pl_tenure ?? c.al_tenure ?? null, fpd: c.fpd || '',
       auto_loan_type: c.auto_loan_type ? (c.auto_loan_type === 'new' ? 'New' : 'Used') : '', car: [c.car_make, c.car_model, c.car_year].filter(Boolean).join(' '), dealer: c.dealer_details || '',
       sales_staff: c.sales_staff_name || '', sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', sales_manager: c.sales_manager_name || '',
@@ -836,7 +869,7 @@ function pnl_hierarchy(db, user, { period, region }) {
   };
 }
 
-const RUNNERS = { open_files, all_files, daily_mis, pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
+const RUNNERS = { open_files, all_files, bank_month_end, daily_mis, pnl, pnl_hierarchy, incentive_payout, assets, sourcing, personal_loans, pl_yield, auto_loans, pipeline, stage_times, verification, targets, cards, governance, access, register, card_exceptions, card_downsell, incentives, pl_incentives, al_incentives, tl_incentives, pl_tl_incentives, sm_incentives, pl_sm_incentives };
 
 /** Runs one report for the viewer. `filters`: { cycle, from, to, region }. */
 export function runReport(db, user, key, filters = {}) {
@@ -846,7 +879,7 @@ export function runReport(db, user, key, filters = {}) {
   const period = periodOf(filters);
   const region = reportRegion(filters.region);
   const result = RUNNERS[key](db, user, { period, region });
-  db.prepare('INSERT INTO report_runs (user_id, report, filters, at) VALUES (?, ?, ?, ?)').run(user.id, key, JSON.stringify({ period: period.label, region }), new Date().toISOString());
+  db.prepare('INSERT INTO report_runs (user_id, report, filters, at) VALUES (?, ?, ?, ?)').run(user.id, key, JSON.stringify({ period: period.label, region, ...(result.full_phones != null && { phones: result.full_phones ? 'full' : 'masked' }) }), new Date().toISOString());
   // Reports that ignore the period (every open file, every file) say so instead of naming a cycle.
   const timeless = ['open_files', 'all_files'].includes(key);
   return { key, name: def.name, description: def.description, period: timeless ? def.period : period.label, cycle: timeless ? null : period.cycle, from: period.from, to: period.to, region, scope: scopeLabel(user), ...result };
@@ -868,7 +901,8 @@ const NO_DOWNLOAD_KEYS = ['phone', 'alt_phone', 'customer_phone', 'whatsapp'];
 export const downloadColumns = (columns) => columns.filter((c) => !NO_DOWNLOAD_KEYS.includes(c.key) && !/customer.*(phone|mobile|whatsapp)|(phone|mobile|whatsapp).*customer|^phone$/i.test(c.label));
 
 export function toCsv(report) {
-  report = { ...report, columns: downloadColumns(report.columns) };
+  // Only the bank month-end report, inside its window, downloads customer numbers.
+  report = { ...report, columns: report.full_phones ? report.columns : downloadColumns(report.columns) };
   const q = (v) => {
     const s = v == null ? '' : String(v);
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
