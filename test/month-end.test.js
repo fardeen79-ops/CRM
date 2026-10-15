@@ -19,6 +19,7 @@ before(async () => {
   add('Mira', 'mis@t.local', 'mis', { region: 'DXB', hrms_code: 'EN2' });
   add('Aisha', 'mis-auh@t.local', 'mis', { region: 'AUH', hrms_code: 'EN4' });
   add('Bilal', 'head@t.local', 'business_head', { region: 'DXB', hrms_code: 'EN3' });
+  add('Hamad', 'head-auh@t.local', 'business_head', { region: 'AUH', hrms_code: 'EN5' });
   server = createServer(db);
   await new Promise((r) => server.listen(0, r));
   base = `http://localhost:${server.address().port}`;
@@ -41,12 +42,15 @@ test('Dubai MIS pulls the bank month-end report per cycle, split by product, wit
   assert.equal(card.status, 201, JSON.stringify(card.data));
   const loan = await file({ customer_name: 'Loan Customer', phone: '+971 50 333 4444', core_product: 'personal_loan', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd: '2026-11-05' });
   assert.equal(loan.status, 201, JSON.stringify(loan.data));
-  // Only Dubai MIS has it.
+  // Only Dubai MIS and the Dubai business head have it.
+  const headAuh = await login('head-auh@t.local');
   assert.ok((await mis('GET', '/reports')).data.reports.some((r) => r.key === 'bank_month_end'));
+  assert.ok((await head('GET', '/reports')).data.reports.some((r) => r.key === 'bank_month_end'));
   assert.ok(!(await auh('GET', '/reports')).data.reports.some((r) => r.key === 'bank_month_end'));
-  assert.ok(!(await head('GET', '/reports')).data.reports.some((r) => r.key === 'bank_month_end'));
+  assert.ok(!(await headAuh('GET', '/reports')).data.reports.some((r) => r.key === 'bank_month_end'));
   assert.equal((await auh('GET', '/reports/bank_month_end?cycle=2026-09')).status, 404);
-  assert.equal((await head('GET', '/reports/bank_month_end?cycle=2026-09')).status, 404);
+  assert.equal((await headAuh('GET', '/reports/bank_month_end?cycle=2026-09')).status, 404);
+  assert.equal((await sally('GET', '/reports/bank_month_end?cycle=2026-09')).status, 404);
   // Not before the cycle ends, and only per cycle.
   timing.now = () => UAE('2026-09-19T10:00:00');
   assert.match((await mis('GET', '/reports/bank_month_end?cycle=2026-09')).data.error, /ends on 2026-09-20/);
@@ -60,6 +64,7 @@ test('Dubai MIS pulls the bank month-end report per cycle, split by product, wit
     assert.deepEqual(r.rows.map((x) => [x.product_group, x.customer, x.phone, x.alt_phone]), [['Credit cards', 'Card Customer', '+971 50 111 2222', '+971 4 222 3333'], ['Personal loans', 'Loan Customer', '+971 50 333 4444', '']]);
     assert.match(r.note, /in full until 2026-09-25/);
     assert.equal(r.totals.product_group, 'Credit cards 1 · Personal loans 1');
+    assert.equal((await head('GET', '/reports/bank_month_end?cycle=2026-09')).data.rows[0].phone, '+971 50 111 2222');
     const csv = (await mis('GET', '/reports/bank_month_end?cycle=2026-09&format=csv', null, true)).data;
     assert.match(csv, /Product,Ref,App ID/);
     assert.match(csv, /,Phone,Alternate phone,/);
