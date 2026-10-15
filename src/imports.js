@@ -8,7 +8,7 @@ import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
 import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, CASE_STATUS, SETTABLE_CASE_STATUSES, applyAction, caseProducts, caseRef, insertCase, setBidayaId, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
-import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
+import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts, canonicalCategory } from './credit-cards.js';
 import { isBankPage, saveUploadedPitch } from './card-pitch.js';
 import { BANKS } from './banks.js';
 import { PAYOUT_KEYS, PAYOUT_LABELS, loadPayoutRules, canSeePayout } from './payouts.js';
@@ -375,7 +375,7 @@ export function importCardProducts(db, user, csv, { dryRun = false } = {}) {
       if (seen.has(key)) throw new Error(`${name} is already on line ${seen.get(key)}`);
       seen.set(key, record.line);
       const family = v.family.trim();
-      const category = v.category.trim();
+      const category = canonicalCategory(v.category);
       if (!family) throw new Error('Family is required');
       if (!category) throw new Error('Card category is required');
       let points = null;

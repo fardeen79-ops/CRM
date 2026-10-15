@@ -69,9 +69,18 @@ export const CARD_CATEGORY_ORDER = ['Mass', 'Premium', 'Super Premium'];
 let products = DEFAULT_CARD_PRODUCTS;
 let source = 'built_in';
 
+/** The bank's spelling of a category whatever the upload typed: MASS, super-premium and Super Premium are the same category. Anything else is kept trimmed. */
+export function canonicalCategory(value) {
+  const key = String(value ?? '').trim();
+  if (!key) return null;
+  const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return CARD_CATEGORY_ORDER.find((c) => norm(c) === norm(key)) || key;
+}
+
 /** Uses the uploaded product list when there is one, else the built-in list. Call on start and after an upload. */
 export function loadCardProducts(db) {
-  const rows = db.prepare('SELECT name, family, category, points, min_salary, page_url FROM card_products WHERE active = 1 ORDER BY family, name').all();
+  const rows = db.prepare('SELECT name, family, category, points, min_salary, page_url FROM card_products WHERE active = 1 ORDER BY family, name').all()
+    .map((r) => ({ ...r, category: canonicalCategory(r.category) }));
   products = rows.length ? rows : DEFAULT_CARD_PRODUCTS;
   source = rows.length ? 'uploaded' : 'built_in';
   return products;
@@ -106,6 +115,13 @@ export function higherCards(salary, chosen) {
 
 /** Fills the category and points on files that have a card but no category yet (older files). */
 export function backfillCardCategories(db) {
+  // Categories saved from an upload that typed them differently (MASS, super-premium) take the bank's spelling.
+  for (const col of ['card_category', 'card_eligible_category']) {
+    for (const { value } of db.prepare(`SELECT DISTINCT ${col} AS value FROM cases WHERE ${col} IS NOT NULL`).all()) {
+      const canon = canonicalCategory(value);
+      if (canon !== value) db.prepare(`UPDATE cases SET ${col} = ? WHERE ${col} = ?`).run(canon, value);
+    }
+  }
   for (const row of db.prepare('SELECT id, credit_card FROM cases WHERE credit_card IS NOT NULL AND card_category IS NULL').all()) {
     const p = cardProduct(row.credit_card);
     if (p) db.prepare('UPDATE cases SET card_category = ?, card_points = ?, card_min_salary = ? WHERE id = ?').run(p.category, p.points, p.min_salary, row.id);

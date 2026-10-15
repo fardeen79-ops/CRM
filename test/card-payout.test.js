@@ -6,6 +6,7 @@ import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
 import { createUser, loginId } from './helpers/create-user.mjs';
 import { cardActivation } from '../src/payouts.js';
+import { backfillCardCategories } from '../src/credit-cards.js';
 
 const PASSWORD = 'password123';
 let server, base, ids, db;
@@ -112,4 +113,22 @@ test('cards sold below eligibility price the card sold even when the file has no
   const smRun = await run(sm);
   assert.ok(!smRun.columns.some((c) => c.key.startsWith('payout')));
   assert.equal(smRun.rows.find((x) => x.ref === ref).points_sold, 800);
+});
+
+test('a card list uploaded with MASS or super-premium still prices and counts as Mass and Super Premium', async () => {
+  const sally = await login('sally@t.local'); const mis = await login('mis@t.local'); const head = await login('head@t.local');
+  const csv = 'Card name,Family,Card category,Points,Minimum salary (AED)\nSHARE VISA PLATINUM CREDIT CARD,Share,MASS,650,5000\nShare Visa Infinite Credit Card,Share,super-premium,1050,30000\n';
+  const up = (await mis('POST', '/import/card_products', { csv })).data;
+  assert.equal(up.ok, 2, JSON.stringify(up.rows?.map((x) => x.error)));
+  const list = (await sally('GET', '/me')).data.meta.credit_cards.find((f) => f.family === 'Share').cards;
+  assert.deepEqual(list.map((c) => c.category).sort(), ['Mass', 'Super Premium']);
+  const r = await sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', phone: '+971 50 333 4466', city: 'Dubai', salary: 8000, source: 'Walk-in', customer_name: 'Share Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'SHARE VISA PLATINUM CREDIT CARD', card_fee_type: 'ffl' });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.case.card_category, 'Mass');
+  const c = (await head('GET', `/cases/${r.data.case.id}`)).data.case;
+  assert.equal(c.payout.total, 1400, JSON.stringify(c.payout));
+  // A file saved with the typed spelling before the fix is corrected on start.
+  db.prepare("UPDATE cases SET card_category = 'MASS' WHERE id = ?").run(r.data.case.id);
+  backfillCardCategories(db);
+  assert.equal(db.prepare('SELECT card_category FROM cases WHERE id = ?').get(r.data.case.id).card_category, 'Mass');
 });
