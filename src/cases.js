@@ -977,6 +977,10 @@ export const processorsFor = (db, row) => {
     .filter((a) => products.includes(a.product)).map((a) => a.processor_id);
   return mine.length ? [...new Set(mine)] : activeUserIds(db, 'processing');
 };
+/** Tells the verification team a file has reached their queue: the processor already on it, else the processors for its team. */
+function notifyVerificationQueue(db, row, id, message) {
+  notify(db, row.assigned_to ? [row.assigned_to] : processorsFor(db, row), id, message);
+}
 
 const CASE_SELECT = `
   SELECT c.*, cb.name AS created_by_name, at.name AS assigned_to_name,
@@ -1338,6 +1342,7 @@ export function insertCase(db, user, input, { bulk = false } = {}) {
   if (needsCardApproval(data)) sendForApproval(db, id, user, data);
   if (needsTimingApproval(data)) sendForTimingApproval(db, id, user, data);
   if (status === STATUS.APPROVAL && !needsApproval(data)) sendForReview(db, id, user, data);
+  if (status === STATUS.PENDING) notifyVerificationQueue(db, data, id, `New file for verification: ${caseRef(id)} (${data.customer_name}) from ${user.name}`);
   if (bulk) addEvent(db, id, user.id, 'bulk_upload', { detail: 'Added from a bulk upload file' });
   if (input.eid_scanned) addEvent(db, id, user.id, 'eid_scan', { detail: `${input.eid_scanned === 'back' ? 'back' : 'front'} of the card: name, Emirates ID number` });
   recordReadBack(db, id, user.id, input.read_back);
@@ -1635,6 +1640,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
           id,
           `Action required: ${ref} (${row.customer_name}) verification pending, marked by ${user.name} — ${reason.replace(/_/g, ' ')}`
         );
+        notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) verification pending, marked by ${user.name} — ${reason.replace(/_/g, ' ')}: ${note}`);
         triggers.push({
           event: 'case.incomplete',
           case_id: id,
@@ -1652,11 +1658,13 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         Object.assign(set, { tl_action: action, tl_note: note, tl_actioned_by: user.id, tl_actioned_at: ts });
         if (action === 'reverify') {
           set.assigned_to = null;
-          notify(db, [row.assigned_to], id, `${ref} was sent back for re-verification by ${user.name}`);
+          notifyVerificationQueue(db, row, id, `Re-verify: ${ref} (${row.customer_name}) was sent back for re-verification by ${user.name}${note ? ` — ${note}` : ''}`);
+          notify(db, [ownerId(row), ...leadersOf(db, row)].filter((u) => u !== user.id), id, `${ref} (${row.customer_name}) was sent back for re-verification by ${user.name}`);
         } else if (action === 'return_to_sales') {
-          notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) was returned to you: ${note}`);
+          notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) was returned to you by ${user.name}: ${note}`);
+          notify(db, [row.assigned_to, ...leadersOf(db, row)].filter((u) => u !== user.id), id, `${ref} (${row.customer_name}) was returned to sales by ${user.name}: ${note}`);
         } else {
-          notify(db, [ownerId(row), row.assigned_to], id, `${ref} (${row.customer_name}) was rejected by ${user.name}`);
+          notify(db, [ownerId(row), row.assigned_to, ...leadersOf(db, row)].filter((u) => u !== user.id), id, `${ref} (${row.customer_name}) was rejected by ${user.name}: ${note}`);
         }
         break;
       case 'resubmit':
@@ -1671,10 +1679,12 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         set.assigned_to = null;
         detail = 'Validated by the team and sent for verification';
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) validated by ${user.name} and sent for verification`);
+        notifyVerificationQueue(db, row, id, `New file for verification: ${ref} (${row.customer_name}), validated by ${user.name}`);
         break;
       case 'send_back':
         set.assigned_to = null;
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) sent back by ${user.name}: ${note}`);
+        notify(db, leadersOf(db, row).filter((u) => u !== user.id), id, `${ref} (${row.customer_name}) sent back to sales by ${user.name}: ${note}`);
         break;
       case 'approve_card': {
         const exception = cardExceptionOf({ card_salary_exception: extra.exception ?? extra.card_salary_exception });
@@ -1684,6 +1694,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         // The timing still needs its own approval: the file keeps waiting.
         if (needsTimingApproval(row)) set.status = STATUS.APPROVAL;
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) approved by ${user.name} as ${CARD_EXCEPTIONS[exception].toLowerCase()}${needsTimingApproval(row) ? '; its timing still needs approval' : ' and sent for verification'}`);
+        if (!needsTimingApproval(row)) notifyVerificationQueue(db, row, id, `New file for verification: ${ref} (${row.customer_name}), approved by ${user.name}`);
         break;
       }
       case 'approve_timing':
@@ -1691,15 +1702,18 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         if (needsCardApproval(row)) set.status = STATUS.APPROVAL;
         detail = timingLabels(row);
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) ${timingLabels(row)}: approved by ${user.name}${needsCardApproval(row) ? '; the card still needs approval' : ' and sent for verification'}`);
+        if (!needsCardApproval(row)) notifyVerificationQueue(db, row, id, `New file for verification: ${ref} (${row.customer_name}), approved by ${user.name}`);
         break;
       case 'decline_timing':
         Object.assign(set, { tl_action: 'decline_timing', tl_note: note, tl_actioned_by: user.id, tl_actioned_at: ts, assigned_to: null });
         detail = timingLabels(row);
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) returned by ${user.name}: ${note}`);
+        notify(db, leadersOf(db, row).filter((u) => u !== user.id), id, `${ref} (${row.customer_name}) returned to sales by ${user.name}: ${note}`);
         break;
       case 'decline_card':
         Object.assign(set, { tl_action: 'decline_card', tl_note: note, tl_actioned_by: user.id, tl_actioned_at: ts, assigned_to: null });
         notify(db, [ownerId(row)], id, `${ref} (${row.customer_name}) returned by ${user.name}: ${note}`);
+        notify(db, leadersOf(db, row).filter((u) => u !== user.id), id, `${ref} (${row.customer_name}) returned to sales by ${user.name}: ${note}`);
         break;
     }
 

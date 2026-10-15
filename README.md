@@ -492,6 +492,12 @@ Each file also has a **sourcing date**, which defaults to today and can't be in 
 
 **Who is told.** Notifications about a file go to the people on that file: the sales person who sourced it and the leaders recorded on it (its team leader, ASM and sales manager), never to every team leader or every manager. That covers verification pending (Action required), verification rejected, re-verification after changes, urgent flags, Applicant review and edit requests. Only approvals that belong to a whole role still go to that role: bot call approvals to governance and business heads, recording approvals to business heads.
 
+Every step of a file's journey tells the people it moves between:
+
+- **New file.** A sales submission alerts the file's team leader, ASM and sales manager (*To validate* or *Approval needed*). When it reaches the verification queue (validated or approved by the team, or entered by a leader or a bulk upload so it goes straight there) the verification team gets *New file for verification*: the processor allocated to that team leader for the product, else every processor.
+- **Pushed back by verification.** *Verification pending* (Action required) goes to the file's leaders and now also to the sales person, with the reason and note; *Verification rejected* goes to both as before.
+- **Decided by the team.** *Re-verify* tells the processor who had the file (or the queue) and the sales person; *Return to sales* tells the sales person, the processor and the file's other leaders; *Reject* tells all of them. Sending a file back to sales before verification (Send back, or declining its card or timing) tells the sales person and the file's other leaders. The person who acted is never sent their own notification.
+
 ### Chat: case discussions, direct messages and groups
 
 - **Discussion on every case.** Everyone who can see a file can post in its *Discussion* panel (sales staff see only their own files). Type `@` and a colleague's name to alert them; they get a notification linking to the case. Messages update every few seconds while the page is open.

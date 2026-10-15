@@ -828,9 +828,11 @@ test('an ASM or sales manager who leads a team directly sees it everywhere, even
   assert.ok((await asm('GET', '/cases')).data.cases.some((c) => c.id === f.id));
   // She can validate her own direct team's file, as its team leader.
   assert.equal((await asm('POST', `/cases/${f.id}/actions`, { action: 'validate' })).status, 200);
+  // The verification team is told the file has reached their queue.
+  const proc = await login('proc-dxb@t.local');
+  assert.ok((await proc('GET', '/notifications')).data.items.some((n) => /New file for verification/.test(n.message) && n.case_id === f.id));
   // When the processors cannot finish it, she decides like a team leader: the case page offers the
   // choices and Re-verify sends it back to the verification queue.
-  const proc = await login('proc-dxb@t.local');
   assert.equal((await proc('POST', `/cases/${f.id}/actions`, { action: 'claim' })).status, 200);
   assert.equal((await proc('POST', `/cases/${f.id}/actions`, { action: 'mark_incomplete', reason: 'customer_unreachable', note: 'No answer on three calls' })).status, 200);
   const pending = (await asm('GET', `/cases/${f.id}`)).data.case;
@@ -841,9 +843,15 @@ test('an ASM or sales manager who leads a team directly sees it everywhere, even
   assert.ok(!(await otherTl('GET', '/notifications')).data.items.some((n) => n.case_id === f.id));
   const dxbTl = await login('tl-dxb@t.local');
   assert.ok(!(await dxbTl('GET', '/notifications')).data.items.some((n) => n.case_id === f.id));
+  // The sales person hears that verification is pending on her file.
+  assert.ok((await piaLogin('GET', '/notifications')).data.items.some((n) => /verification pending/.test(n.message) && n.case_id === f.id));
   for (const a of ['return_to_sales', 'reverify', 'reject']) assert.ok(pending.allowed_actions.includes(a), a);
   assert.ok((await asm('GET', '/cases?status=incomplete')).data.cases.some((c) => c.id === f.id));
   const back = await asm('POST', `/cases/${f.id}/actions`, { action: 'reverify' });
   assert.equal(back.status, 200);
   assert.equal(back.data.case.status, 'pending_verification');
+  // Re-verify reaches the processor who had the file and the sales person; the leader who sent it is not told twice.
+  assert.ok((await proc('GET', '/notifications')).data.items.some((n) => /Re-verify:/.test(n.message) && n.case_id === f.id));
+  assert.ok((await piaLogin('GET', '/notifications')).data.items.some((n) => /sent back for re-verification/.test(n.message) && n.case_id === f.id));
+  assert.ok(!(await asm('GET', '/notifications')).data.items.some((n) => /sent back for re-verification/.test(n.message) && n.case_id === f.id));
 });
