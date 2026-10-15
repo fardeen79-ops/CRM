@@ -432,6 +432,7 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 - Name the file by **CRM reference** (`CRM-000012`) or **App ID**, and give either the **bank status** from the bank's report (the case status then follows automatically, see *Bank status* under Case status) or the **case status** it moves to: `Applicant review`, `Completed` or `Rejected`.
 - Applicant review and Rejected need a **note**, exactly as on the case page. A file already in that status is reported as an error and left alone.
 - Completing a loan records the **disbursed amount**: the *Personal loan disbursed (AED)* and *Auto loan disbursed (AED)* columns, blank meaning the amount on the file; an auto loan can also carry the bank's **payout class**.
+- The optional **Bidaya ID** column fills or replaces the bank's Bidaya ID on the file, whatever its status; blank leaves the ID as it is. A row may carry just the reference and a Bidaya ID, with no status, to map IDs from the bank's report. The change shows on the file's timeline as an edit by the uploader.
 - Each row is logged on the file's timeline as the uploader's action and the sales person is notified, the same as a one-by-one change.
 
 **Limits and Excel**

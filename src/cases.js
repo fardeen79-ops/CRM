@@ -1380,6 +1380,17 @@ function canEdit(user, row) {
   return false;
 }
 
+/** Fills or replaces the bank's Bidaya ID on a file from the Case status upload, whatever the file's status; logged as an edit. */
+export function setBidayaId(db, user, id, bidayaId) {
+  const value = clean(bidayaId, 50);
+  if (!value) return false;
+  const row = db.prepare('SELECT bidaya_id FROM cases WHERE id = ?').get(id);
+  if (!row || row.bidaya_id === value) return false;
+  db.prepare('UPDATE cases SET bidaya_id = ?, updated_at = ? WHERE id = ?').run(value, now(), id);
+  addEvent(db, id, user.id, 'edited', { detail: 'bidaya_id', note: row.bidaya_id ? `Bidaya ID ${row.bidaya_id} → ${value}` : `Bidaya ID ${value}` });
+  return true;
+}
+
 export function updateCase(db, user, id, input) {
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
   if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');

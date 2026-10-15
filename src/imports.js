@@ -5,7 +5,7 @@
 import { transaction, savepoint } from './db.js';
 import { matchBankStatus, caseStatusOf, bankStatusLabel } from './bank-status.js';
 import { ROLES, createUser, tempPassword, hashPassword } from './auth.js';
-import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, CASE_STATUS, SETTABLE_CASE_STATUSES, applyAction, caseProducts, caseRef, insertCase, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
+import { PRODUCTS, PERSONAL_LOAN_TYPES, PERSONAL_LOAN_KINDS, JOURNEY_TYPES, SOURCING_TYPES, AUTO_LOAN_TYPES, AUTO_LOAN_CLASSES, BUYOUT_KINDS, CARD_FEE_TYPES, REGIONS, CARD_STATUS, CASE_STATUS, SETTABLE_CASE_STATUSES, applyAction, caseProducts, caseRef, insertCase, setBidayaId, setCardStatus, includesCard, WorkflowError, moveOpenCases } from './cases.js';
 import { setTargetsFor, TARGET_UNITS, TARGET_PRODUCTS } from './performance.js';
 import { parseCycle } from './cycles.js';
 import { cardProduct, loadCardProducts, backfillCardCategories, cardProducts } from './credit-cards.js';
@@ -114,6 +114,7 @@ export const CASE_STATUS_IMPORT_COLUMNS = [
   { key: 'bank_status', header: 'Bank status', example: 'AO_COMPLETED_WAITING_FOR_SALARY_TRANSFER', help: "The bank's application status or stage for the file's product, as on the bank's report; the case status follows from it" },
   { key: 'case_status', header: 'Case status', example: '', help: 'Applicant review, Completed or Rejected, when setting the case status directly (leave blank when a bank status is given)', allowed: SETTABLE_CASE_STATUSES.map((k) => CASE_STATUS[k]) },
   { key: 'note', header: 'Note', example: '', help: 'Why the file is in Applicant review or Rejected (required for those two); optional for Completed' },
+  { key: 'bidaya_id', header: 'Bidaya ID', example: '', help: "Optional. The bank's Bidaya ID for the file; fills or replaces the one on the file, blank leaves it as it is" },
   { key: 'pl_disbursed_amount', header: 'Personal loan disbursed (AED)', example: '', help: 'Completed personal loans: the amount disbursed; blank takes the loan amount on the file' },
   { key: 'al_disbursed_amount', header: 'Auto loan disbursed (AED)', example: '', help: 'Completed auto loans: the amount disbursed; blank takes the amount on the file' },
   { key: 'al_payout_class', header: 'Auto loan payout class', example: '', help: 'Completed auto loans, if the bank reclassified it: Full payout, Algo loan or Low-payout non-algo', allowed: Object.values(AUTO_LOAN_CLASSES) },
@@ -767,18 +768,26 @@ export function importCaseStatus(db, user, csv, { dryRun = false } = {}) {
       pl_disbursed_amount: v.pl_disbursed_amount, al_disbursed_amount: v.al_disbursed_amount,
       al_payout_class: v.al_payout_class ? choose(v.al_payout_class, AUTO_LOAN_CLASSES, 'Auto loan payout class') : '',
     };
-    let label;
+    // A Bidaya ID on the row fills or replaces the one on the file; a row may carry just that.
+    const bidaya = String(v.bidaya_id || '').trim();
+    if (bidaya.length > 50) throw new Error('Bidaya ID is too long (50 characters at most)');
+    const bidayaChanged = setBidayaId(db, user, row.id, bidaya);
+    const parts = [];
     if (String(v.bank_status || '').trim()) {
       const bank = matchBankStatus(v.bank_status, caseProducts(row));
       if (!bank) throw new Error(`"${v.bank_status}" is not a bank status for a ${caseProducts(row).map((p) => PRODUCTS[p] || p).join(' / ')} file`);
       applyAction(db, user, row.id, { action: 'set_bank_status', bank_status: bank, note: v.note, ...amounts });
-      label = `${bankStatusLabel(bank)} → ${CASE_STATUS[caseStatusOf(bank)]}`;
+      parts.push(`${bankStatusLabel(bank)} → ${CASE_STATUS[caseStatusOf(bank)]}`);
     } else {
       const status = choose(v.case_status, Object.fromEntries(SETTABLE_CASE_STATUSES.map((k) => [k, CASE_STATUS[k]])), 'Case status');
-      if (!status) throw new Error('Give a bank status or a case status');
-      applyAction(db, user, row.id, { action: 'set_case_status', case_status: status, note: v.note, ...amounts });
-      label = CASE_STATUS[status];
+      if (status) {
+        applyAction(db, user, row.id, { action: 'set_case_status', case_status: status, note: v.note, ...amounts });
+        parts.push(CASE_STATUS[status]);
+      } else if (!bidaya) throw new Error('Give a bank status, a case status or a Bidaya ID');
     }
+    if (bidayaChanged) parts.push(`Bidaya ID ${row.bidaya_id ? `${row.bidaya_id} → ` : ''}${bidaya}`);
+    else if (bidaya) parts.push(`Bidaya ID ${bidaya} unchanged`);
+    const label = parts.join(' · ');
     return {
       id: row.id, ref: caseRef(row.id),
       label: `${row.customer_name} · ${label}`,

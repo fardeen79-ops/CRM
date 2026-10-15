@@ -1127,6 +1127,25 @@ test('MIS sets the case status on many files from an upload, with the same rules
   // A file already in the status is reported, not changed twice
   const again = (await mis('POST', '/import/case_status', { csv: `Reference,Case status\n${ref(loanA)},Completed` })).data;
   assert.match(again.rows[0].error, /already Completed/);
+  // An optional Bidaya ID fills or replaces the one on the file, with or without a status; blank leaves it alone.
+  const bid = (await mis('POST', '/import/case_status', { csv: ['Reference,Case status,Note,Bidaya ID',
+    `${ref(loanA)},,,BD-1001`,
+    `CSU-APP-2,Rejected,Bank declined,BD-1002`,
+    `${ref(loanC)},,,`,
+    `CSU-APP-3,,,BD-1003`,
+  ].join('\n') })).data;
+  assert.deepEqual(bid.rows.map((x) => x.ok), [true, true, false, true], JSON.stringify(bid.rows.map((x) => x.error)));
+  assert.match(bid.rows[2].error, /bank status, a case status or a Bidaya ID/);
+  assert.match(bid.rows[0].label, /Bidaya ID BD-1001/);
+  assert.equal((await sally('GET', `/cases/${loanA}`)).data.case.bidaya_id, 'BD-1001'); // a completed file still takes its Bidaya ID
+  const b = (await sally('GET', `/cases/${loanB}`)).data.case;
+  assert.deepEqual([b.case_status, b.bidaya_id], ['rejected', 'BD-1002']);
+  assert.ok(b.events.some((e) => e.type === 'edited' && e.detail === 'bidaya_id' && e.user_name === 'Mira'));
+  const replaced = (await mis('POST', '/import/case_status', { csv: `Reference,Bidaya ID\n${ref(loanA)},BD-2001\nCSU-APP-3,BD-1003` })).data;
+  assert.deepEqual(replaced.rows.map((x) => x.ok), [true, true]);
+  assert.match(replaced.rows[0].label, /BD-1001 → BD-2001/);
+  assert.match(replaced.rows[1].label, /unchanged/);
+  assert.equal((await sally('GET', `/cases/${loanA}`)).data.case.bidaya_id, 'BD-2001');
 });
 
 test('card activation is mapped on completed card cases, one by one or from a bank report', async () => {
