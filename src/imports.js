@@ -38,6 +38,7 @@ export const USER_IMPORT_COLUMNS = [
   { key: 'role', header: 'Role', required: true, example: 'Sales', allowed: Object.values(ROLE_LABELS) },
   { key: 'mobile_number', header: 'Local mobile', example: '050 123 4567', help: 'UAE mobile number, optional' },
   { key: 'whatsapp_number', header: 'WhatsApp number', example: '+971 50 123 4567', help: 'With country code; a UAE number without one gets +971' },
+  { key: 'tel_no', header: 'Tel no', example: '', help: "Processors: the recorded line they call customers from, quoted in the DNCR consent email (e.g. 04 123 4567 ext 210). Optional" },
   { key: 'doj', header: 'Date of joining', example: '01/03/2024', help: 'DD/MM/YYYY or YYYY-MM-DD' },
   { key: 'dol', header: 'Date of leaving', example: '', help: 'Only for staff who have resigned. The account is disabled from that day' },
   { key: 'region', header: 'Region', example: 'DXB', allowed: Object.keys(REGIONS), help: 'DXB or AUH. Processors then see only that region\'s files; a sales person\'s files belong to it' },
@@ -535,7 +536,7 @@ function updateUserFromRow(db, viewer, target, v) {
   const current = db.prepare('SELECT * FROM users WHERE id = ?').get(target.id);
   // Name, codes, numbers and dates.
   const contactInput = {};
-  for (const f of ['name', 'hrms_code', 'email', 'mobile_number', 'whatsapp_number', 'doj', 'dol']) if (given(f)) contactInput[f] = v[f];
+  for (const f of ['name', 'hrms_code', 'email', 'mobile_number', 'whatsapp_number', 'tel_no', 'doj', 'dol']) if (given(f)) contactInput[f] = v[f];
   const contact = contactDetails(contactInput, { current });
   if (contact.email && db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(contact.email, current.id)) throw new Error(`A user with the email ${contact.email} already exists`);
   if (contact.hrms_code && db.prepare('SELECT 1 FROM users WHERE hrms_code = ? COLLATE NOCASE AND id != ?').get(contact.hrms_code, current.id)) throw new Error(`HRMS code ${contact.hrms_code} is already used by another user`);

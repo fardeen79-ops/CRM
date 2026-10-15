@@ -53,9 +53,9 @@ export function createUser(db, input, { requireMobile = false } = {}) {
   catch (err) { throw new Error(err.message); }
   const region = regionOf(input.region);
   const { lastInsertRowid } = db
-    .prepare(`INSERT INTO users (name, email, role, role_key, password_hash, mobile_number, whatsapp_number, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary, hrms_code, doj, dol, core_product)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(contact.name, contact.email, role, resolved.key, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number,
+    .prepare(`INSERT INTO users (name, email, role, role_key, password_hash, mobile_number, whatsapp_number, tel_no, sales_code, team_leader_id, sales_manager_id, asm_id, region, salary, hrms_code, doj, dol, core_product)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(contact.name, contact.email, role, resolved.key, hashPassword(String(password)), contact.mobile_number, contact.whatsapp_number, contact.tel_no ?? null,
       profile.sales_code, profile.team_leader_id, profile.sales_manager_id, profile.asm_id, region, profile.salary, contact.hrms_code, contact.doj, contact.dol, profile.core_product);
   return getUser(db, Number(lastInsertRowid));
 }

@@ -2519,6 +2519,7 @@ async function viewCase(id) {
       </div>
     </div>
     ${c.dncr_email ? html`<div class="callout warn dncr-draft"><strong>Customer on the Do Not Call Register.</strong> The customer cannot be phoned until they give permission. Send them this email from your mailbox, signed in your name, and log their reply on the file; once they agree, the file can go back for verification.
+      ${c.dncr_email.tel ? '' : html`<p class="small"><strong>No tel no on the processor's profile:</strong> ask MIS to add the recorded line under Tel no on the Staff page (or in the Users upload), so the email quotes it.</p>`}
       ${emailDraft('dncr', c.dncr_email, 'Email to the customer', { missingTo: 'No email address on the file. Add the customer\'s email under Edit details, or copy the text and send it another way.' })}</div>` : ''}
     ${c.callback_at && ['pending_verification', 'in_verification'].includes(c.status) ? html`<div class="callout ${callbackDue(c) ? 'danger' : 'warn'}">
       <strong>${callbackDue(c) ? 'Call back now' : 'Call-back scheduled'} — ${fmtWhen(c.callback_at)} (${untilText(c.callback_at)})</strong>
@@ -5132,6 +5133,7 @@ async function viewProfile() {
             ${row('HRMS code', u.hrms_code, true)}
             ${row('Role', ROLE_LABEL[u.role_key || u.role] || u.role)}
             ${row('Region', u.region ? meta.regions?.[u.region] || u.region : null)}
+            ${u.role === 'processing' ? row('Tel no (recorded line)', u.tel_no) : ''}
             ${u.role === 'sales' ? html`${row('Sales code', u.sales_code, true)}${row('Core product', meta.staff_core_products?.[u.core_product] || u.core_product)}${row('Team leader', u.team_leader_name)}${u.asm_name ? row('Assistant sales manager', u.asm_name) : ''}${row('Sales manager', u.sales_manager_name)}` : ''}
             ${['team_leader', 'asm'].includes(u.role) ? html`${row('Reports to', u.sales_manager_name || 'Business head')}${u.asm_name ? row('Under ASM', u.asm_name) : ''}` : ''}
             ${u.salary != null ? row('Monthly salary', `AED ${fmtAmount(u.salary)}`) : ''}
@@ -5247,6 +5249,9 @@ async function viewUsers() {
     <div class="field-row"><label for="${prefix}-wa">WhatsApp number</label>
       <input id="${prefix}-wa" name="whatsapp_number" type="tel" inputmode="tel" value="${u.whatsapp_number || ''}" placeholder="+971 50 123 4567">
       <label class="check small wa-same"><input type="checkbox" data-wa-same> Same as local mobile</label></div>
+    <div class="field-row"><label for="${prefix}-tel">Tel no (recorded line)</label>
+      <input id="${prefix}-tel" name="tel_no" type="tel" inputmode="tel" value="${u.tel_no || ''}" placeholder="04 123 4567 ext 210">
+      <div class="muted small">Processors: the line they call customers from. Quoted in the DNCR consent email.</div></div>
     <div class="form-grid two">
       <div class="field-row"><label for="${prefix}-doj">Date of joining</label>
         <input id="${prefix}-doj" name="doj" type="date" value="${u.doj || ''}" max="${todayLocal()}"></div>
@@ -5362,8 +5367,8 @@ async function viewUsers() {
     } catch (ex) { toast(ex.message, true); delBtn.disabled = false; }
   };
   if (document.getElementById('staff-csv')) document.getElementById('staff-csv').onclick = () => saveFile('staff-list.csv', toCsv([
-    ['Name', 'HRMS code', 'Email', 'Role', 'Region', 'Local mobile', 'WhatsApp', 'Sales code', 'Team leader', 'Sales manager', 'ASM', 'Date of joining', 'Date of leaving', 'Status'],
-    ...users.map((u) => [u.name, u.hrms_code || '', u.email, ROLE_LABEL[u.role_key || u.role] || u.role, u.region || '', u.mobile_number || '', u.whatsapp_number || '', u.sales_code || '', u.team_leader_name || '', u.sales_manager_name || '', u.asm_name || '', u.doj || '', u.dol || '', u.active ? 'Active' : 'Disabled']),
+    ['Name', 'HRMS code', 'Email', 'Role', 'Region', 'Local mobile', 'WhatsApp', 'Tel no', 'Sales code', 'Team leader', 'Sales manager', 'ASM', 'Date of joining', 'Date of leaving', 'Status'],
+    ...users.map((u) => [u.name, u.hrms_code || '', u.email, ROLE_LABEL[u.role_key || u.role] || u.role, u.region || '', u.mobile_number || '', u.whatsapp_number || '', u.tel_no || '', u.sales_code || '', u.team_leader_name || '', u.sales_manager_name || '', u.asm_name || '', u.doj || '', u.dol || '', u.active ? 'Active' : 'Disabled']),
   ]));
   const form = document.getElementById('user-form');
   const role = document.getElementById('nu-role');

@@ -6,6 +6,7 @@ import { createServer } from '../src/server.js';
 import { createUser, loginId } from './helpers/create-user.mjs';
 import { timing } from '../src/cases.js';
 
+const caseRefOf = (id) => `CRM-${String(id).padStart(6, '0')}`;
 const PASSWORD = 'password123';
 let server, base, ids;
 const HRMS = {}; // the HRMS code of each fixture, the username at sign-in
@@ -159,14 +160,41 @@ test('a file marked Customer in DNCR carries a permission email to the customer,
   assert.equal(marked.status, 'incomplete');
   // The sales person gets no draft; the processor and the team leader do, each signed in their own name.
   assert.equal('dncr_email' in (await cara('GET', `/cases/${c.id}`)).data.case, false);
-  const seen = (await proc('GET', `/cases/${c.id}`)).data.case;
+  let seen = (await proc('GET', `/cases/${c.id}`)).data.case;
   assert.equal(seen.dncr_email.to, 'hind@example.com');
-  assert.match(seen.dncr_email.subject, /Emirates NBD Credit Card \(Skywards Signature Credit Card\) application/);
-  assert.match(seen.dncr_email.body, /^Dear Hind,/);
-  assert.match(seen.dncr_email.body, /applied for an Emirates NBD Credit Card/);
+  assert.equal(seen.dncr_email.subject, `DNCR Consent- ${seen.ref} Your permission to contact you about your Emirates NBD Skywards Signature Credit Card application`);
+  assert.match(seen.dncr_email.body, /^Dear Hind Saeed,\n\nYou have applied for an Emirates NBD Skywards Signature Credit Card\. Thank you for choosing Emirates NBD\.\n\nWe are Derby Marketing - An authorized sales channel partner for Emirates NBD bank\.\n\nYour mobile number \+971 50 777 1234, is listed on the UAE Do Not Call Register/);
+  assert.match(seen.dncr_email.body, /"Yes, you may contact me about my Emirates NBD Skywards Signature Credit Card application"/);
+  // No recorded line on Pat's profile yet: the draft says so instead of quoting one.
+  assert.equal(seen.dncr_email.tel, null);
+  assert.match(seen.dncr_email.body, /recorded line from Tel no\. : \(tel no not set/);
   assert.match(seen.dncr_email.body, /Kind regards,\nPat\nVerification Team\n/);
-  assert.doesNotMatch(seen.dncr_email.body, /Cara|Derby/);
-  assert.match((await tl2('GET', `/cases/${c.id}`)).data.case.dncr_email.body, /Kind regards,\nTL Two\nTeam Leader\n/);
+  assert.doesNotMatch(seen.dncr_email.body, /Cara/);
+  // MIS records Pat's recorded line on the Staff page; the processor's line is quoted, also when the team leader sends it.
+  const mis = await login('mis@t.local');
+  assert.equal((await mis('PATCH', `/users/${ids['proc@t.local']}`, { tel_no: '04 123 4567 ext 210' })).status, 200);
+  assert.match((await mis('PATCH', `/users/${ids['proc@t.local']}`, { tel_no: 'call me' })).data.error, /Invalid tel no/);
+  seen = (await proc('GET', `/cases/${c.id}`)).data.case;
+  assert.equal(seen.dncr_email.tel, '04 123 4567 ext 210');
+  assert.match(seen.dncr_email.body, /recorded line from Tel no\. : 04 123 4567 ext 210\n/);
+  const tlDraft = (await tl2('GET', `/cases/${c.id}`)).data.case.dncr_email;
+  assert.match(tlDraft.body, /Tel no\. : 04 123 4567 ext 210\n/);
+  assert.match(tlDraft.body, /Kind regards,\nTL Two\nTeam Leader\n/);
+  // The Users upload carries the line too, and the Derby line is left out of a personal loan's email.
+  const up = (await mis('POST', '/import/users', { csv: 'Name,HRMS code,Email,Role,Local mobile,Tel no\nPat,,proc@t.local,Processing,,04 999 8888', update: true })).data;
+  assert.equal(up.ok, 1, JSON.stringify(up.rows?.map((x) => x.error)));
+  assert.equal((await mis('GET', '/users')).data.users.find((u) => u.email === 'proc@t.local').tel_no, '04 999 8888');
+  const made = await cara('POST', '/cases', loan({ customer_name: undefined, first_name: 'Omar', last_name: 'Hassan', email: 'omar@example.com', phone: '+971 50 777 5678', salary: 20000, loan_amount: 50000 }));
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  const plLoan = made.data.case;
+  await tlOk(plLoan.id);
+  assert.equal((await proc('POST', `/cases/${plLoan.id}/actions`, { action: 'claim' })).status, 200);
+  assert.equal((await proc('POST', `/cases/${plLoan.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'DNCR' })).status, 200);
+  const pl = (await proc('GET', `/cases/${plLoan.id}`)).data.case.dncr_email;
+  assert.equal(pl.subject, `DNCR Consent- ${caseRefOf(plLoan.id)} Your permission to contact you about your Emirates NBD Personal Loan application`);
+  assert.match(pl.body, /^Dear Omar Hassan,\n\nYou have applied for an Emirates NBD Personal Loan\. Thank you for choosing Emirates NBD\.\n\nYour mobile number \+971 50 777 5678, is listed/);
+  assert.doesNotMatch(pl.body, /Derby/);
+  assert.match(pl.body, /Tel no\. : 04 999 8888\n/);
   assert.equal((await tl2('POST', `/cases/${c.id}/actions`, { action: 'reverify' })).status, 200);
   assert.equal('dncr_email' in (await proc('GET', `/cases/${c.id}`)).data.case, false);
 });
@@ -182,7 +210,7 @@ test('a file carries a salutation, used on the file and in the customer email', 
   await tlOk(c.id);
   await proc('POST', `/cases/${c.id}/actions`, { action: 'claim' });
   await proc('POST', `/cases/${c.id}/actions`, { action: 'mark_incomplete', reason: 'customer_in_dncr', note: 'On the register' });
-  assert.match((await proc('GET', `/cases/${c.id}`)).data.case.dncr_email.body, /^Dear Ms Al Ali,/);
+  assert.match((await proc('GET', `/cases/${c.id}`)).data.case.dncr_email.body, /^Dear Ms Noura Al Ali,/);
   const plain = (await cara('POST', '/cases', { journey_type: 'emirates_id', ...base, phone: '+971 50 777 3333', email: 'n2@example.com' })).data.case;
   assert.equal(plain.salutation, null);
 });

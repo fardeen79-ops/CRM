@@ -3,7 +3,7 @@
 import { transaction } from './db.js';
 
 export const USER_COLUMNS = `u.id, u.name, u.email, u.role, u.role_key, u.active, u.created_at, u.region, u.salary, u.hrms_code, u.doj, u.dol, u.core_product,
-  u.mobile_number, u.whatsapp_number, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
+  u.mobile_number, u.whatsapp_number, u.tel_no, u.sales_code, u.team_leader_id, u.sales_manager_id, u.asm_id,
   tl.name AS team_leader_name, sm.name AS sales_manager_name, asm.name AS asm_name,
   (SELECT MAX(r.requested_at) FROM password_resets r WHERE r.user_id = u.id AND r.resolved_at IS NULL) AS reset_requested_at`;
 export const USER_FROM = `users u
@@ -213,6 +213,12 @@ export function contactDetails(input, { current = null, requireMobile = false } 
     if (!out.mobile_number && requireMobile) throw new Error('Local mobile number is required');
   }
   if (!current || 'whatsapp_number' in input) out.whatsapp_number = whatsappNumber(input.whatsapp_number);
+  // The recorded line a processor calls from, as written (a landline, an extension or a mobile).
+  if (!current || 'tel_no' in input) {
+    const tel = String(input.tel_no ?? '').trim().replace(/\s+/g, ' ');
+    if (tel && !/^[+\d][\d\s().-]{4,29}(\s*(ext|x)\.?\s*\d{1,6})?$/i.test(tel)) throw new Error(`Invalid tel no: ${tel}`);
+    out.tel_no = tel || null;
+  }
   if (!current || 'doj' in input) out.doj = dojOf(input.doj);
   if (!current || 'dol' in input) out.dol = dolOf(input.dol);
   const doj = 'doj' in out ? out.doj : current?.doj;

@@ -270,17 +270,36 @@ export const isDncr = (row) => row.incomplete_reason === 'customer_in_dncr' && [
  * team leader, never the sales person; signed with the sender's name and team.
  */
 export const DNCR_SENDERS = { processing: 'Verification Team', team_leader: 'Team Leader' };
-export function dncrEmail(row, user) {
-  const product = productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank, row.personal_loan_kind) || 'product';
-  // Addressed by salutation and surname when the file has one (Dear Mr Mehta), else by first name.
-  const first = row.salutation && row.last_name ? `${row.salutation} ${row.last_name}` : row.first_name || String(row.customer_name || '').split(' ')[0] || 'Customer';
-  const subject = `Your permission to contact you about your Emirates NBD ${product} application`;
+/** The name of the card as it reads in the email: the card's name, ending in "Credit Card" once. */
+const dncrCardName = (row) => {
+  const name = String(row.credit_card || '').trim();
+  if (!name) return 'Credit Card';
+  return /\bcard\b/i.test(name) ? name : `${name} Credit Card`;
+};
+/** What the customer applied for, as the consent email names it. */
+export function dncrProductName(row) {
+  const products = caseProducts(row);
+  if (products.includes('credit_card') && row.credit_card) return dncrCardName(row);
+  if (products.includes('personal_loan')) return 'Personal Loan';
+  if (products.includes('auto_loan')) return 'Auto Loan';
+  return productLabel(row.product, row.bundle_products, row.credit_card, row.personal_loan_type, row.buyout_bank, row.personal_loan_kind) || 'product';
+}
+export function dncrEmail(row, user, { processorTel = null } = {}) {
+  const product = dncrProductName(row);
+  const isCard = caseProducts(row).includes('credit_card') && Boolean(row.credit_card);
+  const fullName = [row.salutation, row.first_name, row.middle_name, row.last_name].filter(Boolean).join(' ').trim() || row.customer_name || 'Customer';
+  const appId = row.app_id || caseRef(row.id);
+  const subject = `DNCR Consent- ${appId} Your permission to contact you about your Emirates NBD ${product} application`;
+  const tel = processorTel || user.tel_no || '(tel no not set on the processor\'s profile)';
   const lines = [
-    `Dear ${first},`,
+    `Dear ${fullName},`,
     '',
     `You have applied for an Emirates NBD ${product}. Thank you for choosing Emirates NBD.`,
     '',
-    'Your mobile number is listed on the UAE Do Not Call Register, so we are not able to call you about your application unless you give us your permission.',
+    ...(isCard ? ['We are Derby Marketing - An authorized sales channel partner for Emirates NBD bank.', ''] : []),
+    `Your mobile number ${row.phone || '(not on file)'}, is listed on the UAE Do Not Call Register, so we are not able to call you about your application unless you give us your permission.`,
+    '',
+    `In order to proceed, we need to complete the verification call via a recorded line from Tel no. : ${tel}`,
     '',
     `If you would like us to go ahead, please reply to this email with "Yes, you may contact me about my Emirates NBD ${product} application" and the best time to reach you. You can also tell us if you would prefer to continue by email only.`,
     '',
@@ -291,7 +310,7 @@ export function dncrEmail(row, user) {
     DNCR_SENDERS[user.role],
     `Reference: ${caseRef(row.id)}`,
   ];
-  return { to: row.email || null, subject, body: lines.join('\n'), product };
+  return { to: row.email || null, subject, body: lines.join('\n'), product, tel: processorTel || user.tel_no || null };
 }
 
 export function recordingEmail(row) {
@@ -1210,7 +1229,11 @@ export function getCase(db, user, id) {
     out.recording_email = recordingEmail(row);
   }
   // A customer on the Do Not Call Register: a permission email the sales person can send.
-  if (isDncr(row) && DNCR_SENDERS[user.role]) out.dncr_email = dncrEmail(row, user);
+  if (isDncr(row) && DNCR_SENDERS[user.role]) {
+    // The recorded line quoted is the processor's on the file; a team leader sending it quotes that processor too.
+    const processor = row.assigned_to ? findUser(db, row.assigned_to) : null;
+    out.dncr_email = dncrEmail(row, user, { processorTel: processor?.tel_no || user.tel_no || null });
+  }
   return out;
 }
 
