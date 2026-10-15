@@ -199,7 +199,7 @@ for (const ev of ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll']) wi
 setInterval(() => {
   if (!state.user || recentlyActive()) return;
   const minutes = state.meta.idle_minutes;
-  fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+  signOutSession();
   state.user = null;
   renderLogin(`You were signed out after ${minutes} minute${minutes === 1 ? '' : 's'} without using the CRM. Sign in again.`);
 }, 5000);
@@ -259,7 +259,7 @@ function showUpdateBar(v) {
   const btn = document.getElementById('update-btn');
   btn.textContent = state.user ? 'Sign out and refresh' : 'Refresh';
   btn.onclick = async () => {
-    if (state.user) await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+    if (state.user) await signOutSession();
     location.reload();
   };
   bar.hidden = false;
@@ -360,6 +360,7 @@ async function boot() {
   }
   await refreshCounters();
   route();
+  syncPushDevice();
 }
 
 async function refreshCounters() {
@@ -387,6 +388,8 @@ async function refreshCounters() {
 function updateBadges() {
   const dot = document.querySelector('.bell .dot');
   if (dot) { dot.textContent = state.unread; dot.hidden = !state.unread; }
+  // The Home Screen icon carries the unread count where the phone allows it.
+  if (navigator.setAppBadge) (state.unread ? navigator.setAppBadge(state.unread) : navigator.clearAppBadge()).catch(() => {});
   const ar = document.querySelector('[data-ar-count]');
   if (ar) { ar.textContent = state.actionRequired; ar.hidden = !state.actionRequired; }
   const er = document.querySelector('[data-er-count]');
@@ -396,6 +399,89 @@ function updateBadges() {
     if (el) { el.textContent = n; el.hidden = !n; }
   }
 }
+
+// ---------- phone alerts (Web Push) and the app badge ----------
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext && !pushState.unavailable;
+const isIos = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushState = { key: null, devices: 0, subscribed: false, checked: false, unavailable: false };
+const b64ToBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+
+async function pushRegistration() {
+  if (!pushSupported()) return null;
+  try { return await navigator.serviceWorker.register('/sw.js'); } catch { return null; }
+}
+
+/** On sign-in: registers the service worker and tells the server about a device that already has alerts on, so alerts follow the account signed in on it. */
+async function syncPushDevice() {
+  pushState.checked = false;
+  if (!pushSupported()) return;
+  try {
+    const { key, devices } = await api('/push/key');
+    pushState.key = key;
+    pushState.devices = devices;
+    const reg = await pushRegistration();
+    const sub = reg && Notification.permission === 'granted' ? await reg.pushManager.getSubscription() : null;
+    if (sub) {
+      const r = await api('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
+      pushState.devices = r.devices;
+    }
+    pushState.subscribed = !!sub;
+  } catch { pushState.unavailable = true; /* no alerts from this server (the demo, or no key) */ }
+  pushState.checked = true;
+}
+
+/** Turns alerts on for this device; must run from a tap, since the browser asks for permission. */
+async function enablePushAlerts() {
+  if (!pushSupported()) return toast('This browser cannot show app alerts', 'error');
+  if (isIos() && !isStandalone()) return toast('Add STRIDE to your Home Screen first, then open it from there to turn on alerts', 'error');
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return toast('Alerts stay off until you allow notifications for STRIDE', 'error');
+  try {
+    const reg = await pushRegistration();
+    if (!reg) throw new Error('Could not start alerts');
+    await navigator.serviceWorker.ready;
+    if (!pushState.key) pushState.key = (await api('/push/key')).key;
+    const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(pushState.key) });
+    const r = await api('/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON() } });
+    pushState.devices = r.devices;
+    pushState.subscribed = true;
+    toast('Phone alerts are on for this device');
+  } catch (e) { toast(e.message || 'Could not turn on alerts', 'error'); }
+}
+
+/** Forgets this device on the server (sign-out, or alerts turned off) so the next person signed in here does not get this account's alerts. */
+async function forgetPushDevice({ unsubscribe = false } = {}) {
+  if (!pushSupported() || !pushState.subscribed) return;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+    const sub = reg && await reg.pushManager.getSubscription();
+    if (sub) {
+      await api('/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {});
+      if (unsubscribe) await sub.unsubscribe().catch(() => {});
+    }
+  } catch { /* nothing to forget */ }
+  pushState.subscribed = false;
+  if (navigator.clearAppBadge) navigator.clearAppBadge().catch(() => {});
+}
+
+/** Signs out everywhere a sign-out happens: forgets this device's alerts, then ends the session. */
+async function signOutSession() {
+  await forgetPushDevice();
+  await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+}
+
+const pushPrompt = () => {
+  if (!pushSupported() || pushState.subscribed || !pushState.checked) return '';
+  if (isIos() && !isStandalone()) return html`<p class="muted small push-hint">For alerts on this phone, add STRIDE to your Home Screen and open it from there.</p>`;
+  return html`<button class="btn-secondary" data-push-on>Turn on phone alerts</button>`;
+};
+const bindPushPrompt = (root) => root.querySelectorAll('[data-push-on]').forEach((b) => (b.onclick = async () => { await enablePushAlerts(); route(); }));
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', (e) => {
+  // A tap on an alert: the service worker asks this open page to show the file.
+  if (e.data?.type === 'open' && e.data.url) { const u = new URL(e.data.url, location.href); if (u.hash) location.hash = u.hash; }
+});
 
 // ---------- shell ----------
 // Sidebar icons (24px stroke icons, drawn with currentColor).
@@ -538,7 +624,7 @@ function shell(content) {
   const power = document.getElementById('power-btn');
   if (power) power.onclick = pressPowerButton;
   document.getElementById('logout').onclick = async () => {
-    await api('/logout', { method: 'POST' }).catch(() => {});
+    await signOutSession();
     state.user = null;
     resetRoute();
     renderLogin();
@@ -567,6 +653,7 @@ async function toggleNotifications() {
   panel.innerHTML = html`
     <div class="dropdown">
       <div class="head"><strong>Notifications</strong><button class="btn-link" id="mark-all">Mark all read</button></div>
+      ${pushPrompt() ? html`<div class="push-row">${pushPrompt()}</div>` : ''}
       ${items.length ? items.map((n) => html`
         <a class="item ${n.is_read ? '' : 'unread'}" href="${n.case_id ? `#/cases/${n.case_id}` : n.link || '#/'}" data-id="${n.id}">
           <div>${n.message}</div><div class="muted small">${fmtDate(n.created_at)}</div>
@@ -577,6 +664,7 @@ async function toggleNotifications() {
     panel.innerHTML = '';
     refreshCounters();
   };
+  panel.querySelectorAll('[data-push-on]').forEach((b) => (b.onclick = async () => { panel.innerHTML = ''; await enablePushAlerts(); }));
   panel.querySelectorAll('a.item').forEach((a) => a.addEventListener('click', async () => {
     panel.innerHTML = '';
     await api('/notifications/read', { method: 'POST', body: { ids: [Number(a.dataset.id)] } }).catch(() => {});
@@ -5044,6 +5132,17 @@ async function viewProfile() {
           <div class="actions"><button class="btn-primary">Save numbers</button></div>
         </form>
       </div>
+      <div class="card" id="push-card"><h2>Phone alerts</h2>
+        ${pushSupported() ? html`
+          <p class="muted small">${pushState.subscribed
+            ? `Alerts are on for this device${pushState.devices > 1 ? ` and ${pushState.devices - 1} other${pushState.devices > 2 ? 's' : ''}` : ''}. New files, push-backs and messages reach you as app notifications, and the STRIDE icon shows your unread count.`
+            : isIos() && !isStandalone() ? 'On an iPhone or iPad, add STRIDE to your Home Screen (Share, then Add to Home Screen) and open it from there to turn on alerts.'
+            : 'Turn on alerts to get new files, push-backs and messages as app notifications on this device, with the unread count on the STRIDE icon.'}</p>
+          <div class="actions">${pushState.subscribed
+            ? html`<button class="btn-secondary" type="button" data-push-test>Send a test alert</button> <button class="btn-link" type="button" data-push-off>Turn off on this device</button>`
+            : isIos() && !isStandalone() ? '' : html`<button class="btn-primary" type="button" data-push-on>Turn on phone alerts</button>`}</div>`
+          : html`<p class="muted small">App alerts need the CRM opened over HTTPS in a current browser, or added to the Home Screen on a phone. This browser cannot show them.</p>`}
+      </div>
       <form class="card" id="password-form"><h2>Reset my password</h2>
         <p class="muted small">At least 8 characters. Your other signed-in devices are signed out once it changes.</p>
         <div class="field-row"><label for="pw-current">Current password</label><input id="pw-current" name="current" type="password" autocomplete="current-password" required></div>
@@ -5057,6 +5156,11 @@ async function viewProfile() {
     e.preventDefault();
     try { const { user } = await api('/me', { method: 'PATCH', body: formData(cf) }); state.user = { ...state.user, ...user }; toast('Numbers saved'); } catch (ex) { toast(ex.message, 'error'); }
   };
+  bindPushPrompt(document.getElementById('push-card'));
+  document.querySelector('[data-push-test]')?.addEventListener('click', async () => {
+    try { const r = await api('/push/test', { method: 'POST' }); toast(r.sent ? 'Test alert sent: it should appear on this device in a moment' : 'No device received it: turn alerts on again', !r.sent); } catch (ex) { toast(ex.message, 'error'); }
+  });
+  document.querySelector('[data-push-off]')?.addEventListener('click', async () => { await forgetPushDevice({ unsubscribe: true }); toast('Alerts are off on this device'); route(); });
   const f = document.getElementById('password-form');
   f.onsubmit = async (e) => {
     e.preventDefault();

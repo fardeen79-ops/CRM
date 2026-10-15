@@ -26,6 +26,7 @@ import * as imports from './imports.js';
 import * as performance from './performance.js';
 import * as reports from './reports.js';
 import * as chat from './chat.js';
+import * as push from './push.js';
 import { cycleOf, uaeDay } from './cycles.js';
 import { canTeachBot, makeCallBot, playbookView, practice, savePlaybook } from './bot.js';
 import { aiConfigured, makeInterpreter, makePhraser } from './bot-ai.js';
@@ -216,7 +217,7 @@ function rateCall(db, user, caseId, key, { score, note, name }) {
   return { rating: { call_key: k, score: n, note: text, rated_at: ts, rated_by_name: user.name } };
 }
 // What an IT account may call: itself, the asset register, the staff list (read), reports and notifications.
-const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|roles|import\/assets)(\/|$)/;
+const IT_PATHS = /^\/api\/(me|logout|password|assets|users|reports|notifications|push|roles|import\/assets)(\/|$)/;
 
 /** The build this server runs: the git commit of the checkout (deploy/update.sh) and when it was made. */
 export function buildInfo() {
@@ -238,7 +239,7 @@ export function buildInfo() {
   }
 }
 
-function routes(db, dispatch, bot, interpret, phrase, recordings) {
+function routes(db, dispatch, bot, interpret, phrase, recordings, pushFetch = fetch) {
   return [
     // What this server runs, for anyone on the sign-in page: the build and when it was last updated.
     ['GET', /^\/api\/version$/, async () => buildInfo(), { public: true }],
@@ -456,6 +457,12 @@ function routes(db, dispatch, bot, interpret, phrase, recordings) {
     ['POST', /^\/api\/bot\/practice$/, async ({ user, body }) => practice(user, body, { interpret, phrase })],
 
     ['GET', /^\/api\/notifications$/, async ({ user }) => cases.listNotifications(db, user)],
+
+    // Phone alerts: the server's public key, the devices a person turns alerts on with, and a test alert.
+    ['GET', /^\/api\/push\/key$/, async ({ user }) => ({ key: push.vapidKeys(db).publicKey, devices: push.deviceCount(db, user) })],
+    ['POST', /^\/api\/push\/subscribe$/, async ({ user, body, req }) => push.subscribe(db, user, body.subscription, req.headers['user-agent'])],
+    ['POST', /^\/api\/push\/unsubscribe$/, async ({ user, body }) => push.unsubscribe(db, user, body.endpoint)],
+    ['POST', /^\/api\/push\/test$/, async ({ user }) => push.pushToUsers(db, [user.id], { body: `Test alert for ${user.name}: phone alerts are on for this device`, url: '/#/' }, { fetchImpl: pushFetch })],
 
     ['POST', /^\/api\/notifications\/read$/, async ({ user, body }) => {
       cases.markNotificationsRead(db, user, body.ids);
@@ -689,8 +696,12 @@ function serveFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
-export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, callBot = {}, recordings = makeRecordingLookup(), interpret = aiConfigured() ? makeInterpreter() : null, phrase = aiConfigured() ? makePhraser() : null } = {}) {
+export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail = process.env.IT_EMAIL || null, pushFetch = fetch, callBot = {}, recordings = makeRecordingLookup(), interpret = aiConfigured() ? makeInterpreter() : null, phrase = aiConfigured() ? makePhraser() : null } = {}) {
   cases.config.itEmail = itEmail;
+  // Phone alerts follow every in-app notification, after the action that raised it has finished.
+  cases.config.onNotify = (ids, message, link, caseId) => setImmediate(() => {
+    push.pushToUsers(db, ids, { body: message, url: `/${link}`, tag: caseId ? `case-${caseId}` : null }, { fetchImpl: pushFetch }).catch(() => {});
+  });
   loadCardProducts(db);
   holidays.loadHolidays(db);
   loadPayoutRules(db);
@@ -699,7 +710,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;
-  const table = routes(db, dispatch, bot, interpret, phrase, recordings);
+  const table = routes(db, dispatch, bot, interpret, phrase, recordings, pushFetch);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');

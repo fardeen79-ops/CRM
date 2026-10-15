@@ -243,7 +243,7 @@ export const RECORDING_STATUS = {
 };
 
 // Where approved recording requests are emailed. Set by the server from IT_EMAIL.
-export const config = { itEmail: null, callBot: false };
+export const config = { itEmail: null, callBot: false, onNotify: null };
 
 // A bot call with no result after this long no longer blocks placing another one.
 export const BOT_CALL_TIMEOUT_MINUTES = 30;
@@ -956,9 +956,12 @@ export function addEvent(db, caseId, userId, type, { from = null, to = null, det
   ).run(caseId, userId, type, from, to, detail, note, now());
 }
 
+/** config.onNotify is called after every in-app notification with the people, the message and where it links; the server sends phone alerts from it. */
 export function notify(db, userIds, caseId, message, link = null) {
   const stmt = db.prepare('INSERT INTO notifications (user_id, case_id, message, link, created_at) VALUES (?, ?, ?, ?, ?)');
-  for (const id of new Set(userIds.filter(Boolean))) stmt.run(id, caseId, message, link, now());
+  const ids = [...new Set(userIds.filter(Boolean))];
+  for (const id of ids) stmt.run(id, caseId, message, link, now());
+  if (ids.length && config.onNotify) config.onNotify(ids, message, caseId ? `#/cases/${caseId}` : link || '#/', caseId);
 }
 
 const activeUserIds = (db, role) =>

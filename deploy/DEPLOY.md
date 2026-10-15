@@ -122,6 +122,12 @@ sudo journalctl -u sourcing-crm -f       # watch it start
 Use the bank's gateway, or install nginx and adapt `deploy/nginx.conf` (server name, certificate
 paths). Allow uploads of 8 MB. Then open `https://crm-test.yourbank.ae`.
 
+**Phone alerts (app notifications)** need HTTPS as well, and one outbound rule: the CRM server must
+reach the push services on port 443 (`*.push.apple.com`, `fcm.googleapis.com`, `*.push.services.mozilla.com`)
+to deliver alerts to staff phones. Without that rule the CRM works but alerts stay in the app only.
+The signing key pair is made on first start and kept in the database, so the nightly backup covers it.
+
+
 ## 5. First sign-in and setup
 
 1. Sign in as the first business head (`ADMIN_EMAIL`). Change the password on the Staff page.

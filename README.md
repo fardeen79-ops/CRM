@@ -498,6 +498,8 @@ Every step of a file's journey tells the people it moves between:
 - **Pushed back by verification.** *Verification pending* (Action required) goes to the file's leaders and now also to the sales person, with the reason and note; *Verification rejected* goes to both as before.
 - **Decided by the team.** *Re-verify* tells the processor who had the file (or the queue) and the sales person; *Return to sales* tells the sales person, the processor and the file's other leaders; *Reject* tells all of them. Sending a file back to sales before verification (Send back, or declining its card or timing) tells the sales person and the file's other leaders. The person who acted is never sent their own notification.
 
+**Phone alerts (app notifications).** Every in-app notification can also reach a person's phone or tab as a regular app notification, with the unread count on the STRIDE icon. On the **My profile** page, **Phone alerts** has **Turn on phone alerts**; the first time the bell's drop-down also offers it. The browser asks once to allow notifications for STRIDE; after that each notification (new file, push-back, approval, edit request, message, mention) shows as an alert with the file reference and the message, tapping it opens that file, and the icon badge shows the number unread (it clears as notifications are read). **Send a test alert** checks a device, and **Turn off on this device** stops it. Alerts go only to the devices a person turned them on with; signing out forgets the device, so the next person who signs in on a shared tab does not get the previous account's alerts, and a device that signs in with another account moves to that account. Phones and tabs: on an **iPhone or iPad** the CRM must be added to the Home Screen (Share, then Add to Home Screen) and opened from there, as Apple allows alerts only for Home Screen web apps (iOS 16.4 or later); on **Android** it works in Chrome and from the Home Screen icon; on a laptop it works in Chrome, Edge and Firefox. The CRM must be opened over **HTTPS** for any of this: on a plain `http://` address the Phone alerts card says so and nothing is offered. Technically this is Web Push: the server keeps one VAPID key pair in its settings (made on first start; `VAPID_SUBJECT` names the contact, else `mailto:` the admin email), encrypts each alert for the device and posts it to Apple's, Google's or Mozilla's push service, which the server must be able to reach outbound on port 443; a device the service no longer knows is forgotten. The service worker (`/sw.js`) only shows alerts and sets the badge: it caches nothing, so updates still load fresh. API: `GET /api/push/key`, `POST /api/push/subscribe {subscription}`, `POST /api/push/unsubscribe {endpoint}`, `POST /api/push/test`.
+
 ### Chat: case discussions, direct messages and groups
 
 - **Discussion on every case.** Everyone who can see a file can post in its *Discussion* panel (sales staff see only their own files). Type `@` and a colleague's name to alert them; they get a notification linking to the case. Messages update every few seconds while the page is open.
@@ -790,6 +792,7 @@ src/
   index.js     entry point (first-run admin, starts server)
   server.js    HTTP routing, auth cookies, JSON API, static files, webhook dispatch
   cases.js     case workflow / state machine, notifications, stats
+  push.js      phone alerts: Web Push (VAPID, aes128gcm) with node:crypto
   bot.js       verification calls through the calling bot: playbook, practice, requests, signed results, the bot's decisions and own calls
   bot-engine.js  the bot's conversation and answer matching (shared with bot/server.js)
   bot-ai.js    the bot's AI: Claude reads answers the rules cannot settle and, when allowed, words what the bot says
@@ -826,6 +829,7 @@ All endpoints are under `/api`, take and return JSON, and need a signed-in sessi
 | `GET/PUT /bot/playbook`, `POST /bot/practice` | Teach the bot and practise with it (`{playbook, sample, answers}`); business heads and the verification team leader |
 | `GET /stats` | Dashboard counts |
 | `GET /notifications`, `POST /notifications/read` | In-app alerts |
+| `GET /push/key`, `POST /push/subscribe`, `POST /push/unsubscribe`, `POST /push/test` | Phone alerts (Web Push devices) |
 | `GET/POST /users`, `PATCH /users/:id` | User management (team leader only). Users have `mobile_number` (required on create) and `whatsapp_number` |
 | `GET /targets?cycle=2026-06`, `PUT /targets` | Targets and achievement for a cycle (default: current). `PUT {cycle, targets: [{user_id, credit_card, personal_loan, auto_loan, accounts}]}`, MIS and business head only |
 | `GET /cases?cycle=2026-06&staff=:id&card=active\|inactive\|out_of_range\|all` | Cases completed in a cycle, for one sales person, or by card activation |

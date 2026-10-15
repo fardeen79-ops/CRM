@@ -525,6 +525,18 @@ CREATE TABLE IF NOT EXISTS password_resets (
   resolved_at  TEXT,
   resolved_by  INTEGER REFERENCES users(id)
 );
+-- Devices that get phone alerts (Web Push), one row per browser or Home Screen app per person.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint     TEXT NOT NULL UNIQUE,
+  p256dh       TEXT NOT NULL,
+  auth         TEXT NOT NULL,
+  user_agent   TEXT,
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  failed_at    TEXT
+);
 -- Settings kept as JSON by key, such as the verification bot's playbook.
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,

@@ -1099,3 +1099,7 @@ label.check.remember-me { display: flex; gap: 10px; align-items: flex-start; mar
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .hero-good .hero-value { color: #5ccb7f; } :root:not([data-theme="light"]) .hero-bad .hero-value, :root:not([data-theme="light"]) .stat-bad .stat-value, :root:not([data-theme="light"]) .stat-bad .stat-label { color: #f08c84; } }
 :root[data-theme="dark"] .hero-good .hero-value { color: #5ccb7f; }
 :root[data-theme="dark"] .hero-bad .hero-value, :root[data-theme="dark"] .stat-bad .stat-value, :root[data-theme="dark"] .stat-bad .stat-label { color: #f08c84; }
+
+/* Phone alerts prompt in the notification drop-down */
+.dropdown .push-row { padding: 8px 14px; border-bottom: 1px solid var(--border); }
+.dropdown .push-row .push-hint { margin: 0; }
