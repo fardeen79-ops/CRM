@@ -337,6 +337,8 @@ Every file carries the revenue it earns the agency, from the bank's payout rates
 | Auto loan, new car | 0.70% of the amount |
 | Auto loan, used car | 1.75% of the amount |
 
+A card is priced by its category as saved on the file at submission; a file saved without one (a card added to the list later) takes the category the card list gives it now, so **Cards sold below eligibility** always prices the card sold.
+
 The business head or DXB MIS changes any rate from **Bulk upload → Payout rules** (`Rule,Value`; rules named as above or by key, e.g. `card:Mass`, `personal_loan_pct`). `GET /api/me` reports `payout_rates` and `payout_source`.
 
 ### Targets and sales cycles

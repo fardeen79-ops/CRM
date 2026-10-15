@@ -5,7 +5,7 @@
 // Auto loans pay a percentage of the amount, by new or used car. MIS or a business head can replace
 // any rate from the Bulk upload page (Payout payoutRates); until then these built-in rates apply.
 import { caseProducts, includesCard, CARD_RANGE_DAYS, CARD_SQL } from './cases.js';
-import { cardProducts } from './credit-cards.js';
+import { cardProducts, cardProduct } from './credit-cards.js';
 
 /** Built-in rates. Keys are what the upload uses; amounts in AED, percentages as plain numbers (3 = 3%). */
 export const PAYOUT_DEFAULTS = {
@@ -58,7 +58,9 @@ export function cardPayout(category, name) {
     const byName = Object.entries(payoutRates).find(([k]) => k.startsWith('card_name:') && normName(k.slice(10)) === normName(name));
     if (byName) return byName[1];
   }
-  const byCat = payoutRates[`card:${category}`];
+  // A file saved without a category (a card added to the list later) takes the category the list gives the card now.
+  const cat = category || (name ? cardProduct(name)?.category : null);
+  const byCat = cat ? payoutRates[`card:${cat}`] : null;
   return byCat == null ? null : byCat;
 }
 

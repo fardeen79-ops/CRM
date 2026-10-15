@@ -92,3 +92,24 @@ test('a card pays in the cycle it is activated, within 90 days; a loan pays when
   const sep = (await head('GET', '/pnl?cycle=2026-09')).data.pnl;
   assert.deepEqual([sep.revenue.by_product.credit_card, sep.revenue.files], [potential.total, 1]);
 });
+
+test('cards sold below eligibility price the card sold even when the file has no saved category', async () => {
+  const sally = await login('sally@t.local'); const head = await login('head@t.local'); const sm = await login('sm@t.local');
+  // A Mass card sold to a customer whose salary qualifies for Super Premium.
+  const r = await sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', phone: '+971 50 333 4455', city: 'Dubai', salary: 40000, source: 'Walk-in', customer_name: 'Downsell Customer', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf' });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const id = r.data.case.id;
+  const ref = `CRM-${String(id).padStart(6, '0')}`;
+  const run = async (who) => (await who('GET', '/reports/card_downsell?from=2026-01-01&to=2026-12-31')).data;
+  let row = (await run(head)).rows.find((x) => x.ref === ref);
+  assert.ok(row, 'the file is on the report');
+  assert.deepEqual([row.card, row.category, row.payout_earned, row.payout_possible, row.payout_lost], ['Skywards Signature Credit Card', 'Premium', 2000, 2600, 600]);
+  // A file saved before categories existed still prices by the card it sold.
+  db.prepare('UPDATE cases SET card_category = NULL WHERE id = ?').run(id);
+  row = (await run(head)).rows.find((x) => x.ref === ref);
+  assert.deepEqual([row.category, row.payout_earned, row.payout_lost], ['Premium', 2000, 600]);
+  // A sales manager sees the points, never the payout columns.
+  const smRun = await run(sm);
+  assert.ok(!smRun.columns.some((c) => c.key.startsWith('payout')));
+  assert.equal(smRun.rows.find((x) => x.ref === ref).points_sold, 800);
+});

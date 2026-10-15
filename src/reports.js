@@ -7,7 +7,7 @@ import { bankStatusLabel } from './bank-status.js';
 import { cycleOf, cycleRange, isCycle, uaeDay, cycleLabel } from './cycles.js';
 import { isProcessingLead } from './roles.js';
 import { TARGET_PRODUCTS, TARGET_UNITS, targetReport, autoLoanPoints, autoLoanRate } from './performance.js';
-import { cardProducts } from './credit-cards.js';
+import { cardProducts, cardProduct } from './credit-cards.js';
 import { payoutFor, cardPayout, bestCardPayout, canSeePayout } from './payouts.js';
 import { inventoryRows, ASSET_VIEWERS, assetSummary, ASSET_STATUS } from './assets.js';
 import { allowsReport } from './roles.js';
@@ -634,7 +634,7 @@ function card_downsell(db, user, { period, region }) {
     const paid = cardPayout(c.card_category, c.credit_card) ?? 0;
     const possible = c.salary == null ? null : bestCardPayout(c.salary);
     return {
-      ...caseCells(c), card: c.credit_card || '', category: c.card_category || '', eligible_category: c.card_eligible_category || '', higher_options: c.card_higher_options,
+      ...caseCells(c), card: c.credit_card || '', category: c.card_category || cardProduct(c.credit_card)?.category || '', eligible_category: c.card_eligible_category || '', higher_options: c.card_higher_options,
       points_sold: sold, points_eligible: eligible, points_lost: eligible == null ? null : Math.max(0, eligible - sold),
       payout_earned: paid, payout_possible: possible, payout_lost: possible == null ? null : Math.max(0, possible - paid),
       verification: STATUS_WORDS[c.status] || c.status, case_status: CASE_STATUS[c.case_status] || c.case_status,
