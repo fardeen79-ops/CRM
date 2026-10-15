@@ -549,7 +549,7 @@ Company name, salary, Emirates ID and passport number are restricted. The server
 |------|--------------------|
 | Sales (own files), Sales manager, MIS, Business head | Always |
 | Processor | Until verification is **Completed** or **Rejected**. While it is awaiting, in progress or **Pending**, they are visible for the call. They become visible again if the file is sent back for re-verification |
-| Team leader | Never, on any submitted file. A team leader can still type a replacement value (for example, for an edit request) without seeing the old one |
+| Team leader | While the file is open: waiting with them, in the queue, in verification, **Pending** or returned to sales. Hidden once verification is **Completed** or **Rejected** (and visible again if the file goes back for re-verification). On a closed file a team leader can still type a replacement value (for example, for an edit request) without seeing the old one |
 
 ### Governance: quality checks, recordings, complaints and scores
 

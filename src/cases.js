@@ -1051,8 +1051,11 @@ const PROCESSOR_SENSITIVE_STATUSES = [...OPEN_FOR_PROCESSING, STATUS.INCOMPLETE]
  * Team leaders never see these on a submitted file. Processors see them until verification is
  * Completed or Rejected (or the file has been returned to sales).
  */
+// A team leader sees them while the file is open (with them, in the queue, in verification, pending or
+// returned to sales) and loses them once verification is Completed or Rejected.
+const TEAM_LEADER_SENSITIVE_STATUSES = [STATUS.APPROVAL, ...OPEN_FOR_PROCESSING, STATUS.INCOMPLETE, STATUS.RETURNED];
 export function canViewSensitive(user, row) {
-  if (user.role === 'team_leader') return false;
+  if (user.role === 'team_leader') return TEAM_LEADER_SENSITIVE_STATUSES.includes(row.status);
   if (user.role === 'processing') return PROCESSOR_SENSITIVE_STATUSES.includes(row.status);
   return true;
 }
@@ -1324,16 +1327,17 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
     // Searching the employer is limited to files where the viewer may see it, so a match cannot reveal a hidden company.
     const sensitive = '(c.company_name LIKE ?)';
     let sensitiveClause = '';
-    if (user.role === 'processing') {
-      sensitiveClause = ` OR (c.status IN (${PROCESSOR_SENSITIVE_STATUSES.map(() => '?').join(',')}) AND ${sensitive})`;
-    } else if (user.role !== 'team_leader') {
+    const sensitiveStatuses = user.role === 'processing' ? PROCESSOR_SENSITIVE_STATUSES : user.role === 'team_leader' ? TEAM_LEADER_SENSITIVE_STATUSES : null;
+    if (sensitiveStatuses) {
+      sensitiveClause = ` OR (c.status IN (${sensitiveStatuses.map(() => '?').join(',')}) AND ${sensitive})`;
+    } else {
       sensitiveClause = ` OR ${sensitive}`;
     }
     // Sales staff cannot search by phone number or complaint number: neither is shown to them.
     where.push(`(c.customer_name LIKE ? OR c.email LIKE ? OR c.city LIKE ? OR c.credit_card LIKE ? OR c.buyout_bank LIKE ?
       OR c.bidaya_id LIKE ? OR c.app_id LIKE ? OR c.sales_code LIKE ? OR c.sales_staff_name LIKE ?${user.role === 'sales' ? '' : ' OR c.phone LIKE ? OR c.complaint_number LIKE ?'}${sensitiveClause}${idMatch ? ' OR c.id = ?' : ''})`);
     params.push(...Array(user.role === 'sales' ? 9 : 11).fill(term));
-    if (user.role === 'processing') params.push(...PROCESSOR_SENSITIVE_STATUSES);
+    if (sensitiveStatuses) params.push(...sensitiveStatuses);
     if (sensitiveClause) params.push(term);
     if (idMatch) params.push(Number(idMatch[1]));
   }

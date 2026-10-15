@@ -651,7 +651,7 @@ test('processors mark verification completed, pending or rejected; case status i
   assert.ok((await lead('GET', '/notifications')).data.items.some((n) => /verification pending/.test(n.message)));
 });
 
-test('team leaders never see company or salary; processors lose them once verification is completed or rejected', async () => {
+test('team leaders and processors see company and salary while the file is open and lose them once verification is completed or rejected', async () => {
   const sales = await login('sales@t.local');
   const proc = await login('proc@t.local');
   const lead = await login('lead@t.local');
@@ -677,36 +677,42 @@ test('team leaders never see company or salary; processors lose them once verifi
   assert.deepEqual(await fields(sm), shown);
   assert.deepEqual(await fields(mis), shown);
   assert.deepEqual(await fields(bh), shown);
-  assert.deepEqual(await fields(lead), hidden);
+  assert.deepEqual(await fields(lead), shown); // the team leader sees them while the file is open
   assert.deepEqual(await fields(proc), shown); // needed for the verification call
 
-  // Also hidden in lists, and searching cannot reveal a match
+  // Shown in lists too, and the employer can be searched, by everyone who may see it
   const leadRow = (await lead('GET', '/cases')).data.cases.find((c) => c.id === id);
-  assert.equal(leadRow.company_name, null);
-  assert.ok(!(await lead('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
+  assert.equal(leadRow.company_name, 'Hidden Trading LLC');
+  assert.ok((await lead('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
   assert.ok((await mis('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
   assert.ok((await proc('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
 
-  // Verification Pending: the processor still sees the details
+  // Verification Pending: the processor and the team leader still see the details
   let r = await proc('POST', `/cases/${id}/actions`, { action: 'mark_incomplete', reason: 'documents_pending', note: 'Missing slips' });
   assert.equal(r.data.case.company_name, 'Hidden Trading LLC');
   assert.deepEqual(await fields(proc), shown);
-  assert.deepEqual(await fields(lead), hidden);
+  assert.deepEqual(await fields(lead), shown);
 
-  // Back to the queue, then verification Completed: hidden from the processor (response redacted too)
+  // Back to the queue, then verification Completed: hidden from the processor and the team leader (response redacted too)
   await lead('POST', `/cases/${id}/actions`, { action: 'reverify' });
   assert.deepEqual(await fields(proc), shown);
   r = await proc('POST', `/cases/${id}/actions`, { action: 'complete' });
   assert.equal(r.data.case.company_name, null);
   assert.deepEqual(await fields(proc), hidden);
+  assert.deepEqual(await fields(lead), hidden);
   assert.ok(!(await proc('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
+  assert.ok(!(await lead('GET', '/cases?q=Hidden Trading')).data.cases.some((c) => c.id === id));
+  assert.equal((await lead('GET', '/cases')).data.cases.find((c) => c.id === id).company_name, null);
 
   // Verification Rejected hides them as well
   const id2 = (await sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, ...secret })).data.case.id;
-  await proc('POST', `/cases/${id2}/actions`, { action: 'reject_verification', note: 'Employer denies' });
+  await tlOk(id2);
+  assert.equal((await lead('GET', `/cases/${id2}`)).data.case.company_name, 'Hidden Trading LLC');
+  assert.equal((await proc('POST', `/cases/${id2}/actions`, { action: 'reject_verification', note: 'Employer denies' })).status, 200);
   assert.equal((await proc('GET', `/cases/${id2}`)).data.case.company_name, null);
+  assert.equal((await lead('GET', `/cases/${id2}`)).data.case.company_name, null);
 
-  // A team leader can replace a hidden value (e.g. for an edit request) without ever reading it
+  // On a completed file a team leader can still replace the hidden value (e.g. for an edit request) without reading it
   r = await lead('PUT', `/cases/${id}`, { company_name: 'Renamed Trading LLC' });
   assert.equal(r.status, 200);
   assert.equal(r.data.case.company_name, null);
@@ -1415,8 +1421,8 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   // An edit by sales that leaves the hidden phone untouched keeps the number on the file.
   assert.equal((await sales('PUT', `/cases/${id}`, { city: 'Sharjah' })).status, 200);
   assert.deepEqual((await proc('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
-  // A team leader cannot reveal what is hidden for their role, but can reveal the phone.
-  assert.equal((await lead('GET', `/cases/${id}/reveal?fields=salary`)).status, 403);
+  // A team leader reveals the salary and the phone while the file is open.
+  assert.equal((await lead('GET', `/cases/${id}/reveal?fields=salary`)).status, 200);
   assert.deepEqual((await lead('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
   assert.equal((await proc('GET', `/cases/${id}/reveal?fields=nothing`)).status, 400);
   const all = (await proc('GET', `/cases/${id}/reveal?fields=phone,alt_phone`)).data.values;
