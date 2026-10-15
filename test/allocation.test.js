@@ -250,7 +250,10 @@ test('the verification team leader moves a file to another processor with a reas
   assert.equal((await pat('POST', `/cases/${f.id}/actions`, { action: 'claim' })).status, 200);
   const detail = (await vera('GET', `/cases/${f.id}`)).data.case;
   assert.ok(detail.allowed_actions.includes('reassign'));
+  // Vera is in DXB: Omar (DXB) is offered, Pat (who has the file) and Aziz (AUH) are not, and AUH is refused outright.
   assert.ok(detail.processors.some((p) => p.id === ids['omar@t.local']) && !detail.processors.some((p) => p.id === ids['pat@t.local']));
+  assert.ok(!detail.processors.some((p) => p.id === ids['aziz@t.local']));
+  assert.match((await vera('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['aziz@t.local'], note: 'Urgent' })).data.error, /your region/);
   assert.ok(!(await omar('GET', `/cases/${f.id}`)).data.case.allowed_actions.includes('reassign'));
   assert.equal((await omar('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['omar@t.local'], note: 'Taking it' })).status, 403);
   assert.equal((await vera('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['omar@t.local'] })).status, 400);
@@ -259,6 +262,11 @@ test('the verification team leader moves a file to another processor with a reas
   assert.equal(moved.status, 200, JSON.stringify(moved.data));
   assert.deepEqual([moved.data.case.status, moved.data.case.assigned_to], ['in_verification', ids['omar@t.local']]);
   assert.ok(moved.data.case.events.some((e) => e.type === 'reassign' && e.detail === 'Pat → Omar' && /on a break/.test(e.note)));
+  // The file is in Omar's queue even though it was allocated to Pat's team leader, and Pat no longer sees it there.
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'personal_loan', processor_id: ids['pat@t.local'] })).status, 200);
+  assert.ok((await omar('GET', '/cases?status=in_verification')).data.cases.some((x) => x.id === f.id));
+  assert.ok((await omar('GET', '/cases?status=pending_verification,in_verification&assigned=me')).status === 200);
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'personal_loan', processor_id: null })).status, 200);
   // Omar works it now, Pat no longer can; both were told.
   assert.ok((await omar('GET', `/cases/${f.id}`)).data.case.allowed_actions.includes('complete'));
   assert.ok(!(await pat('GET', `/cases/${f.id}`)).data.case.allowed_actions.includes('complete'));

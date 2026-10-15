@@ -211,7 +211,8 @@ export function caseScope(user, c = 'c') {
         clauses.push(`(${c}.team_leader_id IS NULL OR NOT EXISTS (SELECT 1 FROM processor_allocations a WHERE ${match}) OR EXISTS (SELECT 1 FROM processor_allocations a WHERE ${match} AND a.processor_id = ?))`);
         params.push(user.id);
       }
-      return clauses.length ? { sql: clauses.join(' AND '), params } : null;
+      // A file handed to a processor is always theirs to see, whatever its region or allocation.
+      return clauses.length ? { sql: `(${c}.assigned_to = ? OR (${clauses.join(' AND ')}))`, params: [user.id, ...params] } : null;
     }
     case 'team_leader': return team('team_leader_id');
     case 'sales_manager': return team('sales_manager_id');
@@ -1197,7 +1198,8 @@ export function getCase(db, user, id) {
   const shown = presentEvents(row, events);
   const out = { ...present(user, row, { db }), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row),
     sales_staff_region: findUser(db, row.sales_staff_id)?.region || null,
-    ...(allowedActions(user, row).includes('reassign') && { processors: db.prepare("SELECT id, name, region FROM users WHERE role = 'processing' AND active = 1 AND id != ? ORDER BY name").all(row.assigned_to ?? 0) }),
+    // The processors the verification team leader can move the file to: those of their own region (and any with no region), never the one who has it.
+    ...(allowedActions(user, row).includes('reassign') && { processors: db.prepare(`SELECT id, name, region FROM users WHERE role = 'processing' AND active = 1 AND id != ?${user.region ? " AND (UPPER(COALESCE(region, '')) = ? OR region IS NULL OR region = '')" : ''} ORDER BY name`).all(row.assigned_to ?? 0, ...(user.region ? [String(user.region).toUpperCase()] : [])) }),
     bank_status_label: bankStatusLabel(row.bank_status), bank_status_options: bankStatusesFor(caseProducts(row)).map((s) => ({ value: s, label: bankStatusLabel(s), case_status: caseStatusOf(s) })) };
   if (user.role !== 'sales' && row.bot_call_status) {
     // The recording itself is played through the CRM (bot.js), only to those allowed to listen.
@@ -1614,8 +1616,9 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
         set.assigned_to = user.id;
         break;
       case 'reassign': {
-        const to = db.prepare("SELECT id, name FROM users WHERE id = ? AND role = 'processing' AND active = 1").get(Number(extra.processor_id));
+        const to = db.prepare("SELECT id, name, region FROM users WHERE id = ? AND role = 'processing' AND active = 1").get(Number(extra.processor_id));
         if (!to) throw new WorkflowError(400, 'Choose the processor to move the file to');
+        if (user.region && to.region && String(to.region).toUpperCase() !== String(user.region).toUpperCase()) throw new WorkflowError(400, `${to.name} is in ${to.region}: a file can only be moved to a processor in your region`);
         if (to.id === row.assigned_to) throw new WorkflowError(409, `${to.name} already has this file`);
         const fromName = row.assigned_to ? db.prepare('SELECT name FROM users WHERE id = ?').get(row.assigned_to)?.name : null;
         set.assigned_to = to.id;
