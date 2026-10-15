@@ -108,3 +108,17 @@ test('the CEO profile is a business head role that carries the dashboard and no 
   assert.equal(me.meta.can_use_tat_switch, false);
   assert.equal((await ceo('PUT', '/tat-switch', { on: true })).status, 403);
 });
+
+test('a CEO is added without an HRMS code, salary or joining date, and signs in with their email', async () => {
+  const head = await login('head@t.local');
+  const made = await head('POST', '/users', { name: 'Chief Exec', email: 'chief@t.local', role: 'ceo', password: 'longenough', mobile_number: '0501230000' });
+  assert.equal(made.status, 201, JSON.stringify(made.data));
+  assert.deepEqual([made.data.user.role, made.data.user.role_key, made.data.user.hrms_code, made.data.user.salary, made.data.user.doj], ['business_head', 'ceo', null, null, null]);
+  // Everyone else still needs an HRMS code and signs in with it, never with their email.
+  assert.match((await head('POST', '/users', { name: 'No Code', email: 'nocode@t.local', role: 'mis', password: 'longenough', mobile_number: '0501230001' })).data.error, /HRMS code is required/);
+  const byEmail = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'chief@t.local', password: 'longenough' }) });
+  assert.equal(byEmail.status, 200);
+  assert.equal((await byEmail.json()).user.role_key, 'ceo');
+  const headByEmail = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'head@t.local', password: PASSWORD }) });
+  assert.equal(headByEmail.status, 401);
+});

@@ -192,12 +192,12 @@ export function hrmsCodeOf(value) {
   return code;
 }
 
-/** `requireMobile` also requires the HRMS code: both are needed for users added from the Users page or a bulk upload. */
-export function contactDetails(input, { current = null, requireMobile = false } = {}) {
+/** `requireMobile` also requires the HRMS code (`requireHrms` turns that off, for the CEO): both are needed for users added from the Users page or a bulk upload. */
+export function contactDetails(input, { current = null, requireMobile = false, requireHrms = requireMobile } = {}) {
   const out = {};
   if (!current || 'hrms_code' in input) {
     out.hrms_code = hrmsCodeOf(input.hrms_code);
-    if (!out.hrms_code && requireMobile) throw new Error('HRMS code is required');
+    if (!out.hrms_code && requireHrms) throw new Error('HRMS code is required');
   }
   if (!current || 'name' in input) {
     out.name = String(input.name ?? '').trim();

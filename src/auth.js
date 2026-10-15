@@ -33,9 +33,10 @@ export function tempPassword() {
 /** `requireMobile` is set for users added from the Users page or a bulk upload. */
 export function createUser(db, input, { requireMobile = false } = {}) {
   const { password } = input;
-  const contact = contactDetails(input, { requireMobile });
   let resolved;
   try { resolved = resolveRole(input.role); } catch (err) { throw new Error(err.message); }
+  // The CEO is not on the bank's staff list: no HRMS code (they sign in with their email), no salary band, no joining date.
+  const contact = contactDetails(input, { requireMobile, requireHrms: requireMobile && resolved.key !== 'ceo' });
   const role = resolved.base;
   if (!password || String(password).length < 8) throw new Error('Password must be at least 8 characters');
   if (db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(contact.email)) {
@@ -67,9 +68,8 @@ export const getUser = findUser;
 export const NO_ACCESS_ROLE = 'staff';
 export function login(db, email, password, { remember = false } = {}) {
   const id = String(email || '').trim();
-  // The HRMS code is the username. Only the admin account (ADMIN_EMAIL, the first-run business head)
-  // signs in with its email.
-  const user = db.prepare('SELECT * FROM users WHERE (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR (email = ? COLLATE NOCASE AND email = ? COLLATE NOCASE)').get(id, id, ADMIN_EMAIL);
+  // The HRMS code is the username. The admin account (ADMIN_EMAIL) and anyone without an HRMS code, the CEO, sign in with their email.
+  const user = db.prepare('SELECT * FROM users WHERE (hrms_code IS NOT NULL AND hrms_code = ? COLLATE NOCASE) OR (email = ? COLLATE NOCASE AND (email = ? COLLATE NOCASE OR hrms_code IS NULL OR hrms_code = \'\'))').get(id, id, ADMIN_EMAIL);
   if (!user || !user.active || !verifyPassword(String(password || ''), user.password_hash)) return null;
   if (user.role === NO_ACCESS_ROLE) return { no_access: true };
   const token = crypto.randomBytes(32).toString('hex');

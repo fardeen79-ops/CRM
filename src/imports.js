@@ -663,7 +663,7 @@ export function importUsers(db, user, csv, { dryRun = false, update = false } = 
           input.sales_manager_id = manager('sales_manager_email', ['sales_manager'], 'Sales manager', { optional: true });
           if (role === 'team_leader' && v.asm_email) input.asm_id = manager('asm_email', ['asm'], 'Assistant sales manager');
         }
-        if (!hrmsCodeOf(v.hrms_code)) throw new Error('HRMS code is required');
+        if (!hrmsCodeOf(v.hrms_code) && String(v.role || '').trim().toLowerCase() !== 'ceo') throw new Error('HRMS code is required');
         const created = createUser(db, input);
         return {
           id: created.id, label: `${created.name} · ${roleLabels()[role]}`, email: created.email, hrms_code: created.hrms_code,

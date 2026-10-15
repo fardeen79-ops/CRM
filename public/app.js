@@ -302,7 +302,7 @@ function renderLogin(note = '') {
         <h1>Sign in</h1>
         ${note ? html`<div class="callout warn" role="status">${note}</div>` : ''}
         <p class="muted">Sign in with your HRMS code. Your role decides what you see.</p>
-        <div class="field-row"><label for="email">HRMS code</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required ${remembered() ? '' : raw('autofocus')} value="${remembered() || ''}"></div>
+        <div class="field-row"><label for="email">HRMS code</label><input id="email" name="email" autocomplete="username" autocapitalize="characters" required ${remembered() ? '' : raw('autofocus')} value="${remembered() || ''}"><div class="muted small">The CEO signs in with their email address.</div></div>
         <div class="field-row"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
         <label class="check small remember-me"><input type="checkbox" name="remember" id="remember" ${remembered() ? raw('checked') : ''}><span>Remember me on this device<span class="muted">Stays signed in for 30 days and keeps your HRMS code here. The idle sign-out still applies.</span></span></label>
         <button class="btn-primary" style="width:100%;justify-content:center">Sign in</button>
@@ -5276,6 +5276,21 @@ async function viewUsers() {
       ? html`<strong class="small">Reporting line</strong><div class="form-grid three">${reportsTo(u, prefix, { withAsm: role === 'team_leader' })}${salaryField(u, prefix)}</div><p class="muted small">${role === 'team_leader' ? 'The team leader\'s own manager; the sales staff under them are set on each sales profile.' : 'The sales manager this ASM reports to; the team leaders under them are set on each team leader.'}</p>`
       : html`<div class="form-grid two">${salaryField(u, prefix)}</div>`);
   const baseOf = (k) => (state.meta.custom_roles || []).find((c) => c.key === k)?.base || k;
+  // The CEO has no HRMS code (they sign in with their email), no salary band and no joining date: those fields go.
+  const applyCeo = (form, roleKey) => {
+    const ceo = roleKey === 'ceo';
+    for (const name of ['hrms_code', 'salary', 'doj']) {
+      const input = form.querySelector(`[name=${name}]`);
+      if (!input) continue;
+      const row = input.closest('.field-row');
+      if (row) row.hidden = ceo;
+      input.disabled = ceo;
+      if (name === 'hrms_code') input.required = !ceo;
+    }
+    let note = form.querySelector('[data-ceo-note]');
+    if (ceo && !note) { note = document.createElement('p'); note.className = 'muted small'; note.dataset.ceoNote = '1'; note.textContent = 'The CEO signs in with their email address: no HRMS code, salary or joining date is kept.'; form.querySelector('[name=email]')?.closest('.field-row')?.after(note); }
+    if (!ceo && note) note.remove();
+  };
 
   // Email, local mobile and WhatsApp for any user.
   const contactFields = (u = {}, prefix = 'n') => html`
@@ -5417,7 +5432,7 @@ async function viewUsers() {
   const role = document.getElementById('nu-role');
   const profile = document.getElementById('nu-profile');
   const baseRole = (k) => (state.meta.custom_roles || []).find((c) => c.key === k)?.base || k;
-  const syncRole = () => { profile.innerHTML = hierarchyBlock(baseRole(role.value), { role: baseRole(role.value) }, 'nu').s; };
+  const syncRole = () => { profile.innerHTML = hierarchyBlock(baseRole(role.value), { role: baseRole(role.value) }, 'nu').s; applyCeo(role.form, role.value); };
   role.onchange = syncRole;
   syncRole();
   // Suggest first.last@<your domain> until the email is typed by hand.
@@ -5459,7 +5474,8 @@ async function viewUsers() {
     wireWhatsappSame(f);
     // A role that needs a hierarchy shows its fields as soon as it is chosen.
     const roleSel = f.querySelector(`#e${u.id}-role`);
-    if (roleSel) roleSel.onchange = () => { f.querySelector('[data-hierarchy]').innerHTML = hierarchyBlock(baseOf(roleSel.value), baseOf(roleSel.value) === u.role ? u : { id: u.id, salary: u.salary, salary_hidden: u.salary_hidden, role: baseOf(roleSel.value) }, `e${u.id}`).s; };
+    if (roleSel) roleSel.onchange = () => { f.querySelector('[data-hierarchy]').innerHTML = hierarchyBlock(baseOf(roleSel.value), baseOf(roleSel.value) === u.role ? u : { id: u.id, salary: u.salary, salary_hidden: u.salary_hidden, role: baseOf(roleSel.value) }, `e${u.id}`).s; applyCeo(f, roleSel.value); };
+    applyCeo(f, u.role_key || u.role);
     f.querySelector('[data-cancel]').onclick = () => tr.remove();
     f.onsubmit = async (e) => {
       e.preventDefault();
