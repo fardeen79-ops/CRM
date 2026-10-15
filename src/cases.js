@@ -551,6 +551,8 @@ export const ACTIONS = {
   complete:        { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.COMPLETED },
   // Completed without reaching the customer, on a deviation the processor must explain.
   complete_deviation: { roles: ['processing'], from: OPEN_FOR_PROCESSING, to: STATUS.COMPLETED, noteRequired: true },
+  // The verification team leader moves a file to another processor (one on a break, an urgent file), with a reason.
+  reassign:        { roles: ['processing'],  from: [STATUS.PENDING, STATUS.IN_VERIFICATION], to: STATUS.IN_VERIFICATION, noteRequired: true },
   // "Verification pending" in the UI: the processor could not finish and a team leader must decide.
   mark_incomplete: { roles: ['processing'],  from: OPEN_FOR_PROCESSING,   to: STATUS.INCOMPLETE, noteRequired: true },
   reject_verification: { roles: ['processing'], from: OPEN_FOR_PROCESSING, to: STATUS.REJECTED, noteRequired: true },
@@ -1047,9 +1049,24 @@ export function maskValue(field, value) {
 }
 
 // Strips sensitive fields the viewer may not see, before anything leaves the server.
-export function present(user, row, { reveal = [] } = {}) {
+/** The processors a waiting file is routed to: those allocated to its team leader for its products, by name; empty when any processor may pick it up. */
+function allocatedProcessors(db, row) {
+  if (!row.team_leader_id || row.status !== STATUS.PENDING) return [];
+  const products = caseProducts(row);
+  const rows = db.prepare('SELECT a.product, u.id, u.name FROM processor_allocations a JOIN users u ON u.id = a.processor_id WHERE a.team_leader_id = ? AND u.active = 1').all(row.team_leader_id)
+    .filter((a) => products.includes(a.product));
+  return [...new Map(rows.map((a) => [a.id, { id: a.id, name: a.name }])).values()];
+}
+
+export function present(user, row, { reveal = [], db = null } = {}) {
   const out = withRef(row);
   if (!out) return out;
+  // Who a file waiting for verification is routed to, so the team sees where it sits before anyone picks it up.
+  if (db && row.status === STATUS.PENDING && user.role !== 'sales') {
+    const to = allocatedProcessors(db, row);
+    out.allocated_to = to.map((p) => p.name).join(', ') || null;
+    out.allocated_to_ids = to.map((p) => p.id);
+  }
   if (user.role === 'sales') for (const f of GOVERNANCE_FIELDS) delete out[f];
   out.hidden_fields = canViewSensitive(user, row) ? [] : SENSITIVE_FIELDS;
   if (user.role === 'sales') out.hidden_fields = [...out.hidden_fields, ...SALES_HIDDEN_FIELDS];
@@ -1178,8 +1195,9 @@ export function getCase(db, user, id) {
     )
     .all(id);
   const shown = presentEvents(row, events);
-  const out = { ...present(user, row), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row),
+  const out = { ...present(user, row, { db }), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row),
     sales_staff_region: findUser(db, row.sales_staff_id)?.region || null,
+    ...(allowedActions(user, row).includes('reassign') && { processors: db.prepare("SELECT id, name, region FROM users WHERE role = 'processing' AND active = 1 AND id != ? ORDER BY name").all(row.assigned_to ?? 0) }),
     bank_status_label: bankStatusLabel(row.bank_status), bank_status_options: bankStatusesFor(caseProducts(row)).map((s) => ({ value: s, label: bankStatusLabel(s), case_status: caseStatusOf(s) })) };
   if (user.role !== 'sales' && row.bot_call_status) {
     // The recording itself is played through the CRM (bot.js), only to those allowed to listen.
@@ -1297,7 +1315,7 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
   const sql = `${CASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY ${callbacks ? 'c.callback_at ASC, ' : ''}${user.role === 'sales' ? '' : `(c.urgent_flag = 1 AND c.status IN (${STILL_VERIFYING.map((st) => `'${st}'`).join(',')})) DESC, `}${user.role === 'processing' && !callbacks ? `(c.callback_at IS NOT NULL AND c.callback_at <= '${now()}') DESC, ` : ''}c.updated_at DESC LIMIT ?`;
   params.push(Math.min(Number(limit) || 200, 1000));
-  return db.prepare(sql).all(...params).map((row) => present(user, row));
+  return db.prepare(sql).all(...params).map((row) => present(user, row, { db }));
 }
 
 // The sales person read the number aloud and it matched the box: noted on the timeline.
@@ -1502,6 +1520,8 @@ function verificationActions(user, row) {
       if (user.role === 'sales') return isOwner(user, row);
       // Only the verification team leader pushes a bot call, on any open file.
       if (name === 'bot_call') return config.callBot && isVerificationLead(user) && !botCallPending(row);
+      // Only the verification team leader moves a file between processors.
+      if (name === 'reassign') return isVerificationLead(user) && !user.is_bot;
       // The calling bot records its results on any file, including one a processor has picked up.
       if (user.role === 'processing' && row.status === STATUS.IN_VERIFICATION && row.assigned_to !== user.id && !user.is_bot) return false;
       if (name === 'approve_card' || name === 'decline_card') return needsCardApproval(row);
@@ -1561,6 +1581,7 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
   const row = db.prepare('SELECT * FROM cases WHERE id = ?').get(id);
   if (!row || !canView(db, user, row)) throw new WorkflowError(404, 'Case not found');
   if (!rule.roles.includes(user.role)) throw new WorkflowError(403, 'Your role cannot perform this action');
+  if (action === 'reassign' && !isVerificationLead(user)) throw new WorkflowError(403, 'Only the verification team leader moves a file between processors');
   if (!allowedActions(user, row).includes(action)) {
     throw new WorkflowError(409, `Action "${action}" is not allowed while the case is ${row.status.replace(/_/g, ' ')}`);
   }
@@ -1592,6 +1613,17 @@ export function applyAction(db, user, id, { action, note, outcome, reason, case_
       case 'claim':
         set.assigned_to = user.id;
         break;
+      case 'reassign': {
+        const to = db.prepare("SELECT id, name FROM users WHERE id = ? AND role = 'processing' AND active = 1").get(Number(extra.processor_id));
+        if (!to) throw new WorkflowError(400, 'Choose the processor to move the file to');
+        if (to.id === row.assigned_to) throw new WorkflowError(409, `${to.name} already has this file`);
+        const fromName = row.assigned_to ? db.prepare('SELECT name FROM users WHERE id = ?').get(row.assigned_to)?.name : null;
+        set.assigned_to = to.id;
+        detail = fromName ? `${fromName} → ${to.name}` : `queue → ${to.name}`;
+        notify(db, [to.id], id, `${ref} (${row.customer_name}) moved to you by ${user.name}${fromName ? ` from ${fromName}` : ''}: ${note}`);
+        if (row.assigned_to && row.assigned_to !== user.id) notify(db, [row.assigned_to], id, `${ref} (${row.customer_name}) was moved to ${to.name} by ${user.name}: ${note}`);
+        break;
+      }
       case 'release':
         set.assigned_to = null;
         break;

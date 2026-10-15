@@ -35,6 +35,7 @@ const ACTION_LABEL = {
   edited: 'Details edited',
   re_verification: 'Sent back for re-verification',
   claim: 'Picked up for verification',
+  reassign: 'Moved to another processor',
   release: 'Released back to queue',
   log_call: 'Call logged',
   bot_call: 'Bot call requested',
@@ -1275,7 +1276,7 @@ const COLS = {
   </div>`],
   source_by: ['Sourced by', (c) => html`${c.sales_staff_name || c.created_by_name}${c.sales_code ? html`<div class="muted small mono">${c.sales_code}</div>` : ''}`],
   region: ['Region', (c) => c.region || html`<span class="muted">—</span>`],
-  assigned: ['Processor', (c) => c.assigned_to_name || html`<span class="muted">—</span>`],
+  assigned: ['Processor', (c) => c.assigned_to_name || (c.allocated_to ? html`<span class="muted small">Allocated to ${c.allocated_to}</span>` : c.status === 'pending_verification' && 'allocated_to' in c ? html`<span class="muted small">Any processor</span>` : html`<span class="muted">—</span>`)],
   calls: ['Calls', (c) => c.call_attempts],
   reason: ['Reason', (c) => html`${label(c.incomplete_reason)}<div class="muted small">${c.incomplete_note || ''}</div>`],
   by: ['Marked by', (c) => c.assigned_to_name],
@@ -2059,6 +2060,7 @@ async function viewCaseForm(id, leadId = null) {
 // ---------- case detail ----------
 function eventDetail(e) {
   if (e.type === 'edited') return `fields: ${e.detail}`;
+  if (e.type === 'reassign') return e.detail;
   if (e.type === 're_verification') return `${e.detail} changed after verification was completed`;
   if (e.type === 'log_call' && e.detail?.startsWith('call_back_later ')) return `Call back later · ${fmtWhen(e.detail.slice(16))}`;
   if (e.type === 'callback_due') return `customer asked for ${e.detail}`;
@@ -2264,6 +2266,18 @@ async function viewCase(id) {
         </select></div>
         <div class="field-row"><textarea name="note" placeholder="Verification notes"></textarea></div>
         <button class="btn-primary">Save verification result</button>
+      </form>`);
+  }
+  if (a.has('reassign')) {
+    panel.push(html`<hr><h3>Move to another processor</h3>
+      <p class="muted small">${c.assigned_to_name ? `${c.assigned_to_name} has this file.` : `The file is waiting in the queue${c.allocated_to ? ` of ${c.allocated_to}` : ''}.`} Hand it to another processor with the reason, for instance an urgent file while they are on a break. Both are told.</p>
+      <form data-form="reassign" id="reassign-form">
+        <div class="field-row"><label for="ra-to">Processor</label><select id="ra-to" name="processor_id" required>
+          <option value="">Choose a processor…</option>
+          ${(c.processors || []).map((p) => html`<option value="${p.id}">${p.name}${p.region ? ` · ${p.region}` : ''}</option>`)}
+        </select></div>
+        <div class="field-row"><textarea name="note" placeholder="Why the file is being moved" required></textarea></div>
+        <button class="btn-primary">Move the file</button>
       </form>`);
   }
   if (a.has('release')) panel.push(html`<hr><button data-action="release">Release back to queue</button>`);
@@ -2581,7 +2595,7 @@ async function viewCase(id) {
             ${row('Region', state.meta.regions[c.region])}
             <dt>Lead source</dt><dd>${c.source || '—'}</dd>
             <dt>Sales notes</dt><dd style="white-space:pre-wrap">${c.sales_notes || '—'}</dd>
-            <dt>Processor</dt><dd>${c.assigned_to_name || '—'}</dd>
+            <dt>Processor</dt><dd>${c.assigned_to_name || (c.status === 'pending_verification' && 'allocated_to' in c ? html`<span class="muted">Waiting in the queue${c.allocated_to ? ` of ${c.allocated_to}` : ', any processor'}</span>` : '—')}</dd>
             <dt>Call attempts</dt><dd>${c.call_attempts}</dd>
           </dl>
         </div>
@@ -2737,7 +2751,9 @@ async function viewCase(id) {
   }
   app.querySelectorAll('form[data-form]').forEach((f) => {
     const kind = f.dataset.form;
-    if (kind === 'recording_decision') {
+    if (kind === 'reassign') {
+      f.onsubmit = (e) => { e.preventDefault(); const d = formData(f); run({ action: 'reassign', processor_id: Number(d.processor_id), note: d.note }, f.querySelector('button')); };
+    } else if (kind === 'recording_decision') {
       f.onsubmit = (e) => e.preventDefault();
       f.querySelectorAll('[data-decision]').forEach((b) => (b.onclick = (e) => {
         e.preventDefault();

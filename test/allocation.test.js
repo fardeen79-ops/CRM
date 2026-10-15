@@ -226,3 +226,50 @@ test('the verification team leader runs the Files in process report: every open 
   const csv = await fetch(`${base}/api/reports/open_files?format=csv`, { headers: { cookie } });
   assert.equal(csv.status, 200); assert.ok(!/Phone/.test((await csv.text()).split('\n')[0]));
 });
+
+test('the verification team leader moves a file to another processor with a reason, and the queue shows where a waiting file sits', async () => {
+  const cara = await login('cara@t.local');
+  const pat = await login('pat@t.local');
+  const omar = await login('omar@t.local');
+  const vera = await login('vlead@t.local');
+  const sales = cara;
+  // TL Two's loans go to Pat: a waiting file says so before anyone picks it up.
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'personal_loan', processor_id: ids['pat@t.local'] })).status, 200);
+  const f = (await cara('POST', '/cases', loan({ customer_name: 'Moved File', phone: '+971 50 222 7777' }))).data.case;
+  await tlOk(f.id, 'tl2@t.local');
+  let seen = (await vera('GET', '/cases?status=pending_verification')).data.cases.find((x) => x.id === f.id);
+  assert.equal(seen.allocated_to, 'Pat');
+  assert.equal((await vera('GET', `/cases/${f.id}`)).data.case.allocated_to, 'Pat');
+  assert.equal((await sales('GET', `/cases/${f.id}`)).data.case.allocated_to, undefined); // sales staff are not shown the queue
+  // A shared-queue file says any processor.
+  assert.equal((await vera('PUT', `/allocations/${ids['tl2@t.local']}`, { product: 'personal_loan', processor_id: null })).status, 200);
+  seen = (await vera('GET', '/cases?status=pending_verification')).data.cases.find((x) => x.id === f.id);
+  assert.equal(seen.allocated_to, null);
+  assert.deepEqual(seen.allocated_to_ids, []);
+  // Pat picks it up and goes on a break; only Vera can move it, and a reason is required.
+  assert.equal((await pat('POST', `/cases/${f.id}/actions`, { action: 'claim' })).status, 200);
+  const detail = (await vera('GET', `/cases/${f.id}`)).data.case;
+  assert.ok(detail.allowed_actions.includes('reassign'));
+  assert.ok(detail.processors.some((p) => p.id === ids['omar@t.local']) && !detail.processors.some((p) => p.id === ids['pat@t.local']));
+  assert.ok(!(await omar('GET', `/cases/${f.id}`)).data.case.allowed_actions.includes('reassign'));
+  assert.equal((await omar('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['omar@t.local'], note: 'Taking it' })).status, 403);
+  assert.equal((await vera('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['omar@t.local'] })).status, 400);
+  assert.equal((await vera('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['cara@t.local'], note: 'Urgent' })).status, 400);
+  const moved = await vera('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['omar@t.local'], note: 'Urgent file, Pat is on a break' });
+  assert.equal(moved.status, 200, JSON.stringify(moved.data));
+  assert.deepEqual([moved.data.case.status, moved.data.case.assigned_to], ['in_verification', ids['omar@t.local']]);
+  assert.ok(moved.data.case.events.some((e) => e.type === 'reassign' && e.detail === 'Pat → Omar' && /on a break/.test(e.note)));
+  // Omar works it now, Pat no longer can; both were told.
+  assert.ok((await omar('GET', `/cases/${f.id}`)).data.case.allowed_actions.includes('complete'));
+  assert.ok(!(await pat('GET', `/cases/${f.id}`)).data.case.allowed_actions.includes('complete'));
+  assert.ok((await omar('GET', '/notifications')).data.items.some((n) => /moved to you by Vera from Pat/.test(n.message) && n.case_id === f.id));
+  assert.ok((await pat('GET', '/notifications')).data.items.some((n) => /was moved to Omar by Vera/.test(n.message) && n.case_id === f.id));
+  assert.equal((await vera('POST', `/cases/${f.id}/actions`, { action: 'reassign', processor_id: ids['omar@t.local'], note: 'Again' })).status, 409);
+  // A waiting file can be handed straight to a processor too.
+  const g = (await cara('POST', '/cases', loan({ customer_name: 'Waiting File', phone: '+971 50 222 8888' }))).data.case;
+  await tlOk(g.id, 'tl2@t.local');
+  const handed = await vera('POST', `/cases/${g.id}/actions`, { action: 'reassign', processor_id: ids['pat@t.local'], note: 'Customer is waiting on the line' });
+  assert.equal(handed.status, 200, JSON.stringify(handed.data));
+  assert.deepEqual([handed.data.case.status, handed.data.case.assigned_to_name], ['in_verification', 'Pat']);
+  assert.ok(handed.data.case.events.some((e) => e.type === 'reassign' && e.detail === 'queue → Pat'));
+});
