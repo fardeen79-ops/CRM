@@ -1546,7 +1546,7 @@ async function viewCaseForm(id, leadId = null) {
           ${field('first_name', 'First name', { required: true, attrs: 'autocomplete="off"', dictate: true })}
           ${field('middle_name', 'Middle name', { attrs: 'autocomplete="off"', dictate: true })}
           ${field('last_name', 'Last name', { required: true, attrs: 'autocomplete="off"', dictate: true })}
-          ${field('phone', 'Mobile number', { type: 'tel', required: true, placeholder: '+971 50 123 4567' })}
+          ${field('phone', 'Mobile number', { type: 'tel', required: true, placeholder: '+971 5x xxx xxxx', hint: 'Starts with +971, then nine digits starting with 5 (no 0 after +971)' })}
           ${field('email', 'Email address', { type: 'email', placeholder: 'name@example.com', attrs: 'autocomplete="off"' })}
         </div>
       </section>
@@ -1733,6 +1733,7 @@ async function viewCaseForm(id, leadId = null) {
     </form>`);
 
   const form = document.getElementById('case-form');
+  wireUaeMobile(form.querySelector('[name=phone]'));
   const $ = (sel) => form.querySelector(sel);
   const productSelect = $('#f-product');
   const picker = $('#bundle-picker');
@@ -2858,6 +2859,29 @@ async function viewCase(id) {
 // ---------- contact helpers ----------
 /** 0501234567 -> 050 123 4567 */
 const fmtMobile = (m) => (m && /^05\d{8}$/.test(m) ? `${m.slice(0, 3)} ${m.slice(3, 6)} ${m.slice(6)}` : m || '');
+
+/**
+ * A customer mobile field: starts with +971 and formats as +971 5x xxx xxxx while typing. A 0 typed after
+ * the country code is dropped. Left untouched (just "+971 ") it submits empty, so a masked value stays.
+ */
+function wireUaeMobile(input) {
+  if (!input || input.dataset.uae) return;
+  input.dataset.uae = '1';
+  input.placeholder = '+971 5x xxx xxxx';
+  input.setAttribute('inputmode', 'tel');
+  const format = (raw) => {
+    let d = raw.replace(/\D/g, '');
+    // A pasted or retyped country code on top of the one already there counts once; a UAE mobile never starts with 971.
+    if (d.startsWith('00971')) d = d.slice(5);
+    while (d.startsWith('971')) d = d.slice(3);
+    if (d.startsWith('0')) d = d.slice(1);
+    d = d.slice(0, 9);
+    return `+971 ${d.slice(0, 2)}${d.length > 2 ? ` ${d.slice(2, 5)}` : ''}${d.length > 5 ? ` ${d.slice(5)}` : ''}`.trimEnd() + (d.length ? '' : ' ');
+  };
+  input.addEventListener('focus', () => { if (!input.value.trim()) input.value = '+971 '; });
+  input.addEventListener('input', () => { input.value = format(input.value); });
+  input.addEventListener('blur', () => { if (input.value.trim() === '+971') input.value = ''; });
+}
 
 /** "Same as local mobile" copies the mobile number into WhatsApp (with +971) and keeps it in step. */
 function wireWhatsappSame(form) {
@@ -4219,7 +4243,7 @@ async function viewLeads(params = new URLSearchParams()) {
       <div class="field-row"><label for="${p}-last">Last name <span class="req">*</span></label><input id="${p}-last" name="last_name" value="${l.last_name || ''}" required></div>
     </div>
     <div class="form-grid two">
-      <div class="field-row"><label for="${p}-phone">Mobile number <span class="req">*</span></label><input id="${p}-phone" name="phone" type="tel" value="${l.phone || ''}" required placeholder="+971 50 123 4567"></div>
+      <div class="field-row"><label for="${p}-phone">Mobile number <span class="req">*</span></label><input id="${p}-phone" name="phone" type="tel" value="${l.phone || ''}" required placeholder="+971 5x xxx xxxx"></div>
       <div class="field-row"><label for="${p}-email">Email</label><input id="${p}-email" name="email" type="email" value="${l.email || ''}"></div>
       <div class="field-row"><label for="${p}-company">Company</label><input id="${p}-company" name="company_name" value="${l.company_name || ''}"></div>
       <div class="field-row"><label for="${p}-salary">Monthly salary (AED)</label><input id="${p}-salary" name="salary" inputmode="numeric" value="${l.salary != null ? l.salary : ''}"></div>
@@ -4275,6 +4299,7 @@ async function viewLeads(params = new URLSearchParams()) {
     document.getElementById('lead-scan-result').innerHTML = html`<div class="callout ${missing.length ? 'warn' : 'success'} scan-callout"><strong>Filled from the sheet: ${filled.join(', ')}.</strong> Check every field against the sheet before adding the lead.${missing.length ? html` <span>Not found: ${missing.join(' and ')}; type ${missing.length === 1 ? 'it' : 'them'} in.</span>` : ''}</div>`.s;
     toast('Lead details filled from the sheet');
   };
+  app.querySelectorAll('input[name=phone][type=tel]').forEach(wireUaeMobile);
   document.getElementById('lead-new').onsubmit = async (e) => { e.preventDefault(); try { await api('/leads', { method: 'POST', body: formData(e.target) }); toast('Lead added'); reload(); } catch (err) { toast(err.message, true); } };
   app.querySelectorAll('[data-call]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); confirmCall(a.dataset.call, a.dataset.callName); }));
   app.querySelectorAll('[data-follow]').forEach((f) => (f.onsubmit = async (e) => { e.preventDefault(); try { await api(`/leads/${f.dataset.follow}/follow-up`, { method: 'POST', body: formData(f) }); toast(f.follow_up_at.value ? 'Follow-up set' : 'Follow-up cleared'); reload(); } catch (err) { toast(err.message, true); } }));

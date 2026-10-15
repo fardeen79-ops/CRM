@@ -1,7 +1,7 @@
 // Leads: prospects a sales person is working before there is a file. A lead belongs to the sales
 // person who entered it; their team leader can see it too. Nobody else. A lead ends by becoming a
 // file (converted), or marked not interested or not eligible.
-import { WorkflowError, PRODUCTS } from './cases.js';
+import { WorkflowError, PRODUCTS, uaeMobile, MOBILE_HINT } from './cases.js';
 import { TEAM_LEADER_ROLES } from './users.js';
 
 export const LEAD_STATUS = { open: 'Open', converted: 'Converted', not_interested: 'Not interested', not_eligible: 'Not eligible' };
@@ -53,7 +53,9 @@ function leadDetails(input, current = null) {
   if (salary != null && !(salary >= 0)) throw new WorkflowError(400, 'Salary must be a number');
   out.salary = salary;
   if (!out.first_name || !out.last_name) throw new WorkflowError(400, 'Enter the customer\'s first and last name');
-  if (!/^[+\d][\d\s-]{6,29}$/.test(out.phone)) throw new WorkflowError(400, 'Enter a mobile number');
+  const mobile = uaeMobile(out.phone);
+  if (!mobile) throw new WorkflowError(400, MOBILE_HINT);
+  out.phone = mobile;
   if (out.product && !PRODUCTS[out.product]) throw new WorkflowError(400, 'Choose a product: Personal Loan, Credit Card, Auto Loan or Accounts');
   if (out.follow_up_at && !/^\d{4}-\d{2}-\d{2}$/.test(out.follow_up_at)) throw new WorkflowError(400, 'Follow-up date must be YYYY-MM-DD');
   if (out.follow_up_time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(out.follow_up_time)) throw new WorkflowError(400, 'Follow-up time must be HH:MM');

@@ -856,15 +856,17 @@ function validateCaseInput(input, { partial = false, current = null } = {}) {
     out.customer_name = [name('first_name'), name('middle_name'), name('last_name')].filter(Boolean).filter((part, i, all) => all.findIndex((x) => x.toLowerCase() === part.toLowerCase()) === i).join(' ');
   }
 
-  for (const field of ['phone', 'alt_phone']) {
-    if (!has(field)) continue;
-    if (field === 'phone' && !out.phone) throw new WorkflowError(400, 'Mobile number is required');
-    if (out[field]) {
-      const digits = out[field].replace(/\D/g, '');
-      if (!/^[+\d][\d\s\-()]*$/.test(out[field]) || digits.length < 7 || digits.length > 15) {
-        throw new WorkflowError(400, `Invalid ${field === 'phone' ? 'mobile' : 'alternate phone'} number`);
-      }
-    }
+  // The customer's mobile is a UAE mobile, kept as +971 5x xxx xxxx; the alternate phone may be a landline or abroad.
+  if (has('phone')) {
+    if (!out.phone) throw new WorkflowError(400, 'Mobile number is required');
+    const mobile = uaeMobile(out.phone);
+    if (!mobile) throw new WorkflowError(400, MOBILE_HINT);
+    out.phone = mobile;
+  }
+  if (has('alt_phone') && out.alt_phone) {
+    const digits = out.alt_phone.replace(/\D/g, '');
+    if (!/^[+\d][\d\s\-()]*$/.test(out.alt_phone) || digits.length < 7 || digits.length > 15) throw new WorkflowError(400, 'Invalid alternate phone number');
+    out.alt_phone = uaeMobile(out.alt_phone) || out.alt_phone;
   }
 
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) throw new WorkflowError(400, 'Invalid email address');
@@ -1042,6 +1044,33 @@ export const SENSITIVE_FIELDS = ['company_name', 'salary'];
 // What sales staff can no longer see on a file once it is submitted: the customer's phone numbers.
 // They type a replacement if a number is wrong; the processors do the calling.
 export const SALES_HIDDEN_FIELDS = ['phone', 'alt_phone'];
+
+export const MOBILE_HINT = "Enter the customer's UAE mobile as +971 5x xxx xxxx: no 0 after +971, nine digits starting with 5";
+/**
+ * A UAE mobile number as the CRM keeps it, +971 5X XXX XXXX, from however it was typed: 050 123 4567,
+ * 501234567, 971501234567, 00971 50…, +971 050… (the 0 after the country code is dropped). Null when
+ * the number is not a UAE mobile.
+ */
+export function uaeMobile(value) {
+  let d = String(value ?? '').replace(/\D/g, '');
+  if (d.startsWith('00971')) d = d.slice(5);
+  while (d.startsWith('971')) d = d.slice(3); // a UAE mobile never starts with 971: a repeated country code counts once
+  if (d.startsWith('0')) d = d.slice(1);
+  if (!/^5\d{8}$/.test(d)) return null;
+  return `+971 ${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5)}`;
+}
+
+/** On start: numbers saved in another form before the +971 rule take the CRM's form, on files and leads alike. */
+export function normalizeStoredMobiles(db) {
+  for (const [table, cols] of [['cases', ['phone', 'alt_phone']], ['leads', ['phone']]]) {
+    for (const col of cols) {
+      for (const row of db.prepare(`SELECT id, ${col} AS value FROM ${table} WHERE ${col} IS NOT NULL AND ${col} != ''`).all()) {
+        const m = uaeMobile(row.value);
+        if (m && m !== row.value) db.prepare(`UPDATE ${table} SET ${col} = ? WHERE id = ?`).run(m, row.id);
+      }
+    }
+  }
+}
 
 // Verification states in which processors still need the personal details: before and during the
 // call, and while verification is Pending (it may come back to them).

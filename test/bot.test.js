@@ -197,7 +197,7 @@ test('bot call: signed result, logged on the case; with default rules the proces
 
   const sent = botRequests.at(-1);
   assert.equal(sent.signature, sign(SECRET, sent.body), 'the request to the bot is signed');
-  assert.equal(sent.json.customer.phone, '0501234567');
+  assert.equal(sent.json.customer.phone, '+971 50 123 4567');
   assert.deepEqual(sent.json.checks.map((c) => c.key), ['full_name', 'product', 'company_name', 'salary']);
   const callback = sent.json.callback_url;
   assert.match(callback, /\/api\/bot\/calls\/[a-f0-9]{48}$/);

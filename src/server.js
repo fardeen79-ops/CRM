@@ -707,6 +707,7 @@ export function createServer(db, { dispatch = makeWebhookDispatcher(), itEmail =
   loadPayoutRules(db);
   roles.loadRoles(db);
   backfillCardCategories(db);
+  cases.normalizeStoredMobiles(db);
   sweepLeavers(db);
   const bot = makeCallBot(db, callBot);
   cases.config.callBot = bot.enabled;

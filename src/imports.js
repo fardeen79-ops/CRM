@@ -60,7 +60,7 @@ export const CASE_IMPORT_COLUMNS = [
   { key: 'first_name', header: 'First name', required: true, example: 'Mohammed' },
   { key: 'middle_name', header: 'Middle name', example: 'Rashid' },
   { key: 'last_name', header: 'Last name', required: true, example: 'Al Mansoori' },
-  { key: 'phone', header: 'Mobile number', required: true, example: '+971 50 123 4567' },
+  { key: 'phone', header: 'Mobile number', required: true, example: '+971 50 123 4567', help: 'A UAE mobile; 050 123 4567, 501234567 and +971 50 123 4567 are all kept as +971 50 123 4567' },
   { key: 'alt_phone', header: 'Alternate phone', example: '' },
   { key: 'email', header: 'Customer email', example: 'customer@example.com' },
   { key: 'company_name', header: 'Company name', example: 'Emirates Logistics LLC' },

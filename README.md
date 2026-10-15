@@ -468,6 +468,7 @@ The Employment section records the customer's **designation** (job title), **dep
 The case form groups the customer's details:
 
 - **Customer:** first, middle and last name, mobile number, Emirates ID and passport number.
+- **Mobile number:** a UAE mobile, kept as `+971 5x xxx xxxx`. The field starts with +971 and formats the number while typing; a 0 typed after +971 is dropped, and the nine digits must start with 5. Numbers entered as `050 123 4567`, `501234567` or `+971 050…` (on the form, in the bulk upload or on a lead) are all saved as `+971 50 123 4567`; anything that is not a UAE mobile is refused with the rule. Numbers saved before this rule are put in the same form when the server starts. The alternate phone may be a landline or a foreign number.
 - **Employment:** company name and monthly salary in AED.
 - **Application:** Bidaya ID and App ID.
 

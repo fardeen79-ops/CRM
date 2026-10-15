@@ -79,7 +79,7 @@ const withProductDefaults = (body) => {
   }
   return out;
 };
-const newCase = { journey_type: 'emirates_id', customer_name: 'Asha Rao', phone: '+91 98765 43210', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '1,50,000', interest_rate: 6.5 };
+const newCase = { journey_type: 'emirates_id', customer_name: 'Asha Rao', phone: '+971 50 987 6543', city: 'Pune', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: '1,50,000', interest_rate: 6.5 };
 
 test('rejects unauthenticated access and bad credentials', async () => {
   assert.equal((await fetch(`${base}/api/cases`)).status, 401);
@@ -148,7 +148,7 @@ test('full workflow: source → verify incomplete → TL returns → sales resub
   // Sales is notified, edits and resubmits
   const salesNotes = await sales('GET', '/notifications');
   assert.ok(salesNotes.data.items.some((n) => /returned to you/.test(n.message)));
-  r = await sales('PUT', `/cases/${id}`, { phone: '+91 90000 00000' });
+  r = await sales('PUT', `/cases/${id}`, { phone: '+971 50 900 0000' });
   assert.equal(r.status, 200);
   assert.equal(r.data.case.phone, null); // hidden from sales once submitted; see the privacy test
   assert.ok(r.data.case.hidden_fields.includes('phone'));
@@ -204,7 +204,7 @@ test('sales staff only see their own cases and input is validated', async () => 
 
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'X' })).status, 400);
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'X', phone: 'abc' })).status, 400);
-  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'X', phone: '9876543210', email: 'bad' })).status, 400);
+  assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'X', phone: '+971 50 987 6543', email: 'bad' })).status, 400);
 });
 
 test('team leaders, MIS and business heads manage users', async () => {
@@ -245,7 +245,7 @@ test('team leaders, MIS and business heads manage users', async () => {
 
 test('product must be one of the fixed options, and a bundle needs two or more products', async () => {
   const sales = await login('sales@t.local');
-  const base = { journey_type: 'emirates_id', customer_name: 'Bundle Test', phone: '9876543210' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Bundle Test', phone: '+971 50 987 6543' };
 
   assert.equal((await sales('POST', '/cases', base)).status, 400); // product required
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'home_loan' })).status, 400);
@@ -279,7 +279,7 @@ test('product must be one of the fixed options, and a bundle needs two or more p
 
 test('sourcing type: Regular by default; Fixed Deposit only for credit cards and personal loans', async () => {
   const sales = await login('sales@t.local');
-  const base = { journey_type: 'emirates_id', customer_name: 'Deposit Test', phone: '9876543211' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Deposit Test', phone: '+971 50 987 6511' };
   const pl = { personal_loan_type: 'fresh', loan_amount: 50000, interest_rate: 6 };
 
   let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'auto_loan' });
@@ -312,9 +312,9 @@ test('sourcing type: Regular by default; Fixed Deposit only for credit cards and
 
 test('files past their verification TAT are counted and listed', async () => {
   const sales = await login('sales@t.local');
-  const old = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Late File', phone: '9876543212', product: 'accounts', sourcing_date: '2026-01-05' })).data.case;
+  const old = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Late File', phone: '+971 50 987 6512', product: 'accounts', sourcing_date: '2026-01-05' })).data.case;
   assert.equal(old.tat.state, 'overdue');
-  const fresh = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'New File', phone: '9876543213', product: 'accounts' })).data.case;
+  const fresh = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'New File', phone: '+971 50 987 6513', product: 'accounts' })).data.case;
   assert.equal(fresh.tat.state, 'due');
   const lead = await login('lead@t.local');
   const listed = (await lead('GET', '/cases?tat=overdue')).data.cases.map((c) => c.id);
@@ -325,8 +325,8 @@ test('files past their verification TAT are counted and listed', async () => {
 
 test('power button: only the Dubai business head; held files read as verified and it never shows in a file history', async () => {
   const sales = await login('sales@t.local');
-  const late = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Held File', phone: '9876543214', product: 'accounts', sourcing_date: '2026-01-06' })).data.case;
-  const fresh = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Fresh File', phone: '9876543215', product: 'accounts' })).data.case;
+  const late = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Held File', phone: '+971 50 987 6514', product: 'accounts', sourcing_date: '2026-01-06' })).data.case;
+  const fresh = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Fresh File', phone: '+971 50 987 6515', product: 'accounts' })).data.case;
   await tlOk(late.id); await tlOk(fresh.id);
   const bh = await login('bhdxb@t.local');
   assert.equal((await (await login('lead@t.local'))('PUT', '/tat-switch', { on: true })).status, 403);
@@ -351,7 +351,7 @@ test('power button: only the Dubai business head; held files read as verified an
   assert.ok(line.verified_at);
   assert.equal((await bh('GET', `/cases/${fresh.id}`)).data.case.status, 'pending_verification');
   // A file that passes its TAT while the button is on follows.
-  const later = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Later File', phone: '9876543216', product: 'accounts', sourcing_date: '2026-01-07' })).data.case;
+  const later = (await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Later File', phone: '+971 50 987 6516', product: 'accounts', sourcing_date: '2026-01-07' })).data.case;
   assert.equal((await bh('GET', `/cases/${later.id}`)).data.case.status, 'completed');
 
   r = await bh('PUT', '/tat-switch', { on: false });
@@ -372,7 +372,7 @@ test('power button: only the Dubai business head; held files read as verified an
 
 test('credit card cases must name a card from the list', async () => {
   const sales = await login('sales@t.local');
-  const base = { journey_type: 'emirates_id', customer_name: 'Card Test', phone: '9876543210' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Card Test', phone: '+971 50 987 6543' };
 
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'credit_card' })).status, 400);
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'credit_card', credit_card: 'Made Up Card' })).status, 400);
@@ -404,7 +404,7 @@ test('credit card cases must name a card from the list', async () => {
 
 test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
   const sales = await login('sales@t.local');
-  const base = { journey_type: 'emirates_id', customer_name: 'Loan Test', phone: '9876543210' };
+  const base = { journey_type: 'emirates_id', customer_name: 'Loan Test', phone: '+971 50 987 6543' };
 
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan' })).status, 400);
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, product: 'personal_loan', personal_loan_type: 'refinance' })).status, 400);
@@ -440,7 +440,7 @@ test('personal loan cases must say Top Up, Buy Out or Fresh', async () => {
 
 test('a buy-out personal loan must name the bank it is bought out from', async () => {
   const sales = await login('sales@t.local');
-  const base = { journey_type: 'emirates_id', customer_name: 'Buyout Test', phone: '9876543210', product: 'personal_loan', loan_amount: '1,50,000', interest_rate: 6.5 };
+  const base = { journey_type: 'emirates_id', customer_name: 'Buyout Test', phone: '+971 50 987 6543', product: 'personal_loan', loan_amount: '1,50,000', interest_rate: 6.5 };
 
   assert.equal((await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, personal_loan_type: 'buy_out' })).status, 400);
   let r = await sales('POST', '/cases', { journey_type: 'emirates_id', ...base, personal_loan_type: 'buy_out', buyout_bank: 'Mashreq' });
@@ -1405,7 +1405,7 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   const id = (await sales('POST', '/cases', data)).data.case.id;
   await tlOk(id);
   const c = (await proc('GET', `/cases/${id}`)).data.case;
-  assert.deepEqual([c.phone, c.alt_phone], ['+••• •• ••• 4567', '••••••4567']);
+  assert.deepEqual([c.phone, c.alt_phone], ['+••• •• ••• 4567', '+••• •• ••• 4567']);
   assert.deepEqual(c.masked_fields, ['phone', 'alt_phone', 'salary']);
   assert.equal(c.salary, 'AED ••,•••');
   assert.deepEqual((await proc('GET', `/cases/${id}/reveal?fields=salary`)).data.values, { salary: 28500 });
@@ -1426,7 +1426,7 @@ test('personal identifiers are masked everywhere, revealed on request, and every
   assert.deepEqual((await lead('GET', `/cases/${id}/reveal?fields=phone`)).data.values, { phone: '+971 50 123 4567' });
   assert.equal((await proc('GET', `/cases/${id}/reveal?fields=nothing`)).status, 400);
   const all = (await proc('GET', `/cases/${id}/reveal?fields=phone,alt_phone`)).data.values;
-  assert.deepEqual(all, { phone: '+971 50 123 4567', alt_phone: '0551234567' });
+  assert.deepEqual(all, { phone: '+971 50 123 4567', alt_phone: '+971 55 123 4567' });
 
   // The access log: views and reveals, who and when; repeats within minutes are not duplicated.
   await proc('GET', `/cases/${id}/reveal?fields=phone`);
@@ -1653,4 +1653,30 @@ test('the customer\'s designation and date of joining are kept on the file, on t
   const got = (await mis('GET', `/cases/${up.rows[0].id}`)).data.case;
   assert.equal(got.designation, 'Senior Analyst'); assert.equal(got.customer_doj, '2020-02-01');
   assert.equal(got.department, 'Operations'); assert.equal(got.journey_type, 'emirates_id');
+});
+
+test("the customer's mobile is kept as +971 5x xxx xxxx however it is typed, and must be a UAE mobile", async () => {
+  const sales = await login('sales@t.local');
+  const mis = await login('mis@t.local');
+  const make = (phone, extra = {}) => sales('POST', '/cases', { journey_type: 'emirates_id', ...newCase, phone, ...extra });
+  for (const typed of ['050 123 4567', '0501234567', '501234567', '+971501234567', '+971 050 123 4567', '00971 50 123 4567', '971-50-123-4567']) {
+    const r = await make(typed);
+    assert.equal(r.status, 201, `${typed}: ${JSON.stringify(r.data)}`);
+    assert.equal((await mis('GET', `/cases/${r.data.case.id}/reveal?fields=phone`)).data.values.phone, '+971 50 123 4567', typed);
+  }
+  for (const bad of ['04 123 4567', '+44 7700 900123', '0401234567', '50123456', '5012345678', '+971 60 123 4567']) {
+    const r = await make(bad);
+    assert.equal(r.status, 400, bad);
+    assert.match(r.data.error, /\+971 5x xxx xxxx/);
+  }
+  // The alternate phone takes a landline or a foreign number as typed, and a UAE mobile in the same form.
+  const alt = await make('0551234567', { alt_phone: '04 123 4567' });
+  assert.equal(alt.status, 201);
+  assert.deepEqual((await mis('GET', `/cases/${alt.data.case.id}/reveal?fields=alt_phone`)).data.values, { alt_phone: '04 123 4567' });
+  const alt2 = await make('0551234567', { alt_phone: '0509998877' });
+  assert.equal(alt2.status, 201, JSON.stringify(alt2.data));
+  assert.deepEqual((await mis('GET', `/cases/${alt2.data.case.id}/reveal?fields=alt_phone`)).data.values, { alt_phone: '+971 50 999 8877' });
+  // A lead's number follows the same rule.
+  assert.equal((await sales('POST', '/leads', { first_name: 'Lead', last_name: 'One', phone: '0 50 777 1234' })).data.lead.phone, '+971 50 777 1234');
+  assert.match((await sales('POST', '/leads', { first_name: 'Lead', last_name: 'Two', phone: '04 777 1234' })).data.error, /\+971 5x xxx xxxx/);
 });
