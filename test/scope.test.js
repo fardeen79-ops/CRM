@@ -936,3 +936,35 @@ test('a sales manager or ASM narrows a list to their own team, all their teams o
   assert.equal((await bh('GET', `/cases?team=${head.id}`)).status, 400);
   void [a, b, own];
 });
+
+test('messages: team leaders, ASMs and sales managers reach only their region, and only business heads reach the CEO', async () => {
+  const mis = await login('mis@t.local');
+  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); HRMS[body.email] = body.hrms_code || null; return r.data.user; };
+  const tlD = await add({ name: 'Region TL', email: 'region.tl@t.local', role: 'team_leader', region: 'DXB', hrms_code: 'RTL1', mobile_number: '0501234601' });
+  const auhSales = await add({ name: 'AUH Seller', email: 'auh.seller@t.local', role: 'sales', region: 'AUH', hrms_code: 'RS1', sales_code: 'A-61', core_product: 'credit_card', team_leader_id: ids['tl-auh@t.local'], mobile_number: '0501234602' });
+  const dxbSales = await add({ name: 'DXB Seller', email: 'dxb.seller@t.local', role: 'sales', region: 'DXB', hrms_code: 'RS2', sales_code: 'D-61', core_product: 'credit_card', team_leader_id: tlD.id, mobile_number: '0501234603' });
+  const ceo = await add({ name: 'The CEO', email: 'the.ceo@t.local', role: 'ceo', mobile_number: '0501234604' });
+  const head = await add({ name: 'Head One', email: 'head.one@t.local', role: 'business_head', region: 'DXB', hrms_code: 'BH1', mobile_number: '0501234605' });
+  const tl = await login('region.tl@t.local');
+  const names = (r) => r.data.users.map((u) => u.name);
+  const seen = names(await tl('GET', '/colleagues'));
+  assert.ok(seen.includes('DXB Seller') && seen.includes('Mira'), 'own region');
+  assert.ok(seen.includes('Gina'), 'people with no region count for both');
+  assert.ok(!seen.includes('AUH Seller') && !seen.includes('Mina'), 'not the other region');
+  assert.ok(!seen.includes('The CEO'), 'never the CEO');
+  assert.equal((await tl('POST', '/conversations/direct', { user_id: auhSales.id })).status, 400);
+  assert.equal((await tl('POST', '/conversations/direct', { user_id: ceo.id })).status, 400);
+  assert.equal((await tl('POST', '/conversations/direct', { user_id: dxbSales.id })).status, 200);
+  // A group drops the people out of reach; with nobody left it is refused.
+  assert.equal((await tl('POST', '/conversations/group', { name: 'Across regions', user_ids: [auhSales.id, ceo.id] })).status, 400);
+  const g = await tl('POST', '/conversations/group', { name: 'Dubai desk', user_ids: [dxbSales.id, auhSales.id] });
+  assert.equal(g.status, 201);
+  assert.ok(g.data.conversation.members.some((m) => m.name === 'DXB Seller') && !g.data.conversation.members.some((m) => m.name === 'AUH Seller'));
+  // MIS reaches both regions but not the CEO; a business head reaches the CEO.
+  const misSeen = names(await mis('GET', '/colleagues'));
+  assert.ok(misSeen.includes('AUH Seller') && misSeen.includes('DXB Seller') && !misSeen.includes('The CEO'));
+  const bh = await login('head.one@t.local');
+  assert.ok(names(await bh('GET', '/colleagues')).includes('The CEO'));
+  assert.equal((await bh('POST', '/conversations/direct', { user_id: ceo.id })).status, 200);
+  void head;
+});

@@ -140,14 +140,28 @@ export function listConversations(db, user) {
   return { items, unread: items.reduce((n, c) => n + c.unread, 0), overseer: CHAT_OVERSEERS.includes(user.role) };
 }
 
+/**
+ * Who a person may message. Team leaders, ASMs and sales managers reach only their own region (people
+ * with no region, such as central staff, count for both). The CEO is reachable by business heads only.
+ */
+const REGION_BOUND = ['team_leader', 'sales_manager', 'asm'];
+function reachClause(user) {
+  const clauses = []; const params = [];
+  if (REGION_BOUND.includes(user.role) && user.region) { clauses.push("(UPPER(COALESCE(u.region, '')) = ? OR u.region IS NULL OR u.region = '')"); params.push(String(user.region).toUpperCase()); }
+  if (user.role !== 'business_head') clauses.push("COALESCE(u.role_key, '') != 'ceo'");
+  return { sql: clauses.length ? ` AND ${clauses.join(' AND ')}` : '', params };
+}
+
 /** Colleagues a message can be started with. */
 export function listColleagues(db, user) {
-  return { users: db.prepare("SELECT id, name, role FROM users WHERE active = 1 AND id != ? ORDER BY name").all(user.id) };
+  const reach = reachClause(user);
+  return { users: db.prepare(`SELECT u.id, u.name, u.role, u.region FROM users u WHERE u.active = 1 AND u.id != ?${reach.sql} ORDER BY u.name`).all(user.id, ...reach.params) };
 }
 
 /** Finds or starts the direct message conversation with another user. */
 export function openDirect(db, user, otherId) {
-  const other = db.prepare('SELECT id, name FROM users WHERE id = ? AND active = 1').get(Number(otherId));
+  const reach = reachClause(user);
+  const other = db.prepare(`SELECT u.id, u.name FROM users u WHERE u.id = ? AND u.active = 1${reach.sql}`).get(Number(otherId), ...reach.params);
   if (!other || other.id === user.id) throw new WorkflowError(400, 'Choose a colleague to message');
   const existing = db.prepare(`SELECT c.id FROM conversations c
       JOIN conversation_members a ON a.conversation_id = c.id AND a.user_id = ?
@@ -165,7 +179,8 @@ const GROUP_NAME_MAX = 60;
 const pickMembers = (db, user, userIds) => {
   const ids = [...new Set((Array.isArray(userIds) ? userIds : []).map(Number).filter((n) => Number.isInteger(n) && n > 0 && n !== user.id))];
   if (!ids.length) return [];
-  return db.prepare(`SELECT id, name FROM users WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  const reach = reachClause(user);
+  return db.prepare(`SELECT u.id, u.name FROM users u WHERE u.active = 1 AND u.id IN (${ids.map(() => '?').join(',')})${reach.sql}`).all(...ids, ...reach.params);
 };
 
 /** Starts a named group with the colleagues chosen; the person who starts it is a member too. */
