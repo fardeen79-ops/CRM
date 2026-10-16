@@ -1258,6 +1258,7 @@ export function getCase(db, user, id) {
   const shown = presentEvents(row, events);
   const out = { ...present(user, row, { db }), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row),
     sales_staff_region: findUser(db, row.sales_staff_id)?.region || null,
+    case_status_choices: SETTABLE_CASE_STATUSES.filter((k) => k !== row.case_status && !(k === 'completed' && completedBlocked(row))),
     // The processors the verification team leader can move the file to: those of their own region (and any with no region), never the one who has it.
     ...(allowedActions(user, row).includes('reassign') && { processors: db.prepare(`SELECT id, name, region FROM users WHERE role = 'processing' AND active = 1 AND id != ?${user.region ? " AND (UPPER(COALESCE(region, '')) = ? OR region IS NULL OR region = '')" : ''} ORDER BY name`).all(row.assigned_to ?? 0, ...(user.region ? [String(user.region).toUpperCase()] : [])) }),
     bank_status_label: bankStatusLabel(row.bank_status), bank_status_options: bankStatusesFor(caseProducts(row)).map((s) => ({ value: s, label: bankStatusLabel(s), case_status: caseStatusOf(s) })) };
@@ -1907,7 +1908,10 @@ export function setCardStatus(db, user, row, { card_status, activation_date } = 
 }
 
 /** Moves a file to a case status (Sent to checker, Applicant review, Completed or Rejected), with the disbursal on a completed loan, the timeline entry and the notifications. */
+/** A file the bank has rejected stays rejected: Completed is no longer offered or accepted on it, by hand, by upload or through a bank status. */
+export const completedBlocked = (row) => row.case_status === 'rejected';
 function changeCaseStatus(db, user, row, case_status, note, extra, ts) {
+  if (case_status === 'completed' && completedBlocked(row)) throw new WorkflowError(409, 'A rejected file cannot be marked Completed');
   const id = row.id;
   const ref = caseRef(id);
   const who = `${user.name}`;

@@ -2509,9 +2509,9 @@ async function viewCase(id) {
       </form>`);
   }
   if (a.has('set_case_status')) {
-    const choices = state.meta.settable_case_statuses.filter((k) => k !== c.case_status);
+    const choices = c.case_status_choices || state.meta.settable_case_statuses.filter((k) => k !== c.case_status);
     panel.push(html`${panel.length ? raw('<hr>') : ''}<h3>Case status</h3>
-      <p class="small">Now: ${caseBadge(c.case_status)}</p>
+      <p class="small">Now: ${caseBadge(c.case_status)}${c.case_status === 'rejected' ? html` <span class="muted">· a rejected file cannot be marked Completed</span>` : ''}</p>
       <form data-form="set_case_status">
         <div class="field-row"><label for="cs-select" class="sr-only">New case status</label>
           <select id="cs-select" name="case_status" required>

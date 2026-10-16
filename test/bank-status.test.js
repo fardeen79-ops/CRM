@@ -118,3 +118,26 @@ test('the Case status upload takes a Bank status column, by product, and the cas
   assert.ok(reg.columns.some((c) => c.key === 'bank_status'));
   assert.ok(reg.rows.some((r) => r.bank_status === 'AO completed, waiting for salary transfer'));
 });
+
+test('a rejected file cannot be marked Completed: not on the case page, not by upload, not through a bank status', async () => {
+  const mis = await login('mis@t.local');
+  const dana = await login('dana@t.local');
+  const r = await dana('POST', '/cases', loan({ app_id: 'BS-REJ', phone: '+971 50 123 9876' }));
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const id = r.data.case.id;
+  assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'rejected', note: 'Bank declined' })).status, 200);
+  const c = (await mis('GET', `/cases/${id}`)).data.case;
+  assert.deepEqual(c.case_status_choices, ['applicant_review']);
+  const direct = await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'completed' });
+  assert.equal(direct.status, 409);
+  assert.match(direct.data.error, /rejected file cannot be marked Completed/);
+  const viaBank = await mis('POST', `/cases/${id}/actions`, { action: 'set_bank_status', bank_status: 'COMPLETED' });
+  assert.equal(viaBank.status, 409);
+  assert.equal((await mis('GET', `/cases/${id}`)).data.case.case_status, 'rejected');
+  const up = (await mis('POST', '/import/case_status', { csv: `Reference,Case status\n${c.ref},Completed` })).data;
+  assert.equal(up.rows[0].ok, false);
+  assert.match(up.rows[0].error, /rejected file cannot be marked Completed/);
+  // Applicant review is still open to it, and from there Completed is possible again.
+  assert.equal((await mis('POST', `/cases/${id}/actions`, { action: 'set_case_status', case_status: 'applicant_review', note: 'Appeal' })).status, 200);
+  assert.ok((await mis('GET', `/cases/${id}`)).data.case.case_status_choices.includes('completed'));
+});
