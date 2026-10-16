@@ -38,7 +38,7 @@ async function login(email) {
 test('Dubai MIS pulls the bank month-end report per cycle, split by product, with full numbers for five days after the cycle ends', async () => {
   const sally = await login('sally@t.local'); const mis = await login('mis@t.local'); const auh = await login('mis-auh@t.local'); const head = await login('head@t.local');
   const file = (over) => sally('POST', '/cases', { journey_type: 'emirates_id', region: 'DXB', city: 'Dubai', salary: 15000, source: 'Walk-in', sourcing_date: '2026-09-10', ...over });
-  const card = await file({ customer_name: 'Card Customer', phone: '+971 50 111 2222', alt_phone: '+971 4 222 3333', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf' });
+  const card = await file({ customer_name: 'Card Customer', phone: '+971 50 111 2222', alt_phone: '+971 4 222 3333', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf', app_id: '2026101428083596' });
   assert.equal(card.status, 201, JSON.stringify(card.data));
   const loan = await file({ customer_name: 'Loan Customer', phone: '+971 50 333 4444', core_product: 'personal_loan', product: 'personal_loan', personal_loan_type: 'fresh', loan_amount: 60000, interest_rate: 6, pl_tenure: 48, fpd: '2026-11-05' });
   assert.equal(loan.status, 201, JSON.stringify(loan.data));
@@ -69,6 +69,8 @@ test('Dubai MIS pulls the bank month-end report per cycle, split by product, wit
     assert.match(csv, /Product,Ref,App ID/);
     assert.match(csv, /,Phone,Alternate phone,/);
     assert.match(csv, /\+971 50 111 2222,\+971 4 222 3333/);
+    // A 16-digit App ID is written so Excel keeps every digit instead of rounding the last to 0.
+    assert.match(csv, /,="2026101428083596",/);
   }
   // The case register never downloads the numbers, even inside the window.
   const reg = (await mis('GET', '/reports/register?cycle=2026-09&format=csv', null, true)).data;

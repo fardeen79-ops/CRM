@@ -907,8 +907,11 @@ export function toCsv(report) {
     const s = v == null ? '' : String(v);
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
+  // Excel reads a cell of 12 or more digits (an App ID, a Bidaya ID) as a number and keeps only 15
+  // significant digits, turning the last into 0; written as ="…" it stays the exact text.
+  const cell = (v, col) => (col.unit === 'text' && /^\d{12,}$/.test(String(v ?? '')) ? `="${v}"` : q(v));
   const lines = [report.columns.map((c) => q(c.label)).join(',')];
-  for (const r of report.rows) lines.push(report.columns.map((c) => q(r[c.key])).join(','));
+  for (const r of report.rows) lines.push(report.columns.map((c) => cell(r[c.key], c)).join(','));
   if (report.totals && report.rows.length) lines.push(report.columns.map((c, i) => q(i === 0 && report.totals[c.key] === undefined ? 'Total' : report.totals[c.key])).join(','));
   return `﻿${lines.join('\r\n')}\r\n`;
 }

@@ -442,6 +442,7 @@ Only **MIS** and **business heads** can bulk upload. They open **Bulk upload** i
 - Up to 1,000 rows per file.
 - Excel drops leading zeros and turns long numbers into `9.71501E+11`. Set the phone, Emirates ID and App ID columns to **Text** before typing. A row with a mangled number is reported instead of being saved with the wrong digits.
 - `.xlsx` files aren't read; save as CSV first.
+- In every download, an ID of 12 or more digits (an App ID, a Bidaya ID) is written as `="2026101428083596"`, so Excel keeps all its digits instead of rounding the last to 0 as it does with long numbers.
 
 ### Sales staff, region and core product
 

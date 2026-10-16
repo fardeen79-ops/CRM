@@ -2955,7 +2955,8 @@ function saveFile(filename, text, type = 'text/csv') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const csvCell = (v) => (/[",\r\n;]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
+// A cell of 12 or more digits is written as ="…" so Excel keeps it as text instead of rounding it to 15 digits.
+const csvCell = (v) => (/^\d{12,}$/.test(String(v ?? '')) ? `="${v}"` : /[",\r\n;]/.test(String(v ?? '')) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
 // The byte-order mark makes Excel open the file as UTF-8 (names with accents or Arabic stay intact).
 const toCsv = (rows) => '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
 
