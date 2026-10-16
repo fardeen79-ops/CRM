@@ -5356,18 +5356,21 @@ async function viewUsers() {
   const contactCell = (u) => html`${u.mobile_number ? html`<div class="mono">${fmtMobile(u.mobile_number)}</div>` : html`<span class="muted">—</span>`}
     ${u.whatsapp_number ? html`<a class="wa" href="https://wa.me/${u.whatsapp_number.slice(1)}" target="_blank" rel="noopener" title="Open a WhatsApp chat">WhatsApp ${u.whatsapp_number}</a>` : ''}`;
 
+  // The top bar's region (All regions, DXB, AUH) narrows the tiles and the list; the page's own filter starts from it.
+  const topRegion = canPickRegion() ? state.region || '' : '';
+  const inRegion = topRegion ? users.filter((u) => String(u.region || '').toUpperCase() === topRegion.toUpperCase()) : users;
   shell(html`
     <div class="page-head"><div><h1>Staff</h1><p class="muted" style="margin:0">Every user of the CRM: sales staff, processors, team leaders, assistant sales managers, sales managers, MIS, business heads and governance. Each sales person's code, team leader and sales manager fill in automatically on the files they source.</p></div>
       <div class="actions">${BULK_ROLES.includes(state.user.role) ? html`<a class="btn" href="#/import/users">Bulk upload</a>` : ''}${canDownload() ? html`<button class="btn" id="staff-csv">Download staff list</button>` : ''}</div>
     </div>
     <div class="kpis staff-kpis">
-      ${[['Total staff', users.length, `${users.filter((u) => u.active).length} active`], ['Sales staff', users.filter((u) => u.role === 'sales' && u.active).length, 'active'], ['Processors', users.filter((u) => u.role === 'processing' && u.active).length, 'active'], ['Managers', users.filter((u) => ['team_leader', 'asm', 'sales_manager'].includes(u.role) && u.active).length, 'TL, ASM and SM'], ['Left or disabled', users.filter((u) => !u.active).length, users.filter((u) => u.dol && u.dol > todayLocal()).length ? `${users.filter((u) => u.dol && u.dol > todayLocal()).length} leaving soon` : ' ']]
+      ${[['Total staff', inRegion.length, `${inRegion.filter((u) => u.active).length} active`], ['Sales staff', inRegion.filter((u) => u.role === 'sales' && u.active).length, 'active'], ['Processors', inRegion.filter((u) => u.role === 'processing' && u.active).length, 'active'], ['Managers', inRegion.filter((u) => ['team_leader', 'asm', 'sales_manager'].includes(u.role) && u.active).length, 'TL, ASM and SM'], ['Left or disabled', inRegion.filter((u) => !u.active).length, inRegion.filter((u) => u.dol && u.dol > todayLocal()).length ? `${inRegion.filter((u) => u.dol && u.dol > todayLocal()).length} leaving soon` : ' ']]
         .map(([l, v, sub]) => html`<div class="kpi"><span class="kpi-label">${l}</span><span class="kpi-value">${v}</span><span class="kpi-sub">${sub}</span></div>`)}
     </div>
     <div class="toolbar">
       <input type="search" id="staff-q" placeholder="Search name, HRMS code, email or sales code…" aria-label="Search staff">
       <select id="staff-role" aria-label="Role"><option value="">All roles</option>${Object.entries(ROLE_LABEL).map(([k, l]) => html`<option value="${k}">${l}</option>`)}</select>
-      <select id="staff-region" aria-label="Region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}">${l}</option>`)}</select>
+      <select id="staff-region" aria-label="Region"><option value="">All regions</option>${Object.entries(state.meta.regions).map(([k, l]) => html`<option value="${k}" ${k === topRegion ? raw('selected') : ''}>${l}</option>`)}</select>
       <select id="staff-status" aria-label="Status"><option value="">Active and disabled</option><option value="active">Active only</option><option value="inactive">Disabled or left</option></select>
       <span class="muted small" id="staff-count"></span>
       <button class="btn danger" id="staff-delete" hidden>Delete selected</button>
