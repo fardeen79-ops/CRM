@@ -1283,7 +1283,16 @@ export function getCase(db, user, id) {
  * The teams a sales manager or ASM can narrow a list to: their own direct team (sales staff naming them as
  * team leader) and the team leaders (and ASMs leading a team) under them.
  */
-export function teamsOf(db, user) {
+export function teamsOf(db, user, { region } = {}) {
+  // A business head picks from every team, narrowed to the region chosen in the top bar.
+  if (user.role === 'business_head') {
+    const r = String(region || '').toUpperCase();
+    const teams = db.prepare(`SELECT u.id, u.name, u.role, u.region, COUNT(s.id) AS staff
+      FROM users u JOIN users s ON s.team_leader_id = u.id AND s.role = 'sales' AND s.active = 1
+      WHERE u.active = 1 AND u.role IN ('team_leader', 'asm', 'sales_manager')${REGIONS[r] ? ' AND UPPER(COALESCE(u.region, \'\')) = ?' : ''}
+      GROUP BY u.id ORDER BY u.region, u.name`).all(...(REGIONS[r] ? [r] : []));
+    return { own: 0, teams };
+  }
   if (!MANAGER_ROLES.includes(user.role)) return { own: 0, teams: [] };
   const own = db.prepare("SELECT COUNT(*) AS n FROM users WHERE team_leader_id = ? AND role = 'sales' AND active = 1").get(user.id).n;
   // A team is under the manager when its leader reports to them, or when its sales staff name the manager.
@@ -1297,10 +1306,10 @@ export function teamsOf(db, user) {
 }
 /** The team filter of a list: 'own' for the viewer's direct team, or the id of a team leader under them; anything else is refused. */
 function teamClause(db, user, team) {
-  if (!team || !MANAGER_ROLES.includes(user.role)) return null;
-  if (team === 'own') return { sql: 'c.team_leader_id = ?', params: [user.id] };
+  if (!team || !['business_head', ...MANAGER_ROLES].includes(user.role)) return null;
+  if (team === 'own' && user.role !== 'business_head') return { sql: 'c.team_leader_id = ?', params: [user.id] };
   const id = Number(team);
-  if (!id || !teamsOf(db, user).teams.some((t) => t.id === id)) throw new WorkflowError(400, 'Choose one of your own teams');
+  if (!id || !teamsOf(db, user).teams.some((t) => t.id === id)) throw new WorkflowError(400, user.role === 'business_head' ? 'Choose a team' : 'Choose one of your own teams');
   return { sql: 'c.team_leader_id = ?', params: [id] };
 }
 

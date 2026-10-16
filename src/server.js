@@ -526,7 +526,7 @@ function routes(db, dispatch, bot, interpret, phrase, recordings, pushFetch = fe
 
     // Sales people in the viewer's own team, for entering a file on their behalf.
     // The teams a sales manager or ASM can narrow their lists to.
-    ['GET', /^\/api\/teams$/, async ({ user }) => cases.teamsOf(db, user)],
+    ['GET', /^\/api\/teams$/, async ({ user, query }) => cases.teamsOf(db, user, { region: query.get('region') })],
     ['GET', /^\/api\/sales-staff$/, async ({ user }) => {
       requireRole(user, 'team_leader', 'sales_manager', 'asm');
       return {

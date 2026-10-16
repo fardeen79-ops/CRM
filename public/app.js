@@ -1404,7 +1404,7 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   const { cases } = await api(`/cases?${query}`);
   // A sales manager or ASM narrows any list to their own direct team or one team leader under them.
   const teamPick = params.get('team') || '';
-  const teams = effRole() === 'sales_manager' ? await api('/teams').catch(() => null) : null;
+  const teams = ['sales_manager', 'business_head'].includes(effRole()) ? await api(`/teams${effRole() === 'business_head' && state.region ? `?region=${state.region}` : ''}`).catch(() => null) : null;
   if (params.get('tat') === 'overdue') subtitle = `Files not verified within ${state.meta.verify_tat_days} working days of their sourcing date.`;
   // Drill-down from the Targets page: cases completed in one cycle, optionally for one sales person.
   const cycleFilter = params.get('cycle');
@@ -1423,9 +1423,9 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   const teamFilter = teams && (teams.own || teams.teams.length) ? html`
     <label class="inline-filter" for="team-filter">Team
       <select id="team-filter">
-        <option value="">All my teams</option>
+        <option value="">${effRole() === 'business_head' ? 'All teams' : 'All my teams'}</option>
         ${teams.own ? html`<option value="own" ${teamPick === 'own' ? raw('selected') : ''}>My own team (${teams.own})</option>` : ''}
-        ${teams.teams.map((t) => html`<option value="${t.id}" ${String(t.id) === teamPick ? raw('selected') : ''}>${t.name}${t.role === 'asm' ? ' (ASM)' : ''} (${t.staff})</option>`)}
+        ${teams.teams.map((t) => html`<option value="${t.id}" ${String(t.id) === teamPick ? raw('selected') : ''}>${t.name}${t.role === 'asm' ? ' (ASM)' : t.role === 'sales_manager' ? ' (SM)' : ''}${effRole() === 'business_head' && t.region && !state.region ? ` · ${t.region}` : ''} (${t.staff})</option>`)}
       </select>
     </label>` : '';
   const filters = fixedStatus || fixedCols ? teamFilter : html`

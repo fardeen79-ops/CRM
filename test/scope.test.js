@@ -923,5 +923,16 @@ test('a sales manager or ASM narrows a list to their own team, all their teams o
   const alpha = await login('tl.alpha@t.local');
   assert.deepEqual((await alpha('GET', '/teams')).data, { own: 0, teams: [] });
   assert.deepEqual(names((await alpha('GET', `/cases?team=${tlB.id}`)).data.cases), ['Alpha file']); // ignored for a team leader
+  // A business head picks from every team, narrowed to a region, and is refused an id that is not a team.
+  const head = await add({ name: 'Head DXB', email: 'head.dxb@t.local', role: 'business_head', hrms_code: 'BH9', mobile_number: '0501234597' });
+  const bh = await login('head.dxb@t.local');
+  const every = (await bh('GET', '/teams')).data;
+  assert.equal(every.own, 0);
+  assert.ok(['Sam SM', 'TL Alpha', 'TL Beta', 'TL Dubai', 'TL Abu Dhabi'].every((n) => every.teams.some((t) => t.name === n)));
+  const dxbOnly = (await bh('GET', '/teams?region=DXB')).data.teams;
+  assert.ok(dxbOnly.some((t) => t.name === 'TL Alpha') && !dxbOnly.some((t) => t.name === 'TL Abu Dhabi'));
+  assert.deepEqual(names((await bh('GET', `/cases?team=${tlB.id}`)).data.cases), ['Beta file']);
+  assert.deepEqual(names((await bh('GET', `/cases?team=${sm.id}`)).data.cases), ['Direct file']);
+  assert.equal((await bh('GET', `/cases?team=${head.id}`)).status, 400);
   void [a, b, own];
 });
