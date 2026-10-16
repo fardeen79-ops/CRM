@@ -360,7 +360,9 @@ td strong { white-space: nowrap; }
 .tiles-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; display: flex; align-items: center; gap: 10px; }
 .tiles-head::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .inline-filter { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 500; white-space: nowrap; }
-.inline-filter select { width: auto; }
+.inline-filter select { width: auto; max-width: 100%; min-width: 0; }
+/* The team list can carry long names: keep it inside the card and let it shrink on narrow screens. */
+.inline-filter select#team-filter { max-width: min(100%, 360px); text-overflow: ellipsis; }
 .nowrap { white-space: nowrap; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); white-space: nowrap; }
@@ -562,7 +564,7 @@ a.target-tile:hover { text-decoration: none; border-color: var(--primary); }
 @media (max-width: 480px) { .target-tiles { grid-template-columns: 1fr; } }
 .grid > * { min-width: 0; }
 #card-cycle { max-width: 100%; min-width: 0; }
-@media (max-width: 640px) { .inline-filter { white-space: normal; flex-wrap: wrap; max-width: 100%; } }
+@media (max-width: 640px) { .inline-filter { white-space: normal; flex-wrap: wrap; max-width: 100%; min-width: 0; } .inline-filter select { flex: 1 1 100%; width: 100%; max-width: 100%; } }
 .tiles-head:has(.tiles-link) { flex-wrap: wrap; row-gap: 4px; }
 /* The tooltip only takes up space while shown, so it never widens the page on phones. */
 .mix-seg::after { display: none; }
