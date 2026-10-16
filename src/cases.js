@@ -2121,6 +2121,10 @@ export function stats(db, user, { region } = {}) {
          ROUND(AVG(qc_score), 1) AS avg_score, COUNT(complaint_number) AS complaints FROM cases`
     ).get();
     for (const k of Object.keys(result.governance)) result.governance[k] ??= 0;
+    // Team leaders, ASMs and sales managers count only the marked files in their own teams.
+    if (['team_leader', ...MANAGER_ROLES].includes(user.role)) {
+      result.governance.qc = db.prepare(`SELECT COUNT(*) AS n FROM cases c ${scope ? `${scope} AND` : 'WHERE'} c.qc_flag = 1`).get(...params).n;
+    }
   }
   if (['team_leader', ...MANAGER_ROLES, 'mis', 'business_head', 'governance'].includes(user.role)) {
     result.processors = db

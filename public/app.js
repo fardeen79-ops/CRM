@@ -527,8 +527,9 @@ function navGroups() {
   const isCeo = state.user.role_key === 'ceo';
   const work = [['#/', isCeo ? 'CEO dashboard' : 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
-  if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
-  if (r === 'sales_manager') work.push(['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals);
+  const qualityCheck = ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc];
+  if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck);
+  if (r === 'sales_manager') work.push(['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck);
   if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings]);
   if (r === 'governance') {
     work.push(urgent, ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc], ['#/recordings', 'Recordings', 'mic', 'data-rec-count', state.recordings]);
@@ -756,7 +757,7 @@ async function route() {
     }
     if (path === '/quality-check') {
       return await viewCases({
-        title: 'Quality check', subtitle: 'Files you marked for a quality check. Request the call recording, score the verification call and add complaint numbers from each file.',
+        title: 'Quality check', subtitle: effRole() === 'governance' ? 'Files you marked for a quality check. Request the call recording, score the verification call and add complaint numbers from each file.' : "Your teams' files that governance has marked for a quality check, with the score, recording and complaint on each.",
         params, fixed: { qc: '1' }, cols: ['ref', 'customer', 'status', 'quality', 'assigned', 'updated'], empty: 'No files are marked for a quality check',
       });
     }

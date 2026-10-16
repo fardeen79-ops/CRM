@@ -815,6 +815,7 @@ test('governance marks files for QC, requests recordings after verification, add
   const proc = await login('proc@t.local');
   const gov = await login('gov@t.local');
   const lead = await login('lead@t.local');
+  const sm = await login('sm@t.local');
   const id = (await sales('POST', '/cases', newCase)).data.case.id;
   await tlOk(id);
   const act = (who, body) => who('POST', `/cases/${id}/actions`, body);
@@ -834,6 +835,11 @@ test('governance marks files for QC, requests recordings after verification, add
   assert.equal(r.data.case.qc_flag, 1);
   assert.equal(r.data.case.qc_by_name, 'Gina');
   assert.ok((await gov('GET', '/cases?qc=1')).data.cases.some((c) => c.id === id));
+  // The file's team leader and sales manager see it on their own Quality check page, with the count scoped to their teams.
+  assert.ok((await lead('GET', '/cases?qc=1')).data.cases.some((c) => c.id === id));
+  assert.ok((await sm('GET', '/cases?qc=1')).data.cases.some((c) => c.id === id));
+  assert.equal((await lead('GET', '/stats')).data.governance.qc, 1);
+  assert.equal((await sm('GET', '/stats')).data.governance.qc, 1);
 
   assert.equal((await act(gov, { action: 'set_complaint', complaint_number: '' })).status, 400);
   assert.equal((await act(gov, { action: 'set_complaint', complaint_number: '<x>' })).status, 400);
