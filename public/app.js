@@ -528,8 +528,9 @@ function navGroups() {
   const work = [['#/', isCeo ? 'CEO dashboard' : 'Dashboard', 'home']];
   if (r === 'processing') work.push(['#/queue', 'Verification queue', 'queue'], ['#/callbacks', 'Call-backs', 'phone', 'data-cb-count', state.callbacksDue], urgent);
   const qualityCheck = ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc];
-  if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck);
-  if (r === 'sales_manager') work.push(['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck);
+  const submissions = ['#/submissions', "Day's submissions", 'calendar'];
+  if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck, submissions);
+  if (r === 'sales_manager') work.push(['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck, submissions);
   if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings]);
   if (r === 'governance') {
     work.push(urgent, ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc], ['#/recordings', 'Recordings', 'mic', 'data-rec-count', state.recordings]);
@@ -735,6 +736,7 @@ async function route() {
     if (path === '/queue') {
       return await viewCases({ title: 'Verification queue', subtitle: 'Call each customer to verify the sourced details, then mark the verification completed, pending or rejected.', params, fixedStatus: 'pending_verification,in_verification' });
     }
+    if (path === '/submissions') return viewSubmissions(params);
     if (path === '/action-required') {
       return await viewCases({ title: 'Action required', subtitle: 'Files the processing team marked Verification pending. Decide whether to return to sales, re-verify, or reject.', params, fixedStatus: 'incomplete' });
     }
@@ -3396,6 +3398,63 @@ async function viewCards(params) {
       viewCards(params);
     } catch (ex) { toast(ex.message, true); b.disabled = false; }
   }));
+}
+
+// ---------- a day's submissions: what the team sourced on a date ----------
+async function viewSubmissions(params) {
+  const date = params.get('date') || '';
+  let d;
+  try { d = await api(`/submissions${date ? `?date=${encodeURIComponent(date)}` : ''}`); } catch (ex) { toast(ex.message, true); d = await api('/submissions'); }
+  const shift = (ymd, n) => new Date(Date.parse(ymd) + n * 864e5).toISOString().slice(0, 10);
+  const go2 = (ymd) => go(`#/submissions?date=${ymd}`);
+  const cards = d.counts.cards;
+  const tile = (label, value, sub = '') => html`<div class="kpi"><span class="kpi-label">${label}</span><span class="kpi-value">${value}</span><span class="kpi-sub">${sub || ' '}</span></div>`;
+  shell(html`
+    <div class="page-head"><div><h1>Day's submissions</h1><p class="muted lede">What ${effRole() === 'team_leader' ? 'your team' : 'your teams'} sourced on the day: credit cards by category, personal loans and auto loans, per sales person, with the files.</p></div>
+      <div class="actions sub-date">
+        <button class="btn" id="sub-prev" title="Previous day">‹</button>
+        <input type="date" id="sub-date" value="${d.date}" max="${d.today}" aria-label="Date">
+        <button class="btn" id="sub-next" title="Next day" ${d.is_today ? raw('disabled') : ''}>›</button>
+        ${d.is_today ? '' : html`<button class="btn" id="sub-today">Today</button>`}
+      </div>
+    </div>
+    <p class="muted small">${d.is_today ? 'Today' : fmtDay(d.date)} · ${d.total} ${d.total === 1 ? 'file' : 'files'} sourced${d.is_today ? ' so far' : ''}.</p>
+    <div class="kpis sub-kpis">
+      ${tile('Total', d.total, 'files sourced')}
+      ${tile('Credit cards', d.counts.credit_card, `Mass ${cards.Mass} · Premium ${cards.Premium} · Super Premium ${cards['Super Premium']}${cards.noon ? ` · noon ${cards.noon}` : ''}${cards.other ? ` · no category ${cards.other}` : ''}`)}
+      ${tile('Personal loans', d.counts.personal_loan, 'fresh, buy-out and top-up')}
+      ${tile('Auto loans', d.counts.auto_loan, 'new and used')}
+    </div>
+    <div class="card"><h2>Credit cards by category</h2>
+      <div class="chips">${[['Mass', cards.Mass], ['Premium', cards.Premium], ['Super Premium', cards['Super Premium']], ['noon', cards.noon], ['No category', cards.other]].filter(([, n], i) => i < 3 || n).map(([l, n]) => html`<span class="chip ${n ? '' : 'muted'}">${l} <strong>${n}</strong></span>`)}</div>
+    </div>
+    <div class="card"><h2>By sales person</h2>
+      ${d.by_staff.length ? html`<div class="table-wrap"><table>
+        <thead><tr><th>Sales person</th><th>Team leader</th><th class="num">Files</th><th class="num">Credit cards</th><th class="num">Mass</th><th class="num">Premium</th><th class="num">Super Premium</th><th class="num">Personal loans</th><th class="num">Auto loans</th></tr></thead>
+        <tbody>${d.by_staff.map((r) => html`<tr><td><strong>${r.name}</strong>${r.sales_code ? html`<div class="muted small mono">${r.sales_code}</div>` : ''}</td><td>${r.team_leader || '—'}</td><td class="num">${r.total}</td><td class="num">${r.credit_card}</td><td class="num">${r.cards.Mass}</td><td class="num">${r.cards.Premium}</td><td class="num">${r.cards['Super Premium']}</td><td class="num">${r.personal_loan}</td><td class="num">${r.auto_loan}</td></tr>`)}</tbody>
+        <tfoot><tr><td>Total</td><td></td><td class="num">${d.total}</td><td class="num">${d.counts.credit_card}</td><td class="num">${cards.Mass}</td><td class="num">${cards.Premium}</td><td class="num">${cards['Super Premium']}</td><td class="num">${d.counts.personal_loan}</td><td class="num">${d.counts.auto_loan}</td></tr></tfoot>
+      </table></div>` : html`<div class="empty">Nothing sourced on this day${d.is_today ? ' yet' : ''}.</div>`}
+    </div>
+    <div class="card"><h2>Files</h2>
+      ${d.files.length ? html`<div class="table-wrap"><table>
+        <thead><tr><th>Ref</th><th>Customer</th><th>Product</th><th>Card category</th><th>Sales staff</th><th>Verification</th><th>Case status</th></tr></thead>
+        <tbody>${d.files.map((c) => html`<tr data-href="#/cases/${c.id}">
+          <td><strong>${c.ref}</strong>${c.app_id ? html`<div class="muted small mono">${c.app_id}</div>` : ''}</td>
+          <td>${c.customer_name}</td>
+          <td>${c.product_label || ''}</td>
+          <td>${c.card_bucket ? html`<span class="chip">${c.card_bucket === 'other' ? 'No category' : c.card_bucket}</span>` : html`<span class="muted">—</span>`}</td>
+          <td>${c.sales_staff_name || c.created_by_name || ''}${c.sales_code ? html`<div class="muted small mono">${c.sales_code}</div>` : ''}</td>
+          <td>${badge(c.status)}</td>
+          <td>${caseBadge(c.case_status)}</td>
+        </tr>`)}</tbody>
+      </table></div>` : html`<div class="empty">No files.</div>`}
+    </div>`);
+  bindRows();
+  const input = document.getElementById('sub-date');
+  input.onchange = () => { if (input.value && input.value <= d.today) go2(input.value); };
+  document.getElementById('sub-prev').onclick = () => go2(shift(d.date, -1));
+  document.getElementById('sub-next').onclick = () => { if (!d.is_today) go2(shift(d.date, 1)); };
+  document.getElementById('sub-today')?.addEventListener('click', () => go('#/submissions'));
 }
 
 // ---------- chat: case discussions, direct messages and groups ----------

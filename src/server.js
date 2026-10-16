@@ -342,6 +342,8 @@ function routes(db, dispatch, bot, interpret, phrase, recordings, pushFetch = fe
     })],
 
     ['GET', /^\/api\/stats$/, async ({ user, query }) => cases.stats(db, user, { region: query.get('region') })],
+    // What the viewer's teams sourced on a day (default today): by product, cards by category, per sales person, and the files.
+    ['GET', /^\/api\/submissions$/, async ({ user, query }) => cases.daySubmissions(db, user, { date: query.get('date'), region: query.get('region') })],
     // The signed-in user's own dashboard: this cycle, the last six, and the incentive so far.
     // Pitch for a higher card: its features read from the bank's website now, or the last good reading.
     ['GET', /^\/api\/cards\/pitch$/, async ({ query }) => {

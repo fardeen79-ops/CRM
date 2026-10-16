@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { openDb } from '../src/db.js';
 import { createServer } from '../src/server.js';
 import { createUser, loginId } from './helpers/create-user.mjs';
+import { uaeDay } from '../src/cycles.js';
 
 const PASSWORD = 'password123';
 let server, base, ids;
@@ -854,4 +855,45 @@ test('an ASM or sales manager who leads a team directly sees it everywhere, even
   assert.ok((await proc('GET', '/notifications')).data.items.some((n) => /Re-verify:/.test(n.message) && n.case_id === f.id));
   assert.ok((await piaLogin('GET', '/notifications')).data.items.some((n) => /sent back for re-verification/.test(n.message) && n.case_id === f.id));
   assert.ok(!(await asm('GET', '/notifications')).data.items.some((n) => /sent back for re-verification/.test(n.message) && n.case_id === f.id));
+});
+
+test("a team leader, sales manager or ASM checks the day's submissions of their own teams, split by product and card category", async () => {
+  const dana = await login('dana@t.local');
+  const amal = await login('amal@t.local');
+  const tlD = await login('tl-dxb@t.local');
+  const tlA = await login('tl-auh@t.local');
+  const sm1 = await login('sm1@t.local');
+  const asm = await login('asm1@t.local');
+  const card = (name, cardName, phone, extra = {}) => dana('POST', '/cases', { journey_type: 'emirates_id', customer_name: name, region: 'DXB', phone, city: 'Dubai', salary: 40000, source: 'Walk-in', product: 'credit_card', credit_card: cardName, card_fee_type: 'fyf', ...extra });
+  // Earlier tests sourced files today too: compare with what the team leader sees before these.
+  const before = (await tlD('GET', '/submissions')).data;
+  const diff = (a, b) => ({ total: a.total - b.total, credit_card: a.counts.credit_card - b.counts.credit_card, auto_loan: a.counts.auto_loan - b.counts.auto_loan, personal_loan: a.counts.personal_loan - b.counts.personal_loan, cards: Object.fromEntries(Object.keys(a.counts.cards).map((k) => [k, a.counts.cards[k] - b.counts.cards[k]])) });
+  assert.equal((await card('Day Mass', 'noon One Visa Credit Card', '+971 50 600 0001')).status, 201);
+  assert.equal((await card('Day Premium', 'Skywards Signature Credit Card', '+971 50 600 0002')).status, 201);
+  assert.equal((await card('Day Super', 'Infinite Credit Card', '+971 50 600 0003')).status, 201);
+  assert.equal((await dana('POST', '/cases', file('Day Auto'))).status, 201);
+  const today = uaeDay();
+  const yesterday = new Date(Date.parse(today) - 864e5).toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.parse(today) + 864e5).toISOString().slice(0, 10);
+  assert.equal((await card('Yesterday Card', 'Skywards Signature Credit Card', '+971 50 600 0004', { sourcing_date: yesterday })).status, 201);
+  assert.equal((await amal('POST', '/cases', { ...file('Other Team Auto', 'AUH'), phone: '+971 50 600 0005' })).status, 201);
+  // Today by default, the team leader's own team only.
+  const d = (await tlD('GET', '/submissions')).data;
+  assert.deepEqual([d.date, d.is_today], [today, true]);
+  assert.deepEqual(diff(d, before), { total: 4, credit_card: 3, auto_loan: 1, personal_loan: 0, cards: { Mass: 0, Premium: 1, 'Super Premium': 1, noon: 1, other: 0 } });
+  const dana_row = d.by_staff.find((r) => r.name === 'Dana');
+  assert.equal(dana_row.total, d.total); // Dana is the team's only sales person
+  assert.deepEqual(d.files.slice(0, 4).map((f) => f.card_bucket), [null, 'Super Premium', 'Premium', 'noon']);
+  assert.ok(!d.files.some((f) => f.customer_name === 'Other Team Auto'));
+  // The sales manager and the ASM over Dana's team see the same; the other team leader sees their own.
+  for (const who of [sm1, asm]) { const v = (await who('GET', '/submissions')).data; assert.ok(v.total >= d.total && v.files.some((f) => f.customer_name === 'Day Super')); }
+  assert.ok((await tlA('GET', '/submissions')).data.files.some((f) => f.customer_name === 'Other Team Auto'));
+  assert.ok(!(await tlA('GET', '/submissions')).data.files.some((f) => f.customer_name === 'Day Super'));
+  // Another day, and never the future or a sales person.
+  const y = (await tlD('GET', `/submissions?date=${yesterday}`)).data;
+  assert.equal(y.is_today, false);
+  assert.ok(y.files.some((f) => f.customer_name === 'Yesterday Card') && y.counts.cards.Premium >= 1);
+  assert.equal((await tlD('GET', `/submissions?date=${tomorrow}`)).status, 400);
+  assert.equal((await tlD('GET', '/submissions?date=yesterday')).status, 400);
+  assert.equal((await dana('GET', '/submissions')).status, 403);
 });

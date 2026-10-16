@@ -1111,3 +1111,10 @@ label.check.remember-me { display: flex; gap: 10px; align-items: flex-start; mar
 .dropdown .push-row .push-hint { margin: 0; }
 
 .error-text { color: var(--danger, #b42318); }
+
+/* The day's submissions page */
+.sub-date { display: flex; gap: 6px; align-items: center; }
+.sub-date input[type=date] { padding: 6px 8px; }
+.sub-kpis .kpi-sub { white-space: normal; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip.muted { opacity: .6; }

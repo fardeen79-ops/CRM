@@ -2070,6 +2070,49 @@ function applyCaseAction(db, user, id, { action, note, case_status, to, recordin
   return { case: getCase(db, user, id), triggers };
 }
 
+/** The roles that check what their teams sourced on a day. */
+export const SUBMISSION_VIEWERS = ['team_leader', ...MANAGER_ROLES, 'mis', 'business_head', 'governance'];
+const CARD_BUCKETS = ['Mass', 'Premium', 'Super Premium'];
+/**
+ * A day's submissions for the viewer's teams: the files sourced on that date (default today, UAE),
+ * counted by product with the credit cards split by category, per sales person, and listed.
+ */
+export function daySubmissions(db, user, { date, region } = {}) {
+  if (!SUBMISSION_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Only team leaders, managers, MIS and business heads see the day\'s submissions');
+  const today = uaeDay(); // the same clock as a new file's sourcing date
+  const day = String(date || today).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(day))) throw new WorkflowError(400, 'Give the date as YYYY-MM-DD');
+  if (day > today) throw new WorkflowError(400, 'The date cannot be in the future');
+  const sc = caseScope(user);
+  const clauses = ['c.sourcing_date = ?']; const params = [day];
+  if (sc) { clauses.push(sc.sql); params.push(...sc.params); }
+  if (REGIONS[String(region || '').toUpperCase()]) { clauses.push('c.region = ?'); params.push(String(region).toUpperCase()); }
+  const rows = db.prepare(`${CASE_SELECT} WHERE ${clauses.join(' AND ')} ORDER BY c.id DESC`).all(...params);
+  const cardBucket = (c) => (/\bnoon\b/i.test(c.credit_card || '') ? 'noon' : CARD_BUCKETS.includes(c.card_category) ? c.card_category : 'other');
+  const empty = () => ({ total: 0, credit_card: 0, personal_loan: 0, auto_loan: 0, other: 0, cards: { Mass: 0, Premium: 0, 'Super Premium': 0, noon: 0, other: 0 } });
+  const counts = empty();
+  const byStaff = new Map();
+  for (const c of rows) {
+    const products = caseProducts(c);
+    const key = c.sales_staff_id ?? c.created_by;
+    if (!byStaff.has(key)) byStaff.set(key, { name: c.sales_staff_name || c.created_by_name, sales_code: c.sales_code || '', team_leader: c.team_leader_name || '', ...empty() });
+    for (const tally of [counts, byStaff.get(key)]) {
+      tally.total++;
+      let known = false;
+      if (products.includes('credit_card') && c.credit_card) { tally.credit_card++; tally.cards[cardBucket(c)]++; known = true; }
+      if (products.includes('personal_loan')) { tally.personal_loan++; known = true; }
+      if (products.includes('auto_loan')) { tally.auto_loan++; known = true; }
+      if (!known) tally.other++;
+    }
+  }
+  return {
+    date: day, today, is_today: day === today, total: counts.total, counts,
+    by_staff: [...byStaff.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
+    files: rows.map((c) => ({ ...present(user, c, { db }), card_bucket: products_has_card(c) ? cardBucket(c) : null })),
+  };
+}
+const products_has_card = (c) => caseProducts(c).includes('credit_card') && Boolean(c.credit_card);
+
 export function stats(db, user, { region } = {}) {
   holdOverdueFiles(db);
   const sc = caseScope(user);
