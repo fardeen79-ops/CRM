@@ -584,6 +584,33 @@ function activeHref(hrefs) {
   return hrefs.find((h) => h === path) || (path.startsWith('#/cases/') && !path.endsWith('/new') ? hrefs.find((h) => h === '#/cases') : null);
 }
 
+/**
+ * Wide tables scroll sideways inside their box. A mouse wheel only scrolls up and down, so when the box has
+ * nothing to scroll vertically the wheel moves it sideways instead, and a hint says the table continues.
+ */
+function wireTableWraps() {
+  app.querySelectorAll('.table-wrap').forEach((wrap) => {
+    if (wrap.dataset.wired) return;
+    wrap.dataset.wired = '1';
+    wrap.addEventListener('wheel', (e) => {
+      const wide = wrap.scrollWidth > wrap.clientWidth + 1;
+      const tall = wrap.scrollHeight > wrap.clientHeight + 1;
+      if (!wide || tall || e.deltaX || e.shiftKey || !e.deltaY) return;
+      const before = wrap.scrollLeft;
+      wrap.scrollLeft += e.deltaY;
+      if (wrap.scrollLeft !== before) e.preventDefault();
+    }, { passive: false });
+    const hint = () => {
+      const wide = wrap.scrollWidth > wrap.clientWidth + 1;
+      let h = wrap.nextElementSibling?.classList.contains('scroll-hint') ? wrap.nextElementSibling : null;
+      if (wide && !h) { h = document.createElement('p'); h.className = 'muted small scroll-hint'; h.textContent = 'The table continues to the right: scroll sideways (wheel, swipe, or drag the bar below it) to see the rest.'; wrap.after(h); }
+      if (!wide && h) h.remove();
+    };
+    hint();
+    window.addEventListener('resize', hint);
+  });
+}
+
 function shell(content) {
   const groups = navGroups();
   const active = activeHref(groups.flatMap(([, links]) => links.map(([h]) => h)));
@@ -632,6 +659,7 @@ function shell(content) {
   };
   document.getElementById('bell').onclick = toggleNotifications;
   app.querySelectorAll('[name=region-view]').forEach((i) => (i.onchange = () => { saveRegion(i.value); route(); }));
+  wireTableWraps();
   paintWatermark();
   // Phones and narrow windows: the sidebar slides in over the page.
   const sidebar = document.getElementById('sidebar');

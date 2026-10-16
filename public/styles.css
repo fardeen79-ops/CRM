@@ -309,7 +309,13 @@ label.check input { width: auto; margin: 0; accent-color: var(--primary); }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .tabs button { font-weight: 500; padding: 6px 12px; border-radius: 999px; }
 .tabs button.active { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
-.table-wrap { overflow: auto; max-width: 100%; max-height: min(72vh, 640px); overscroll-behavior: contain; }
+.table-wrap { overflow: auto; max-width: 100%; max-height: min(72vh, 640px); overscroll-behavior: contain; scrollbar-gutter: stable; }
+/* A visible scrollbar whenever a table is wider than its box, on every platform. */
+.table-wrap::-webkit-scrollbar { height: 12px; width: 12px; }
+.table-wrap::-webkit-scrollbar-track { background: var(--surface-2); border-radius: 6px; }
+.table-wrap::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; border: 2px solid var(--surface-2); }
+.table-wrap::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+.scroll-hint { margin: 6px 0 0; }
 /* Column headings stay put while the rows scroll under them. */
 .table-wrap thead th { position: sticky; top: 0; z-index: 2; }
 .table-wrap thead th::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; border-bottom: 1px solid var(--border-strong); }
@@ -564,7 +570,7 @@ a.target-tile:hover { text-decoration: none; border-color: var(--primary); }
 .target-input.aed { width: 130px; }
 fieldset.disbursal-fields { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 4px; margin: 0 0 12px; background: var(--surface-2); }
 fieldset.disbursal-fields legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
-.map-row { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
+.map-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .map-date { width: 140px; padding: 4px 8px; font-size: 13px; }
 .ageing-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 10px 12px; margin-bottom: 12px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); }
 .ageing-strip .chip strong { font-variant-numeric: tabular-nums; }
