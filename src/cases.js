@@ -1279,7 +1279,29 @@ export function getCase(db, user, id) {
   return out;
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, region, tat, limit = 200 } = {}) {
+/**
+ * The teams a sales manager or ASM can narrow a list to: their own direct team (sales staff naming them as
+ * team leader) and the team leaders (and ASMs leading a team) under them.
+ */
+export function teamsOf(db, user) {
+  if (!MANAGER_ROLES.includes(user.role)) return { own: 0, teams: [] };
+  const own = db.prepare("SELECT COUNT(*) AS n FROM users WHERE team_leader_id = ? AND role = 'sales' AND active = 1").get(user.id).n;
+  const under = user.role === 'sales_manager' ? 'u.sales_manager_id = ?' : 'u.asm_id = ?';
+  const teams = db.prepare(`SELECT u.id, u.name, u.role, u.region,
+      (SELECT COUNT(*) FROM users s WHERE s.team_leader_id = u.id AND s.role = 'sales' AND s.active = 1) AS staff
+    FROM users u WHERE u.active = 1 AND u.id != ? AND u.role IN ('team_leader', 'asm') AND ${under} ORDER BY u.name`).all(user.id, user.id);
+  return { own, teams };
+}
+/** The team filter of a list: 'own' for the viewer's direct team, or the id of a team leader under them; anything else is refused. */
+function teamClause(db, user, team) {
+  if (!team || !MANAGER_ROLES.includes(user.role)) return null;
+  if (team === 'own') return { sql: 'c.team_leader_id = ?', params: [user.id] };
+  const id = Number(team);
+  if (!id || !teamsOf(db, user).teams.some((t) => t.id === id)) throw new WorkflowError(400, 'Choose one of your own teams');
+  return { sql: 'c.team_leader_id = ?', params: [id] };
+}
+
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, region, tat, team, limit = 200 } = {}) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
   holdOverdueFiles(db);
@@ -1309,6 +1331,8 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
       params.push(card);
     } else if (card === 'unmapped') where.push('c.card_status IS NULL');
   }
+  const teamFilter = teamClause(db, user, team);
+  if (teamFilter) { where.push(teamFilter.sql); params.push(...teamFilter.params); }
   if (staff && Number(staff)) {
     where.push('c.sales_staff_id = ?');
     params.push(Number(staff));

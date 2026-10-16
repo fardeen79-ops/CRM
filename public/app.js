@@ -1399,8 +1399,12 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     ...(params.get('cycle') && { cycle: params.get('cycle') }),
     ...(params.get('staff') && { staff: params.get('staff') }),
     ...(params.get('tat') && { tat: params.get('tat') }),
+    ...(params.get('team') && { team: params.get('team') }),
   });
   const { cases } = await api(`/cases?${query}`);
+  // A sales manager or ASM narrows any list to their own direct team or one team leader under them.
+  const teamPick = params.get('team') || '';
+  const teams = effRole() === 'sales_manager' ? await api('/teams').catch(() => null) : null;
   if (params.get('tat') === 'overdue') subtitle = `Files not verified within ${state.meta.verify_tat_days} working days of their sourcing date.`;
   // Drill-down from the Targets page: cases completed in one cycle, optionally for one sales person.
   const cycleFilter = params.get('cycle');
@@ -1416,7 +1420,16 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   if (fixedStatus === 'incomplete') cols = ['ref', 'customer', 'phone', 'reason', 'by', 'source_by', 'waiting'];
 
   const base = location.hash.split('?')[0];
-  const filters = fixedStatus || fixedCols ? '' : html`
+  const teamFilter = teams && (teams.own || teams.teams.length) ? html`
+    <label class="inline-filter" for="team-filter">Team
+      <select id="team-filter">
+        <option value="">All my teams</option>
+        ${teams.own ? html`<option value="own" ${teamPick === 'own' ? raw('selected') : ''}>My own team (${teams.own})</option>` : ''}
+        ${teams.teams.map((t) => html`<option value="${t.id}" ${String(t.id) === teamPick ? raw('selected') : ''}>${t.name}${t.role === 'asm' ? ' (ASM)' : ''} (${t.staff})</option>`)}
+      </select>
+    </label>` : '';
+  const filters = fixedStatus || fixedCols ? teamFilter : html`
+    ${teamFilter}
     <label class="inline-filter" for="case-status-filter">Case status
       <select id="case-status-filter">
         <option value="">All</option>
@@ -1483,6 +1496,8 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   app.querySelectorAll('.tabs button').forEach((b) => (b.onclick = () => setParam('status', b.dataset.status)));
   const csFilter = document.getElementById('case-status-filter');
   if (csFilter) csFilter.onchange = () => setParam('case_status', csFilter.value);
+  const tFilter = document.getElementById('team-filter');
+  if (tFilter) tFilter.onchange = () => setParam('team', tFilter.value);
 }
 
 // ---------- case form ----------

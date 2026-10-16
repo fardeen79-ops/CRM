@@ -525,6 +525,8 @@ function routes(db, dispatch, bot, interpret, phrase, recordings, pushFetch = fe
     ['POST', /^\/api\/assets\/(\d+)\/status$/, async ({ user, params, body }) => ({ asset: assets.setAssetStatus(db, user, Number(params[0]), body) })],
 
     // Sales people in the viewer's own team, for entering a file on their behalf.
+    // The teams a sales manager or ASM can narrow their lists to.
+    ['GET', /^\/api\/teams$/, async ({ user }) => cases.teamsOf(db, user)],
     ['GET', /^\/api\/sales-staff$/, async ({ user }) => {
       requireRole(user, 'team_leader', 'sales_manager', 'asm');
       return {

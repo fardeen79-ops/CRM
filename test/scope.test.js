@@ -897,3 +897,31 @@ test("a team leader, sales manager or ASM checks the day's submissions of their 
   assert.equal((await tlD('GET', '/submissions?date=yesterday')).status, 400);
   assert.equal((await dana('GET', '/submissions')).status, 403);
 });
+
+test('a sales manager or ASM narrows a list to their own team, all their teams or one team leader under them', async () => {
+  const mis = await login('mis@t.local');
+  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, region: 'DXB', ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); HRMS[body.email] = body.hrms_code || null; return r.data.user; };
+  const sm = await add({ name: 'Sam SM', email: 'sam.sm@t.local', role: 'sales_manager', hrms_code: 'SM9', mobile_number: '0501234591' });
+  const tlA = await add({ name: 'TL Alpha', email: 'tl.alpha@t.local', role: 'team_leader', hrms_code: 'TLA', mobile_number: '0501234592', sales_manager_id: sm.id });
+  const tlB = await add({ name: 'TL Beta', email: 'tl.beta@t.local', role: 'team_leader', hrms_code: 'TLB', mobile_number: '0501234593', sales_manager_id: sm.id });
+  const a = await add({ name: 'Alpha Sales', email: 'alpha.s@t.local', role: 'sales', hrms_code: 'S91', sales_code: 'D-91', core_product: 'auto_loan', team_leader_id: tlA.id, sales_manager_id: sm.id, mobile_number: '0501234594' });
+  const b = await add({ name: 'Beta Sales', email: 'beta.s@t.local', role: 'sales', hrms_code: 'S92', sales_code: 'D-92', core_product: 'auto_loan', team_leader_id: tlB.id, sales_manager_id: sm.id, mobile_number: '0501234595' });
+  const own = await add({ name: 'Direct Sales', email: 'direct.s@t.local', role: 'sales', hrms_code: 'S93', sales_code: 'D-93', core_product: 'auto_loan', team_leader_id: sm.id, mobile_number: '0501234596' });
+  for (const [who, name, phone] of [['alpha.s@t.local', 'Alpha file', '+971 50 700 0001'], ['beta.s@t.local', 'Beta file', '+971 50 700 0002'], ['direct.s@t.local', 'Direct file', '+971 50 700 0003']]) {
+    assert.equal((await (await login(who))('POST', '/cases', { ...file(name), phone })).status, 201);
+  }
+  const sam = await login('sam.sm@t.local');
+  const teams = (await sam('GET', '/teams')).data;
+  assert.equal(teams.own, 1);
+  assert.deepEqual(teams.teams.map((t) => [t.name, t.staff]), [['TL Alpha', 1], ['TL Beta', 1]]);
+  assert.deepEqual(names((await sam('GET', '/cases')).data.cases), ['Alpha file', 'Beta file', 'Direct file']);
+  assert.deepEqual(names((await sam('GET', '/cases?team=own')).data.cases), ['Direct file']);
+  assert.deepEqual(names((await sam('GET', `/cases?team=${tlA.id}`)).data.cases), ['Alpha file']);
+  assert.deepEqual(names((await sam('GET', `/cases?team=${tlB.id}`)).data.cases), ['Beta file']);
+  // Not a team of theirs, and nothing for a team leader.
+  assert.equal((await sam('GET', `/cases?team=${ids['tl-dxb@t.local']}`)).status, 400);
+  const alpha = await login('tl.alpha@t.local');
+  assert.deepEqual((await alpha('GET', '/teams')).data, { own: 0, teams: [] });
+  assert.deepEqual(names((await alpha('GET', `/cases?team=${tlB.id}`)).data.cases), ['Alpha file']); // ignored for a team leader
+  void [a, b, own];
+});
