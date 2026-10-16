@@ -2528,10 +2528,10 @@ async function viewCase(id) {
         <div class="field-row"><textarea name="note" id="cs-note" placeholder="Note (required for Applicant review and Rejected)"></textarea></div>
         <div class="actions">
           <button class="btn-primary">Update status</button>
-          ${c.case_status !== 'completed' ? html`<button type="button" class="btn-success" data-case-complete>✓ Mark completed${completionLabel(c) ? ` · ${completionLabel(c)}` : ''}</button>` : ''}
+          ${choices.includes('completed') ? html`<button type="button" class="btn-success" data-case-complete>✓ Mark completed${completionLabel(c) ? ` · ${completionLabel(c)}` : ''}</button>` : ''}
         </div>
       </form>
-      ${c.status === 'completed' && c.case_status !== 'completed' ? html`<p class="muted small">Verification is completed, but the case is not. Mark the case completed when it is done.</p>` : ''}
+      ${c.status === 'completed' && c.case_status !== 'completed' && choices.includes('completed') ? html`<p class="muted small">Verification is completed, but the case is not. Mark the case completed when it is done.</p>` : ''}
       <p class="muted small">A completed case counts towards the sales person's target in the cycle it is completed in.</p>`);
   }
   if (a.has('set_disbursal')) {
