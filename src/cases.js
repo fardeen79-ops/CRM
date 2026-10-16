@@ -1286,10 +1286,13 @@ export function getCase(db, user, id) {
 export function teamsOf(db, user) {
   if (!MANAGER_ROLES.includes(user.role)) return { own: 0, teams: [] };
   const own = db.prepare("SELECT COUNT(*) AS n FROM users WHERE team_leader_id = ? AND role = 'sales' AND active = 1").get(user.id).n;
-  const under = user.role === 'sales_manager' ? 'u.sales_manager_id = ?' : 'u.asm_id = ?';
+  // A team is under the manager when its leader reports to them, or when its sales staff name the manager.
+  const field = user.role === 'sales_manager' ? 'sales_manager_id' : 'asm_id';
   const teams = db.prepare(`SELECT u.id, u.name, u.role, u.region,
       (SELECT COUNT(*) FROM users s WHERE s.team_leader_id = u.id AND s.role = 'sales' AND s.active = 1) AS staff
-    FROM users u WHERE u.active = 1 AND u.id != ? AND u.role IN ('team_leader', 'asm') AND ${under} ORDER BY u.name`).all(user.id, user.id);
+    FROM users u WHERE u.active = 1 AND u.id != ? AND u.role IN ('team_leader', 'asm', 'sales_manager')
+      AND (u.${field} = ? OR EXISTS (SELECT 1 FROM users x WHERE x.team_leader_id = u.id AND x.role = 'sales' AND x.active = 1 AND x.${field} = ?))
+    ORDER BY u.name`).all(user.id, user.id, user.id);
   return { own, teams };
 }
 /** The team filter of a list: 'own' for the viewer's direct team, or the id of a team leader under them; anything else is refused. */
