@@ -560,7 +560,7 @@ Company name, salary, Emirates ID and passport number are restricted. The server
 
 The **Governance** role sees every file (but cannot edit it or change its status) and can:
 
-- **Mark a file for quality check**, with an optional note, and remove the mark later. Marked files appear in the **Quality check** queue. Team leaders, ASMs and sales managers have the same **Quality check** page for their own teams' files, with the count in the sidebar, so they see which of their files governance has marked, the score, the recording and any complaint; they cannot mark or unmark files.
+- **Mark a file for quality check**, with an optional note, and remove the mark later. Marked files appear in the **Quality check** queue. Team leaders, ASMs and sales managers have the same **Quality check** page for their own teams' files, and business heads for every file, with the count in the sidebar, so they see which of their files governance has marked, the score, the recording and any complaint; they cannot mark or unmark files.
 - **Add a complaint number** to any file. It is searchable.
 - **Score the verification call** from **0 to 10**, with one decimal allowed, plus comments. This is only available once the processor has recorded a verification result. The processor is notified, and team dashboards show each processor's average score.
 - **Flag a file for urgent verification**, with a reason, while verification is still awaiting, in progress, Pending or returned to sales. The processor on the file (or all processors if nobody has picked it up) and the file's own leaders are alerted. Urgent files go to the top of the queues with an **Urgent** tag and an **Urgent** menu item. The flag clears automatically when the verification is completed or rejected.

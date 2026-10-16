@@ -531,7 +531,7 @@ function navGroups() {
   const submissions = ['#/submissions', "Day's submissions", 'calendar'];
   if (r === 'team_leader') work.push(urgent, ['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck, submissions);
   if (r === 'sales_manager') work.push(['#/action-required', 'Action required', 'flag', 'data-ar-count', state.actionRequired], editRequests, cardApprovals, qualityCheck, submissions);
-  if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings]);
+  if (r === 'business_head') work.push(['#/recording-approvals', 'Recording approvals', 'stamp', 'data-rec-count', state.recordings], qualityCheck, submissions);
   if (r === 'governance') {
     work.push(urgent, ['#/quality-check', 'Quality check', 'check', 'data-qc-count', state.qc], ['#/recordings', 'Recordings', 'mic', 'data-rec-count', state.recordings]);
   }
@@ -759,7 +759,7 @@ async function route() {
     }
     if (path === '/quality-check') {
       return await viewCases({
-        title: 'Quality check', subtitle: effRole() === 'governance' ? 'Files you marked for a quality check. Request the call recording, score the verification call and add complaint numbers from each file.' : "Your teams' files that governance has marked for a quality check, with the score, recording and complaint on each.",
+        title: 'Quality check', subtitle: effRole() === 'governance' ? 'Files you marked for a quality check. Request the call recording, score the verification call and add complaint numbers from each file.' : effRole() === 'business_head' ? 'Every file governance has marked for a quality check, with the score, recording and complaint on each.' : "Your teams' files that governance has marked for a quality check, with the score, recording and complaint on each.",
         params, fixed: { qc: '1' }, cols: ['ref', 'customer', 'status', 'quality', 'assigned', 'updated'], empty: 'No files are marked for a quality check',
       });
     }
@@ -3410,7 +3410,7 @@ async function viewSubmissions(params) {
   const cards = d.counts.cards;
   const tile = (label, value, sub = '') => html`<div class="kpi"><span class="kpi-label">${label}</span><span class="kpi-value">${value}</span><span class="kpi-sub">${sub || ' '}</span></div>`;
   shell(html`
-    <div class="page-head"><div><h1>Day's submissions</h1><p class="muted lede">What ${effRole() === 'team_leader' ? 'your team' : 'your teams'} sourced on the day: credit cards by category, personal loans and auto loans, per sales person, with the files.</p></div>
+    <div class="page-head"><div><h1>Day's submissions</h1><p class="muted lede">What ${effRole() === 'team_leader' ? 'your team' : ['sales_manager'].includes(effRole()) ? 'your teams' : 'the teams'} sourced on the day: credit cards by category, personal loans and auto loans, per sales person, with the files.</p></div>
       <div class="actions sub-date">
         <button class="btn" id="sub-prev" title="Previous day">‹</button>
         <input type="date" id="sub-date" value="${d.date}" max="${d.today}" aria-label="Date">
