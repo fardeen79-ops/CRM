@@ -107,7 +107,7 @@ function conversationFor(db, user, id) {
 }
 
 const membersOf = (db, conversationId) =>
-  db.prepare('SELECT u.id, u.name, u.role FROM conversation_members cm JOIN users u ON u.id = cm.user_id WHERE cm.conversation_id = ? ORDER BY u.name').all(conversationId);
+  db.prepare('SELECT u.id, u.name, u.role, u.role_key FROM conversation_members cm JOIN users u ON u.id = cm.user_id WHERE cm.conversation_id = ? ORDER BY u.name').all(conversationId);
 
 function describe(db, user, conv) {
   const members = membersOf(db, conv.id);
@@ -155,7 +155,7 @@ function reachClause(user) {
 /** Colleagues a message can be started with. */
 export function listColleagues(db, user) {
   const reach = reachClause(user);
-  return { users: db.prepare(`SELECT u.id, u.name, u.role, u.region FROM users u WHERE u.active = 1 AND u.id != ?${reach.sql} ORDER BY u.name`).all(user.id, ...reach.params) };
+  return { users: db.prepare(`SELECT u.id, u.name, u.role, u.role_key, u.region FROM users u WHERE u.active = 1 AND u.id != ?${reach.sql} ORDER BY u.name`).all(user.id, ...reach.params) };
 }
 
 /** Finds or starts the direct message conversation with another user. */

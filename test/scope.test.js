@@ -974,6 +974,7 @@ test('messages: team leaders, ASMs and sales managers reach only their region, a
   assert.ok(misSeen.includes('AUH Seller') && misSeen.includes('DXB Seller') && !misSeen.includes('The CEO'));
   const bh = await login('head.one@t.local');
   assert.ok(names(await bh('GET', '/colleagues')).includes('The CEO'));
+  assert.equal((await bh('GET', '/colleagues')).data.users.find((u) => u.name === 'The CEO').role_key, 'ceo'); // labelled CEO, not Business Head
   assert.equal((await bh('POST', '/conversations/direct', { user_id: ceo.id })).status, 200);
   void head;
 });

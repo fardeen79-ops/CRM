@@ -3631,7 +3631,7 @@ async function viewMessages(conversationId, params) {
           <div class="thread-head">
             <a class="small back-to-list" href="#/messages">← All conversations</a>
             <h2>${current.name}</h2>
-            <div class="muted small">${current.kind === 'group' ? `${current.members.length} members: ${current.members.map((m) => m.name).join(', ')}` : `${ROLE_LABEL[current.other_user?.role] || ''}`}${current.custom && current.member ? html` <button type="button" class="btn-link" id="add-people">Add people</button>` : ''}</div>
+            <div class="muted small">${current.kind === 'group' ? `${current.members.length} members: ${current.members.map((m) => m.name).join(', ')}` : `${ROLE_LABEL[current.other_user?.role_key || current.other_user?.role] || ''}`}${current.custom && current.member ? html` <button type="button" class="btn-link" id="add-people">Add people</button>` : ''}</div>
             ${current.custom && current.member ? html`<form id="add-picker" class="group-picker" hidden>
               <input id="add-search" type="search" placeholder="Find colleagues…" aria-label="Find colleagues">
               <div class="people" id="add-people-list"><span class="muted small">Loading…</span></div>
