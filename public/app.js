@@ -2704,8 +2704,8 @@ async function viewCase(id) {
           <h2>Discussion</h2>
           <p class="muted small">Talk about this file with everyone who can see it. Type @ and a colleague's name to alert them. Keep customers' ID and phone numbers out of messages; they are on the file.</p>
           ${audienceList(c.audience)}
-          <div class="thread" id="case-thread"><div class="muted small">Loading…</div></div>
-          ${composer('case-composer', 'Write a message about this file…')}
+          ${c.can_discuss === false ? html`<p class="muted small">This file's discussion is for colleagues in its region; you can read the file but not the discussion.</p>` : html`<div class="thread" id="case-thread"><div class="muted small">Loading…</div></div>
+          ${composer('case-composer', 'Write a message about this file…')}`}
         </div>
         ${c.stages ? stageLog(c.stages) : ''}
         <div class="card">
@@ -2781,7 +2781,7 @@ async function viewCase(id) {
   const onHide = () => { if (document.visibilityState === 'hidden') rehideAll(); };
   document.addEventListener('visibilitychange', onHide);
   window.addEventListener('hashchange', () => document.removeEventListener('visibilitychange', onHide), { once: true });
-  mountThread({ list: document.getElementById('case-thread'), form: document.getElementById('case-composer'), url: `/cases/${id}/messages` });
+  if (document.getElementById('case-thread')) mountThread({ list: document.getElementById('case-thread'), form: document.getElementById('case-composer'), url: `/cases/${id}/messages` });
   document.getElementById('back-link').onclick = (e) => {
     if (history.length > 1) { e.preventDefault(); history.back(); }
   };

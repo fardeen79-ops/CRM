@@ -1227,10 +1227,18 @@ function canView(db, user, row) {
 }
 
 /** Everyone who can open this file, and so read its discussion: active users whose scope includes it, by role. */
+/**
+ * Whether a person takes part in a file's discussion: they must be able to open the file through a role
+ * that has the files page, and governance staff with a region join only their own region's files.
+ */
+export function canDiscuss(db, user, row) {
+  if (!permissionsOf(user).pages.includes('cases') || !canView(db, user, row)) return false;
+  if (user.role === 'governance' && user.region && row.region && String(user.region).toUpperCase() !== String(row.region).toUpperCase()) return false;
+  return true;
+}
 export function caseAudience(db, row) {
   const users = db.prepare('SELECT id, name, role, role_key, region FROM users WHERE active = 1 ORDER BY name').all();
-  // Only people whose role opens files are listed: the CEO profile, for one, never sees a file or its discussion.
-  return users.filter((u) => permissionsOf(u).pages.includes('cases') && canView(db, u, row)).map((u) => ({ id: u.id, name: u.name, role: u.role, role_key: u.role_key, region: u.region }));
+  return users.filter((u) => canDiscuss(db, u, row)).map((u) => ({ id: u.id, name: u.name, role: u.role, role_key: u.role_key, region: u.region }));
 }
 
 function latestBotCall(db, caseId) {
@@ -1258,7 +1266,7 @@ export function getCase(db, user, id) {
     )
     .all(id);
   const shown = presentEvents(row, events);
-  const out = { ...present(user, row, { db }), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row),
+  const out = { ...present(user, row, { db }), events: shown, stages: caseStages(row, shown), allowed_actions: allowedActions(user, row), can_edit: canEdit(user, row), audience: caseAudience(db, row), can_discuss: canDiscuss(db, user, row),
     sales_staff_region: findUser(db, row.sales_staff_id)?.region || null,
     case_status_choices: SETTABLE_CASE_STATUSES.filter((k) => k !== row.case_status && !(k === 'completed' && completedBlocked(row))),
     // The processors the verification team leader can move the file to: those of their own region (and any with no region), never the one who has it.

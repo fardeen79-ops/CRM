@@ -45,9 +45,11 @@ const MESSAGE_SELECT = `SELECT m.id, m.case_id, m.conversation_id, m.user_id, m.
 
 function canSeeCase(db, user, caseId) {
   const scope = caseScope(user);
-  const row = db.prepare(`SELECT c.id, c.created_by, c.sales_staff_id, c.customer_name FROM cases c WHERE c.id = ?${scope ? ` AND ${scope.sql}` : ''}`)
+  const row = db.prepare(`SELECT c.id, c.created_by, c.sales_staff_id, c.customer_name, c.region FROM cases c WHERE c.id = ?${scope ? ` AND ${scope.sql}` : ''}`)
     .get(caseId, ...(scope ? scope.params : []));
   if (!row) throw new WorkflowError(404, 'Case not found');
+  // Governance staff with a region take part only in their own region's discussions.
+  if (user.role === 'governance' && user.region && row.region && String(user.region).toUpperCase() !== String(row.region).toUpperCase()) throw new WorkflowError(403, "This file's discussion is for your colleagues in its region");
   return row;
 }
 

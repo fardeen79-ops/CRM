@@ -978,3 +978,26 @@ test('messages: team leaders, ASMs and sales managers reach only their region, a
   assert.equal((await bh('POST', '/conversations/direct', { user_id: ceo.id })).status, 200);
   void head;
 });
+
+test("governance with a region joins only that region's file discussions", async () => {
+  const mis = await login('mis@t.local');
+  const add = async (body) => { const r = await mis('POST', '/users', { password: PASSWORD, ...body }); assert.equal(r.status, 201, JSON.stringify(r.data)); HRMS[body.email] = body.hrms_code || null; return r.data.user; };
+  await add({ name: 'Gov Dubai', email: 'gov.dxb@t.local', role: 'governance', region: 'DXB', hrms_code: 'GV1', mobile_number: '0501234611' });
+  await add({ name: 'Gov Abu Dhabi', email: 'gov.auh@t.local', role: 'governance', region: 'AUH', hrms_code: 'GV2', mobile_number: '0501234612' });
+  const govD = await login('gov.dxb@t.local');
+  const govA = await login('gov.auh@t.local');
+  const gina = await login('gov@t.local'); // no region: both
+  const dana = await login('dana@t.local');
+  const f = (await dana('POST', '/cases', { ...file('Gov Region File'), phone: '+971 50 991 0001' })).data.case; // a DXB file
+  const page = (await govD('GET', `/cases/${f.id}`)).data.case;
+  assert.equal(page.can_discuss, true);
+  const names = page.audience.map((u) => u.name);
+  assert.ok(names.includes('Gov Dubai') && names.includes('Gina') && !names.includes('Gov Abu Dhabi'));
+  assert.equal((await govD('POST', `/cases/${f.id}/messages`, { body: 'Checked' })).status, 201);
+  assert.equal((await gina('POST', `/cases/${f.id}/messages`, { body: 'Seen' })).status, 201);
+  // Governance from the other region can open the file but not its discussion.
+  const other = (await govA('GET', `/cases/${f.id}`)).data.case;
+  assert.equal(other.can_discuss, false);
+  assert.equal((await govA('GET', `/cases/${f.id}/messages`)).status, 403);
+  assert.equal((await govA('POST', `/cases/${f.id}/messages`, { body: 'Hello' })).status, 403);
+});
