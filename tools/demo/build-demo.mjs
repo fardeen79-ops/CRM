@@ -492,7 +492,7 @@ function handle(method, pathname, query, body) {
   }
   if (method === 'GET' && pathname === '/api/stats') return stats(db, user, { region: query.get('region') });
   if (method === 'GET' && pathname === '/api/teams') return teamsOf(db, user, { region: query.get('region') });
-  if (method === 'GET' && pathname === '/api/submissions') return daySubmissions(db, user, { date: query.get('date'), region: query.get('region') });
+  if (method === 'GET' && pathname === '/api/submissions') return daySubmissions(db, user, { date: query.get('date'), region: query.get('region'), team: query.get('team') });
   if (method === 'GET' && pathname === '/api/dashboard') return dashboardFor(db, user, { region: query.get('region') });
   if (method === 'GET' && pathname === '/api/hierarchy') return hierarchy(db, user, { cycle: query.get('cycle'), region: query.get('region') });
   if (method === 'GET' && pathname === '/api/reports') return { reports: reportsFor(user), recent: ['governance', 'business_head', 'mis'].includes(user.role) ? recentRuns(db) : [] };

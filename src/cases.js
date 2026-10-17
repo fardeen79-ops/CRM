@@ -2113,7 +2113,7 @@ const CARD_BUCKETS = ['Mass', 'Premium', 'Super Premium'];
  * A day's submissions for the viewer's teams: the files sourced on that date (default today, UAE),
  * counted by product with the credit cards split by category, per sales person, and listed.
  */
-export function daySubmissions(db, user, { date, region } = {}) {
+export function daySubmissions(db, user, { date, region, team } = {}) {
   if (!SUBMISSION_VIEWERS.includes(user.role)) throw new WorkflowError(403, 'Only team leaders, managers, MIS and business heads see the day\'s submissions');
   const today = uaeDay(); // the same clock as a new file's sourcing date
   const day = String(date || today).trim();
@@ -2123,6 +2123,9 @@ export function daySubmissions(db, user, { date, region } = {}) {
   const clauses = ['c.sourcing_date = ?']; const params = [day];
   if (sc) { clauses.push(sc.sql); params.push(...sc.params); }
   if (REGIONS[String(region || '').toUpperCase()]) { clauses.push('c.region = ?'); params.push(String(region).toUpperCase()); }
+  // One team, the same way as on the case lists.
+  const teamFilter = teamClause(db, user, team);
+  if (teamFilter) { clauses.push(teamFilter.sql); params.push(...teamFilter.params); }
   const rows = db.prepare(`${CASE_SELECT} WHERE ${clauses.join(' AND ')} ORDER BY c.id DESC`).all(...params);
   const cardBucket = (c) => (/\bnoon\b/i.test(c.credit_card || '') ? 'noon' : CARD_BUCKETS.includes(c.card_category) ? c.card_category : 'other');
   const empty = () => ({ total: 0, credit_card: 0, personal_loan: 0, auto_loan: 0, other: 0, cards: { Mass: 0, Premium: 0, 'Super Premium': 0, noon: 0, other: 0 } });
@@ -2142,7 +2145,7 @@ export function daySubmissions(db, user, { date, region } = {}) {
     }
   }
   return {
-    date: day, today, is_today: day === today, total: counts.total, counts,
+    date: day, today, is_today: day === today, team: teamFilter ? String(team) : null, total: counts.total, counts,
     by_staff: [...byStaff.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name)),
     files: rows.map((c) => ({ ...present(user, c, { db }), card_bucket: products_has_card(c) ? cardBucket(c) : null })),
   };

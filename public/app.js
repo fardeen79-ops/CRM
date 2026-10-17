@@ -3418,10 +3418,14 @@ async function viewCards(params) {
 // ---------- a day's submissions: what the team sourced on a date ----------
 async function viewSubmissions(params) {
   const date = params.get('date') || '';
+  const team = params.get('team') || '';
+  const q = (ymd, t) => { const p = new URLSearchParams(); if (ymd) p.set('date', ymd); if (t) p.set('team', t); const str = p.toString(); return str ? `?${str}` : ''; };
   let d;
-  try { d = await api(`/submissions${date ? `?date=${encodeURIComponent(date)}` : ''}`); } catch (ex) { toast(ex.message, true); d = await api('/submissions'); }
+  try { d = await api(`/submissions${q(date, team)}`); } catch (ex) { toast(ex.message, true); d = await api('/submissions'); }
+  // Managers and business heads narrow the day to one team, the same list as on the case pages.
+  const teams = ['sales_manager', 'business_head'].includes(effRole()) ? await api(`/teams${effRole() === 'business_head' && state.region ? `?region=${state.region}` : ''}`).catch(() => null) : null;
   const shift = (ymd, n) => new Date(Date.parse(ymd) + n * 864e5).toISOString().slice(0, 10);
-  const go2 = (ymd) => go(`#/submissions?date=${ymd}`);
+  const go2 = (ymd) => go(`#/submissions${q(ymd, team)}`);
   const cards = d.counts.cards;
   const tile = (label, value, sub = '') => html`<div class="kpi"><span class="kpi-label">${label}</span><span class="kpi-value">${value}</span><span class="kpi-sub">${sub || ' '}</span></div>`;
   shell(html`
@@ -3433,7 +3437,13 @@ async function viewSubmissions(params) {
         ${d.is_today ? '' : html`<button class="btn" id="sub-today">Today</button>`}
       </div>
     </div>
-    <p class="muted small">${d.is_today ? 'Today' : fmtDay(d.date)} · ${d.total} ${d.total === 1 ? 'file' : 'files'} sourced${d.is_today ? ' so far' : ''}.</p>
+    ${teams && (teams.own || teams.teams.length) ? html`<div class="toolbar"><label class="inline-filter" for="sub-team">Team
+      <select id="sub-team">
+        <option value="">${effRole() === 'business_head' ? 'All teams' : 'All my teams'}</option>
+        ${teams.own ? html`<option value="own" ${team === 'own' ? raw('selected') : ''}>My own team (${teams.own})</option>` : ''}
+        ${teams.teams.map((t) => html`<option value="${t.id}" ${String(t.id) === team ? raw('selected') : ''}>${t.name}${t.role === 'asm' ? ' (ASM)' : t.role === 'sales_manager' ? ' (SM)' : ''}${effRole() === 'business_head' && t.region && !state.region ? ` · ${t.region}` : ''} (${t.staff})</option>`)}
+      </select></label></div>` : ''}
+    <p class="muted small">${d.is_today ? 'Today' : fmtDay(d.date)} · ${d.total} ${d.total === 1 ? 'file' : 'files'} sourced${d.is_today ? ' so far' : ''}${d.team ? ' by the team chosen' : ''}.</p>
     <div class="kpis sub-kpis">
       ${tile('Total', d.total, 'files sourced')}
       ${tile('Credit cards', d.counts.credit_card, `Mass ${cards.Mass} · Premium ${cards.Premium} · Super Premium ${cards['Super Premium']}${cards.noon ? ` · noon ${cards.noon}` : ''}${cards.other ? ` · no category ${cards.other}` : ''}`)}
@@ -3469,7 +3479,9 @@ async function viewSubmissions(params) {
   input.onchange = () => { if (input.value && input.value <= d.today) go2(input.value); };
   document.getElementById('sub-prev').onclick = () => go2(shift(d.date, -1));
   document.getElementById('sub-next').onclick = () => { if (!d.is_today) go2(shift(d.date, 1)); };
-  document.getElementById('sub-today')?.addEventListener('click', () => go('#/submissions'));
+  document.getElementById('sub-today')?.addEventListener('click', () => go(`#/submissions${q('', team)}`));
+  const teamSel = document.getElementById('sub-team');
+  if (teamSel) teamSel.onchange = () => go(`#/submissions${q(d.is_today ? '' : d.date, teamSel.value)}`);
 }
 
 // ---------- chat: case discussions, direct messages and groups ----------

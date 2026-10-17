@@ -934,6 +934,15 @@ test('a sales manager or ASM narrows a list to their own team, all their teams o
   assert.deepEqual(names((await bh('GET', `/cases?team=${tlB.id}`)).data.cases), ['Beta file']);
   assert.deepEqual(names((await bh('GET', `/cases?team=${sm.id}`)).data.cases), ['Direct file']);
   assert.equal((await bh('GET', `/cases?team=${head.id}`)).status, 400);
+  // The day's submissions take the same team filter.
+  const dayAll = (await sam('GET', '/submissions')).data;
+  const dayBeta = (await sam('GET', `/submissions?team=${tlB.id}`)).data;
+  assert.equal(dayBeta.team, String(tlB.id));
+  assert.deepEqual(dayBeta.files.map((f) => f.customer_name), ['Beta file']);
+  assert.ok(dayAll.total > dayBeta.total);
+  assert.deepEqual((await sam('GET', '/submissions?team=own')).data.files.map((f) => f.customer_name), ['Direct file']);
+  assert.equal((await sam('GET', `/submissions?team=${ids['tl-dxb@t.local']}`)).status, 400);
+  assert.deepEqual((await bh('GET', `/submissions?team=${tlA.id}`)).data.files.map((f) => f.customer_name), ['Alpha file']);
   void [a, b, own];
 });
 
