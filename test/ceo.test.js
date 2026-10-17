@@ -122,3 +122,13 @@ test('a CEO is added without an HRMS code, salary or joining date, and signs in 
   const headByEmail = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'head@t.local', password: PASSWORD }) });
   assert.equal(headByEmail.status, 401);
 });
+
+test('the CEO is not in a file\'s discussion audience, since the CEO profile never opens a file', async () => {
+  const head = await login('head@t.local');
+  const sales = await login('dana@t.local');
+  const r = await sales('POST', '/cases', { journey_type: 'emirates_id', customer_name: 'Audience Test', region: 'DXB', phone: '+971 50 990 0001', city: 'Dubai', product: 'auto_loan', amount: 50000, auto_loan_type: 'used', car_make: 'Nissan', car_model: 'Patrol', car_year: 2023, al_lead_source: 'Walk-in', al_interest_rate: 4, al_tenure: 48 });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const audience = (await head('GET', `/cases/${r.data.case.id}`)).data.case.audience;
+  assert.ok(audience.some((u) => u.name === 'Bilal'), 'the business head is listed');
+  assert.ok(!audience.some((u) => u.name === 'Yusuf' || u.role_key === 'ceo'), 'the CEO is not');
+});

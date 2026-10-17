@@ -3,6 +3,7 @@ import { bankStatusesFor, matchBankStatus, caseStatusOf, bankStatusLabel } from 
 import { transaction } from './db.js';
 import { cardNames, cardProduct, higherCards } from './credit-cards.js';
 import { findUser } from './users.js';
+import { permissionsOf } from './roles.js';
 import { cycleRange, isCycle, uaeDay, cycleOf } from './cycles.js';
 import { unreadCount as chatUnread } from './chat.js';
 import { isHoliday } from './holidays.js';
@@ -1227,8 +1228,9 @@ function canView(db, user, row) {
 
 /** Everyone who can open this file, and so read its discussion: active users whose scope includes it, by role. */
 export function caseAudience(db, row) {
-  const users = db.prepare('SELECT id, name, role, region FROM users WHERE active = 1 ORDER BY name').all();
-  return users.filter((u) => canView(db, u, row)).map((u) => ({ id: u.id, name: u.name, role: u.role, region: u.region }));
+  const users = db.prepare('SELECT id, name, role, role_key, region FROM users WHERE active = 1 ORDER BY name').all();
+  // Only people whose role opens files are listed: the CEO profile, for one, never sees a file or its discussion.
+  return users.filter((u) => permissionsOf(u).pages.includes('cases') && canView(db, u, row)).map((u) => ({ id: u.id, name: u.name, role: u.role, role_key: u.role_key, region: u.region }));
 }
 
 function latestBotCall(db, caseId) {
