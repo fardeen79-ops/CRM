@@ -1313,7 +1313,7 @@ function teamClause(db, user, team) {
   return { sql: 'c.team_leader_id = ?', params: [id] };
 }
 
-export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, staff, callbacks, region, tat, team, limit = 200 } = {}) {
+export function listCases(db, user, { status, case_status, edit_requests, qc, recording, urgent, q, assigned, card, cycle, sourced_cycle, status_cycle, staff, callbacks, region, tat, team, limit = 200 } = {}) {
   sweepCardAgeing(db);
   triggerDueCallbacks(db);
   holdOverdueFiles(db);
@@ -1333,6 +1333,18 @@ export function listCases(db, user, { status, case_status, edit_requests, qc, re
   if (isCycle(cycle)) {
     const { start, end } = cycleRange(cycle);
     where.push(COMPLETED_IN_SQL);
+    params.push(start, end);
+  }
+  // Sourced in a sales cycle (the dashboard's Sourced tile).
+  if (isCycle(sourced_cycle)) {
+    const { start, end } = cycleRange(sourced_cycle);
+    where.push("COALESCE(c.sourcing_date, date(c.created_at, '+4 hours')) BETWEEN ? AND ?");
+    params.push(start, end);
+  }
+  // Given their current case status in a sales cycle (the dashboard's Rejected tile).
+  if (isCycle(status_cycle)) {
+    const { start, end } = cycleRange(status_cycle);
+    where.push("date(c.case_status_at, '+4 hours') BETWEEN ? AND ?");
     params.push(start, end);
   }
   // Card activation: completed credit card cases, optionally by mapping.

@@ -195,3 +195,29 @@ test('leaders see how many of their staff are on zero ends or disbursals and zer
   assert.equal(zh.groups[0].zero_ends.by_product.personal_loan, 1);
   assert.equal((await cara('GET', '/dashboard')).data.zero, null);
 });
+
+test('each dashboard file tile opens the list it counts: sourced, completed and rejected in the cycle', async () => {
+  const cara = await login('cara@t.local');
+  const mis = await login('mis@t.local');
+  const head = await login('head@t.local');
+  const d = (await head('GET', '/dashboard')).data;
+  const cycle = d.cycle;
+  const base = { journey_type: 'emirates_id', region: 'DXB', city: 'Dubai', salary: 15000, source: 'Walk-in', core_product: 'credit_card', product: 'credit_card', credit_card: 'Skywards Signature Credit Card', card_fee_type: 'fyf' };
+  const mk = async (name, phone, extra = {}) => { const r = await cara('POST', '/cases', { ...base, customer_name: name, phone, ...extra }); assert.equal(r.status, 201, JSON.stringify(r.data)); return r.data.case.id; };
+  const sourcedNow = await mk('Tile Sourced', '+971 50 880 0001');
+  const rejectedNow = await mk('Tile Rejected', '+971 50 880 0002');
+  const oldFile = await mk('Tile Old', '+971 50 880 0003', { sourcing_date: '2026-01-10' }); // an earlier cycle
+  assert.equal((await mis('POST', `/cases/${rejectedNow}/actions`, { action: 'set_case_status', case_status: 'rejected', note: 'Bank declined' })).status, 200);
+  const after = (await head('GET', '/dashboard')).data;
+  const ids_of = (r) => r.data.cases.map((c) => c.id);
+  // Sourced this cycle: the files sourced in it, not the completed ones.
+  const sourced = await head('GET', `/cases?sourced_cycle=${cycle}`);
+  assert.ok(ids_of(sourced).includes(sourcedNow) && ids_of(sourced).includes(rejectedNow) && !ids_of(sourced).includes(oldFile));
+  assert.equal(sourced.data.cases.length, after.files.sourced);
+  // Rejected this cycle: the files given that status in it.
+  const rejected = await head('GET', `/cases?case_status=rejected&status_cycle=${cycle}`);
+  assert.ok(ids_of(rejected).includes(rejectedNow) && !ids_of(rejected).includes(sourcedNow));
+  assert.equal(rejected.data.cases.length, after.files.rejected);
+  // Completed this cycle keeps its own filter and does not include the rejected file.
+  assert.ok(!ids_of(await head('GET', `/cases?cycle=${cycle}&case_status=completed`)).includes(rejectedNow));
+});

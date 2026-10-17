@@ -1179,12 +1179,12 @@ async function viewDashboard() {
   }
   const attention = r === 'processing' ? verifyTiles : verifyTiles.filter((t) => t[3]);
   const fileTiles = [
-    ['Sourced', d.files.sourced, `#/cases?cycle=${d.cycle}`, false, 'this cycle'],
+    ['Sourced', d.files.sourced, `#/cases?sourced_cycle=${d.cycle}`, false, 'this cycle'],
     ['Completed', d.files.completed, `#/cases?cycle=${d.cycle}&case_status=completed`, false, 'this cycle'],
-    ['In verification', d.files.in_verification, '#/cases?status=in_verification', false, 'awaiting or in progress'],
+    ['In verification', d.files.in_verification, '#/cases?status=pending_verification,in_verification', false, 'awaiting or in progress'],
     ['Returned to sales', d.files.returned, '#/cases?status=returned_to_sales', d.files.returned > 0, 'need correction'],
     ['Applicant review', d.files.applicant_review, '#/cases?case_status=applicant_review', false, 'open'],
-    ['Rejected', d.files.rejected, `#/cases?cycle=${d.cycle}&case_status=rejected`, false, 'this cycle'],
+    ['Rejected', d.files.rejected, `#/cases?case_status=rejected&status_cycle=${d.cycle}`, false, 'this cycle'],
   ];
   shell(html`
     <div class="page-head dash-head">
@@ -1397,6 +1397,8 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
     ...(status && { status }), ...(caseStatus && { case_status: caseStatus }), ...(q && { q }),
     ...(params.get('assigned') && { assigned: params.get('assigned') }),
     ...(params.get('cycle') && { cycle: params.get('cycle') }),
+    ...(params.get('sourced_cycle') && { sourced_cycle: params.get('sourced_cycle') }),
+    ...(params.get('status_cycle') && { status_cycle: params.get('status_cycle') }),
     ...(params.get('staff') && { staff: params.get('staff') }),
     ...(params.get('tat') && { tat: params.get('tat') }),
     ...(params.get('team') && { team: params.get('team') }),
@@ -1407,6 +1409,8 @@ async function viewCases({ title, subtitle = '', params, fixedStatus, fixed = {}
   const teams = ['sales_manager', 'business_head'].includes(effRole()) ? await api(`/teams${effRole() === 'business_head' && state.region ? `?region=${state.region}` : ''}`).catch(() => null) : null;
   if (params.get('tat') === 'overdue') subtitle = `Files not verified within ${state.meta.verify_tat_days} working days of their sourcing date.`;
   // Drill-down from the Targets page: cases completed in one cycle, optionally for one sales person.
+  if (params.get('sourced_cycle')) subtitle = html`Sourced in the ${cycleName(params.get('sourced_cycle'))} cycle (${cycleSpan(params.get('sourced_cycle'))}). <a href="#/">Back to the dashboard</a>`;
+  if (params.get('status_cycle')) subtitle = html`${CASE_STATUS_LABEL[caseStatus] || 'Status set'} in the ${cycleName(params.get('status_cycle'))} cycle (${cycleSpan(params.get('status_cycle'))}). <a href="#/">Back to the dashboard</a>`;
   const cycleFilter = params.get('cycle');
   if (cycleFilter) {
     const who = params.get('staff') && cases[0] ? ` by ${cases[0].sales_staff_name}` : '';
